@@ -3,7 +3,7 @@
 #include "WiFi.h"
 #include "ESPAsyncWebServer.h"
 #include "FS.h"
-#include "SD_MMC.h"
+#include <SD.h>
 #include "DNSServer.h"
 #include <ArduinoJson.h>
 
@@ -29,12 +29,10 @@
 #define MAX_CLIENTS 8
 
 // SD card pinout for Waveshare ESP32-S3
-#define SD_CLK_PIN 14
-#define SD_CMD_PIN 15
-#define SD_D0_PIN 16
-#define SD_D1_PIN 18
-#define SD_D2_PIN 17
-#define SD_D3_PIN 21
+#define SD_MISO 19
+#define SD_MOSI 23
+#define SD_SCK  18
+#define SD_CS   5
 
 // Captive portal DNS setup
 const byte DNS_PORT = 53;
@@ -285,14 +283,13 @@ void setup() {
     WiFi.softAP(WIFI_SSID, WIFI_PASSWORD);
     Serial.println("WiFi AP started...");
 
-    // Initialize SD card
-    Serial.println("Initializing SD Card...");
-    if (!SD_MMC.setPins(SD_CLK_PIN, SD_CMD_PIN, SD_D0_PIN, SD_D1_PIN, SD_D2_PIN, SD_D3_PIN)) {
-        Serial.println("ERROR: SDMMC Pin configuration failed!");
-        return;
-    }
-    if (!SD_MMC.begin("/sdcard", true)) {
-        Serial.println("ERROR: SDMMC Card initialization failed.");
+    // Initialize VSPI for SD card
+    Serial.println("Initializing SD Card with VSPI...");
+    SPIClass spiSD(VSPI);
+    spiSD.begin(SD_SCK, SD_MISO, SD_MOSI, SD_CS);
+    
+    if (!SD.begin(SD_CS, spiSD)) {
+        Serial.println("ERROR: SD Card initialization failed.");
         return;
     }
     Serial.println("SD Card initialized successfully!");
@@ -351,8 +348,9 @@ void setup() {
 
     server.on("/dlna/contentdir.xml", HTTP_GET, [](AsyncWebServerRequest *request){
       String xml = "<?xml version=\"1.0\"?><ContentDirectory>";
-      File root = SD_MMC.open("/Movies");
+      File root = SD.open("/Movies");
       if (root && root.isDirectory()) {
+        if (root) {
         File file = root.openNextFile();
         while (file) {
           if (!file.isDirectory()) {
@@ -378,10 +376,27 @@ void setup() {
     server.serveStatic("/shows.html", SD_MMC, "/shows.html");
 
     // Serve root directory and default to index.html
-    server.serveStatic("/", SD_MMC, "/").setDefaultFile("index.html");
+    server.serveStatic("/", SD, "/").setDefaultFile("index.html");
 
     // Endpoint for video/audio streaming
-    server.on("/media", HTTP_GET, handleRangeRequest);
+    server.on("/media", HTTP_GET, [](AsyncWebServerRequest *request) {
+        String path = request->url();
+        if (path.startsWith("/media")) {
+            path = path.substring(6); // Remove "/media"
+        }
+        
+        if (SD.exists(path)) {
+            File file = SD.open(path);
+            if (file) {
+                request->send(SD, path);
+                file.close();
+            } else {
+                request->send(404);
+            }
+        } else {
+            request->send(404);
+        }
+    });
 
     // Start the web server
     server.begin();
