@@ -1,174 +1,199 @@
 <!DOCTYPE html>
+<!--  Nomad Books Page -->
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta name="description" content="Jcorp Nomad Media Server - Books">
-    <title>Books - Jcorp Nomad Media Server</title>
+    <meta name="description" content="Jcorp Nomad Media Server – Books">
+    <title>Nomad Books</title>
     <link rel="icon" href="favicon.ico" type="image/x-icon">
+
     <style>
-        body {
-            font-family: 'Arial', sans-serif;
-            margin: 0;
-            padding: 0;
-            background-color: #f4f4f9;
-            color: #333;
-            transition: background-color 0.3s, color 0.3s;
-            text-align: center;
+        :root{--primary:#007bff;--primary-dark:#0056b3;--bg:#f4f4f9;--text:#333;--radius:8px;--shadow:0 4px 12px rgba(0,0,0,0.08);}        
+        *,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}
+        body{font-family:Arial,sans-serif;background:var(--bg);color:var(--text);display:flex;flex-direction:column;min-height:100vh;}
+
+        /* Header */
+        header{background:var(--primary);color:#fff;padding:1.25rem 1rem;display:flex;align-items:center;justify-content:space-between;box-shadow:var(--shadow);position:sticky;top:0;z-index:50;}
+        header h1{font-size:clamp(1.25rem,5vw,1.75rem);font-weight:600;white-space:nowrap;}
+        .back-btn{text-decoration:none;color:#fff;background:var(--primary-dark);padding:.5rem .75rem;border-radius:var(--radius);font-size:.9rem;white-space:nowrap;}
+
+        /* Toolbar */
+        .toolbar{background:var(--bg);padding:.75rem 1rem;display:flex;flex-wrap:wrap;gap:.75rem;align-items:center;border-bottom:1px solid #ddd;position:sticky;top:64px;z-index:45;}
+        .toolbar input[type="search"]{flex:1 1 200px;padding:.5rem .75rem;border:1px solid #ccc;border-radius:var(--radius);font-size:.95rem;}
+        .toolbar select,.toolbar .view-btn{padding:.5rem .75rem;border:1px solid #ccc;background:#fff;border-radius:var(--radius);font-size:.9rem;cursor:pointer;}
+        .view-btn.active{background:var(--primary);color:#fff;border-color:var(--primary-dark);}        
+
+        /* Grid */
+        main{flex:1;display:flex;flex-direction:column;max-width:1200px;width:100%;margin:0 auto;}
+        .grid-wrapper{flex:1;overflow-y:auto;padding:1rem;}
+        .media-grid{display:grid;gap:1rem;}
+        .media-grid.small {grid-template-columns:repeat(auto-fit,minmax(120px,1fr));}
+        .media-grid.medium{grid-template-columns:repeat(auto-fit,minmax(160px,1fr));}
+        .media-grid.large {grid-template-columns:repeat(auto-fit,minmax(220px,1fr));}
+        @media(max-width:600px){
+            header{flex-direction:column;gap:.5rem;}
+            .back-btn{width:100%;text-align:center;}
+            .toolbar{top:112px;}
+            .media-grid.small  {grid-template-columns:repeat(2,1fr);} /* 2 per row */
+            .media-grid.medium {grid-template-columns:repeat(3,1fr);} /* 3 per row */
+            .media-grid.large  {grid-template-columns:repeat(4,1fr);} /* 4 per row */
         }
-        header {
-            background-color: #007bff;
-            color: white;
-            padding: 20px;
-            font-size: 2em;
-            border-bottom: 3px solid #0056b3;
-        }
-        .content {
-            padding: 20px;
-        }
-        .book-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
-            gap: 20px;
-            justify-content: center;
-            margin-top: 20px;
-        }
-        .book-container {
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            cursor: pointer;
-        }
-        .cover {
-            width: 150px;
-            height: 225px;
-            object-fit: cover;
-            border-radius: 10px;
-            box-shadow: 0 6px 15px rgba(0, 0, 0, 0.1);
-            transition: transform 0.3s ease-in-out;
-        }
-        .cover:hover {
-            transform: scale(1.05);
-        }
-        .book-title {
-            margin-top: 10px;
-            font-weight: bold;
-        }
-        .modal {
-            display: none;
-            position: fixed;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            background-color: rgba(0, 0, 0, 0.6);
-            justify-content: center;
-            align-items: center;
-            z-index: 1000;
-        }
-        .modal-content {
-            background-color: white;
-            padding: 30px;
-            border-radius: 10px;
-            text-align: center;
-            width: 400px;
-            max-width: 90%;
-            box-shadow: 0 6px 20px rgba(0, 0, 0, 0.1);
-        }
-        .modal h2 {
-            margin-bottom: 20px;
-            font-size: 1.5em;
-            color: #333;
-        }
-        .modal button {
-            padding: 12px 20px;
-            font-size: 1.1em;
-            margin: 10px 0;
-            background-color: #007bff;
-            color: white;
-            border: none;
-            border-radius: 5px;
-            cursor: pointer;
-            width: 100%;
-            transition: background-color 0.3s ease;
-        }
-        .modal button:hover {
-            background-color: #0056b3;
-        }
-        .pdf-viewer {
-            width: 100%;
-            height: 80vh;
-            border: none;
-        }
+
+        .media-card{background:#fff;border-radius:var(--radius);box-shadow:var(--shadow);overflow:hidden;display:flex;flex-direction:column;transition:transform .25s ease;cursor:pointer;width:100%;max-width:220px;margin:0 auto;}
+        .media-grid.small  .media-card{max-width:120px;}
+        .media-grid.medium .media-card{max-width:160px;}
+        .media-grid.large  .media-card{max-width:220px;}
+        .media-card:hover{transform:translateY(-3px);}        
+        .media-thumb{width:100%;aspect-ratio:2/3;object-fit:cover;}
+        
+
+        /* Action Modal */
+        .modal{display:none;position:fixed;inset:0;background:rgba(0,0,0,0.6);justify-content:center;align-items:center;z-index:1000;}
+        .modal-content{background:#fff;padding:20px;border-radius:10px;text-align:center;width:90%;max-width:500px;box-shadow:0 6px 20px rgba(0,0,0,0.1);}        
+        .modal-content h2{margin-bottom:10px;font-size:1.25rem;}
+        .modal-content button{padding:12px;font-size:1em;margin:10px 0;background:var(--primary);color:#fff;border:none;border-radius:5px;cursor:pointer;width:100%;transition:background-color .3s ease;}
+        .modal-content button:hover{background:var(--primary-dark);}        
+
+        footer{background:var(--primary);color:#fff;text-align:center;padding:.75rem;font-size:.85rem;}
     </style>
 </head>
 <body>
-    <header>
-        Jcorp Nomad - Books
-    </header>
-    <div class="content">
-        <p>Choose a book below to view or download:</p>
-        <div class="book-grid" id="bookGrid"></div>
+    <header><h1>Books</h1><a class="back-btn" href="http://192.168.4.1/menu">← Back to Menu</a></header>
+
+    <!-- Toolbar -->
+    <div class="toolbar">
+        <input id="searchInput" type="search" placeholder="Search books…" aria-label="Search books">
+        <select id="sortSelect" aria-label="Sort books">
+            <option value="nameAsc">A → Z</option>
+            <option value="nameDesc">Z → A</option>
+        </select>
+        <button class="view-btn"  data-size="small"  title="Compact view">🔳</button>
+        <button class="view-btn active" data-size="medium" title="Comfort view">🔲</button>
+        <button class="view-btn"  data-size="large"  title="Gallery view">⬜</button>
     </div>
-    <div id="modal" class="modal">
-        <div class="modal-content">
-            <h2 id="modalTitle">What would you like to do with this book?</h2>
+
+    <!-- Grid -->
+    <main><div class="grid-wrapper"><div id="grid" class="media-grid medium"></div></div></main>
+
+    <!-- View / Download Modal -->
+    <div id="modal" class="modal" onclick="closeModal(event)">
+        <div class="modal-content" onclick="event.stopPropagation();">
+            <h2 id="modalTitle">What would you like to do?</h2>
             <button id="viewButton">View in Browser</button>
             <button id="downloadButton">Download</button>
         </div>
     </div>
-    <div id="pdfModal" class="modal">
-        <div class="modal-content" style="width: 90%; height: 90%;">
-            <button onclick="closePdfViewer()" style="float:right;">Close</button>
-            <iframe id="pdfViewer" class="pdf-viewer"></iframe>
-        </div>
-    </div>
+
+    <footer>© <span id="year"></span> Jcorp Nomad</footer>
+
     <script>
-        let currentBook = null;
-        fetch('/media.json')
-            .then(response => response.json())
-            .then(data => {
-                const books = data.books;
-                const bookGrid = document.getElementById('bookGrid');
-                books.forEach(book => {
-                    const bookContainer = document.createElement('div');
-                    bookContainer.classList.add('book-container');
-                    bookContainer.innerHTML = `
-                        <img class="cover" src="${book.cover}" alt="${book.name}">
-                        <div class="book-title">${book.name}</div>
-                    `;
-                    bookContainer.onclick = () => {
-                        currentBook = book;
-                        document.getElementById('modalTitle').innerText = `What would you like to do with "${book.name}"?`;
-                        document.getElementById('modal').style.display = 'flex';
-                    };
-                    bookGrid.appendChild(bookContainer);
-                });
-            })
-            .catch(error => console.error('Error loading books:', error));
-        
-        document.getElementById('viewButton').onclick = () => {
-            if (currentBook) {
-                document.getElementById('pdfViewer').src = currentBook.file;
-                document.getElementById('pdfModal').style.display = 'flex';
-            }
-            document.getElementById('modal').style.display = 'none';
-        };
-        
-        document.getElementById('downloadButton').onclick = () => {
-            if (currentBook) {
-                const link = document.createElement('a');
-                link.href = currentBook.file;
-                link.download = currentBook.name;
-                link.click();
-            }
-            document.getElementById('modal').style.display = 'none';
-        };
-        
-        function closePdfViewer() {
-            document.getElementById('pdfModal').style.display = 'none';
-            document.getElementById('pdfViewer').src = '';
+        document.getElementById('year').textContent = new Date().getFullYear();
+
+        /* -------------------------------------------------------------
+           Utility & setup
+        ------------------------------------------------------------- */
+        const searchInput = document.getElementById('searchInput');
+        const sortSelect  = document.getElementById('sortSelect');
+        const gridElement = document.getElementById('grid');
+        const viewButtons = document.querySelectorAll('.view-btn');
+        const modal       = document.getElementById('modal');
+        const viewBtn     = document.getElementById('viewButton');
+        const downloadBtn = document.getElementById('downloadButton');
+
+        const fileExt = f=>f.slice(f.lastIndexOf('.')).toLowerCase();
+        const booksKey = 'nomadBooksSize';
+        let books = [], filtered = [], debounceTimer = null, currentBook = null;
+
+        /* -------------------------------------------------------------
+           Grid size handling (persist across visits)
+        ------------------------------------------------------------- */
+        let currentSize = localStorage.getItem(booksKey) || 'medium';
+        function setViewSize(size){
+            currentSize = size;
+            viewButtons.forEach(btn=>btn.classList.toggle('active', btn.dataset.size===size));
+            gridElement.className = `media-grid ${size}`;
+            localStorage.setItem(booksKey, size);
         }
+        setViewSize(currentSize);
+        viewButtons.forEach(btn=>btn.addEventListener('click',()=>setViewSize(btn.dataset.size)));
+
+        /* -------------------------------------------------------------
+           Fetch & render
+        ------------------------------------------------------------- */
+        async function init(){
+            try{
+                const res = await fetch('/media.json');
+                const json = await res.json();
+                const raw  = json.books || json.Books || [];
+                books = raw.map(b=>({
+                    name : b.name  || b.title || 'Unknown',
+                    cover: b.cover || b.thumbnail || 'placeholder.jpg',
+                    path : b.file  || b.path || b.url || ''
+                })).filter(b=>b.path);
+                applyFilter('');
+            }catch(err){
+                console.error('Media load error', err);
+                gridElement.innerHTML = '<p style="grid-column:1/-1;text-align:center;color:var(--primary-dark);">Unable to load content.</p>';
+            }
+        }
+
+        function applyFilter(term){
+            const lower = term.trim().toLowerCase();
+            filtered = !lower ? [...books] : books.filter(b=>b.name.toLowerCase().includes(lower));
+            applySort(sortSelect.value);
+        }
+        function applySort(mode){
+            if(mode==='nameDesc'){filtered.sort((a,b)=>b.name.localeCompare(a.name));}
+            else{filtered.sort((a,b)=>a.name.localeCompare(b.name));}
+            renderGrid();
+        }
+        function renderGrid(){
+            gridElement.className = `media-grid ${currentSize}`;
+            const frag=document.createDocumentFragment();
+            filtered.forEach(item=>{
+                const card=document.createElement('div');
+                card.className='media-card';
+                card.innerHTML=`<img class="media-thumb" loading="lazy" src="${item.cover}" alt="${item.name}">`;
+                card.addEventListener('click',()=>showBookOptions(item));
+                frag.appendChild(card);
+            });
+            gridElement.innerHTML='';
+            gridElement.appendChild(frag);
+        }
+
+        /* -------------------------------------------------------------
+           Modal actions
+        ------------------------------------------------------------- */
+        function showBookOptions(book){
+            currentBook = book;
+            document.getElementById('modalTitle').textContent = `What would you like to do with "${book.name}"?`;
+            modal.style.display = 'flex';
+        }
+        function closeModal(evt){if(evt.target===modal){modal.style.display='none';}}
+        viewBtn.onclick = ()=>{ if(currentBook){ openBook(currentBook);} modal.style.display='none'; };
+        downloadBtn.onclick = ()=>{ if(currentBook){ downloadBook(currentBook);} modal.style.display='none'; };
+
+        function openBook(book){
+            let url = book.path;
+            if(fileExt(url)==='.epub'){ url = `/reader.html?file=${encodeURIComponent(url)}`; }
+            window.open(url, '_blank'); // one‑step view
+        }
+        function downloadBook(book){
+            const a = document.createElement('a');
+            a.href = book.path; a.download = book.name; a.click();
+        }
+
+        /* -------------------------------------------------------------
+           Search & sort events
+        ------------------------------------------------------------- */
+        searchInput.addEventListener('input', e=>{clearTimeout(debounceTimer); debounceTimer = setTimeout(()=>applyFilter(e.target.value),150);} );
+        sortSelect.addEventListener('change', ()=>applySort(sortSelect.value));
+
+        /* -------------------------------------------------------------
+           Init
+        ------------------------------------------------------------- */
+        init();
     </script>
 </body>
 </html>

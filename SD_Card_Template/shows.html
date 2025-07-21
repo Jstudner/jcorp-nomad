@@ -1,280 +1,220 @@
 <!DOCTYPE html>
+<!--  Nomad Shows Page (mobile grid + search/sort + autoplay next)  -->
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta name="description" content="Jcorp Nomad Media Server - Shows">
-    <title>Shows - Jcorp Nomad Media Server</title>
-    <link rel="icon" href="favicon.ico" type="image/x-icon">
-    <style>
-        body {
-            font-family: 'Arial', sans-serif;
-            margin: 0;
-            padding: 0;
-            background-color: #f4f4f9;
-            color: #333;
-            transition: background-color 0.3s, color 0.3s;
-        }
-        header {
-            background-color: #007bff;
-            color: white;
-            padding: 20px;
-            text-align: center;
-            font-size: 2em;
-            border-bottom: 3px solid #0056b3;
-        }
-        .content {
-            padding: 20px;
-            text-align: center;
-        }
-        .cover-container {
-            cursor: pointer;
-            text-align: center;
-            display: flex;
-            justify-content: center;
-        }
-        .cover {
-            width: 100%;
-            max-width: 140px; /* Reduced max-width */
-            height: auto;
-            object-fit: cover;
-            border-radius: 10px;
-            box-shadow: 0 6px 15px rgba(0, 0, 0, 0.1);
-            transition: transform 0.3s ease-in-out;
-            margin: 10px;
-        }
-        .cover:hover {
-            transform: scale(1.05);
-        }
-        .modal, .episode-modal, .video-modal {
-            display: none;
-            position: fixed;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            background-color: rgba(0, 0, 0, 0.6);
-            justify-content: center;
-            align-items: center;
-            z-index: 1000;
-        }
-        .modal-content, .episode-modal-content, .video-modal-content {
-            background-color: white;
-            padding: 30px;
-            border-radius: 10px;
-            text-align: center;
-            width: 600px;
-            max-width: 90%;
-            box-shadow: 0 6px 20px rgba(0, 0, 0, 0.1);
-        }
-        .modal button, .episode-modal button, .video-modal button {
-            padding: 12px 20px;
-            font-size: 1.1em;
-            margin: 10px 0;
-            background-color: #007bff;
-            color: white;
-            border: none;
-            border-radius: 5px;
-            cursor: pointer;
-            width: 100%;
-            transition: background-color 0.3s ease;
-        }
-        .modal button:hover, .episode-modal button:hover, .video-modal button:hover {
-            background-color: #0056b3;
-        }
-        .episode-list {
-            max-height: 400px;
-            overflow-y: auto;
-            text-align: left;
-        }
-        .episode-list button {
-            width: 100%;
-            margin: 5px 0;
-            padding: 10px;
-            font-size: 1em;
-        }
-        .video-container {
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-        }
-        video {
-            width: 100%;
-            max-width: 800px;
-            border-radius: 10px;
-            box-shadow: 0 6px 20px rgba(0, 0, 0, 0.2);
-        }
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1.0">
+  <meta name="description" content="Jcorp Nomad Media Server – Shows">
+  <title>Nomad Shows</title>
+  <link rel="icon" href="favicon.ico" type="image/x-icon">
 
-        /* Search Bar Styles */
-        .search-container {
-            text-align: center;
-            margin-bottom: 15px;
-        }
+  <style>
+    :root{--primary:#007bff;--primary-dark:#0056b3;--bg:#f4f4f9;--text:#333;--radius:8px;--shadow:0 4px 12px rgba(0,0,0,0.08);} 
+    *,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}
+    body{font-family:Arial,sans-serif;background:var(--bg);color:var(--text);display:flex;flex-direction:column;min-height:100vh;}
+    header{background:var(--primary);color:#fff;padding:1.25rem 1rem;display:flex;align-items:center;justify-content:space-between;box-shadow:var(--shadow);position:sticky;top:0;z-index:50;}
+    header h1{font-size:clamp(1.25rem,5vw,1.75rem);font-weight:600;white-space:nowrap;}
+    .back-btn{text-decoration:none;color:#fff;background:var(--primary-dark);padding:.5rem .75rem;border-radius:var(--radius);font-size:0.9rem;white-space:nowrap;}
 
-        .search-input {
-            padding: 10px;
-            font-size: 1.1em;
-            width: 80%;
-            max-width: 400px;
-            border: 2px solid #007bff;
-            border-radius: 25px;
-            outline: none;
-        }
+    /* toolbar */
+    .toolbar{background:var(--bg);padding:.75rem 1rem;display:flex;flex-wrap:wrap;gap:.75rem;align-items:center;border-bottom:1px solid #ddd;position:sticky;top:64px;z-index:45;}
+    .toolbar input[type="search"],.toolbar select{padding:.5rem .75rem;border:1px solid #ccc;border-radius:var(--radius);font-size:0.95rem;}
+    .toolbar input[type="search"]{flex:1 1 200px;}
+    .view-btn{padding:.5rem .75rem;border:1px solid #ccc;background:#fff;border-radius:var(--radius);font-size:0.9rem;cursor:pointer;}
+    .view-btn.active{background:var(--primary);color:#fff;border-color:var(--primary-dark);}  
 
-        .search-input:focus {
-            border-color: #0056b3;
-        }
+    /* grid */
+    main{flex:1;display:flex;flex-direction:column;max-width:1200px;width:100%;margin:0 auto;}
+    .grid-wrapper{flex:1;overflow-y:auto;padding:1rem;}
+    .media-grid{display:grid;gap:1rem;}
+    .media-grid.small {grid-template-columns:repeat(auto-fit,minmax(120px,1fr));}
+    .media-grid.medium{grid-template-columns:repeat(auto-fit,minmax(160px,1fr));}
+    .media-grid.large {grid-template-columns:repeat(auto-fit,minmax(220px,1fr));}
 
-       
-        #showsContainer {
-            display: grid;
-            grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); /* Adjusting the size */
-            gap: 15px;
-            justify-content: center;
-        }
-    </style>
+    @media(max-width:600px){header{flex-direction:column;gap:.5rem;}.back-btn{width:100%;text-align:center;}.toolbar{top:112px;}.media-grid.small{grid-template-columns:repeat(2,1fr);}.media-grid.medium{grid-template-columns:repeat(3,1fr);}.media-grid.large{grid-template-columns:repeat(4,1fr);} }
+
+    .media-card{background:#fff;border-radius:var(--radius);box-shadow:var(--shadow);overflow:hidden;display:flex;flex-direction:column;transition:transform .25s ease;cursor:pointer;width:100%;max-width:220px;margin:0 auto;}
+    .media-grid.small  .media-card{max-width:120px;}
+    .media-grid.medium .media-card{max-width:160px;}
+    .media-grid.large  .media-card{max-width:220px;}
+    .media-card:hover{transform:translateY(-3px);}  
+    .media-thumb{width:100%;aspect-ratio:2/3;object-fit:cover;}
+    
+    /* modals */
+    .modal,.episode-modal,.video-modal{display:none;position:fixed;inset:0;background:rgba(0,0,0,0.6);justify-content:center;align-items:center;z-index:1000;}
+    .modal-content,.episode-modal-content,.video-modal-content{background:#fff;padding:20px;border-radius:10px;text-align:center;width:90%;max-width:600px;box-shadow:0 6px 20px rgba(0,0,0,0.1);}  
+    .modal button,.episode-modal button,.video-modal button{padding:12px;font-size:1em;margin:10px 0;background:var(--primary);color:#fff;border:none;border-radius:5px;cursor:pointer;width:100%;transition:background .2s;}
+    .modal button:hover,.episode-modal button:hover,.video-modal button:hover{background:var(--primary-dark);}  
+    .episode-list{max-height:400px;overflow-y:auto;text-align:left;}
+    .episode-list button{width:100%;margin:5px 0;padding:10px;font-size:1em;}
+
+    .video-container{display:flex;flex-direction:column;align-items:center;gap:1rem;}
+    video{width:100%;max-width:800px;border-radius:10px;box-shadow:0 6px 20px rgba(0,0,0,0.2);}  
+  </style>
 </head>
 <body>
-    <header>
-        Jcorp Nomad - Shows
-    </header>
+  <header>
+    <h1>Shows</h1>
+    <a class="back-btn" href="http://192.168.4.1/menu">← Back to Menu</a>
+  </header>
 
-    <div class="content">
-        <div class="search-container">
-            <input type="text" id="searchBar" class="search-input" placeholder="Search for a show..." oninput="filterShows()">
-        </div>
-        <p>Select a show below to view episodes:</p>
-        <div id="showsContainer"></div>
+  <div class="toolbar">
+    <input id="searchInput" type="search" placeholder="Search shows…" aria-label="Search shows">
+    <select id="sortSelect" aria-label="Sort shows">
+      <option value="nameAsc">A → Z</option>
+      <option value="nameDesc">Z → A</option>
+    </select>
+    <button class="view-btn" data-size="small" title="Compact view">🔳</button>
+    <button class="view-btn active" data-size="medium" title="Comfort view">🔲</button>
+    <button class="view-btn" data-size="large" title="Gallery view">⬜</button>
+  </div>
+
+  <main>
+    <div class="grid-wrapper"><div id="grid" class="media-grid medium"></div></div>
+  </main>
+
+  <!-- Episode list modal -->
+  <div id="episodeModal" class="episode-modal">
+    <div class="episode-modal-content">
+      <h2>Select an Episode</h2>
+      <div id="episodeList" class="episode-list"></div>
+      <button onclick="closeEpisodeModal()">Close</button>
     </div>
+  </div>
 
-    <div id="episodeModal" class="episode-modal">
-        <div class="episode-modal-content">
-            <h2>Select an Episode</h2>
-            <div id="episodeList" class="episode-list"></div>
-            <button onclick="closeEpisodeModal()">Close</button>
-        </div>
-    </div>
-
-   <div id="modal" class="modal" onclick="closeModal(event)">
+  <!-- Action modal -->
+  <div id="modal" class="modal" onclick="closeModal(event)">
     <div class="modal-content" onclick="event.stopPropagation();">
-        <h2>What would you like to do?</h2>
-        <button id="viewButton">View in Browser</button>
-        <button id="downloadButton">Download</button>
+      <h2>What would you like to do?</h2>
+      <button id="viewButton">Watch</button>
+      <button id="downloadButton">Download</button>
     </div>
-</div>
+  </div>
 
-    <div id="videoModal" class="video-modal">
-        <div class="video-modal-content">
-            <div class="video-container">
-                <video id="videoPlayer" controls>
-                    Your browser does not support the video tag.
-                </video>
-                <button onclick="closeVideo()">Close</button>
-            </div>
-        </div>
-    </div>
+  <!-- Video modal -->
+  <div id="videoModal" class="video-modal">
+    <div class="video-modal-content"><div class="video-container">
+      <video id="videoPlayer" controls preload="metadata"></video>
+      <button id="nextBtn">Next Episode ▶</button>
+      <button onclick="closeVideo()">Close</button>
+    </div></div>
+  </div>
 
-    <script>
-        let currentEpisode = null;
-        const videoFormats = ['.mp4', '.mkv', '.avi', '.mov', '.webm'];
-        let shows = [];
+  <footer>© <span id="year"></span> Jcorp Nomad</footer>
 
-        fetch('/media.json')
-            .then(response => response.json())
-            .then(data => {
-                shows = data.shows;
-                displayShows(shows);
-            })
-            .catch(error => console.error('Error loading shows:', error));
+  <script>
+    document.getElementById('year').textContent=new Date().getFullYear();
 
-        function displayShows(showsToDisplay) {
-            const showsContainer = document.getElementById('showsContainer');
-            showsContainer.innerHTML = '';
-            
-            showsToDisplay.forEach(show => {
-                const coverImage = document.createElement('img');
-                coverImage.src = show.cover;
-                coverImage.alt = show.name;
-                coverImage.classList.add('cover');
-                coverImage.onclick = () => showEpisodes(show);
+    /* ========== state ========= */
+    const videoFormats=['.mp4','.mkv','.avi','.mov','.webm'];
+    let shows=[],filteredShows=[];
+    let flattenedEpisodes=[],currentEpIdx=-1;
 
-                const coverContainer = document.createElement('div');
-                coverContainer.classList.add('cover-container');
-                coverContainer.appendChild(coverImage);
-                showsContainer.appendChild(coverContainer);
-            });
-        }
+    /* ========== DOM ========= */
+    const grid=document.getElementById('grid');
+    const searchInput=document.getElementById('searchInput');
+    const sortSelect=document.getElementById('sortSelect');
+    const viewBtns=[...document.querySelectorAll('.view-btn')];
+    const episodeModal=document.getElementById('episodeModal');
+    const episodeList=document.getElementById('episodeList');
+    const actionModal=document.getElementById('modal');
+    const videoModal=document.getElementById('videoModal');
+    const videoPlayer=document.getElementById('videoPlayer');
+    const nextBtn=document.getElementById('nextBtn');
 
-        function showEpisodes(show) {
-            const episodeList = document.getElementById('episodeList');
-            episodeList.innerHTML = '';
-            document.getElementById('episodeModal').style.display = 'flex';
+    /* ========== grid size restore ========= */
+    let curSize=localStorage.getItem('nomadShowsSize')||'medium';
+    function setViewSize(sz){curSize=sz;viewBtns.forEach(b=>b.classList.toggle('active',b.dataset.size===sz));grid.className=`media-grid ${sz}`;localStorage.setItem('nomadShowsSize',sz);}  
+    viewBtns.forEach(b=>b.addEventListener('click',()=>setViewSize(b.dataset.size)));
+    setViewSize(curSize);
 
-            show.episodes.forEach(episode => {
-                if (!isVideoFile(episode.file)) return;
+    /* ========== helpers ========= */
+    const isVideo=f=>videoFormats.some(ext=>f.toLowerCase().endsWith(ext));
+    const getFileUrl=fp=>`/media?file=${encodeURIComponent('/'+fp)}`;
+    const getDownloadUrl=fp=>`/media.json?file=${encodeURIComponent('/'+fp)}`;
+    function flatten(eps){if(eps.episodes)return eps.episodes;return eps.seasons?eps.seasons.flatMap(s=>s.episodes||[]):[];}
 
-                const episodeButton = document.createElement('button');
-                episodeButton.textContent = episode.name;
-                episodeButton.onclick = () => showEpisodeOptions(episode);
-                episodeList.appendChild(episodeButton);
-            });
-        }
+    /* ========== fetch ========= */
+    fetch('/media.json').then(r=>r.json()).then(data=>{shows=data.shows||[];applyFilter('');}).catch(err=>{console.error(err);grid.innerHTML='<p style="grid-column:1/-1;text-align:center;color:var(--primary-dark);">Unable to load content.</p>';});
 
-        function closeEpisodeModal() {
-            document.getElementById('episodeModal').style.display = 'none';
-        }
+    /* ========== filter & sort ========= */
+    let debounce=null;
+    function applyFilter(term){const q=term.trim().toLowerCase();filteredShows=!q?[...shows]:shows.filter(s=>s.name.toLowerCase().includes(q));applySort(sortSelect.value);}  
+    function applySort(mode){filteredShows.sort((a,b)=>mode==='nameDesc'?b.name.localeCompare(a.name):a.name.localeCompare(b.name));renderGrid();}
 
-        function isVideoFile(fileName) {
-            return videoFormats.some(format => fileName.toLowerCase().endsWith(format));
-        }
+    searchInput.addEventListener('input',e=>{clearTimeout(debounce);debounce=setTimeout(()=>applyFilter(e.target.value),150);});
+    sortSelect.addEventListener('change',()=>applySort(sortSelect.value));
 
-        function showEpisodeOptions(episode) {
-            currentEpisode = episode;
-            document.getElementById('modal').style.display = 'flex';
+    /* ========== renderGrid ========= */
+    function renderGrid(){grid.className=`media-grid ${curSize}`;const frag=document.createDocumentFragment();filteredShows.forEach(show=>{const card=document.createElement('div');card.className='media-card';card.innerHTML=`<img class="media-thumb" loading="lazy" src="${show.cover||'placeholder.jpg'}" alt="${show.name}">`;card.onclick=()=>openEpisodeModal(show);frag.appendChild(card);});grid.innerHTML='';if(!filteredShows.length){grid.innerHTML='<p style="grid-column:1/-1;text-align:center;color:var(--primary-dark);">No shows found.</p>';return;}grid.appendChild(frag);}  
 
-            document.getElementById('viewButton').onclick = () => {
-                openVideo(getFileUrl(currentEpisode.file, 'view'));
-                document.getElementById('modal').style.display = 'none';
-            };
+    /* ========== episode modal ========= */
+    function openEpisodeModal(show){flattenedEpisodes=flatten(show).filter(ep=>isVideo(ep.file));episodeList.innerHTML='';flattenedEpisodes.forEach((ep,i)=>{const btn=document.createElement('button');btn.textContent=ep.name||ep.title||`Episode ${i+1}`;btn.onclick=()=>openActionModal(i);episodeList.appendChild(btn);});episodeModal.style.display='flex';}
+    function closeEpisodeModal(){episodeModal.style.display='none';}
 
-            document.getElementById('downloadButton').onclick = () => {
-                const link = document.createElement('a');
-                link.href = getDownloadUrl(currentEpisode.file);
-                link.download = currentEpisode.name;
-                link.click();
-                document.getElementById('modal').style.display = 'none';
-            };
-        }
+    /* ========== action modal ========= */
+    function openActionModal(idx){currentEpIdx=idx;actionModal.style.display='flex';document.getElementById('viewButton').onclick=()=>{playEpisode(idx);actionModal.style.display='none';};document.getElementById('downloadButton').onclick=()=>{const link=document.createElement('a');link.href=getDownloadUrl(flattenedEpisodes[idx].file);link.download=flattenedEpisodes[idx].name||`Episode${idx+1}`;link.click();actionModal.style.display='none';};}
+    function closeModal(e){if(e.target===actionModal){actionModal.style.display='none';}}
 
-        function openVideo(videoSrc) {
-            document.getElementById('videoPlayer').src = videoSrc;
-            document.getElementById('videoModal').style.display = 'flex';
-        }
+    /* ========== playback ========= */
+    function playEpisode(idx){const ep=flattenedEpisodes[idx];if(!ep)return;currentEpIdx=idx;videoPlayer.pause();videoPlayer.src='';videoPlayer.load();videoPlayer.src=getFileUrl(ep.file);videoPlayer.load();videoModal.style.display='flex';videoPlayer.play();}
+    function closeVideo(){videoPlayer.pause();videoPlayer.src='';videoPlayer.load();videoModal.style.display='none';}
+    nextBtn.onclick=()=>playEpisode(currentEpIdx+1);
+    videoPlayer.addEventListener('ended',()=>playEpisode(currentEpIdx+1));
+(function addVideoRecoveryLogic() {
+  const MAX_RETRIES = 5;
+  let retries = 0;
+  let lastTime = 0;
+  let freezeTimer;
 
-        function closeVideo() {
-            document.getElementById('videoPlayer').pause();
-            document.getElementById('videoModal').style.display = 'none';
-        }
+  function refreshStream() {
+    if (retries >= MAX_RETRIES) return;
+    retries++;
+    console.log(`[Nomad] Stream stalled → retry ${retries}`);
+    const t = videoPlayer.currentTime || 0;
 
-        function getFileUrl(filePath, action) {
-            return `/media?file=${encodeURIComponent('/' + filePath)}`;
-        }
-
-        function getDownloadUrl(filePath) {
-            return `/media.json?file=${encodeURIComponent('/' + filePath)}`;
-        }
-
-        function filterShows() {
-            const query = document.getElementById('searchBar').value.toLowerCase();
-            const filteredShows = shows.filter(show => show.name.toLowerCase().includes(query));
-            displayShows(filteredShows);
-        }
-        function closeModal(event) {
-    if (event.target === document.getElementById('modal')) {
-        document.getElementById('modal').style.display = 'none';
+    const src = videoPlayer.querySelector('source');
+    if (!src) {
+      const newSource = document.createElement('source');
+      newSource.type = 'video/mp4';
+      videoPlayer.appendChild(newSource);
     }
-}
 
-    </script>
+    const current = src?.getAttribute('src') || videoPlayer.src;
+    const base = src?.getAttribute('data-base') || current;
+    if (src) {
+      src.setAttribute('data-base', base);
+      src.src = `${base}${base.includes('?') ? '&' : '?'}ts=${Date.now()}`;
+    } else {
+      videoPlayer.src = `${base}${base.includes('?') ? '&' : '?'}ts=${Date.now()}`;
+    }
+
+    videoPlayer.load();
+    videoPlayer.currentTime = Math.max(t - 0.01, 0);
+    videoPlayer.play().catch(()=>{});
+  }
+
+  videoPlayer.addEventListener('stalled', refreshStream);
+  videoPlayer.addEventListener('error', refreshStream);
+  videoPlayer.addEventListener('waiting', () => {
+    setTimeout(() => {
+      if (videoPlayer.readyState < 3) refreshStream();
+    }, 1000);
+  });
+
+  function startWatchdog() {
+    clearInterval(freezeTimer);
+    freezeTimer = setInterval(() => {
+      if (!videoPlayer.paused && videoPlayer.readyState < 3) {
+        if (videoPlayer.currentTime === lastTime) refreshStream();
+      }
+      lastTime = videoPlayer.currentTime;
+    }, 2000);
+  }
+
+  videoPlayer.addEventListener('playing', () => { retries = 0; startWatchdog(); });
+  videoPlayer.addEventListener('pause', () => clearInterval(freezeTimer));
+})();
+  </script>
 </body>
 </html>

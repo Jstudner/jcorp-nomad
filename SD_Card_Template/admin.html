@@ -1,0 +1,488 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SD Card File Manager</title>
+  <style>
+    :root {
+      --primary: #007bff;
+      --danger: #dc3545;
+      --bg: #f9f9f9;
+      --card: #fff;
+      --text: #333;
+    }
+    *, *::before, *::after { box-sizing: border-box; }
+    body {
+      margin: 0; font-family: Arial, sans-serif;
+      background: var(--bg); color: var(--text);
+    }
+    header {
+      background: var(--card); padding: 1rem;
+      box-shadow: 0 1px 4px rgba(0,0,0,0.1);
+      position: sticky; top: 0; z-index: 100;
+      text-align: center;
+    }
+    #sd-block {
+      background: var(--card); padding: 1rem;
+      display: flex; flex-direction: column; align-items: center;
+      gap: 0.5rem; text-align: center;
+    }
+    #upload-bar-container {
+      padding: 1rem; text-align: center;
+    }
+    #global-upload-progress {
+      display: flex; align-items: center; justify-content: center;
+      gap: 0.5rem; max-width: 600px; margin: 0 auto;
+    }
+    #global-upload-progress progress { flex: 1; height: 1rem; }
+    #file-manager {
+      padding: 1rem; display: grid;
+      grid-template-columns: 1fr;
+      gap: 1rem;
+    }
+    .section, .subsection {
+      background: var(--card); border-radius: 8px;
+      box-shadow: 0 1px 4px rgba(0,0,0,0.1);
+      overflow: hidden;
+    }
+    .section-header, .subsection-header {
+      display: flex; flex-direction: column;
+      align-items: flex-start;
+      padding: 1rem; border-bottom: 1px solid #ccc;
+      cursor: pointer;
+    }
+    .toggle-icon { font-size: 1.2rem; margin-right: 0.5rem; }
+    .upload-btn {
+      background: var(--primary); color: white;
+      border: none; padding: 0.5rem 1rem;
+      border-radius: 4px; cursor: pointer; margin-top: 0.5rem;
+    }
+    .upload-input { display: none; }
+    .file-entry {
+      padding: 1rem; border-bottom: 1px solid #eee;
+    }
+    .file-entry h4 {
+      margin: 0 0 0.3rem 0; font-size: 1rem;
+    }
+    .file-size {
+      font-size: 0.85rem; color: #666;
+    }
+    .rename-input {
+      width: 100%; padding: 0.4rem;
+      font-size: 1rem; margin: 0.5rem 0;
+    }
+    .rename-btn, .delete-btn {
+      padding: 0.4rem 1rem; border: none;
+      border-radius: 4px; font-size: 1rem;
+      color: #fff; margin-right: 0.5rem;
+    }
+    .rename-btn { background: var(--primary); }
+    .delete-btn { background: var(--danger); }
+      /* LED Control Card */
+#led-controls {
+    max-width: 400px;
+    margin: 1.5rem auto;
+    background: #fff;
+    border-radius: 12px;
+    box-shadow: 0 8px 20px rgb(0 0 0 / 0.12);
+    padding: 1.8rem 2rem;
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    color: #222;
+  }
+  #led-controls h3 {
+    margin-top: 0;
+    margin-bottom: 1.25rem;
+    font-weight: 700;
+    font-size: 1.6rem;
+    letter-spacing: 0.03em;
+    text-align: center;
+  }
+
+  /* Mode Buttons */
+  #led-mode {
+    display: flex;
+    justify-content: space-between;
+    margin-bottom: 1.8rem;
+  }
+  #led-mode button {
+    flex: 1;
+    margin: 0 0.3rem;
+    padding: 0.6rem 0;
+    border: none;
+    border-radius: 25px;
+    font-weight: 600;
+    font-size: 1rem;
+    color: #666;
+    background: #eee;
+    cursor: pointer;
+    box-shadow: inset 0 0 8px rgb(0 0 0 / 0.05);
+    transition: all 0.3s ease;
+  }
+  #led-mode button.active {
+    background: #0d6efd;
+    color: white;
+    box-shadow: 0 4px 10px rgb(13 110 253 / 0.4);
+  }
+  #led-mode button:hover:not(.active) {
+    background: #cce0ff;
+  }
+
+  /* Color Picker */
+  #color-control {
+    display: flex;
+    justify-content: center;
+  }
+  #led-color {
+    width: 80px;
+    height: 80px;
+    border: none;
+    border-radius: 50%;
+    cursor: pointer;
+    box-shadow: 0 0 8px rgba(0, 0, 0, 0.15);
+    transition: box-shadow 0.3s ease;
+  }
+  #led-color:focus {
+    outline: none;
+    box-shadow: 0 0 10px #0d6efdaa;
+  }
+  </style>
+</head>
+<body>
+<header><h1>SD Card File Manager</h1></header>
+<div id="sd-block">
+  <span id="sd-used">Used: -- GB</span>
+  <span id="sd-total">Total: -- GB</span>
+  <progress id="sd-bar" max="100" value="0"></progress>
+</div>
+<div id="upload-bar-container">
+  <div id="global-upload-progress">
+    <progress id="global-progress-bar" max="100" value="0"></progress>
+    <span id="global-progress-message"></span>
+  </div>
+  <div style="margin-top: 0.5rem;">
+    <strong id="upload-filename"></strong>
+  </div>
+  <div style="margin-top: 1rem;">
+    <button class="upload-btn" onclick="generateMedia()">Generate media.json</button>
+    <div id="generate-msg" style="margin-top: 0.3rem; font-size: 0.9rem; color: #555;"></div>
+  </div>
+</div>
+<div id="file-manager"></div>
+<div id="led-controls" aria-label="LED Control Panel" role="region">
+  <h3>LED Mode</h3>
+
+  <div id="led-mode" role="group" aria-label="LED Modes">
+    <button id="mode-off" class="active" aria-pressed="true" type="button">Off</button>
+    <button id="mode-solid" aria-pressed="false" type="button">Solid</button>
+    <button id="mode-rainbow" aria-pressed="false" type="button">RGB Loop</button>
+  </div>
+
+  <div id="color-control">
+    <input type="color" id="led-color" aria-label="LED Color Picker" value="#ff0000" disabled />
+  </div>
+</div>
+<script>
+const dirs = [
+  {name:'Movies', path:'/Movies', upload:'/upload-movie'},
+  {name:'Shows', path:'/Shows', upload:'/upload-show'},
+  {name:'Books', path:'/Books', upload:'/upload-book'},
+  {name:'Music', path:'/Music', upload:'/upload-music'}
+];
+
+const sdTotal = document.getElementById('sd-total');
+const sdUsed = document.getElementById('sd-used');
+const sdBar = document.getElementById('sd-bar');
+const gbar = document.getElementById('global-progress-bar');
+const gmsg = document.getElementById('global-progress-message');
+const gfile = document.getElementById('upload-filename');
+
+function showGlobal(msg) {
+  gmsg.textContent = msg;
+  gbar.value = 0;
+}
+function updateGlobal(p) {
+  gbar.value = p;
+  gmsg.textContent = Math.round(p)+'%';
+}
+function hideGlobal() {
+  setTimeout(() => {
+    gmsg.textContent = '';
+    gfile.textContent = '';
+    gbar.value = 0;
+  }, 1000);
+}
+
+async function fetchSD() {
+  try {
+    const res = await fetch('/sdinfo');
+    const { total, used } = await res.json();
+    sdTotal.textContent = `Total: ${(total/1e9).toFixed(2)} GB`;
+    sdUsed.textContent  = `Used: ${(used/1e9).toFixed(2)} GB`;
+    sdBar.value = used / total * 100;
+  } catch {}
+}
+fetchSD(); setInterval(fetchSD, 30000);
+
+const mgr = document.getElementById('file-manager');
+dirs.forEach(d => createSection(d));
+
+function createSection(d) {
+  const section = document.createElement('div');
+  section.className = 'section';
+  const header = document.createElement('div');
+  header.className = 'section-header';
+  header.innerHTML = `<span class="toggle-icon">▶</span><strong>${d.name}</strong>`;
+
+  const btn = document.createElement('button');
+  btn.className = 'upload-btn';
+  btn.textContent = d.name === 'Shows' ? '+ New Show' : 'Upload';
+  const inp = document.createElement('input');
+  inp.type = 'file'; inp.multiple = true; inp.className = 'upload-input';
+  header.append(btn, inp);
+
+  const content = document.createElement('div');
+  content.style.display = 'none';
+
+  header.addEventListener('click', e => {
+    if (e.target === btn) return;
+    const open = content.style.display === 'block';
+    content.style.display = open ? 'none' : 'block';
+    header.querySelector('.toggle-icon').textContent = open ? '▶' : '▼';
+    if (!content.dataset.loaded) {
+      d.name === 'Shows' ? loadShows(content) : loadFiles(d, content);
+      content.dataset.loaded = '1';
+    }
+  });
+
+  btn.addEventListener('click', async e => {
+    e.stopPropagation();
+    if (d.name === 'Shows') {
+      const nm = prompt('New show folder:');
+      if (!nm) return;
+      const fd = new FormData(); fd.append('dirname', nm);
+      if ((await fetch('/mkdir', {method:'POST', body:fd})).ok) location.reload();
+    } else {
+      inp.click();
+    }
+  });
+
+  inp.addEventListener('change', async () => {
+    for (const file of inp.files) {
+      showGlobal('Uploading...');
+      gfile.textContent = file.name;
+      const xhr = new XMLHttpRequest();
+      xhr.open('POST', d.upload);
+      xhr.upload.onprogress = e => updateGlobal(e.loaded/e.total*100);
+      xhr.onload = () => location.reload();
+      const fd = new FormData(); fd.append('file', file);
+      xhr.send(fd);
+    }
+    inp.value = '';
+  });
+
+  section.append(header, content);
+  mgr.append(section);
+}
+
+async function loadFiles(d, container) {
+  container.innerHTML = '';
+  const res = await fetch(`/listfiles?dir=${encodeURIComponent(d.path)}`);
+  const files = await res.json();
+  files.forEach(f => {
+    if (!f.isDir) container.append(makeFileEntry(d.path, f));
+  });
+}
+
+async function loadShows(container) {
+  container.innerHTML = '';
+  const res = await fetch('/listfiles?dir=/Shows');
+  const folders = (await res.json()).filter(f => f.isDir);
+  for (const folder of folders) {
+    const sec = document.createElement('div');
+    sec.className = 'subsection';
+    const header = document.createElement('div');
+    header.className = 'subsection-header';
+    header.innerHTML = `<span class="toggle-icon">▶</span><strong>${folder.name}</strong>`;
+
+    const btn = document.createElement('button');
+    btn.className = 'upload-btn'; btn.textContent = 'Upload';
+    const inp = document.createElement('input');
+    inp.type = 'file'; inp.multiple = true; inp.className = 'upload-input';
+    header.append(btn, inp);
+
+    const content = document.createElement('div');
+    content.style.display = 'none';
+
+    header.addEventListener('click', e => {
+      if (e.target === btn) return;
+      const open = content.style.display === 'block';
+      content.style.display = open ? 'none' : 'block';
+      header.querySelector('.toggle-icon').textContent = open ? '▶' : '▼';
+      if (!content.dataset.loaded) {
+        loadSubFiles(`/Shows/${folder.name}`, content);
+        content.dataset.loaded = '1';
+      }
+    });
+
+    btn.addEventListener('click', e => {
+      e.stopPropagation(); inp.click();
+    });
+
+    inp.addEventListener('change', async () => {
+      for (const file of inp.files) {
+        showGlobal('Uploading...');
+        gfile.textContent = file.name;
+        const xhr = new XMLHttpRequest();
+        xhr.open('POST', `/upload-show?subdir=${encodeURIComponent(folder.name)}`);
+        xhr.upload.onprogress = e => updateGlobal(e.loaded/e.total*100);
+        xhr.onload = () => location.reload();
+        const fd = new FormData(); fd.append('file', file);
+        xhr.send(fd);
+      }
+      inp.value = '';
+    });
+
+    sec.append(header, content);
+    container.append(sec);
+  }
+}
+
+async function loadSubFiles(path, container) {
+  container.innerHTML = '';
+  const res = await fetch(`/listfiles?dir=${encodeURIComponent(path)}`);
+  const files = await res.json();
+  files.forEach(f => {
+    if (!f.isDir) container.append(makeFileEntry(path, f));
+  });
+}
+
+function makeFileEntry(path, file) {
+  const div = document.createElement('div');
+  div.className = 'file-entry';
+  div.innerHTML = `
+    <h4>${file.name} <span class="file-size">(${(file.size/1e6).toFixed(2)} MB)</span></h4>
+    <input class="rename-input" value="${file.name}">
+    <div>
+      <button class="rename-btn">Rename</button>
+      <button class="delete-btn">Delete</button>
+    </div>
+  `;
+  const input = div.querySelector('.rename-input');
+  div.querySelector('.rename-btn').onclick = async () => {
+    const newName = input.value.trim();
+    if (!newName || newName === file.name) return;
+    const fd = new FormData();
+    fd.append('oldname', `${path}/${file.name}`);
+    fd.append('newname', `${path}/${newName}`);
+    await fetch('/rename', { method: 'POST', body: fd });
+    location.reload();
+  };
+  div.querySelector('.delete-btn').onclick = async () => {
+    if (!confirm(`Delete ${file.name}?`)) return;
+    const fd = new FormData();
+    fd.append('filename', `${path}/${file.name}`);
+    await fetch('/delete', { method: 'POST', body: fd });
+    location.reload();
+  };
+  return div;
+}
+
+async function generateMedia() {
+  const msg = document.getElementById('generate-msg');
+  msg.textContent = 'Generating media.json... This may take a moment on large cards.';
+  try {
+    const res = await fetch('/generate-media', { method: 'POST' });
+    if (res.ok) {
+      msg.textContent = 'media.json generated successfully.';
+      setTimeout(() => location.reload(), 1000);
+    } else {
+      msg.textContent = 'Failed to generate media.json.';
+    }
+  } catch (e) {
+    msg.textContent = 'Error contacting server.';
+  }
+}
+  // Elements
+  const colorPicker = document.getElementById('led-color');
+  const modeButtons = {
+    off: document.getElementById('mode-off'),
+    solid: document.getElementById('mode-solid'),
+    rainbow: document.getElementById('mode-rainbow'),
+  };
+
+  let ledMode = 'off';
+
+  function updateModeUI(mode) {
+    ledMode = mode;
+    for (const [key, btn] of Object.entries(modeButtons)) {
+      if (key === mode) {
+        btn.classList.add('active');
+        btn.setAttribute('aria-pressed', 'true');
+      } else {
+        btn.classList.remove('active');
+        btn.setAttribute('aria-pressed', 'false');
+      }
+    }
+
+    colorPicker.disabled = (mode !== 'solid');
+  }
+
+  async function sendModeToServer(mode) {
+    if (mode === 'off') {
+      await fetch('/led/onoff', {
+        method: 'POST',
+        body: JSON.stringify({ enabled: false }),
+        headers: { 'Content-Type': 'application/json' }
+      });
+    } else if (mode === 'solid') {
+      await fetch('/led/onoff', {
+        method: 'POST',
+        body: JSON.stringify({ enabled: true }),
+        headers: { 'Content-Type': 'application/json' }
+      });
+      await sendColorToServer(colorPicker.value);
+    } else if (mode === 'rainbow') {
+      await fetch('/led/onoff', {
+        method: 'POST',
+        body: JSON.stringify({ enabled: true }),
+        headers: { 'Content-Type': 'application/json' }
+      });
+      await fetch('/led/rainbow', { method: 'POST' });
+    }
+  }
+
+  async function sendColorToServer(color) {
+    await fetch('/led/color', {
+      method: 'POST',
+      body: JSON.stringify({ color }),
+      headers: { 'Content-Type': 'application/json' }
+    });
+  }
+
+  colorPicker.addEventListener('input', () => {
+    if (ledMode === 'solid') {
+      sendColorToServer(colorPicker.value);
+    }
+  });
+
+  modeButtons.off.addEventListener('click', async () => {
+    updateModeUI('off');
+    await sendModeToServer('off');
+  });
+
+  modeButtons.solid.addEventListener('click', async () => {
+    updateModeUI('solid');
+    await sendModeToServer('solid');
+  });
+
+  modeButtons.rainbow.addEventListener('click', async () => {
+    updateModeUI('rainbow');
+    await sendModeToServer('rainbow');
+  });
+
+  // Initialize state
+  updateModeUI('off');
+</script>
+</body>
+</html>

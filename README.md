@@ -17,6 +17,26 @@ Stream movies, music, books, and shows anywhere — no internet required.</p>
 
 ---
 
+
+## Experimental Branch Enhancements
+
+This branch includes several experimental features not yet available in `main`. These are actively being tested and refined:
+
+- **OPDS eBook Support** - Connect with eBook readers and track reading progress.
+- **Minimal M3U-based DLNA Support** - Allows media discovery on VLC and some Smart TVs.
+- **Admin Page** - Upload, rename, and delete files directly in the browser.
+- **RGB LED Controls** - Change colors and patterns remotely.
+- **Improved Web UI** - Cleaner layout and more responsive mobile design.
+- **Storage Status Display** - View available SD card space on the interface.
+- **Better Video Quality Support** - Preliminary improvements for high-bitrate playback.
+- **SD Card Recovery** Slow or low quality SD cards can have read failures when they get too hot, or too many requsts. Adds recovery function so users shouldnt see this happen on the frontend anymore. 
+- **UI Updates** Squareline studio files are in /docs, you can use it to customize the LCD display. I also made it so the SSID actualy reflects the one in settings automaticaly. Finaly the bar at the top of the screen shows how full the SD card is!
+
+Use this branch if you want the latest features and don't mind the occasional rough edge.
+
+---
+
+
 ## What is Nomad
 
 Jcorp Nomad is an open-source offline media server built for travel, remote work, classrooms, camping, and more. It runs entirely on an ESP32-S3 dev board, creates a local Wi-Fi hotspot, and serves media through a browser-accessible interface. It does not require internet access and works similarly to in-flight entertainment systems. It also allows multiple users watching seperate media streams at the same time. 
@@ -78,9 +98,6 @@ The following links are Amazon affiliate links. Purchasing through these links s
 - **Waveshare ESP32-S3 Dev Board (1.47" LCD version)**  
   [https://amzn.to/4ktB6oT](https://amzn.to/4ktB6oT)
 
-  [Backup, the other one's shiping is like 2 weeks now](https://amzn.to/4kGp7UT)
-  
-
 - **FAT32-formatted microSD card (16 GB minimum recommended, 64 GB preferred)**  
   [https://amzn.to/44tM1c4](https://amzn.to/44tM1c4)
 
@@ -105,9 +122,9 @@ All software used is free and available on Windows, macOS, and Linux.
 1. Flash the ESP32-S3 with the firmware in the `/firmware/` directory.
 2. Format your SD card as **FAT32** and copy the web files from `/SD_Card_Template/`.
 3. Place your media files into the appropriate folders (see structure below).
-4. ~~Run `media.py` to generate `media.json` automatically.~~ Updated: Media.py is still there, but you dont need to run it, file will be generated on boot automaticaly!
+4. Run `media.py` to generate `media.json` automatically.
 5. Insert the SD card and power the device.
-6. Connect to the Wi-Fi network named `Jcorp_Nomad`.
+6. Connect to the Wi-Fi network named `NomadServer`.
 7. Your browser will be redirected to the offline media interface.
 
 ---
@@ -204,9 +221,6 @@ Improve playback for long-form audio by adding bookmarks, chapter display, and s
 ### File Upload Over USB
 Enable USB mass storage or dual-mode operation to allow users to drag and drop files directly to the SD card without removing it. This may require dynamic switching between USB and Wi-Fi server modes, or dual-core task handling. I worked on this for a long while, but couldnt find a relible way to have it switch modes and still function, usualy crashes trying to reboot media, I also wasnt able to get it to run the python script to generate media.json, a new system would be needed.
 
-### DLNA Server Support for Tvs and VLC Media Player. 
-This would give another method for acessing media on the system, Sadly softAP doesnt really let me do DLNA on the ESP32, but I am working on a solution for that. I am not sure if this is actualy possible but if I can get it working yall will know!
-
 ---
 
 ## Build Guide on Instructables
@@ -215,13 +229,6 @@ Looking for a step-by-step tutorial?
 Check out the full build guide on **Instructables** for detailed instructions, photos, and tips on setting up Jcorp Nomad.
 
 👉 [Read the Instructables Guide](https://www.instructables.com/Jcorp-Nomad-Mini-WIFI-Media-Server/) 
-
----
-
-<p align="center">
-  <img src="NomadVideoDemogif.gif" alt="Nomad Video Demo" width="300" style="vertical-align:middle;"/>
-  <img src="AdminPanelDemo.gif" alt="Admin Panel Demo" width="300" style="vertical-align:middle;"/>
-</p>
 
 ---
 

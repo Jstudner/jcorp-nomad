@@ -7,17 +7,23 @@
     <title>Jcorp Nomad Media Server</title>
     <link rel="icon" href="favicon.ico" type="image/x-icon">
     <style>
+        :root {
+            --primary: #007bff;
+            --primary-dark: #0056b3;
+            --bg: #f4f4f9;
+            --text: #333;
+        }
         body {
             font-family: Arial, sans-serif;
             margin: 0;
             padding: 0;
-            background-color: #f4f4f9;
-            color: #333;
+            background-color: var(--bg);
+            color: var(--text);
             text-align: center;
         }
         header {
-            background-color: #007bff;
-            color: white;
+            background-color: var(--primary);
+            color: #fff;
             padding: 20px;
             font-size: 2em;
         }
@@ -30,23 +36,26 @@
             justify-content: center;
             gap: 15px;
             margin-top: 20px;
-            flex-direction: row;
             align-items: center;
         }
         .buttons a {
-            background-color: #007bff;
-            color: white;
+            background-color: var(--primary);
+            color: #fff;
             text-decoration: none;
             padding: 15px 25px;
             border-radius: 5px;
             transition: background-color 0.3s;
             font-size: 1.2em;
             text-align: center;
-            width: auto;
         }
         .buttons a:hover {
-            background-color: #0056b3;
+            background-color: var(--primary-dark);
         }
+        /* Quick toggle helper – add the class "hidden" to any <a> below to hide it without breaking layout */
+        .hidden {
+            display: none !important;
+        }
+
         @media (max-width: 600px) {
             .buttons {
                 flex-direction: column;
@@ -67,24 +76,33 @@
 
     <div class="content">
         <p>Welcome to Jcorp Nomad, your offline media hub. Select a category below to start exploring your content.</p>
-        
+
+        <!--
+            Toggle menu items:
+            1. Comment out any button line – example:
+               <a href="maps">Maps</a> 
+            2. Or add the helper class – example:
+               <a href="maps" class="hidden"&gt;Maps&lt
+            Either method hides the button while keeping the layout intact.
+        -->
         <div class="buttons">
-            <!-- To remove a section from the menu, comment out the corresponding <a> tag below using <!-- and --> 
+            <!-- Movies -->
+            <a href="movies">Movies</a>
 
-            <!-- Movies section button -->
-            <a href="movies.html">Movies</a>
+            <!-- Shows -->
+            <a href="shows">Shows</a>
 
-            <!-- Shows section button -->
-            <a href="shows.html">Shows</a>
+            <!-- Books -->
+            <a href="books">Books</a>
 
-            <!-- Books section button -->
-            <a href="books.html">Books</a>
+            <!-- Music -->
+            <a href="music">Music</a>
 
-            <!-- Music section button -->
-            <a href="music.html">Music</a>
+            <!-- Games -->
+            <!--<a href="games">Games</a>
 
-            <!-- Example: to remove books, do this:
-                 <!-- <a href="books.html">Books</a> 
+            <-- Maps -->
+            <!--<a href="maps">Maps</a>
         </div>
     </div>
 </body>
