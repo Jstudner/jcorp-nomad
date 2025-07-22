@@ -2,10 +2,10 @@
 #include "Arduino.h"
 #define FF_USE_FASTSEEK 1
 #define SD_FREQ_KHZ 10000         // ✱✱ VERY IMPORTANT SETTING ✱✱
-                                  // This controls how fast reads from your SD Card can go, If you have a name brand fancy card you can go faster with better results. Check what your card recomends. 
-                                  // 10 000 kHz (10 MHz) = safest 
-                                  // 12000 kHz (12 MHz) = good 
-                                  // 20000 kHz (20 MHz) = fastest 
+                                  // This controls how fast reads from your SD Card can go, If you have a name brand fancy card you can go faster with better results. Check what your card recomends.
+                                  // 10 000 kHz (10 MHz) = safest
+                                  // 12000 kHz (12 MHz) = good
+                                  // 20000 kHz (20 MHz) = fastest
 #include "WiFi.h"
 #include "ESPAsyncWebServer.h"
 #include "FS.h"
@@ -40,11 +40,15 @@ bool AUTO_GENERATE_MEDIA_JSON = false; //True generates on boot, False only gene
 #define SD_D2_PIN 17
 #define SD_D3_PIN 21
 
-// ───────────────── SD‑recovery globals ───────────────
-volatile bool sdErrorFlag            = false;      
-unsigned long sdErrorCooldownUntil   = 0;          
+// Admin authentication
+#define ADMIN_USERNAME "Jcorp_Nomad"
+#define ADMIN_PASSWORD "Password"
 
-bool tryRecoverSDCard() {                          
+// ───────────────── SD‑recovery globals ───────────────
+volatile bool sdErrorFlag            = false;
+unsigned long sdErrorCooldownUntil   = 0;
+
+bool tryRecoverSDCard() {
     Serial.println("[SD] Attempting recovery…");
     SD_MMC.end();          // unmount
     delay(1000);           // give hardware a breather
@@ -74,7 +78,7 @@ void RGB_SetColor(uint8_t r, uint8_t g, uint8_t b) {
     solidR = r;
     solidG = g;
     solidB = b;
-    currentLEDMode = 2; 
+    currentLEDMode = 2;
     Set_Color(g, r, b);
 }
 extern lv_obj_t *ui_wifi;
@@ -376,9 +380,9 @@ void handleOPDSBooks(AsyncWebServerRequest *request) {
 
 
         String base = fn.substring(fn.lastIndexOf('/')+1);
-        base = base.substring(0, base.lastIndexOf('.'));  
-        String safeTitle = xmlEscape(base);                 
-        String safeId    = "urn:uuid:nomad-book-" + slugify(base);  
+        base = base.substring(0, base.lastIndexOf('.'));
+        String safeTitle = xmlEscape(base);
+        String safeId    = "urn:uuid:nomad-book-" + slugify(base);
         String mime = fn.endsWith(".epub") ?
                       "application/epub+zip" : "application/pdf";
 
@@ -490,7 +494,7 @@ void handleRangeRequest(AsyncWebServerRequest *request) {
             size_t bytesRead   = file.read(buffer, bytesToRead);
 
             /* ----- detect read failure ----- */
-            if (bytesRead == 0) {                               
+            if (bytesRead == 0) {
                 Serial.println("[SD] read() failed — recovery");
                 file.close();
                 sdErrorFlag          = true;
@@ -505,7 +509,7 @@ void handleRangeRequest(AsyncWebServerRequest *request) {
             return bytesRead;
         });
 
- 
+
     response->addHeader("Accept-Ranges", "bytes");
     response->addHeader("Content-Range", "bytes " + String(startByte) + "-" + String(endByte) + "/" + String(fileSize));
     response->addHeader("Cache-Control", "no-cache");
@@ -775,6 +779,42 @@ void updateSDBAR() {
   }
 }
 
+// Helper function to decode base64
+String base64Decode(const String &encoded) {
+  const char *lookup = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+  String decoded = "";
+  int val = 0, valb = -8;
+
+  for (char c : encoded) {
+    if (c == '=') break;
+    const char *p = strchr(lookup, c);
+    if (!p) continue;
+    val = (val << 6) | (p - lookup);
+    valb += 6;
+    if (valb >= 0) {
+      decoded += char((val >> valb) & 0xFF);
+      valb -= 8;
+    }
+  }
+
+  return decoded;
+}
+
+bool checkAdminAuth(AsyncWebServerRequest *request) {
+  if (!request->hasHeader("Authorization")) {
+    return false;
+  }
+
+  String authHeader = request->header("Authorization");
+  if (!authHeader.startsWith("Basic ")) {
+    return false;
+  }
+
+  // Basic auth format: "Basic base64(username:password)"
+  String decoded = base64Decode(authHeader.substring(6));
+  return decoded.equals(String(ADMIN_USERNAME) + ":" + String(ADMIN_PASSWORD));
+}
+
 // ==================== SETUP ====================
 
 void setup() {
@@ -782,7 +822,7 @@ void setup() {
     Lvgl_Init();
     Set_Backlight(90); // Set display brightness
     ui_init();         // Load the GUI
-    
+
     Serial.begin(115200);
     delay(1000);
     Serial.println("\n=== ESP32-S3 Captive Portal & SDMMC Server ===");
@@ -810,11 +850,11 @@ void setup() {
     createSimpleUploadHandler("Music", "/upload-music");
     createSimpleUploadHandler("Books", "/upload-book");
 
-    delay(2000); 
+    delay(2000);
 
     if (AUTO_GENERATE_MEDIA_JSON) { //Only run if autogen is set to true.
         generateMediaJSON();
-    } 
+    }
 
     // Start Captive DNS redirection
     dnsServer.start(DNS_PORT, "*", WiFi.softAPIP());
@@ -1090,7 +1130,30 @@ void setup() {
         request->send(response);
     });
 
-    
+    // Admin routes with authentication
+    server.on("/admin", HTTP_GET, [](AsyncWebServerRequest *request) {
+      if (!checkAdminAuth(request)) {
+        AsyncWebServerResponse *response = request->beginResponse(401, "text/plain", "Unauthorized");
+        response->addHeader("WWW-Authenticate", "Basic realm=\"Nomad Admin\"");
+        request->send(response);
+        return;
+      }
+
+      request->send(SD_MMC, "/admin.html", "text/html");
+    });
+
+    // Protect admin.html similarly
+    server.on("/admin.html", HTTP_GET, [](AsyncWebServerRequest *request) {
+      if (!checkAdminAuth(request)) {
+        AsyncWebServerResponse *response = request->beginResponse(401, "text/plain", "Unauthorized");
+        response->addHeader("WWW-Authenticate", "Basic realm=\"Nomad Admin\"");
+        request->send(response);
+        return;
+      }
+
+      request->send(SD_MMC, "/admin.html", "text/html");
+    });
+
     // Set LED mode: solid (0), rainbow (1), etc.
     server.on("/led/onoff", HTTP_POST, [](AsyncWebServerRequest *request){},
       NULL,
@@ -1144,7 +1207,7 @@ void setup() {
 
     server.on("/sdinfo", HTTP_GET, handleSDInfo);
     server.on("/generate-media", HTTP_POST, [](AsyncWebServerRequest *request){
-      generateMediaJSON(); 
+      generateMediaJSON();
       request->send(200, "text/plain", "Done");
     });
 
@@ -1168,7 +1231,7 @@ void setup() {
         Serial.println("Apple captive portal request detected, serving appleindex.html");
         request->send(SD_MMC, "/appleindex.html", "text/html");
     });
-    
+
     server.on("/generate_204", HTTP_GET, [](AsyncWebServerRequest *request) {
         Serial.println("Android/NORMAL captive portal request detected, serving index.html");
         request->send(SD_MMC, "/index.html", "text/html");
@@ -1212,8 +1275,62 @@ void setup() {
       xml += "</ContentDirectory>";
       request->send(200, "text/xml", xml);
     });
-    server.on("/listfiles", HTTP_GET, handleListFiles);
+    server.on("/listfiles", HTTP_GET, [](AsyncWebServerRequest *request) {
+  if (!checkAdminAuth(request)) {
+    request->send(401, "application/json", "{\"error\":\"Unauthorized\"}");
+    return;
+  }
+  handleListFiles(request);
+});
 
+// Repeat for other admin endpoints like delete, rename, upload, etc.
+server.on("/rename", HTTP_POST, [](AsyncWebServerRequest *request) {
+  if (!checkAdminAuth(request)) {
+    request->send(401, "application/json", "{\"error\":\"Unauthorized\"}");
+    return;
+  }
+  handleRename(request);
+});
+
+server.on("/delete", HTTP_POST, [](AsyncWebServerRequest *request) {
+  if (!checkAdminAuth(request)) {
+    request->send(401, "application/json", "{\"error\":\"Unauthorized\"}");
+    return;
+  }
+  handleDelete(request);
+});
+
+server.on("/upload-show", HTTP_POST, [](AsyncWebServerRequest *request) {
+  if (!checkAdminAuth(request)) {
+    request->send(401, "application/json", "{\"error\":\"Unauthorized\"}");
+    return;
+  }
+  onUploadHandler(request, "", 0, nullptr, 0, false);
+});
+
+server.on("/upload-movie", HTTP_POST, [](AsyncWebServerRequest *request) {
+  if (!checkAdminAuth(request)) {
+    request->send(401, "application/json", "{\"error\":\"Unauthorized\"}");
+    return;
+  }
+  onUploadHandler(request, "", 0, nullptr, 0, false);
+});
+
+server.on("/upload-music", HTTP_POST, [](AsyncWebServerRequest *request) {
+  if (!checkAdminAuth(request)) {
+    request->send(401, "application/json", "{\"error\":\"Unauthorized\"}");
+    return;
+  }
+  onUploadHandler(request, "", 0, nullptr, 0, false);
+});
+
+server.on("/upload-book", HTTP_POST, [](AsyncWebServerRequest *request) {
+  if (!checkAdminAuth(request)) {
+    request->send(401, "application/json", "{\"error\":\"Unauthorized\"}");
+    return;
+  }
+  onUploadHandler(request, "", 0, nullptr, 0, false);
+});
 
     // Static HTML routes
     server.serveStatic("/movies.html", SD_MMC, "/movies.html");
@@ -1351,7 +1468,7 @@ void loop() {
     if (millis() - lastSDScanTime > SD_SCAN_INTERVAL) {
         scanSDCardUsage();  // Safe, non-blocking recursive function
         lastSDScanTime = millis();
-        
+
     }
 
     delay(5); // Prevent watchdog starvation
