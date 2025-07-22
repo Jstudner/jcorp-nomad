@@ -1148,6 +1148,41 @@ void setup() {
       request->send(200, "text/plain", "Done");
     });
 
+    // Serve frontend files from SPIFFS
+    server.serveStatic("/", SPIFFS, "/");
+    
+    // Serve media files from SD card
+    server.serveStatic("/media/", SD_MMC, "/");
+    
+    // Serve media.json from SPIFFS
+    server.on("/media.json", HTTP_GET, [](AsyncWebServerRequest *request) {
+        if (SPIFFS.exists("/media.json")) {
+            request->send(SPIFFS, "/media.json", "application/json");
+        } else {
+            request->send(404, "text/plain", "media.json not found");
+        }
+    });
+    
+    // Serve media files from SD card
+    server.on("/media/*", HTTP_GET, [](AsyncWebServerRequest *request) {
+        String path = request->url().substring(7); // Remove "/media/" prefix
+        if (SD_MMC.exists(path)) {
+            request->send(SD_MMC, path);
+        } else {
+            request->send(404, "text/plain", "File not found");
+        }
+    });
+    
+    // Serve download requests from SD card
+    server.on("/download/*", HTTP_GET, [](AsyncWebServerRequest *request) {
+        String path = request->url().substring(9); // Remove "/download/" prefix
+        if (SD_MMC.exists(path)) {
+            request->send(SD_MMC, path);
+        } else {
+            request->send(404, "text/plain", "File not found");
+        }
+    });
+    
     // Captive Portal: Redirect all unknown requests
     server.onNotFound([](AsyncWebServerRequest *request) {
         if (request->hasHeader("User-Agent")) {
@@ -1156,22 +1191,22 @@ void setup() {
 
             if (userAgent.indexOf("iPhone") >= 0 || userAgent.indexOf("iPad") >= 0 || userAgent.indexOf("Macintosh") >= 0) {
                 Serial.println("Apple device detected. Serving appleindex.html");
-                request->send(SD_MMC, "/appleindex.html", "text/html");
+                request->send(SPIFFS, "/appleindex.html", "text/html");
                 return;
             }
         }
         Serial.println("Android device. Serving index.html");
-        request->send(SD_MMC, "/index.html", "text/html");
+        request->send(SPIFFS, "/index.html", "text/html");
     });
     // Captive triggers for Apple & Android devices
     server.on("/hotspot-detect.html", HTTP_GET, [](AsyncWebServerRequest *request) {
         Serial.println("Apple captive portal request detected, serving appleindex.html");
-        request->send(SD_MMC, "/appleindex.html", "text/html");
+        request->send(SPIFFS, "/appleindex.html", "text/html");
     });
     
     server.on("/generate_204", HTTP_GET, [](AsyncWebServerRequest *request) {
         Serial.println("Android/NORMAL captive portal request detected, serving index.html");
-        request->send(SD_MMC, "/index.html", "text/html");
+        request->send(SPIFFS, "/index.html", "text/html");
     });
     server.on("/dlna/desc.xml", HTTP_GET, [](AsyncWebServerRequest *request){
       request->send(200, "text/xml", R"rawliteral(
