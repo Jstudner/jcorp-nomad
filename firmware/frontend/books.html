@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<!--  Nomad Books Page -->
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="Jcorp Nomad Media Server – Books">
+    <title>Nomad Books</title>
+    <link rel="icon" href="favicon.ico" type="image/x-icon">
+
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <!-- Navbar -->
+    <header>
+        <h1>Jcorp Nomad</h1>
+        <nav>
+            <div class="menu-item">
+                <a href="index.html">Home</a>
+            </div>
+            <div class="menu-item">
+                <a href="pages.html">Pages</a>
+            </div>
+            <div class="menu-item">
+                <a href="admin.html">Admin</a>
+            </div>
+        </nav>
+    </header>
+
+    <!-- Toolbar -->
+    <div class="toolbar">
+        <input id="searchInput" type="search" placeholder="Search books…" aria-label="Search books">
+        <select id="sortSelect" aria-label="Sort books">
+            <option value="nameAsc">A → Z</option>
+            <option value="nameDesc">Z → A</option>
+        </select>
+        <button class="view-btn button"  data-size="small"  title="Compact view">🔳</button>
+        <button class="view-btn button active" data-size="medium" title="Comfort view">🔲</button>
+        <button class="view-btn button"  data-size="large"  title="Gallery view">⬜</button>
+    </div>
+
+    <!-- Grid -->
+    <main><div class="grid-wrapper"><div id="grid" class="media-grid medium"></div></div></main>
+
+    <!-- View / Download Modal -->
+    <div id="modal" class="modal" onclick="closeModal(event)">
+        <div class="modal-content" onclick="event.stopPropagation();">
+            <h2 id="modalTitle">What would you like to do?</h2>
+            <button id="viewButton" class="button">View in Browser</button>
+            <button id="downloadButton" class="button">Download</button>
+        </div>
+    </div>
+
+    <footer>© <span id="year"></span> Jcorp Nomad</footer>
+
+    <script src="script.js"></script>
+</body>
+</html>

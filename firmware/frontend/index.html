@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="Jcorp Nomad Media Server - Instructions">
+    <title>Jcorp Nomad - Instructions</title>
+    <link rel="icon" href="favicon.ico" type="image/x-icon">
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <!-- Navbar -->
+    <header>
+        <h1>Jcorp Nomad</h1>
+        <nav>
+            <div class="menu-item">
+                <a href="index.html">Home</a>
+            </div>
+            <div class="menu-item">
+                <a href="pages.html">Pages</a>
+            </div>
+            <div class="menu-item">
+                <a href="admin.html">Admin</a>
+            </div>
+        </nav>
+    </header>
+    
+    <div class="content">
+        <!-- Instructions Section -->
+        <div class="instructions" id="instructions">
+            <h3 id="instructionHeader">Instructions for Connecting:</h3>
+            <p id="instructionText">Follow the steps below to access the media server:</p>
+            <ol id="instructionList">
+                <li>Copy the link below:</li>
+                <li>
+                    <input type="text" value="192.168.4.1/menu.html" id="copyLink" readonly>
+                    <button id="copyLinkButton" class="button" onclick="copyLink()">Copy Link</button>
+                </li>
+                <li>Tap the three dots in the top-right corner of your screen.</li>
+                <li>Select "Use network as is". This will close the page.</li>
+                <li>Paste the link into your browser to continue.</li>
+            </ol>
+            <p><strong>Important:</strong> Follow these steps before trying to access the media server.</p>
+        </div>
+
+
+    </div>
+
+    <script src="script.js"></script>
+</body>
+</html>

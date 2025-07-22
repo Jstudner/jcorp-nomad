@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="Jcorp Nomad Media Server - Instructions for Apple Devices">
+    <title>Jcorp Nomad - Instructions (Apple)</title>
+    <link rel="icon" href="favicon.ico" type="image/x-icon">
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <header>Jcorp Nomad</header>
+    
+    <div class="content">
+        <!-- Instructions Section -->
+        <div class="instructions" id="instructions">
+            <h3 id="instructionHeader">Instructions for Connecting (Apple Devices):</h3>
+            <p id="instructionText">Follow the steps below to access the media server:</p>
+            <ol id="instructionList">
+                <li>Copy the link below:</li>
+                <li>
+                    <input type="text" value="192.168.4.1/menu.html" id="copyLink" readonly>
+                    <button id="copyLinkButton" onclick="copyLink()">Copy Link</button>
+                </li>
+                <li>Tap the "Cancel" button in the top-right corner of your screen.</li>
+                <li>Then, select "Use Without Wi-Fi" to continue accessing the media server.</li>
+                <li>Paste the link into your browser to access the server.</li>
+            </ol>
+            <p><strong>Important:</strong> Follow these steps before trying to access the media server.</p>
+        </div>
+
+
+    </div>
+
+    <script>
+        
+        function copyLink() {
+            var copyText = document.getElementById("copyLink");
+            copyText.select();
+            document.execCommand("copy");
+            alert("Link copied to clipboard!");
+        }
+
+        
+        function adjustForDevice() {
+        if (window.innerWidth > 600) {
+        document.getElementById('instructionHeader').textContent = "You're on a PC!";
+        document.getElementById('instructionText').innerHTML = 
+        "Use the link below to access the menu directly.";
+        document.getElementById('instructionList').innerHTML = ` 
+        <li>Copy the link below:</li>
+        <li>
+        <input type="text" value="192.168.4.1/menu.html" id="copyLink" readonly>
+        <button id="copyLinkButton" onclick="copyLink()">Copy Link</button>
+        </li>
+        <li>Open the link in a new browser tab.</li>
+        `;
+        }
+}
+
+        // Run on page load
+        adjustForDevice();
+    </script>
+</body>
+</html>

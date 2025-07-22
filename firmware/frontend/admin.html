@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SD Card File Manager</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+<!-- Navbar -->
+<header>
+    <h1>Jcorp Nomad</h1>
+    <nav>
+        <div class="menu-item">
+            <a href="index.html">Home</a>
+        </div>
+        <div class="menu-item">
+            <a href="pages.html">Pages</a>
+        </div>
+        <div class="menu-item">
+            <a href="admin.html">Admin</a>
+        </div>
+    </nav>
+</header>
+<div id="sd-block">
+  <span id="sd-used">Used: -- GB</span>
+  <span id="sd-total">Total: -- GB</span>
+  <progress id="sd-bar" max="100" value="0"></progress>
+</div>
+<div id="upload-bar-container">
+  <div id="global-upload-progress">
+    <progress id="global-progress-bar" max="100" value="0"></progress>
+    <span id="global-progress-message"></span>
+  </div>
+  <div style="margin-top: 0.5rem;">
+    <strong id="upload-filename"></strong>
+  </div>
+  <div style="margin-top: 1rem;">
+    <button class="upload-btn button" onclick="generateMedia()">Generate media.json</button>
+    <div id="generate-msg" style="margin-top: 0.3rem; font-size: 0.9rem; color: #555;"></div>
+  </div>
+</div>
+<div id="file-manager"></div>
+<div id="led-controls" aria-label="LED Control Panel" role="region">
+  <h3>LED Mode</h3>
+
+  <div id="led-mode" role="group" aria-label="LED Modes">
+    <button id="mode-off" class="button active" aria-pressed="true" type="button">Off</button>
+    <button id="mode-solid" class="button" aria-pressed="false" type="button">Solid</button>
+    <button id="mode-rainbow" class="button" aria-pressed="false" type="button">RGB Loop</button>
+  </div>
+
+  <div id="color-control">
+    <input type="color" id="led-color" aria-label="LED Color Picker" value="#ff0000" disabled />
+  </div>
+</div>
+<script src="script.js"></script>
+</body>
+</html>

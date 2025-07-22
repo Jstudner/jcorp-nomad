@@ -783,16 +783,7 @@ void setup() {
     Set_Backlight(90); // Set display brightness
     ui_init();         // Load the GUI
     
-    // Vérifier que l'écran est stable avant d'initialiser la carte SD
     Serial.begin(115200);
-    Serial.println("Vérification de l'écran...");
-    delay(1000); // Attendre 1 seconde pour que l'écran soit stable
-    
-    // Test rapide de l'écran
-    lv_label_set_text(ui_userlabel, "Test");
-    delay(500);
-    lv_label_set_text(ui_userlabel, "");
-    delay(500);
     delay(1000);
     Serial.println("\n=== ESP32-S3 Captive Portal & SDMMC Server ===");
     // Start WiFi Access Point

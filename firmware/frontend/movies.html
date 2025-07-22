@@ -1,0 +1,241 @@
+<!DOCTYPE html>
+<!--  Nomad Movies Page (mobile grid + replay fix + search layout fix)  -->
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="Jcorp Nomad Media Server – Movies">
+    <title>Nomad Movies</title>
+    <link rel="icon" href="favicon.ico" type="image/x-icon">
+    <link rel="stylesheet" href="style.css">
+    <style>
+        /* Styles spécifiques aux cartes médias et modals */
+        .media-card{background:#fff;border-radius:var(--radius);box-shadow:var(--shadow);overflow:hidden;display:flex;flex-direction:column;transition:transform .25s ease;cursor:pointer;width:100%;max-width:220px;margin:0 auto;}
+        .media-grid.small  .media-card{max-width:120px;}
+        .media-grid.medium .media-card{max-width:160px;}
+        .media-grid.large  .media-card{max-width:220px;}
+        .media-card:hover{transform:translateY(-3px);}
+        .media-thumb{width:100%;aspect-ratio:2/3;object-fit:cover;}
+        
+        .modal,.video-modal{display:none;position:fixed;inset:0;background:rgba(0,0,0,0.6);justify-content:center;align-items:center;z-index:1000;}
+        .modal-content,.video-modal-content{background:#fff;padding:20px;border-radius:10px;text-align:center;width:90%;max-width:500px;box-shadow:0 6px 20px rgba(0,0,0,0.1);}
+        .modal .button,.video-modal .button{width:100%;margin:10px 0;}
+        .modal .button:hover,.video-modal .button:hover{background:var(--primary-dark);}
+        .video-container{display:flex;flex-direction:column;align-items:center;gap:1rem;}
+        video{width:100%;max-width:800px;border-radius:10px;box-shadow:0 6px 20px rgba(0,0,0,0.2);}
+    </style>
+</head>
+<body>
+    <!-- Navbar -->
+    <header>
+        <h1>Jcorp Nomad</h1>
+        <nav>
+            <div class="menu-item">
+                <a href="index.html">Home</a>
+            </div>
+            <div class="menu-item">
+                <a href="pages.html">Pages</a>
+            </div>
+            <div class="menu-item">
+                <a href="admin.html">Admin</a>
+            </div>
+        </nav>
+    </header>
+
+    <div class="toolbar">
+        <input id="searchInput" type="search" placeholder="Search movies…" aria-label="Search movies">
+        <select id="sortSelect" aria-label="Sort movies">
+            <option value="nameAsc">A → Z</option>
+            <option value="nameDesc">Z → A</option>
+        </select>
+        <button class="view-btn button" data-size="small" title="Compact view">🔳</button>
+        <button class="view-btn button active" data-size="medium" title="Comfort view">🔲</button>
+        <button class="view-btn button" data-size="large" title="Gallery view">⬜</button>
+    </div>
+
+    <main><div class="grid-wrapper"><div id="grid" class="media-grid medium"></div></div></main>
+
+    <div id="modal" class="modal" onclick="closeModal(event)">
+        <div class="modal-content" onclick="event.stopPropagation();">
+            <h2>What would you like to do?</h2>
+            <button id="viewButton" class="button">View in Browser</button>
+            <button id="downloadButton" class="button">Download</button>
+        </div>
+    </div>
+
+    <div id="videoModal" class="video-modal">
+        <div class="video-modal-content">
+            <div class="video-container">
+                <video id="videoPlayer" controls>
+                    <source id="videoSource" type="video/mp4">
+                    Your browser does not support the video tag.
+                </video>
+                <button onclick="closeVideo()" class="button">Close</button>
+            </div>
+        </div>
+    </div>
+
+    <footer>© <span id="year"></span> Jcorp Nomad</footer>
+
+    <script>
+        // Variables globales
+        let currentSize = 'medium';
+        let debounceTimer;
+        const viewButtons = document.querySelectorAll('.view-btn');
+        const videoPlayer = document.getElementById('videoPlayer');
+        const videoSource = document.getElementById('videoSource');
+        let retries = 0;
+        let freezeTimer;
+
+        // Fonction pour définir la taille de la vue
+        function setViewSize(size) {
+            const grid = document.getElementById('grid');
+            grid.className = `media-grid ${size}`;
+            viewButtons.forEach(btn => btn.classList.toggle('active', btn.dataset.size === size));
+        }
+
+        // Initialisation
+        setViewSize(currentSize);
+        viewButtons.forEach(btn => btn.addEventListener('click', () => setViewSize(btn.dataset.size)));
+
+        // Fonctions utilitaires
+        function isVideoFile(fileName) {
+            return fileName.toLowerCase().endsWith('.mp4') || fileName.toLowerCase().endsWith('.mkv');
+        }
+
+        function getFileUrlForView(filePath) {
+            return `/${filePath}?v=${Date.now()}`;
+        }
+
+        // Initialisation
+        function init() {
+            const params = new URLSearchParams(window.location.search);
+            const path = params.get('path') || '';
+            const files = JSON.parse(params.get('files') || '[]');
+            const movies = files.filter(file => isVideoFile(file.name));
+            renderGrid(movies);
+        }
+
+        // Filtrage
+        function applyFilter(term) {
+            const params = new URLSearchParams(window.location.search);
+            const path = params.get('path') || '';
+            const files = JSON.parse(params.get('files') || '[]');
+            const movies = files.filter(file => isVideoFile(file.name));
+            
+            const filtered = movies.filter(movie => 
+                movie.name.toLowerCase().includes(term.toLowerCase())
+            );
+            renderGrid(filtered);
+        }
+
+        // Tri
+        function applySort(mode) {
+            const params = new URLSearchParams(window.location.search);
+            const path = params.get('path') || '';
+            const files = JSON.parse(params.get('files') || '[]');
+            const movies = files.filter(file => isVideoFile(file.name));
+            
+            let sorted;
+            if (mode === 'nameAsc') {
+                sorted = [...movies].sort((a, b) => a.name.localeCompare(b.name));
+            } else if (mode === 'nameDesc') {
+                sorted = [...movies].sort((a, b) => b.name.localeCompare(a.name));
+            }
+            renderGrid(sorted);
+        }
+
+        // Rendu de la grille
+        function renderGrid(movies) {
+            const grid = document.getElementById('grid');
+            grid.innerHTML = movies.map(movie => `
+                <div class="media-card" onclick="showMovieOptions(this)">
+                    <img class="media-thumb" src="${getFileUrlForView(movie.path)}" alt="${movie.name}">
+                    <div class="media-info">
+                        <h3>${movie.name}</h3>
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        // Gestionnaire d'événements pour les options du film
+        function showMovieOptions(movieCard) {
+            const movie = movies.find(m => m.name === movieCard.querySelector('h3').textContent);
+            document.getElementById('modal').style.display = 'flex';
+            document.getElementById('viewButton').onclick = () => openVideo(movie);
+            document.getElementById('downloadButton').onclick = () => downloadMovie(movie);
+        }
+
+        // Téléchargement
+        function downloadMovie(movie) {
+            window.location.href = `/download${movie.path}`;
+        }
+
+        // Lecture vidéo
+        function openVideo(src) {
+            videoSource.src = getFileUrlForView(src.path);
+            videoPlayer.load();
+            document.getElementById('videoModal').style.display = 'flex';
+        }
+
+        // Fermeture vidéo
+        function closeVideo() {
+            document.getElementById('videoModal').style.display = 'none';
+            videoPlayer.pause();
+        }
+
+        // Fermeture modal
+        function closeModal(evt) {
+            if (evt.target === evt.currentTarget) {
+                evt.currentTarget.style.display = 'none';
+            }
+        }
+
+        // Gestion des événements
+        const searchInput = document.getElementById('searchInput');
+        const sortSelect = document.getElementById('sortSelect');
+
+        searchInput.addEventListener('input', e => {
+            clearTimeout(debounceTimer);
+            debounceTimer = setTimeout(() => applyFilter(e.target.value), 150);
+        });
+        sortSelect.addEventListener('change', () => applySort(sortSelect.value));
+        videoPlayer.addEventListener('ended', closeVideo);
+
+        // Gestion des vidéos
+        function refreshStream() {
+            if (retries < 3) {
+                retries++;
+                videoSource.src = getFileUrlForView(videoSource.src.split('?')[0]);
+                videoPlayer.load();
+            } else {
+                closeVideo();
+            }
+        }
+
+        function startWatchdog() {
+            freezeTimer = setInterval(() => {
+                if (videoPlayer.currentTime === videoPlayer.duration) {
+                    closeVideo();
+                }
+            }, 1000);
+        }
+
+        document.querySelectorAll('video').forEach(player => {
+            player.addEventListener('stalled', refreshStream);
+            player.addEventListener('error', refreshStream);
+            player.addEventListener('waiting', () => {
+                setTimeout(() => refreshStream(), 2000);
+            });
+            player.addEventListener('playing', () => {
+                retries = 0;
+                startWatchdog();
+            });
+            player.addEventListener('pause', () => clearInterval(freezeTimer));
+        });
+
+        // Initialisation
+        init();
+    </script>
+</body>
+</html>
