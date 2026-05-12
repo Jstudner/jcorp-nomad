@@ -2751,7 +2751,7 @@ void applyWiFiSettings() {
   
   Serial.print("Starting WiFi with SSID: ");
   Serial.println(settings.wifiSSID);
-  WiFi.softAP(settings.wifiSSID.c_str(), settings.wifiPassword.c_str(), 1, 0, 8);
+  WiFi.softAP(settings.wifiSSID.c_str(), settings.wifiPassword.c_str(), 1, 1, 8);
   dnsServer.start(DNS_PORT, "*", WiFi.softAPIP());
 }
 // Return number of connected stations on the softAP
@@ -3632,7 +3632,7 @@ void setup() {
 
     // Start WiFi Access Point
     webLogf("info", "Starting WiFi Access Point with SSID: '%s'", settings.wifiSSID.c_str());
-    WiFi.softAP(settings.wifiSSID.c_str(), settings.wifiPassword.c_str(), 1, 0, 8);
+    WiFi.softAP(settings.wifiSSID.c_str(), settings.wifiPassword.c_str(), 1, 1, 8);
     webLogf("success", "WiFi Access Point started successfully - IP: %s", WiFi.softAPIP().toString().c_str());
   
 
