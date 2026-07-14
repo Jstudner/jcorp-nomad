@@ -84,7 +84,8 @@ void usb_setup() {
   Serial.println(">>> USB mode: mounting SD & starting MSC");
 
   SD_MMC.setPins(clk, cmd, d0, d1, d2, d3);
-  if (!SD_MMC.begin("/sdcard", false, true, 50000000)) {
+  // Never format user media when USB mode cannot mount it.
+  if (!SD_MMC.begin("/sdcard", false, false, 50000000)) {
     Serial.println("ERROR: SD card mount failed!");
     return;
   }
