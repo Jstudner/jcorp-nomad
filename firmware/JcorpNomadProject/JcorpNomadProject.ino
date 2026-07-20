@@ -25,6 +25,8 @@
 #include <SPIFFS.h>
 #include <Preferences.h>
 #include "esp_wifi.h"
+#include "esp_netif.h"      // esp_netif_dhcps_* -- restart softAP DHCP if it stays down (issue #126)
+#include "esp_heap_caps.h"  // heap_caps_get_* -- DHCP-start heap logging
 #if defined(ARDUINO_ARCH_ESP32)
   #include "soc/soc.h"
   #include "soc/rtc_cntl_reg.h"
@@ -3423,6 +3425,38 @@ void startNomadMDNS() {
     Serial.println("[mDNS] Failed to start responder (nomad.local unavailable; IP access unaffected)");
   }
 }
+
+// dhcps (softAP DHCP server) usually starts inside WiFi.softAP(), but after an AP
+// restart it can silently stay down -- clients then associate but get no lease and
+// self-assign 169.254.x.x (APIPA). Restart it if it isn't running; heap is logged in
+// case low internal DRAM is what stopped it claiming its pool. (issue #126)
+void ensureApDhcpServer(const char *phase) {
+  esp_netif_t *ap = esp_netif_get_handle_from_ifkey("WIFI_AP_DEF");
+  if (!ap) {
+    Serial.printf("[DHCP] (%s) AP netif handle unavailable\n", phase);
+    return;
+  }
+  esp_netif_dhcp_status_t st = ESP_NETIF_DHCP_INIT;
+  if (esp_netif_dhcps_get_status(ap, &st) != ESP_OK) {
+    Serial.printf("[DHCP] (%s) could not query dhcps status\n", phase);
+    return;
+  }
+  Serial.printf("[DHCP] (%s) status=%s  internalHeap=%u largestBlock=%u apIP=%s\n",
+                phase,
+                st == ESP_NETIF_DHCP_STARTED ? "STARTED" : "NOT-RUNNING",
+                (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL),
+                (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL),
+                WiFi.softAPIP().toString().c_str());
+  if (st != ESP_NETIF_DHCP_STARTED) {
+    esp_err_t e = esp_netif_dhcps_start(ap);
+    st = ESP_NETIF_DHCP_INIT;
+    esp_netif_dhcps_get_status(ap, &st);
+    Serial.printf("[DHCP] (%s) dhcps was down -> restart %s, now %s\n",
+                  phase, (e == ESP_OK ? "issued" : "FAILED"),
+                  st == ESP_NETIF_DHCP_STARTED ? "STARTED" : "STILL-DOWN");
+  }
+}
+
 void applyWiFiSettings() {
   Serial.print("Stopping existing WiFi Access Point...");
   stopNomadMDNS();              // must happen while the AP netif still exists
@@ -3432,6 +3466,7 @@ void applyWiFiSettings() {
   Serial.print("Starting WiFi with SSID: ");
   Serial.println(settings.wifiSSID);
   WiFi.softAP(settings.wifiSSID.c_str(), settings.wifiPassword.c_str(), 1, 0, MAX_CLIENTS);
+  ensureApDhcpServer("apply-settings");  // AP restart can leave dhcps down (issue #126)
   dnsServer.start(DNS_PORT, "*", WiFi.softAPIP());
   startNomadMDNS();
 }
@@ -4189,6 +4224,7 @@ void setup() {
     // Start WiFi Access Point
     webLogf("info", "Starting WiFi Access Point with SSID: '%s'", settings.wifiSSID.c_str());
     WiFi.softAP(settings.wifiSSID.c_str(), settings.wifiPassword.c_str(), 1, 0, MAX_CLIENTS);
+    ensureApDhcpServer("boot-initial");  // make sure clients get a lease, not APIPA (issue #126)
     webLogf("success", "WiFi Access Point started successfully - IP: %s", WiFi.softAPIP().toString().c_str());
     startNomadMDNS();
     webLogf("info", "Device also reachable at http://%s.local/", MDNS_HOSTNAME);
