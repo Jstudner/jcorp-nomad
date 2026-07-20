@@ -86,7 +86,8 @@ void usb_setup() {
   NomadSD.setPins(clk, cmd, d0, d1, d2, d3);
   // raw card init only: MSC shuttles sectors, the HOST interprets the
   // filesystem, so USB mode works no matter what format the card holds
-  // (and can never trigger a mount-failure auto-format like SD_MMC could)
+  // (and can never trigger a mount-failure auto-format like SD_MMC could,
+  // which is what #122 guarded against with format_if_mount_failed=false)
   if (!NomadSD.beginRaw(false, SDMMC_FREQ_HIGHSPEED)) {
     Serial.println("ERROR: SD card init failed!");
     return;
