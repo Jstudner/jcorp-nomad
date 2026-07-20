@@ -1,12 +1,18 @@
-// Jcorp Nomad Backend
-//<!-- Version 4.2 -->
+// Jcorp Nomad Backend - exFAT edition
+//<!-- Version 4.6 -->
 #include <Arduino.h>
 #include <WiFi.h>
 #include <AsyncTCP.h>
 #include <ESPAsyncWebServer.h>
-#include <SdFat.h>
-SdExFat sd;
-ExFatFile file;
+// NomadSD replaces SD_MMC: same pins and peripheral, SdFat underneath, so exFAT,
+// FAT32 and FAT16 all mount and are auto-detected. Included early because
+// StreamHandle below holds a NomadFile64. NomadSD.h deliberately hides SdFat's
+// headers, whose global `typedef FsFile File` would collide with fs::File.
+#include "NomadSD.h"
+#define SD_MMC NomadSD
+#ifndef SD
+#define SD NomadSD
+#endif
 #include <DNSServer.h>
 #include <ESPmDNS.h>
 #include <ArduinoJson.h>
@@ -185,11 +191,13 @@ const uint32_t SD_SCAN_DELAY = 5000;  // milliseconds after boot
 SemaphoreHandle_t sdMutex = NULL;
 #include <map>
 static uint32_t nextStreamId = 1;
+// NomadFile64 rather than fs::File, so streams can seek and size past 4 GB on
+// exFAT. Identical behaviour on FAT32. Move-only, like the SdFat handle.
 struct StreamHandle {
-  File file;
+  NomadFile64 file;
   String path;
   unsigned long lastActivity;
-  size_t lastEndByte;
+  uint64_t lastEndByte;
 };
 static std::map<uint32_t, StreamHandle> streamingFiles;
 static std::map<String, uint32_t> streamPathIndex;
@@ -220,6 +228,30 @@ int g_currentBucketNum = 0;
 int g_totalBucketsForProgress = 0;
 int g_indexProgressPercent = 0;
 SemaphoreHandle_t indexingPathMutex = NULL;
+
+// ---- Multiplayer room store (HTTP polling, no WebSockets) ----
+// Fixed-size, plain-char-buffer, no Arduino String anywhere in this store or its
+// handlers, and NO SD I/O -- this is the same class of hazard that previously
+// caused heap corruption via unsynchronized Strings shared across tasks
+// (see AGENTS.md / webLogMutex history). Everything here is guarded by gameMutex.
+#define MP_MAX_ROOMS 4
+#define MP_CODE_LEN 5      // 4-char room code + NUL
+#define MP_GAME_LEN 16     // e.g. "tictactoe", "chess"
+#define MP_TOKEN_LEN 9     // 8 hex chars + NUL
+#define MP_STATE_LEN 512   // opaque client-owned state blob (chess FEN ~90B, TTT ~32B)
+#define MP_ROOM_IDLE_MS (2UL * 60UL * 1000UL)  // idle rooms are reclaimed after ~2 min
+
+struct MpRoom {
+  bool active;
+  char code[MP_CODE_LEN];
+  char game[MP_GAME_LEN];
+  char token[2][MP_TOKEN_LEN];  // seat 0/1 tokens; empty string = seat open
+  char state[MP_STATE_LEN];
+  uint32_t seq;
+  unsigned long lastMs;
+};
+static MpRoom mpRooms[MP_MAX_ROOMS];
+SemaphoreHandle_t gameMutex = NULL;
 
 // Function declarations for task management
 void shutdownBackgroundTasksForStreaming();
@@ -299,11 +331,6 @@ static bool shouldSkipIndexingPath(const String &path) {
   return false;
 }
 
-// START: SD_MMC compatibility alias
-#include <SD_MMC.h>  
-#ifndef SD
-#define SD SD_MMC
-#endif
 #define INDEXER_SLEEP_MS 300000 // 5 minutes between background scans
 #define MAX_CLIENTS 8 // SoftAP max_connection; keep in sync with WiFi.softAP() calls below
 String encodeIndexName(const String &path);
@@ -980,7 +1007,10 @@ bool writeNDIndexForDir(const String &dirPath, const String &outFilename) {
     jsonEscapeToBuf(full, escPath, HALF_INDEX_BUF);
 
     if (entryType == 'f') {
+    // size() saturates at SIZE_MAX rather than wrapping; only then pay for the
+    // 64-bit lookup, so normal files (and every FAT32 card) cost nothing extra
     uint64_t fsz = (uint64_t)e.size();
+    if (fsz == (uint64_t)SIZE_MAX) fsz = SD_MMC.fileSize64(full.c_str());
     uint64_t fmt = 0;
     int pos = snprintf(g_lineBuf, GLOBAL_INDEX_BUF,
     "{\"t\":\"f\",\"n\":\"%s\",\"p\":\"%s\",\"sz\":%llu,\"mt\":%llu}\n",
@@ -1287,8 +1317,35 @@ bool deleteRecursive(String path) {
 
 
 // ───────────────── SD‑recovery globals ───────────────
-volatile bool sdErrorFlag            = false;      
-unsigned long sdErrorCooldownUntil   = 0;          
+volatile bool sdErrorFlag            = false;
+unsigned long sdErrorCooldownUntil   = 0;
+
+// Mount as fast as the board will reliably go, stepping down on failure. Media
+// mode used to mount 1-bit at 20 MHz while USB mode ran 4-bit at 40 MHz on the
+// same six pins, leaving most of the bus unused and capping large reads at
+// ~625 KB/s. The last rung matches the old settings, so a board or card that
+// cannot do 4-bit still comes up as before.
+static const char *g_sdModeDesc = "not mounted";
+
+bool mountSDCard() {
+  struct { bool oneBit; int khz; const char *desc; } modes[] = {
+    { false, SDMMC_FREQ_HIGHSPEED, "4-bit @ 40MHz" },
+    { false, SDMMC_FREQ_DEFAULT,   "4-bit @ 20MHz" },
+    { true,  SDMMC_FREQ_DEFAULT,   "1-bit @ 20MHz" },
+  };
+  for (unsigned i = 0; i < sizeof(modes) / sizeof(modes[0]); i++) {
+    if (SD_MMC.begin("/sdcard", modes[i].oneBit, false, modes[i].khz, 12)) {
+      g_sdModeDesc = modes[i].desc;
+      Serial.printf("[SD] Mounted %s (%s)\n", modes[i].desc, NomadSD.fsTypeName());
+      return true;
+    }
+    Serial.printf("[SD] Mount failed at %s, stepping down\n", modes[i].desc);
+    SD_MMC.end();
+    delay(200);
+  }
+  g_sdModeDesc = "not mounted";
+  return false;
+}
 
 bool tryRecoverSDCard() {
     Serial.println("[SD] Attempting recovery…");
@@ -1304,7 +1361,7 @@ bool tryRecoverSDCard() {
 
         SD_MMC.end();          // unmount
         delay(1000);           // give hardware a breather
-        bool ok = SD_MMC.begin("/sdcard", true, false, SDMMC_FREQ_DEFAULT, 12);
+        bool ok = mountSDCard();
 
         if (sdHeld && sdMutex) xSemaphoreGive(sdMutex);
         xSemaphoreGive(streamingFilesMutex);
@@ -1316,7 +1373,7 @@ bool tryRecoverSDCard() {
     if (sdMutex) xSemaphoreTake(sdMutex, pdMS_TO_TICKS(3000));
     SD_MMC.end();
     delay(1000);
-    bool ok = SD_MMC.begin("/sdcard", true, false, SDMMC_FREQ_DEFAULT, 12);
+    bool ok = mountSDCard();
     if (sdMutex) xSemaphoreGive(sdMutex);
     Serial.println(ok ? "[SD] Recovery OK." : "[SD] Recovery failed.");
     return ok;
@@ -1478,6 +1535,8 @@ void generateMediaJson(){
   webLogf("indexing_progress", "Completed indexing Shows bucket");
   buildBucketIndex("/Music");  // writes Music.index.ndjson
   webLogf("indexing_progress", "Completed indexing Music bucket");
+  buildBucketIndex("/Games");  // writes Games.index.ndjson (flat layout, no nested per-subfolder pass)
+  webLogf("indexing_progress", "Completed indexing Games bucket");
 
 File showsDir = SD.open("/Shows");
   if(showsDir){
@@ -1814,18 +1873,20 @@ void handleRangeRequest(AsyncWebServerRequest *request) {
     return;
   }
 
-  File file = SD_MMC.open(filePath, "r");
-  releaseSd(); 
+  // 64-bit stat: fs::File::size() truncates modulo 4 GB, which would report a
+  // 5 GB file as 0.88 GB and reject every range past 4 GB.
+  uint64_t fileSize = SD_MMC.fileSize64(filePath.c_str());
+  releaseSd();
 
-  if (!file) {
-    Serial.printf("[SD] open() failed for '%s'\n", filePath.c_str());
+  if (fileSize == 0) {
+    // could be a genuinely empty file, a directory, or an open failure - the
+    // exists() check above already passed, so treat it as unreadable
+    Serial.printf("[SD] size query failed or empty: '%s'\n", filePath.c_str());
     sdErrorFlag = true;
     sdErrorCooldownUntil = millis() + 5000;
     request->send(503, "text/plain", "SD error");
     return;
   }
-
-  size_t fileSize = file.size();
 
   if (request->method() == HTTP_HEAD) {
     AsyncWebServerResponse *headResponse = request->beginResponse(200, "application/octet-stream", "");
@@ -1833,7 +1894,6 @@ void handleRangeRequest(AsyncWebServerRequest *request) {
     headResponse->addHeader("Content-Length", String(fileSize));
     headResponse->addHeader("Cache-Control", "public, max-age=3600");
     headResponse->addHeader("Pragma", "no-cache");
-    file.close();
     request->send(headResponse);
     return;
   }
@@ -1841,20 +1901,20 @@ void handleRangeRequest(AsyncWebServerRequest *request) {
   String rangeHeader = "";
   if (request->hasHeader("Range")) rangeHeader = request->header("Range");
 
-  size_t startByte = 0;
-  size_t endByte = fileSize - 1;
+  uint64_t startByte = 0;
+  uint64_t endByte = fileSize - 1;
   bool openEndedRange = false;
 
   if (rangeHeader.length() && rangeHeader.startsWith("bytes=")) {
     int dashIndex = rangeHeader.indexOf('-');
-    // strtoul not toInt() - toInt() is signed 32-bit and overflows past 2GB (ZIM parts hit 4GB)
+    // strtoull, not strtoul/toInt(): offsets into a >4 GB exFAT file need 64 bits
     if (dashIndex > 6) {
-      startByte = (size_t)strtoul(rangeHeader.substring(6, dashIndex).c_str(), nullptr, 10);
+      startByte = (uint64_t)strtoull(rangeHeader.substring(6, dashIndex).c_str(), nullptr, 10);
     }
     if (dashIndex + 1 < rangeHeader.length()) {
       String endStr = rangeHeader.substring(dashIndex + 1);
       if (endStr.length() > 0) {
-        endByte = (size_t)strtoul(endStr.c_str(), nullptr, 10);
+        endByte = (uint64_t)strtoull(endStr.c_str(), nullptr, 10);
       } else {
         openEndedRange = true;
       }
@@ -1863,13 +1923,30 @@ void handleRangeRequest(AsyncWebServerRequest *request) {
     }
   }
 
-  if (openEndedRange && (endByte - startByte) > (8 * 1024 * 1024)) {
-    endByte = startByte + (8 * 1024 * 1024) - 1;
+  if (openEndedRange && (endByte - startByte) > (8ULL * 1024 * 1024)) {
+    endByte = startByte + (8ULL * 1024 * 1024) - 1;
   }
 
+  if (startByte >= fileSize) {
+    // RFC 9110: a start beyond EOF must be refused, not clamped
+    AsyncWebServerResponse *r416 = request->beginResponse(416, "text/plain", "Range not satisfiable");
+    r416->addHeader("Content-Range", "bytes */" + String(fileSize));
+    request->send(r416);
+    return;
+  }
   if (endByte >= fileSize) endByte = fileSize - 1;
   if (startByte > endByte) startByte = endByte;
-  size_t contentLength = endByte - startByte + 1;
+
+  // A response body must fit size_t, so cap any single reply. Returning fewer
+  // bytes than asked is legal as long as Content-Range says so; clients just
+  // request the next slice.
+  const uint64_t MAX_RESPONSE_BYTES = 256ULL * 1024 * 1024;
+  if (endByte - startByte + 1 > MAX_RESPONSE_BYTES) {
+    endByte = startByte + MAX_RESPONSE_BYTES - 1;
+  }
+  size_t contentLength = (size_t)(endByte - startByte + 1);
+  // a plain GET of a file too big for one body degrades to partial content
+  bool forcedPartial = (rangeHeader.length() == 0) && (endByte + 1 < fileSize);
 
   String mimeType = "application/octet-stream";
   String pLower = filePath;
@@ -1909,10 +1986,6 @@ void handleRangeRequest(AsyncWebServerRequest *request) {
     shutdownBackgroundTasksForStreaming();
   }
 
-  if (sdMutex) xSemaphoreTake(sdMutex, pdMS_TO_TICKS(2000));
-  file.close();
-  if (sdMutex) xSemaphoreGive(sdMutex);
-
   uint32_t streamId = 0;
   if (streamingFilesMutex && xSemaphoreTake(streamingFilesMutex, pdMS_TO_TICKS(300)) == pdTRUE) {
 
@@ -1927,25 +2000,22 @@ void handleRangeRequest(AsyncWebServerRequest *request) {
       uint32_t existingId = pidx->second;
       auto eit = streamingFiles.find(existingId);
 
-      bool stdio2GBGuard = (eit != streamingFiles.end() && eit->second.file &&
-                            eit->second.lastEndByte >= 0x7FFFF000UL);
-      if (eit != streamingFiles.end() && eit->second.file && !stdio2GBGuard) {
+      // The old stack needed a "reopen instead of seek past 2 GB" guard here,
+      // because fs::File sat on newlib stdio and its signed 32-bit offset
+      // corrupted the FILE buffer on a reused handle. SdFat seeks 64-bit
+      // natively, so reuse now works at any offset without a close/reopen.
+      if (eit != streamingFiles.end() && eit->second.file.isOpen()) {
         eit->second.file.seek(startByte);
         eit->second.lastActivity = millis();
         eit->second.lastEndByte = endByte;
         streamId = existingId;
-        Serial.printf("[Stream] Reuse #%u seek %lu: %s (heap=%u)\n",
-                      streamId, (unsigned long)startByte, filePath.c_str(),
+        Serial.printf("[Stream] Reuse #%u seek %llu: %s (heap=%u)\n",
+                      streamId, (unsigned long long)startByte, filePath.c_str(),
                       (unsigned)ESP.getFreeHeap());
         if (sdMutex) xSemaphoreGive(sdMutex);
         xSemaphoreGive(streamingFilesMutex);
         goto stream_ready;
       } else {
-        if (stdio2GBGuard) {
-          Serial.printf("[Stream] Reopen #%u (pos>2GB stdio guard): %s\n",
-                        existingId, filePath.c_str());
-          eit->second.file.close();
-        }
         streamPathIndex.erase(pidx);
         if (eit != streamingFiles.end()) streamingFiles.erase(eit);
       }
@@ -1986,27 +2056,25 @@ void handleRangeRequest(AsyncWebServerRequest *request) {
       }
     }
 
-    File f = SD_MMC.open(filePath, "r");
-    if (!f) {
+    StreamHandle sh;
+    if (!sh.file.open(filePath.c_str())) {
       Serial.printf("[Stream] Failed to open: %s\n", filePath.c_str());
       if (sdMutex) xSemaphoreGive(sdMutex);
       xSemaphoreGive(streamingFilesMutex);
       request->send(503, "text/plain", "Failed to open file");
       return;
     }
-    f.seek(startByte);
+    sh.file.seek(startByte);
     streamId = nextStreamId++;
     if (nextStreamId == 0) nextStreamId = 1;
-    StreamHandle sh;
-    sh.file = f;
     sh.path = filePath;
     sh.lastActivity = millis();
     sh.lastEndByte = endByte;
-    streamingFiles[streamId] = sh;
+    streamingFiles[streamId] = std::move(sh);  // NomadFile64 is move-only
     streamPathIndex[filePath] = streamId;
     activeStreams = streamingFiles.size();
-    Serial.printf("[Stream] New #%u at %lu: %s (active=%d heap=%u)\n",
-                  streamId, (unsigned long)startByte, filePath.c_str(), activeStreams,
+    Serial.printf("[Stream] New #%u at %llu: %s (active=%d heap=%u)\n",
+                  streamId, (unsigned long long)startByte, filePath.c_str(), activeStreams,
                   (unsigned)ESP.getFreeHeap());
     if (sdMutex) xSemaphoreGive(sdMutex);
     xSemaphoreGive(streamingFilesMutex);
@@ -2033,7 +2101,7 @@ void handleRangeRequest(AsyncWebServerRequest *request) {
         return 0;
       }
 
-      File &file = it->second.file;
+      NomadFile64 &file = it->second.file;
       it->second.lastActivity = millis();
       lastStreamIoMs = it->second.lastActivity;
 
@@ -2056,7 +2124,9 @@ void handleRangeRequest(AsyncWebServerRequest *request) {
     }
   );
 
-  if (rangeHeader.length() > 0) {
+  if (rangeHeader.length() > 0 || forcedPartial) {
+    // forcedPartial: no Range was sent but the file is too big for one body, so
+    // answer 206 with an honest Content-Range instead of a truncated 200
     response->setCode(206);
     response->addHeader("Content-Range", "bytes " + String(startByte) + "-" + String(endByte) + "/" + String(fileSize));
   } else {
@@ -2111,7 +2181,9 @@ void handleListFiles(AsyncWebServerRequest *request) {
             f["isDir"] = true;
         } else {
             f["name"] = filename;
-            f["size"] = file.size();
+            uint64_t fsz = (uint64_t)file.size();
+            if (fsz == (uint64_t)SIZE_MAX) fsz = SD_MMC.fileSize64(file.path());
+            f["size"] = fsz;
             f["isDir"] = false;
         }
         file = directory.openNextFile();
@@ -2255,6 +2327,340 @@ void handleArchiveList(AsyncWebServerRequest *request) {
   r->addHeader("Access-Control-Allow-Origin", "*");
   request->send(r);
   Serial.printf("[ARCHIVE] /api/archive-list: %d group(s), %u bytes\n", (int)groups.size(), (unsigned)resp.length());
+}
+
+// Cheap directory scan so menu.html can reveal the Games tile only when the
+// /Games folder actually has content -- same pattern as handleArchiveList,
+// deliberately reads no file CONTENT (zero big-file/2GB-stdio risk).
+void handleGamesList(AsyncWebServerRequest *request) {
+  bool sdLocked = false;
+  if (sdMutex) {
+    if (xSemaphoreTake(sdMutex, pdMS_TO_TICKS(1000)) != pdTRUE) {
+      request->send(503, "application/json", "{\"error\":\"SD busy\"}");
+      return;
+    }
+    sdLocked = true;
+  }
+
+  File root = SD_MMC.open("/Games");
+  if (!root || !root.isDirectory()) {
+    if (root) root.close();
+    if (sdLocked) xSemaphoreGive(sdMutex);
+    AsyncWebServerResponse *r = request->beginResponse(200, "application/json", "{\"games\":[]}");
+    r->addHeader("Access-Control-Allow-Origin", "*");
+    request->send(r);
+    return;
+  }
+
+  String resp = "{\"games\":[";
+  bool first = true;
+  int fileCount = 0;
+  File file = root.openNextFile();
+  while (file && fileCount < 256) {
+    if (!file.isDirectory()) {
+      String name = String(file.name());
+      int slash = name.lastIndexOf('/');
+      if (slash >= 0) name = name.substring(slash + 1);
+      // Skip dotfiles and sibling cover art -- only ROM files count toward "has content".
+      String lower = name;
+      lower.toLowerCase();
+      if (!name.startsWith(".") && !lower.endsWith(".png") && !lower.endsWith(".jpg") && !lower.endsWith(".jpeg")) {
+        fileCount++;
+        if (!first) resp += ",";
+        first = false;
+        resp += "{\"name\":\"" + escapeJsonString(name) + "\",\"path\":\"/Games/" + escapeJsonString(name) + "\"";
+        resp += ",\"size\":" + String((unsigned long long)file.size()) + "}";
+      }
+    }
+    file.close();
+    file = root.openNextFile();
+    yield();
+  }
+  root.close();
+  if (sdLocked) xSemaphoreGive(sdMutex);
+
+  resp += "]}";
+  AsyncWebServerResponse *r = request->beginResponse(200, "application/json", resp);
+  r->addHeader("Access-Control-Allow-Origin", "*");
+  request->send(r);
+  Serial.printf("[GAMES] /api/games-list: %d file(s), %u bytes\n", fileCount, (unsigned)resp.length());
+}
+
+// Cheap directory scan for menu.html's Maps tile: lists region subfolders under
+// /Maps that contain a manifest.json (per-region tile detail is fetched by the
+// client directly from /Maps/<region>/manifest.json, not parsed on-device).
+void handleMapsList(AsyncWebServerRequest *request) {
+  bool sdLocked = false;
+  if (sdMutex) {
+    if (xSemaphoreTake(sdMutex, pdMS_TO_TICKS(1000)) != pdTRUE) {
+      request->send(503, "application/json", "{\"error\":\"SD busy\"}");
+      return;
+    }
+    sdLocked = true;
+  }
+
+  File root = SD_MMC.open("/Maps");
+  if (!root || !root.isDirectory()) {
+    if (root) root.close();
+    if (sdLocked) xSemaphoreGive(sdMutex);
+    AsyncWebServerResponse *r = request->beginResponse(200, "application/json", "{\"regions\":[]}");
+    r->addHeader("Access-Control-Allow-Origin", "*");
+    request->send(r);
+    return;
+  }
+
+  String resp = "{\"regions\":[";
+  bool first = true;
+  int regionCount = 0;
+  File entry = root.openNextFile();
+  while (entry && regionCount < 64) {
+    if (entry.isDirectory()) {
+      String name = String(entry.name());
+      int slash = name.lastIndexOf('/');
+      if (slash >= 0) name = name.substring(slash + 1);
+      if (!name.startsWith(".")) {
+        String manifestPath = "/Maps/" + name + "/manifest.json";
+        if (SD_MMC.exists(manifestPath)) {
+          regionCount++;
+          if (!first) resp += ",";
+          first = false;
+          resp += "{\"id\":\"" + escapeJsonString(name) + "\",\"manifest\":\"" + escapeJsonString(manifestPath) + "\"}";
+        }
+      }
+    }
+    entry.close();
+    entry = root.openNextFile();
+    yield();
+  }
+  root.close();
+  if (sdLocked) xSemaphoreGive(sdMutex);
+
+  resp += "]}";
+  AsyncWebServerResponse *r = request->beginResponse(200, "application/json", resp);
+  r->addHeader("Access-Control-Allow-Origin", "*");
+  request->send(r);
+  Serial.printf("[MAPS] /api/maps-list: %d region(s), %u bytes\n", regionCount, (unsigned)resp.length());
+}
+
+// ---- Multiplayer (HTTP polling) helpers -- all assume gameMutex is already held ----
+
+static void mpGenerateCode(char *out) {  // out must be MP_CODE_LEN bytes
+  static const char kAlphabet[] = "23456789ABCDEFGHJKLMNPQRSTUVWXYZ";  // no 0/O/1/I
+  for (int i = 0; i < MP_CODE_LEN - 1; i++) out[i] = kAlphabet[esp_random() % (sizeof(kAlphabet) - 1)];
+  out[MP_CODE_LEN - 1] = '\0';
+}
+
+static void mpGenerateToken(char *out) {  // out must be MP_TOKEN_LEN bytes
+  static const char kHex[] = "0123456789abcdef";
+  for (int i = 0; i < MP_TOKEN_LEN - 1; i++) out[i] = kHex[esp_random() % 16];
+  out[MP_TOKEN_LEN - 1] = '\0';
+}
+
+// Reclaims any room idle past MP_ROOM_IDLE_MS. Call before allocating/looking up a room.
+static void mpReapIdleRooms() {
+  unsigned long now = millis();
+  for (int i = 0; i < MP_MAX_ROOMS; i++) {
+    if (mpRooms[i].active && (now - mpRooms[i].lastMs) > MP_ROOM_IDLE_MS) {
+      Serial.printf("[MP] Reclaiming idle room '%s'\n", mpRooms[i].code);
+      mpRooms[i].active = false;
+    }
+  }
+}
+
+static int mpFindRoomByCode(const char *code) {
+  for (int i = 0; i < MP_MAX_ROOMS; i++) {
+    if (mpRooms[i].active && strncmp(mpRooms[i].code, code, MP_CODE_LEN) == 0) return i;
+  }
+  return -1;
+}
+
+// Takes a slot index rather than a MpRoom& -- Arduino's auto-generated function
+// prototypes are inserted at the very top of the translation unit, before the
+// MpRoom struct definition, so a custom-type parameter here would fail to compile.
+static int mpFindSeatByToken(int slot, const char *token) {
+  MpRoom &room = mpRooms[slot];
+  for (int seat = 0; seat < 2; seat++) {
+    if (room.token[seat][0] != '\0' && strncmp(room.token[seat], token, MP_TOKEN_LEN) == 0) return seat;
+  }
+  return -1;
+}
+
+// POST /api/mp/create {game} -> {code, token, seat, seq}. Creator always takes seat 0.
+void handleMpCreate(AsyncWebServerRequest *request, uint8_t *data, size_t len, size_t index, size_t total) {
+  StaticJsonDocument<128> doc;
+  if (deserializeJson(doc, data)) { request->send(400, "application/json", "{\"error\":\"Invalid JSON\"}"); return; }
+  const char *game = doc["game"] | "";
+  if (!game[0] || strlen(game) >= MP_GAME_LEN) {
+    request->send(400, "application/json", "{\"error\":\"Invalid game\"}");
+    return;
+  }
+
+  if (!gameMutex || xSemaphoreTake(gameMutex, pdMS_TO_TICKS(200)) != pdTRUE) {
+    request->send(503, "application/json", "{\"error\":\"busy\"}");
+    return;
+  }
+
+  mpReapIdleRooms();
+  int slot = -1;
+  for (int i = 0; i < MP_MAX_ROOMS; i++) { if (!mpRooms[i].active) { slot = i; break; } }
+  if (slot < 0) {
+    xSemaphoreGive(gameMutex);
+    request->send(503, "application/json", "{\"error\":\"No rooms available\"}");
+    return;
+  }
+
+  MpRoom &room = mpRooms[slot];
+  memset(&room, 0, sizeof(room));
+  char code[MP_CODE_LEN];
+  int guard = 0;
+  do { mpGenerateCode(code); } while (mpFindRoomByCode(code) >= 0 && ++guard < 20);
+  memcpy(room.code, code, MP_CODE_LEN);
+  strncpy(room.game, game, MP_GAME_LEN - 1);
+  mpGenerateToken(room.token[0]);
+  room.seq = 0;  // 0 = empty/waiting state; turn = seq % 2, so seat 0 moves first
+  room.lastMs = millis();
+  room.active = true;
+
+  char codeOut[MP_CODE_LEN], tokenOut[MP_TOKEN_LEN];
+  memcpy(codeOut, room.code, MP_CODE_LEN);
+  memcpy(tokenOut, room.token[0], MP_TOKEN_LEN);
+  xSemaphoreGive(gameMutex);
+
+  String resp = String("{\"code\":\"") + codeOut + "\",\"token\":\"" + tokenOut + "\",\"seat\":0,\"seq\":0}";
+  AsyncWebServerResponse *r = request->beginResponse(200, "application/json", resp);
+  r->addHeader("Access-Control-Allow-Origin", "*");
+  request->send(r);
+  Serial.printf("[MP] Created room '%s' game=%s\n", codeOut, game);
+}
+
+// POST /api/mp/join {code} -> {token, seat}. Only seat 1 can be joined (seat 0 = creator).
+void handleMpJoin(AsyncWebServerRequest *request, uint8_t *data, size_t len, size_t index, size_t total) {
+  StaticJsonDocument<128> doc;
+  if (deserializeJson(doc, data)) { request->send(400, "application/json", "{\"error\":\"Invalid JSON\"}"); return; }
+  const char *code = doc["code"] | "";
+  if (!code[0]) { request->send(400, "application/json", "{\"error\":\"Missing code\"}"); return; }
+
+  if (!gameMutex || xSemaphoreTake(gameMutex, pdMS_TO_TICKS(200)) != pdTRUE) {
+    request->send(503, "application/json", "{\"error\":\"busy\"}");
+    return;
+  }
+
+  mpReapIdleRooms();
+  int slot = mpFindRoomByCode(code);
+  if (slot < 0) {
+    xSemaphoreGive(gameMutex);
+    request->send(404, "application/json", "{\"error\":\"Room not found\"}");
+    return;
+  }
+  MpRoom &room = mpRooms[slot];
+  if (room.token[1][0] != '\0') {
+    xSemaphoreGive(gameMutex);
+    request->send(409, "application/json", "{\"error\":\"Room full\"}");
+    return;
+  }
+  mpGenerateToken(room.token[1]);
+  room.lastMs = millis();
+  char tokenOut[MP_TOKEN_LEN];
+  memcpy(tokenOut, room.token[1], MP_TOKEN_LEN);
+  xSemaphoreGive(gameMutex);
+
+  String resp = String("{\"token\":\"") + tokenOut + "\",\"seat\":1}";
+  AsyncWebServerResponse *r = request->beginResponse(200, "application/json", resp);
+  r->addHeader("Access-Control-Allow-Origin", "*");
+  request->send(r);
+  Serial.printf("[MP] Seat 1 joined room '%s'\n", code);
+}
+
+// POST /api/mp/move {code, token, move, seq} -> {seq}. `move` is an opaque, client-computed
+// new-state blob (legality is validated CLIENT-SIDE, e.g. by chess.js) -- the server only
+// enforces turn ownership (seat == seq%2) and that `seq` matches the room's current seq
+// (optimistic-concurrency guard against stale/racing moves), then relays + bumps seq.
+void handleMpMove(AsyncWebServerRequest *request, uint8_t *data, size_t len, size_t index, size_t total) {
+  StaticJsonDocument<896> doc;  // MP_STATE_LEN (512) + code/token/seq overhead
+  if (deserializeJson(doc, data)) { request->send(400, "application/json", "{\"error\":\"Invalid JSON\"}"); return; }
+  const char *code = doc["code"] | "";
+  const char *token = doc["token"] | "";
+  const char *move = doc["move"] | "";
+  uint32_t clientSeq = doc["seq"] | 0xFFFFFFFFu;
+  if (!code[0] || !token[0]) { request->send(400, "application/json", "{\"error\":\"Missing code/token\"}"); return; }
+  if (strlen(move) >= MP_STATE_LEN) { request->send(400, "application/json", "{\"error\":\"State too large\"}"); return; }
+
+  if (!gameMutex || xSemaphoreTake(gameMutex, pdMS_TO_TICKS(200)) != pdTRUE) {
+    request->send(503, "application/json", "{\"error\":\"busy\"}");
+    return;
+  }
+
+  mpReapIdleRooms();
+  int slot = mpFindRoomByCode(code);
+  if (slot < 0) {
+    xSemaphoreGive(gameMutex);
+    request->send(404, "application/json", "{\"error\":\"Room not found\"}");
+    return;
+  }
+  MpRoom &room = mpRooms[slot];
+  int seat = mpFindSeatByToken(slot, token);
+  if (seat < 0) {
+    xSemaphoreGive(gameMutex);
+    request->send(403, "application/json", "{\"error\":\"Invalid token\"}");
+    return;
+  }
+  uint32_t turnSeat = room.seq % 2;
+  if ((uint32_t)seat != turnSeat) {
+    xSemaphoreGive(gameMutex);
+    request->send(409, "application/json", "{\"error\":\"Not your turn\"}");
+    return;
+  }
+  if (clientSeq != room.seq) {
+    xSemaphoreGive(gameMutex);
+    request->send(409, "application/json", "{\"error\":\"Stale seq\"}");
+    return;
+  }
+
+  strncpy(room.state, move, MP_STATE_LEN - 1);
+  room.state[MP_STATE_LEN - 1] = '\0';
+  room.seq++;
+  room.lastMs = millis();
+  uint32_t seqOut = room.seq;
+  xSemaphoreGive(gameMutex);
+
+  String resp = String("{\"seq\":") + seqOut + "}";
+  AsyncWebServerResponse *r = request->beginResponse(200, "application/json", resp);
+  r->addHeader("Access-Control-Allow-Origin", "*");
+  request->send(r);
+}
+
+// GET /api/mp/state?code=&since= -> {seq, changed, joined, state}. Short-poll target (~1s).
+void handleMpState(AsyncWebServerRequest *request) {
+  if (!request->hasParam("code")) { request->send(400, "application/json", "{\"error\":\"Missing code\"}"); return; }
+  String codeStr = request->getParam("code")->value();
+  uint32_t since = 0;
+  if (request->hasParam("since")) since = (uint32_t) request->getParam("since")->value().toInt();
+
+  if (!gameMutex || xSemaphoreTake(gameMutex, pdMS_TO_TICKS(200)) != pdTRUE) {
+    request->send(503, "application/json", "{\"error\":\"busy\"}");
+    return;
+  }
+
+  int slot = mpFindRoomByCode(codeStr.c_str());
+  if (slot < 0) {
+    xSemaphoreGive(gameMutex);
+    request->send(404, "application/json", "{\"error\":\"Room not found\"}");
+    return;
+  }
+  MpRoom &room = mpRooms[slot];
+  bool changed = room.seq > since;
+  bool joined = room.token[1][0] != '\0';
+  uint32_t seqOut = room.seq;
+  char stateOut[MP_STATE_LEN];
+  memcpy(stateOut, room.state, MP_STATE_LEN);
+  xSemaphoreGive(gameMutex);
+
+  String resp = String("{\"seq\":") + seqOut + ",\"changed\":" + (changed ? "true" : "false") +
+                ",\"joined\":" + (joined ? "true" : "false") +
+                ",\"state\":\"" + escapeJsonString(String(stateOut)) + "\"}";
+  AsyncWebServerResponse *r = request->beginResponse(200, "application/json", resp);
+  r->addHeader("Access-Control-Allow-Origin", "*");
+  request->send(r);
 }
 
 void handleRename(AsyncWebServerRequest *request) {
@@ -2809,6 +3215,9 @@ void scanSDCardUsage() {
       } else {
         uint64_t fileSize = entry.size();
         entry.close();
+        // saturated size means the file is past 4 GB; get the real one so the
+        // usage total is not short by 4 GB for every such file
+        if (fileSize == (uint64_t)SIZE_MAX) fileSize = SD_MMC.fileSize64(entryPath.c_str());
 
         cachedUsedBytes += fileSize;
         BreakdownStats &bucket = g_lastBreakdown[topLevelBucketFor(entryPath)];
@@ -2991,10 +3400,24 @@ void applyRGBSettings() {
 // captive DNS alone doesn't cover it. Must be restarted whenever the AP
 // interface is torn down (softAPdisconnect kills the responder's netif).
 const char* MDNS_HOSTNAME = "nomad";
+
+// MDNS.end() is a bare mdns_free() with no "is it running" check, so calling it
+// when the responder was never started, or after the AP netif it bound to is
+// gone, walks freed pcb memory and panics. Track state ourselves and always
+// stop BEFORE the interface goes away.
+static bool g_mdnsRunning = false;
+
+void stopNomadMDNS() {
+  if (!g_mdnsRunning) return;
+  MDNS.end();
+  g_mdnsRunning = false;
+}
+
 void startNomadMDNS() {
-  MDNS.end();  // safe no-op if not running; required before re-begin after AP restart
+  stopNomadMDNS();
   if (MDNS.begin(MDNS_HOSTNAME)) {
     MDNS.addService("http", "tcp", 80);
+    g_mdnsRunning = true;
     Serial.printf("[mDNS] Responder started: http://%s.local/\n", MDNS_HOSTNAME);
   } else {
     Serial.println("[mDNS] Failed to start responder (nomad.local unavailable; IP access unaffected)");
@@ -3002,6 +3425,7 @@ void startNomadMDNS() {
 }
 void applyWiFiSettings() {
   Serial.print("Stopping existing WiFi Access Point...");
+  stopNomadMDNS();              // must happen while the AP netif still exists
   WiFi.softAPdisconnect(true);  // Stop AP and clear config
   delay(100);  // Give time for cleanup
 
@@ -3078,7 +3502,8 @@ void triggerIndexingIfNeeded(const String& filePath) {
   // Only trigger indexing for media files in known directories
   if (filePath.startsWith("/Shows/") || filePath.startsWith("/Music/") ||
       filePath.startsWith("/Movies/") || filePath.startsWith("/Books/") ||
-      filePath.startsWith("/Gallery/") || filePath.startsWith("/Files/")) {
+      filePath.startsWith("/Gallery/") || filePath.startsWith("/Files/") ||
+      filePath.startsWith("/Games/")) {
 
     // Extract the parent directory for indexing
     String parentDir = parentDirFromPath(filePath);
@@ -3091,7 +3516,7 @@ void triggerIndexingIfNeeded(const String& filePath) {
 }
 
 void indexWorkerTask(void *param) {
-  const char *buckets[] = { "/Shows", "/Music", "/Movies", "/Books", "/Gallery", "/Files",  "/", NULL };
+  const char *buckets[] = { "/Shows", "/Music", "/Movies", "/Books", "/Gallery", "/Files", "/Games",  "/", NULL };
 
   bool queuedIndexingMsgActive = false;
   unsigned long lastQueuedLvglMsg = 0;
@@ -3425,7 +3850,7 @@ void immediateEnqueueTopLevelTask(void *param) {
 
   // Known bucket roots that the indexWorker loop's full-scan path already handles
   // directly, skip them here to avoid redundantly queuing a duplicate rebuild.
-  const char* buckets[] = { "Shows", "Music", "Movies", "Books", "Gallery", "Files", NULL };
+  const char* buckets[] = { "Shows", "Music", "Movies", "Books", "Gallery", "Files", "Games", NULL };
 
   File entry;
   while ((entry = root.openNextFile())) {
@@ -3779,14 +4204,14 @@ if (!SD_MMC.setPins(SD_CLK_PIN, SD_CMD_PIN, SD_D0_PIN, SD_D1_PIN, SD_D2_PIN, SD_
     return;
 }
 
-if (!SD_MMC.begin("/sdcard", true, false, SDMMC_FREQ_DEFAULT, 12)) {
+if (!mountSDCard()) {
     Serial.println("ERROR: SDMMC Card initialization failed.");
     return;
 }
 
 Serial.println("SD Card initialized successfully!");
 
-    webLogf("success", "SD Card initialized successfully - Size: %.1f GB", (float)SD_MMC.cardSize() / (1024.0 * 1024.0 * 1024.0));
+    webLogf("success", "SD Card initialized successfully - %s, %s, Size: %.1f GB", NomadSD.fsTypeName(), g_sdModeDesc, (float)SD_MMC.cardSize() / (1024.0 * 1024.0 * 1024.0));
 
     refreshCachedTotalsFromStat();
 
@@ -3847,6 +4272,15 @@ Serial.println("SD Card initialized successfully!");
         Serial.println("[WARN] indexingPathMutex creation failed");
       } else {
         Serial.println("[Index] indexingPathMutex created");
+      }
+    }
+
+    if (!gameMutex) {
+      gameMutex = xSemaphoreCreateMutex();
+      if (!gameMutex) {
+        Serial.println("[WARN] gameMutex creation failed");
+      } else {
+        Serial.println("[MP] gameMutex created");
       }
     }
 
@@ -4257,6 +4691,14 @@ Serial.println("SD Card initialized successfully!");
     // /zim-list is kept as a legacy alias for the same data.
     server.on("/api/archive-list", HTTP_GET, handleArchiveList);
     server.on("/zim-list", HTTP_GET, handleArchiveList);
+    server.on("/api/games-list", HTTP_GET, handleGamesList);
+    server.on("/api/maps-list", HTTP_GET, handleMapsList);
+
+    // Multiplayer (HTTP polling; see the MpRoom store + handlers above for the design notes).
+    server.on("/api/mp/create", HTTP_POST, [](AsyncWebServerRequest *request){}, NULL, handleMpCreate);
+    server.on("/api/mp/join", HTTP_POST, [](AsyncWebServerRequest *request){}, NULL, handleMpJoin);
+    server.on("/api/mp/move", HTTP_POST, [](AsyncWebServerRequest *request){}, NULL, handleMpMove);
+    server.on("/api/mp/state", HTTP_GET, handleMpState);
     server.on("/Archive", HTTP_OPTIONS, [](AsyncWebServerRequest *request){
         AsyncWebServerResponse *response = request->beginResponse(204, "text/plain", "");
         response->addHeader("Access-Control-Allow-Origin", "*");
@@ -4397,9 +4839,10 @@ Serial.println("SD Card initialized successfully!");
         }
         
         // Check if it's a file request (has extension or specific paths)
-        if (url.indexOf('.') > 0 || url.startsWith("/Gallery") || url.startsWith("/Files") || 
-            url.startsWith("/Movies") || url.startsWith("/Music") || url.startsWith("/Books") || 
-            url.startsWith("/Shows") || url.startsWith("/Archive")) {
+        if (url.indexOf('.') > 0 || url.startsWith("/Gallery") || url.startsWith("/Files") ||
+            url.startsWith("/Movies") || url.startsWith("/Music") || url.startsWith("/Books") ||
+            url.startsWith("/Shows") || url.startsWith("/Archive") || url.startsWith("/Games") ||
+            url.startsWith("/Maps")) {
             
             // Handle as file request with SD mutex protection
             String filePath = url;

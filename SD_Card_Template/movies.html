@@ -1,4 +1,4 @@
-
+<!DOCTYPE html>
 <!-- Version 4 -->
 <html lang="en">
 <head>
@@ -314,7 +314,7 @@ function writeResume(v){ localStorage.setItem(RESUME_KEY, JSON.stringify(v)); }
 function fileKey(path, sz=0, mt=0){ return `${normalizePath(path)}|${sz||0}|${mt||0}`; }
 function formatTime(sec){ if(!sec||!isFinite(sec)) return '0:00'; sec=Math.floor(sec); const h=Math.floor(sec/3600), m=Math.floor((sec%3600)/60), s=sec%60; if(h) return `${h}:${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`; return `${m}:${String(s).padStart(2,'0')}`; }
 
-/* NEW: getHashParam() — parse location.hash into {action, path} safely */
+/* getHashParam() parses location.hash into {action, path} safely */
 function getHashParam(){
   const h = (location.hash || '').replace(/^#/,'');
 
@@ -395,7 +395,7 @@ function clearResumeFor(path){
   if(changed) writeResume(store);
 }
 
-/* Fetch NDJSON index for a path — cache-busted to avoid stale results */
+/* Fetch NDJSON index for a path, cache-busted to avoid stale results */
 async function fetchIndex(path){
   const url = `${INDEX_ENDPOINT}?path=${encodeURIComponent(normalizePath(path))}&_=${Date.now()}`;
   const res = await fetch(url, { cache: 'no-store' });
@@ -452,6 +452,22 @@ async function buildFromIndexes(root){
         console.warn('child index missing', dirPath, err);
       }
     }
+  }
+
+  // Attach language-suffixed subtitles (Movie.en.srt) to their video's group:
+  // the suffix makes their basename differ, so they land in a video-less group
+  // of their own and would otherwise be dropped.
+  for(const [k,v] of map.entries()){
+    if(v.files.some(x => isVideoName(x.name))) continue;
+    const subsOnly = v.files.filter(x => isSubtitleName(x.name));
+    if(!subsOnly.length) continue;
+    let best = null;
+    for(const v2 of map.values()){
+      if(v2 === v || v2.dir !== v.dir) continue;
+      if(!v2.files.some(x => isVideoName(x.name))) continue;
+      if(v.base.startsWith(v2.base) && (!best || v2.base.length > best.base.length)) best = v2;
+    }
+    if(best) best.files.push(...subsOnly);
   }
 
   const out = [];
@@ -765,7 +781,7 @@ function startStallWatcher(player, src){
 }
 
 
-function openVideo(src, useResume=false){
+async function openVideo(src, useResume=false){
   clearTimeout(stallTimer);
   stallRetries = 0;
 
@@ -782,11 +798,11 @@ function openVideo(src, useResume=false){
   videoPlayer.removeAttribute('src');
   videoPlayer.innerHTML = '';
 
-  const subtitles = [];
-  if(currentMovie && currentMovie.subtitles && currentMovie.subtitles.length > 0){
-    const subtitleUrl = fileUrl(currentMovie.subtitles[0].path);
-    subtitles.push({ kind: 'captions', label: 'English', srclang: 'en', src: subtitleUrl, default: true });
-  }
+  // every sidecar subtitle becomes a selectable track; srt is converted to VTT
+  // (browsers render nothing for raw srt in <track>)
+  const subtitles = await NomadSubs.buildTracks(
+    ((currentMovie && currentMovie.subtitles) || []).map(s => ({ path: s.path, url: fileUrl(s.path) })),
+    currentMovie && currentMovie.path);
 
   if (!window.plyrInstance) {
     window.plyrInstance = new Plyr(videoPlayer, {
@@ -1190,6 +1206,9 @@ window.addEventListener('hashchange', ()=> handleHashNavigation(getHashParam()))
   }
   setInterval(checkIndex, 30000);
 })();
+
+/* admin toggle: hide the download action when downloads are disabled */
+NomadUI.hideDownloads('downloadButton');
 </script>
 </body>
 </html>

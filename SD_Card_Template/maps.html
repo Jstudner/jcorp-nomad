@@ -1,0 +1,264 @@
+<!DOCTYPE html>
+<!-- Version 4 -->
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<meta name="description" content="Jcorp Nomad Media Server - Offline Maps">
+<title>Nomad • Maps</title>
+<link rel="icon" href="favicon.ico" type="image/x-icon">
+<link rel="stylesheet" href="/master.css">
+<link rel="stylesheet" href="/assets/leaflet/leaflet.css">
+<script src="/theme-boot.js"></script>
+<script src="/theme-manager.js"></script>
+<script src="/assets/leaflet/leaflet.js"></script>
+<style>
+  html,body{height:100%}
+  body{display:flex;flex-direction:column}
+  .mapbar{display:flex;gap:10px;align-items:center;padding:8px 12px;background:var(--card);
+    border-bottom:1px solid var(--line);flex-wrap:wrap}
+  .mapbar select{background:var(--bg);color:var(--text);border:1px solid var(--line);
+    border-radius:8px;padding:7px 10px;max-width:60vw}
+  .mapbar .info{color:var(--muted);font-size:.82rem}
+  #map{flex:1;min-height:300px;background:#d7d3cb}
+  .locate-btn{background:#fff;border:2px solid rgba(0,0,0,.25);border-radius:4px;
+    width:34px;height:34px;cursor:pointer;line-height:1;color:#333;
+    display:flex;align-items:center;justify-content:center}
+  #empty{flex:1;display:none;flex-direction:column;align-items:center;justify-content:center;
+    gap:12px;color:var(--muted);padding:24px;text-align:center}
+  #empty code{background:var(--card);border:1px solid var(--line);border-radius:8px;
+    padding:8px 12px;display:block;font-size:.78rem;max-width:92vw;overflow-x:auto;white-space:pre;text-align:left}
+  /* GPS help modal */
+  /* must clear Leaflet's stacking (panes ~400, controls ~1000) */
+  .gps-modal{display:none;position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:5000;
+    align-items:center;justify-content:center;padding:16px}
+  .gps-modal.open{display:flex}
+  .gps-modal-content{background:var(--card);color:var(--text);border:1px solid var(--line);
+    border-radius:12px;max-width:480px;width:100%;max-height:85vh;overflow-y:auto;padding:18px 20px}
+  .gps-modal-content h2{margin:0 0 .5rem;font-size:1.1rem}
+  .gps-modal-content ol{padding-left:1.2rem;margin:.5rem 0}
+  .gps-modal-content li{margin:.45rem 0;font-size:.92rem;line-height:1.45}
+  .gps-modal-content code{background:var(--bg);border:1px solid var(--line);border-radius:6px;
+    padding:2px 6px;font-size:.85em;word-break:break-all}
+  .gps-modal-content .note{color:var(--muted);font-size:.85rem;margin-top:.6rem}
+  .gps-modal-content button{margin-top:12px;width:100%;background:var(--primary);
+    color:var(--color-white,#fff);border:none;border-radius:8px;padding:10px;cursor:pointer;font-size:.95rem}
+</style>
+</head>
+<body>
+  <header>
+    <h1>Maps</h1>
+    <a class="back-btn" href="/menu">← Back to Menu</a>
+  </header>
+
+  <div class="mapbar">
+    <select id="regionSel" aria-label="Map region"></select>
+    <span class="info" id="regionInfo"></span>
+  </div>
+
+  <div id="map"></div>
+  <!-- Full-map regions live as complete apps under /Maps/<id>/. Selecting one
+       shows this panel instead of a tile layer; the button opens the app. -->
+  <div id="szPanel" style="display:none;flex:1;flex-direction:column;align-items:center;justify-content:center;gap:14px;padding:24px;text-align:center">
+    <div style="font-size:1.15rem;font-weight:600" id="szName"></div>
+    <div style="color:var(--muted);max-width:520px;font-size:.92rem" id="szDetail"></div>
+    <button id="szOpen" style="background:var(--primary);color:var(--color-white,#fff);border:none;border-radius:10px;padding:12px 26px;font-size:1rem;cursor:pointer">Open Map</button>
+    <div style="color:var(--muted);font-size:.8rem;max-width:520px">Street map, place and address search, and directions, all offline. Use your browser's back button to return here.</div>
+  </div>
+  <div id="empty">
+    <div><b>No offline maps installed yet.</b></div>
+    <div id="emptyReason" style="color:var(--primary);font-size:.85rem;max-width:92vw"></div>
+    <div>Add a region with the <b>Nomad Card Tools</b> on your computer (Download offline maps). Regions live in <code style="display:inline;padding:1px 5px">/Maps</code> on the SD card.</div>
+  </div>
+
+  <!-- GPS help: geolocation needs a secure (https) origin; Nomad serves plain HTTP.
+       Chrome's insecure-origins flag is the sanctioned per-device workaround.
+       Opened by the locate control when the page is not in a secure context. -->
+  <div class="gps-modal" id="gpsModal">
+    <div class="gps-modal-content">
+      <h2>Location on this map</h2>
+      <p style="margin:.3rem 0;font-size:.92rem">Browsers require a secure (HTTPS) connection before sharing your location, and this device serves over standard HTTP. You can always read coordinates by tapping anywhere on the map.</p>
+      <p style="margin:.6rem 0 .2rem;font-size:.92rem"><b>To enable GPS in Chrome</b> (Android or desktop), allow this address once:</p>
+      <ol>
+        <li>Open a new tab and go to <code>chrome://flags/#unsafely-treat-insecure-origin-as-secure</code></li>
+        <li>Enter <code id="gpsOrigin">http://nomad.local</code> in the text field</li>
+        <li>Set the flag to <b>Enabled</b> and choose <b>Relaunch</b></li>
+        <li>Return here and use the locate button again</li>
+      </ol>
+      <p class="note">Safari on iPhone and iPad has no equivalent setting; tap the map to read coordinates instead. This setting only affects your own browser.</p>
+      <button onclick="document.getElementById('gpsModal').classList.remove('open')">Close</button>
+    </div>
+  </div>
+
+<script>
+let map = null, tileLayer = null, regions = [];
+let probeNote = ''; // last /api/maps-list outcome, shown in the empty state for diagnosis
+
+/* Never leave a silently blank page: every failure path ends in showEmpty(reason). */
+function showEmpty(reason){
+  document.getElementById('map').style.display = 'none';
+  document.getElementById('empty').style.display = 'flex';
+  document.querySelector('.mapbar').style.display = 'none';
+  if (reason) document.getElementById('emptyReason').textContent = reason;
+}
+
+if (typeof L === 'undefined') {
+  document.addEventListener('DOMContentLoaded', () =>
+    showEmpty('Leaflet failed to load (/assets/leaflet/leaflet.js). Re-copy the assets folder to the card.'));
+  throw new Error('leaflet missing');
+}
+
+L.Icon.Default.prototype.options.imagePath = '/assets/leaflet/images/';
+
+/* /api/maps-list is a cheap directory scan; it 503s if the SD is busy at boot,
+   so retry a few times (same pattern as menu.html's archive probe). */
+async function fetchRegionList(attempt = 0){
+  try {
+    const res = await fetch('/api/maps-list', { cache: 'no-store' });
+    if (res.ok){
+      let j = null;
+      try { j = JSON.parse(await res.text()); }
+      catch(parseErr){
+        // an HTML page instead of JSON = captive-portal fallback for a route
+        // that doesn't exist -> firmware predates maps support
+        probeNote = 'This Nomad’s firmware has no maps support (/api/maps-list is missing). Maps need the experimental 4.6 firmware or newer. The map data on the card is fine.';
+        return [];
+      }
+      const list = j.regions || j.maps || [];
+      probeNote = list.length ? '' : 'Device answered /api/maps-list but found no regions under /Maps.';
+      return list;
+    }
+    probeNote = '/api/maps-list returned HTTP ' + res.status +
+      (res.status === 404 ? ' (firmware without maps support?)' : '');
+  } catch(e){
+    probeNote = '/api/maps-list unreachable: ' + e.message;
+  }
+  if (attempt < 4){
+    await new Promise(r => setTimeout(r, 4000));
+    return fetchRegionList(attempt + 1);
+  }
+  return [];
+}
+
+async function boot(){
+  document.getElementById('regionInfo').textContent = 'Loading maps…';
+  const list = await fetchRegionList();
+  document.getElementById('regionInfo').textContent = '';
+
+  if (!list.length){
+    showEmpty(probeNote);
+    return;
+  }
+
+  // fetch every region's manifest (tiny file, served straight off the card)
+  for (const m of list){
+    try {
+      const r = await fetch(m.manifest, { cache: 'no-store' });
+      const man = await r.json();
+      man._base = '/Maps/' + encodeURIComponent(m.id) + '/';
+      regions.push(man);
+    } catch(e){ console.warn('bad manifest', m, e); }
+  }
+  if (!regions.length){
+    showEmpty('Region list found, but no manifest.json could be read (' +
+      list.map(m => m.manifest).join(', ') + ').');
+    return;
+  }
+
+  const sel = document.getElementById('regionSel');
+  sel.innerHTML = regions.map((r,i)=>`<option value="${i}">${(r.name || r.id) + (r.type === 'streetzim' ? ' · full map' : '')}</option>`).join('');
+  sel.onchange = () => openRegion(regions[Number(sel.value)]);
+  openRegion(regions[0]);
+  document.getElementById('gpsOrigin').textContent = location.origin;
+}
+
+/* Full-map region: a complete app extracted under /Maps/<id>/. No tile layer
+   here, just hand over to it (it has its own search and routing UI). */
+function openStreetZim(man){
+  document.getElementById('map').style.display = 'none';
+  const p = document.getElementById('szPanel');
+  p.style.display = 'flex';
+  document.getElementById('szName').textContent = man.name || man.id;
+  document.getElementById('szDetail').textContent =
+    (man.sizeBytes ? (man.sizeBytes/1048576).toFixed(0) + 'MB · ' : '') + (man.attribution || '');
+  document.getElementById('szOpen').onclick = () =>
+    location.href = man._base + (man.app || 'index.html');
+  document.getElementById('regionInfo').textContent = '';
+}
+
+function openRegion(man){
+  if (man.type === 'streetzim'){ openStreetZim(man); return; }
+  document.getElementById('szPanel').style.display = 'none';
+  document.getElementById('map').style.display = '';
+  if (map) setTimeout(() => map.invalidateSize(), 50); // was display:none while a streetzim region showed
+  const [w,s,e,n] = man.bounds;
+  const bounds = L.latLngBounds([s,w],[n,e]);
+
+  if (!map){
+    map = L.map('map', { zoomControl: true });
+    L.control.scale({ imperial: true }).addTo(map);
+    addLocateControl();
+    map.on('click', (ev) => {
+      L.popup().setLatLng(ev.latlng)
+        .setContent(`${ev.latlng.lat.toFixed(5)}, ${ev.latlng.lng.toFixed(5)}`)
+        .openOn(map);
+    });
+  }
+  if (tileLayer) tileLayer.remove();
+
+  tileLayer = L.tileLayer(man._base + (man.tilePath || 'tiles/{z}/{x}/{y}.jpg'), {
+    minZoom: man.minZoom ?? 6,
+    maxZoom: man.maxZoom ?? 12,
+    bounds,
+    attribution: man.attribution || '',
+    errorTileUrl: '',
+  }).addTo(map);
+
+  map.setMaxBounds(bounds.pad(0.15));
+  map.options.minZoom = man.minZoom ?? 6;
+  map.options.maxZoom = man.maxZoom ?? 12;
+  map.fitBounds(bounds);
+
+  document.getElementById('regionInfo').textContent =
+    `z${man.minZoom}-${man.maxZoom} · ${(man.sizeBytes/1048576||0).toFixed(0)}MB · ${man.attribution || ''}`;
+}
+
+let meMarker = null;
+function addLocateControl(){
+  const Ctl = L.Control.extend({
+    options: { position: 'topleft' },
+    onAdd(){
+      const b = L.DomUtil.create('button', 'locate-btn');
+      // crosshair icon, stroke follows text color (same pattern as music.html's SVG buttons)
+      b.innerHTML = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="7"/><line x1="12" y1="1" x2="12" y2="5"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="1" y1="12" x2="5" y2="12"/><line x1="19" y1="12" x2="23" y2="12"/></svg>';
+      b.title = 'Show my location';
+      L.DomEvent.on(b, 'click', (ev) => { L.DomEvent.stop(ev); locate(); });
+      return b;
+    },
+  });
+  map.addControl(new Ctl());
+}
+
+function locate(){
+  if (!window.isSecureContext || !navigator.geolocation){
+    document.getElementById('gpsModal').classList.add('open');
+    return;
+  }
+  navigator.geolocation.getCurrentPosition(
+    (pos) => {
+      const ll = [pos.coords.latitude, pos.coords.longitude];
+      if (meMarker) meMarker.remove();
+      meMarker = L.marker(ll).addTo(map).bindPopup('You are here').openPopup();
+      map.setView(ll, Math.min(map.options.maxZoom, 13));
+    },
+    (err) => {
+      alert('Could not get location (' + err.message + ').\nTap the map to read coordinates instead.');
+    },
+    { enableHighAccuracy: true, timeout: 8000 }
+  );
+}
+
+boot();
+</script>
+</body>
+</html>

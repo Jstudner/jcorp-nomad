@@ -10,7 +10,7 @@
   <link rel="icon" href="favicon.ico" type="image/x-icon" />
   <link rel="stylesheet" href="/master.css" />
   <script src="/theme-boot.js"></script>
-  <script src="/nomad-utils.js"></script>
+  <script src="/nomad-utils.js?v=45"></script>
   <script src="/theme-manager.js"></script>
   <style>
     /* Functional CSS: Full-height layout and sticky positioning */
@@ -63,6 +63,15 @@
     }
     body.dark .toolbar input[type="search"] { background: var(--card); color: var(--text); }
 
+    .toolbar .btn {
+      padding: .5rem .9rem;
+      border: 1px solid var(--line);
+      background: var(--card);
+      color: var(--text);
+      border-radius: var(--radius);
+      font-size: .9rem;
+      cursor: pointer;
+    }
     .toolbar select {
       padding: 0.5rem 0.75rem;
       border: 1px solid var(--line);
@@ -154,6 +163,8 @@
       <option value="xlsx">XLSX</option>
       <option value="pptx">PPTX</option>
     </select>
+    <button id="uploadBtn" class="btn" style="display:none">Upload</button>
+    <input id="uploadInput" type="file" multiple style="display:none">
     <select id="sortSelect" aria-label="Sort files">
       <option value="nameAsc">Name A→Z</option>
       <option value="nameDesc">Name Z→A</option>
@@ -326,6 +337,24 @@
 
       init();
     });
+
+/* ---------- upload (shared NomadUpload modal; sends dir=/Files) ---------- */
+const uploadBtn = document.getElementById('uploadBtn');
+const uploadInput = document.getElementById('uploadInput');
+uploadBtn.addEventListener('click', () => uploadInput.click());
+uploadInput.addEventListener('change', (e) => {
+  const files = Array.from(e.target.files || []);
+  uploadInput.value = '';
+  if(!files.length) return;
+  (async () => {
+    uploadBtn.disabled = true;
+    const ok = await NomadUpload.run(files, '/Files');
+    uploadBtn.disabled = false;
+    if(ok) await init();
+  })();
+});
+/* admin toggle: the button only appears when uploads are allowed */
+NomadUI.config().then(c => { if(!c.uploadsDisabled) uploadBtn.style.display = ''; });
 </script>
 </body>
 </html>

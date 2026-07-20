@@ -8,6 +8,7 @@
 <link rel="stylesheet" href="master.css">
 <script src="/theme-boot.js"></script>
 <script src="theme-manager.js"></script>
+<script src="/nomad-utils.js"></script>
 <style>
   body{margin:0;padding:0;display:flex;flex-direction:column;height:100vh;background:var(--bg);font-family:Inter,Arial,sans-serif;overflow:hidden;}
   
@@ -959,6 +960,9 @@ setTimeout(() => {
   broadcastPlaybackUpdate();
   broadcastQueueUpdate();
 }, 500);
+
+/* admin toggle: hide the download control when downloads are disabled */
+NomadUI.hideDownloads('downloadBtn');
 </script>
 </body>
 </html>

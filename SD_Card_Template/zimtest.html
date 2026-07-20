@@ -65,7 +65,7 @@ async function runAll(){
   let skip=null; try{ skip=JSON.parse(new TextDecoder().decode(skp.buf)); }catch(e){ log('  JSON parse FAILED: '+e.message,'err'); return; }
   log('  step='+skip.step+' keys='+(skip.keys||[]).length+'  first="'+(skip.keys&&skip.keys[0]&&skip.keys[0][0])+'" last="'+(skip.keys&&skip.keys[skip.keys.length-1]&&skip.keys[skip.keys.length-1][0])+'"','ok');
 
-  hdr('3. RANGE read of words.dat — direct vs /media (the key test)');
+  hdr('3. RANGE read of words.dat: direct vs /media (the key test)');
   const ks=skip.keys; let lo=0,hi=ks.length-1,at=0;
   while(lo<=hi){const m=(lo+hi)>>1; if(ks[m][0]<=term){at=m;lo=m+1;}else hi=m-1;}
   const start=ks[at][1]; const end=(at+1<ks.length)?ks[at+1][1]:manifest.wordsBytes;

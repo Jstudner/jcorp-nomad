@@ -608,6 +608,9 @@ async function openArticle(hit, resetHistory){
     document.getElementById('search-results').style.display='none';
 
     const html = new TextDecoder('utf-8').decode(content.data);
+    // StreetZim app pages (map viewer, place browser) are fetch-driven JS apps
+    // that cannot run in the script-less reader iframe, so show a landing instead
+    if (isMapAppPage(html)) { hideOverlay(); return showMapLanding(hit); }
     const media = detectMedia(html);
     if (media && media.type === 'video') { hideOverlay(); return playVideo(hit, media.url, html); }
     if (media && media.type === 'epub')  { hideOverlay(); return openEpub(hit, media.url, html); }
@@ -763,11 +766,19 @@ function setFrame(bodyHtml){
         const a = e.target.closest && e.target.closest('a');
         if (!a) return;
         e.preventDefault();
+        // map-landing "Open the map" button: direct navigation to the /Maps copy
+        const szTarget = a.getAttribute('data-sz-target');
+        if (szTarget) { location.href = szTarget; return; }
+        const rawHref = a.getAttribute('href') || '';
+        // StreetZim place-page buttons ("Directions to here" / "View on map")
+        // deep-link into the map app: index.html#dest=… / #map=…
+        const szm = rawHref.match(/index\.html(#(?:dest|map)=.*)$/);
+        if (szm) { szOpenMap(szm[1]); return; }
         const text = (a.textContent || a.getAttribute('title') || '').trim();
         // ZIM index pages link alphabetical ranges ("A – Aeolic Greek"); list them.
         const range = parseRangeLink(text);
         if (range) { showRange(range.from, range.to); return; }
-        const q = linkToQuery(a.getAttribute('href') || '', text);
+        const q = linkToQuery(rawHref, text);
         if (q) { document.getElementById('reader-search-input').value = q; searchArticles(); }
       });
       cdoc.defaultView && cdoc.defaultView.scrollTo(0, 0);
@@ -889,11 +900,89 @@ function linkToQuery(href, text) {
   return q.slice(0, 80);
 }
 
+/* ---------------- map archives ----------------
+   Some ZIMs are full offline map apps. Their place pages read fine here, but
+   the viewer pages need scripts and runtime fetches, so those get a landing
+   that links to the app copy under /Maps/<id>/ when one is installed. */
+
+function isMapAppPage(html){
+  return html.indexOf('maplibre-gl.js') !== -1 ||
+         (html.indexOf('streetzim') !== -1 && html.indexOf('category-index') !== -1);
+}
+
+/* Installed map-app regions on this card, via the Maps-page manifests. */
+let _szRegionsP = null;
+function szRegions(){
+  if (!_szRegionsP){
+    _szRegionsP = fetch('/api/maps-list', { cache: 'no-store' })
+      .then(r => r.json())
+      .then(j => Promise.all((j.regions || []).map(m =>
+        fetch(m.manifest, { cache: 'no-store' }).then(r => r.json())
+          .then(man => ({ id: m.id, man })).catch(() => null))))
+      .then(list => list
+        .filter(x => x && x.man && x.man.type === 'streetzim')
+        .map(x => ({ id: x.id, name: x.man.name || x.id,
+                     target: '/Maps/' + encodeURIComponent(x.id) + '/' + (x.man.app || 'index.html') })))
+      .catch(() => []);
+  }
+  return _szRegionsP;
+}
+
+async function szFindRegion(title){
+  const rs = await szRegions();
+  if (!rs.length) return null;
+  const t = (title || '').toLowerCase();
+  return rs.find(r => r.name.toLowerCase() === t) ||
+         (rs.length === 1 ? rs[0] :
+          rs.find(r => t && (t.includes(r.name.toLowerCase()) || r.name.toLowerCase().includes(t))) || null);
+}
+
+function _szArchiveTitle(hit){
+  const arc = hit && (window.__archives || [])[hit.archiveIdx];
+  return (arc && (arc.name || arc.id)) || (hit && hit.title) || '';
+}
+
+/* "Directions to here" / "View on map" on a place page. Opens the installed
+   /Maps copy at the same destination, or explains how to install it. */
+async function szOpenMap(fragment){
+  const region = await szFindRegion(_szArchiveTitle(_articleHit));
+  if (region){ location.href = region.target + (fragment || ''); return; }
+  alert('This map is not installed on the card yet.\n\nOnce its region folder is ' +
+        'in /Maps on the card, Directions and View-on-map open the interactive map.');
+}
+
+async function showMapLanding(hit){
+  enterReader();
+  showArticleFrame();
+  _articleHit = hit;
+  const title = _szArchiveTitle(hit) || 'Map archive';
+  document.getElementById('article-title').textContent = title;
+  document.title = title + ' · Nomad Archive';
+  const region = await szFindRegion(title);
+  const open = region
+    ? '<p><a data-sz-target="' + escapeHtml(region.target) + '" href="' + escapeHtml(region.target) + '"' +
+      ' style="display:inline-block;padding:12px 22px;border-radius:10px;background:#1a56db;color:#fff;font-weight:600;">Open the map</a></p>' +
+      '<p>Pan and zoom the map, search for places and addresses, and get directions, all offline.</p>'
+    : '<p>To use it on this Nomad, its region folder needs to be installed into the ' +
+      'card’s <b>/Maps</b> folder. It then opens from the Maps page with everything ' +
+      'working offline.</p>' +
+      '<p>The place pages in this archive are still searchable right here, and each one shows ' +
+      'its details and coordinates.</p>';
+  setFrame('<h1>' + escapeHtml(title) + '</h1>' +
+    '<p style="color:#888;margin-top:-6px">Interactive map archive</p>' +
+    '<p>This archive is a complete offline map application (street map, place search and ' +
+    'navigation) which runs as its own page rather than inside the article reader.</p>' + open);
+}
+
 /* Sanitize ZIM article HTML for offline display: keep text/structure, drop
    scripts and external refs. Images are kept but disarmed to data-zim-src for
    lazy inlining (see inlineImages). Internal links stay as <a> so a click can
    trigger a search for the link text. */
 function sanitizeArticle(html){
+  // keep the document's own <style> blocks (head ones included): self-styled
+  // pages (StreetZim place pages, iFixit, recipe ZIMs) are an unreadable pile
+  // without them. They render after the reader's base style, so they win.
+  const styles = (html.match(/<style\b[\s\S]*?<\/style>/gi) || []).join('\n');
   // take <body> if present
   const bodyM = html.match(/<body[^>]*>([\s\S]*?)<\/body>/i);
   let s = bodyM ? bodyM[1] : html;
@@ -923,7 +1012,7 @@ function sanitizeArticle(html){
     if(/https?:|mailto:|\/\//i.test(href)) return '<a>';
     return '<a'+attrs+'>';
   });
-  return s;
+  return styles + s;
 }
 
 /* (Article link clicks are wired from setFrame's frame.onload - the sandboxed

@@ -4,7 +4,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width,initial-scale=1.0">
-  <meta name="description" content="Jcorp Nomad Media Server – Games">
+  <meta name="description" content="Jcorp Nomad Media Server - Games">
   <title>Nomad • Games</title>
   <link rel="icon" href="favicon.ico" type="image/x-icon">
   <link rel="stylesheet" href="/master.css">
@@ -17,107 +17,85 @@
       flex-direction: column;
       min-height: 100vh;
     }
-    header {
-      position: sticky;
-      top: 0;
-      z-index: 50;
-      flex-wrap: wrap;
-    }
+    /* Toolbar / grid / card layout mirrors movies.html so the library behaves
+       identically across pages (sticky offsets, mobile columns, cover fallbacks). */
     .toolbar {
-      padding: .75rem 1rem;
+      padding: .6rem 1rem;
       display: flex;
       flex-wrap: wrap;
-      gap: .75rem;
+      gap: .6rem;
       align-items: center;
       border-bottom: 1px solid var(--line);
       position: sticky;
-      top: 64px;
-      z-index: 45;
+      top: var(--header-height);
+      z-index: 55;
       background: var(--bg);
     }
     .toolbar input[type="search"] {
-      flex: 1 1 200px;
+      flex: 1 1 220px;
       padding: .5rem .75rem;
       border: 1px solid var(--line);
       border-radius: var(--radius);
+      font-size: 0.95rem;
       background: var(--card);
       color: var(--text);
-      font-size: .95rem;
-      line-height: 1.25;
-      max-height: 2.5rem;
     }
     .toolbar select, .toolbar .view-btn {
-      padding: .5rem .75rem;
+      padding: .48rem .7rem;
       border: 1px solid var(--line);
       background: var(--card);
       color: var(--text);
       border-radius: var(--radius);
-      font-size: .9rem;
+      font-size: 0.9rem;
       cursor: pointer;
     }
     .view-btn.active {
       background: var(--primary);
-      color: #fff;
+      color: var(--color-white);
       border-color: var(--primary-dark);
     }
-    main {
-      flex: 1;
-      display: flex;
-      flex-direction: column;
-      max-width: 1200px;
-      width: 100%;
-      margin: 0 auto;
-    }
-    .grid-wrapper {
-      flex: 1;
-      overflow-y: auto;
-      padding: 1rem;
-    }
-    .media-grid { display: grid; gap: 1rem; }
+    main { flex: 1; display: flex; flex-direction: column; max-width: 1200px; width: 100%; margin: 0 auto; padding: 1rem; }
+    .grid-wrapper { flex: 1; overflow-y: auto; padding-bottom: 12px; }
+    .media-grid { display: grid; gap: var(--card-gap, 1rem); }
     .media-grid.small  { grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); }
     .media-grid.medium { grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); }
     .media-grid.large  { grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); }
-    @media(max-width:600px) {
-      header { flex-direction: column; align-items: stretch; }
-      .back-btn { width: 100%; text-align: center; }
-      .toolbar { top: 112px; flex-direction: column; align-items: stretch; }
-      .media-grid.small,
-      .media-grid.medium,
-      .media-grid.large { grid-template-columns: repeat(2, 1fr); }
+
+    .media-card { width: 100%; max-width: 220px; margin: 0 auto; cursor: pointer; }
+    .media-grid.small  .media-card { max-width: 120px; }
+    .media-grid.medium .media-card { max-width: 160px; }
+    .media-grid.large  .media-card { max-width: 220px; }
+
+    @media (max-width:600px) {
+      .media-grid.small  { grid-template-columns: repeat(2, 1fr); }
+      .media-grid.medium { grid-template-columns: repeat(3, 1fr); }
+      .media-grid.large  { grid-template-columns: repeat(4, 1fr); }
     }
-    .media-card {
-      background: var(--card-bg);
-      border-radius: var(--radius);
-      box-shadow: var(--shadow);
-      overflow: hidden;
-      display: flex;
-      flex-direction: column;
-      transition: transform .25s ease;
-      cursor: pointer;
-      width: 100%;
-      max-width: 220px;
-      margin: 0 auto;
-    }
-    .media-card:hover { transform: translateY(-3px); }
-    .media-thumb {
-      width: 100%;
-      aspect-ratio: 2/3;
-      object-fit: cover;
-    }
-    .media-caption {
-      padding: .5rem;
-      text-align: center;
-    }
-    .media-caption small {
-      display: block;
-      font-size: .75rem;
-      color: var(--muted);
-    }
-    #emu {
+
+    .thumb-wrapper { position: relative; display: flex; align-items: center; justify-content: center;
+      background: var(--thumb-bg, var(--card)); color: var(--thumb-text, var(--text));
+      font-size: 0.9rem; text-align: center; width: 100%; aspect-ratio: 2/3;
+      border-radius: var(--radius); overflow: hidden; box-shadow: var(--shadow); }
+    .fallback-text { padding: .5rem; position: absolute; z-index: 2; text-align: center;
+      font-weight: 700; color: var(--thumb-title, var(--text)); left: 8px; right: 8px; }
+    .media-thumb { width: 100%; height: 100%; object-fit: cover; position: absolute; top: 0; left: 0;
+      z-index: 1; opacity: 0; transition: opacity .35s ease; }
+    /* name lives in the artwork (or as the no-image fallback text); the row
+       under the card only labels the type */
+    .meta { padding: 6px 4px 0; text-align: center; }
+    .meta small { display: block; font-size: .72rem; color: var(--muted); }
+    /* EmulatorJS REPLACES the #emu element with its own container and sizes it
+       to the parent, so the explicit size must live on this wrapper, never on
+       #emu itself (a rule on #emu dies with the replacement and the game area
+       collapses to zero height: invisible start button). */
+    #emuWrap {
       display: none;
       width: 100%;
-      height: calc(100vh - 60px);
+      height: 60vh;          /* placeholder; startGame() fits it to the space below the exit bar */
+      min-height: 300px;
       background: #000;
+      border-radius: var(--radius);
+      overflow: hidden;
       position: relative;
     }
     footer {
@@ -162,7 +140,12 @@
   <main>
     <div class="grid-wrapper">
       <div id="grid" class="media-grid medium"></div>
-      <div id="emu"></div>
+      <div id="emuBar" style="display:none;align-items:center;justify-content:space-between;gap:.75rem;flex-wrap:wrap;padding:.4rem .75rem;background:var(--card);border:1px solid var(--line);border-radius:var(--radius);margin-bottom:.5rem;">
+        <strong id="emuTitle" style="font-size:.95rem;"></strong>
+        <span id="emuStatus" style="flex:1 1 100%;order:3;font-size:.78rem;color:var(--muted);"></span>
+        <button onclick="location.reload()" style="background:transparent;border:1px solid var(--line);color:var(--text);border-radius:var(--radius);padding:.35rem .9rem;cursor:pointer;font-size:.85rem;">Exit Game</button>
+      </div>
+      <div id="emuWrap"><div id="emu"></div></div>
     </div>
   </main>
 
@@ -171,17 +154,40 @@
   <script>
     document.getElementById('year').textContent = new Date().getFullYear();
 
+    function escapeHtml(s) {
+      return String(s).replace(/[&<>"']/g, c =>
+        ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[c]));
+    }
+
+    // Sticky offset from the header's real height; a fixed value either floats
+    // the toolbar over the first card row (short header) or lets it slide under
+    // a wrapped two-line header on narrow screens.
+    (function fitToolbar() {
+      const apply = () => {
+        const h = document.querySelector('header');
+        const tb = document.querySelector('.toolbar');
+        if (h && tb) tb.style.top = h.offsetHeight + 'px';
+      };
+      apply();
+      window.addEventListener('resize', apply);
+    })();
+
     const grid          = document.getElementById('grid');
-    const emuEl         = document.getElementById('emu');
+    const emuWrap       = document.getElementById('emuWrap');
     const searchInput   = document.getElementById('searchInput');
     const consoleSelect = document.getElementById('consoleSelect');
     const sortSelect    = document.getElementById('sortSelect');
     const viewButtons   = document.querySelectorAll('.view-btn');
 
-    let games         = [];
+    let games         = [];   // ROM entries
+    let builtins      = [];   // built-in .html games shipped in /Games (delete the file -> card disappears)
     let filtered      = [];
     let debounceTimer = null;
     let currentSize   = localStorage.getItem('nomadGamesSize') || 'medium';
+
+    // Built-ins pin to the top of the grid in this order; anything else
+    // (a user-added .html) follows alphabetically. Keys = lowercase filename minus .html.
+    const BUILTIN_ORDER = ['go', 'connect four', 'chess', 'tic-tac-toe', 'whiteboard'];
 
     function setViewSize(size) {
       currentSize = size;
@@ -211,32 +217,70 @@
       }
     }
 
-    async function init() {
+    async function init(attempt = 0) {
       try {
-        const res  = await fetch('/media.json');
-        const json = await res.json();
-
-        let raw = json.games || json.Games;
-        if (!Array.isArray(raw)) {
-          raw = Object.values(json)
-            .filter(a => Array.isArray(a))
-            .flat()
-            .filter(item => item.file && item.file.toLowerCase().startsWith('games/'));
+        // Games bucket NDJSON index (media.json is only a bucket-count summary now)
+        const res  = await fetch('/api/index?path=/Games', { cache: 'no-store' });
+        if (res.status === 202) {
+          // firmware is building the index right now, wait and retry
+          if (attempt < 8) {
+            grid.innerHTML = '<p style="grid-column:1/-1;text-align:center;color:#666;">Building game index…</p>';
+            setTimeout(() => init(attempt + 1), 4000);
+            return;
+          }
+          throw new Error('index still building');
+        }
+        if (!res.ok) throw new Error('index fetch failed ' + res.status);
+        const text  = await res.text();
+        const lines = text.split('\n').filter(Boolean);
+        const entries = [];
+        for (let i = 1; i < lines.length; i++) {
+          try { entries.push(JSON.parse(lines[i])); } catch (e) {}
         }
 
-        games = raw.map(g => {
-          const file = g.file.startsWith('/') ? g.file : '/' + g.file;
-          return {
-            name:  g.name,
-            cover: g.cover || 'placeholder.jpg',
-            file:  file,
-            core:  deriveCore(file)
-          };
-        });
+        const IMG_RE  = /\.(jpe?g|png|webp|gif|bmp)$/i;
+        const HTML_RE = /\.html?$/i;
+        const files  = entries.filter(e => e.t === 'f');
+        const covers = new Map();
+        for (const f of files) {
+          if (IMG_RE.test(f.n)) covers.set(f.n.replace(/\.[^/.]+$/, '').toLowerCase(), f.p);
+        }
+
+        // Built-in games: any .html in /Games renders as a card and opens like a
+        // page. Cover art uses the same sidecar convention as ROMs (Go.png next
+        // to Go.html), falling back to the placeholder.
+        builtins = files
+          .filter(f => HTML_RE.test(f.n))
+          .map(f => {
+            const base = f.n.replace(/\.[^/.]+$/, '');
+            const pin  = BUILTIN_ORDER.indexOf(base.toLowerCase());
+            return {
+              name:  base.replace(/[_]+/g, ' ').trim() || f.n,
+              cover: covers.get(base.toLowerCase()) || 'placeholder.jpg',
+              file:  f.p,
+              builtin: true,
+              pin:   pin < 0 ? BUILTIN_ORDER.length : pin
+            };
+          })
+          .sort((a, b) => a.pin - b.pin || a.name.localeCompare(b.name));
+
+        games = files
+          .filter(f => !IMG_RE.test(f.n) && !HTML_RE.test(f.n) && deriveCore(f.p))
+          .map(f => {
+            const base = f.n.replace(/\.[^/.]+$/, '');
+            return {
+              name:  base.replace(/[_\.]+/g, ' ').trim() || f.n,
+              // no sidecar art -> no img; the card shows its name as text
+              // fallback, same as movies/shows
+              cover: covers.get(base.toLowerCase()) || null,
+              file:  f.p,
+              core:  deriveCore(f.p)
+            };
+          });
 
         applyFilters();
       } catch (err) {
-        console.error('Failed to load media.json:', err);
+        console.error('Failed to load Games index:', err);
         grid.innerHTML = '<p style="grid-column:1/-1;text-align:center;color:#666;">Could not load games.</p>';
       }
     }
@@ -264,22 +308,50 @@
     function render() {
       grid.innerHTML = '';
       grid.className = `media-grid ${currentSize}`;
-      emuEl.style.display = 'none';
-      if (!filtered.length) {
+      emuWrap.style.display = 'none';
+
+      // Built-ins pin to the top (own order, unaffected by the sort dropdown).
+      // A console filter hides them; the search box still matches their names.
+      const txt = searchInput.value.trim().toLowerCase();
+      const shownBuiltins = consoleSelect.value ? [] :
+        builtins.filter(b => b.name.toLowerCase().includes(txt));
+
+      if (!shownBuiltins.length && !filtered.length) {
         grid.innerHTML = '<p style="grid-column:1/-1;text-align:center;color:#666;">No games found.</p>';
         return;
       }
-      filtered.forEach((game, idx) => {
+
+      // same card structure as movies.html: 2/3 thumb with centered name as the
+      // fallback, image fades in on load and yields back to text on error
+      const makeCard = (item, badge, onClick) => {
         const card = document.createElement('div');
         card.className = 'media-card';
+        const imgHTML = item.cover
+          ? `<img class="media-thumb" loading="lazy" src="${encodeURI(item.cover)}" alt="${escapeHtml(item.name)}">`
+          : '';
         card.innerHTML = `
-          <img class="media-thumb" src="${game.cover}" alt="${game.name}">
-          <div class="media-caption">
-            <strong>${game.name}</strong>
-            <small>${game.core.toUpperCase()}</small>
+          <div class="thumb-wrapper">
+            <span class="fallback-text">${escapeHtml(item.name)}</span>
+            ${imgHTML}
+          </div>
+          <div class="meta">
+            <small>${badge}</small>
           </div>`;
-        card.onclick = () => startGame(idx);
-        grid.appendChild(card);
+        const img = card.querySelector('img');
+        const fallback = card.querySelector('.fallback-text');
+        if (img) {
+          img.onload  = () => { img.style.opacity = '1'; if (fallback) fallback.style.display = 'none'; };
+          img.onerror = () => { img.style.display = 'none'; if (fallback) fallback.style.display = 'block'; };
+        }
+        card.onclick = onClick;
+        return card;
+      };
+
+      shownBuiltins.forEach(b => {
+        grid.appendChild(makeCard(b, 'Built-in', () => { location.href = encodeURI(b.file); }));
+      });
+      filtered.forEach((game, idx) => {
+        grid.appendChild(makeCard(game, game.core.toUpperCase(), () => startGame(idx)));
       });
     }
 
@@ -287,19 +359,79 @@
       const game = filtered[idx];
       grid.parentElement.scrollTo({ top: 0 });
       grid.style.display = 'none';
-      emuEl.style.display = 'block';
-      emuEl.innerHTML = '';
+
+      // Slim exit bar: EmulatorJS can't be cleanly torn down and restarted in
+      // one page lifetime, so Exit reloads back to the grid.
+      const bar = document.getElementById('emuBar');
+      bar.style.display = 'flex';
+      document.getElementById('emuTitle').textContent = game.name;
+
+      // reclaim phone space + fit the player exactly to the viewport below the
+      // exit bar, so EmulatorJS's bottom-anchored Start button is on-screen
+      // (a fixed vh height pushed it below the fold)
+      document.querySelector('.toolbar').style.display = 'none';
+      emuWrap.style.display = 'block';
+      emuWrap.innerHTML = '<div id="emu"></div>';
+      const fitEmu = () => {
+        const top = emuWrap.getBoundingClientRect().top;
+        emuWrap.style.height = Math.max(300, window.innerHeight - top - 10) + 'px';
+      };
+      fitEmu();
+      window.addEventListener('resize', fitEmu);
+
+      // deriveCore's UI values are not all valid EmulatorJS system keys,
+      // EmulatorJS has no 'gbc' (gambatte lives under 'gb') and Sega systems
+      // are 'segaMD'/'segaMS'; an unmapped value makes the loader fetch a
+      // nonexistent cores/<value>-wasm.data and die.
+      const EJS_SYSTEM = { gbc: 'gb', genesis: 'segaMD', sms: 'segaMS' };
 
       window.EJS_player     = '#emu';
-      window.EJS_gameUrl    = game.file;
-      window.EJS_core       = game.core;
+      window.EJS_gameUrl    = encodeURI(game.file);
+      window.EJS_core       = EJS_SYSTEM[game.core] || game.core;
       window.EJS_pathtodata = '/EmulatorJS/data/';
       window.EJS_gameName   = game.name;
       window.EJS_biosUrl    = '';
       window.EJS_lightgun   = false;
+      // stable per-game save/state key even if the file is renamed later
+      window.EJS_gameID     = game.file;
+
+      // On-device diagnostics: phones have no console, so mirror the emulator's
+      // lifecycle + any errors into the exit bar's status line.
+      const emuStatus = document.getElementById('emuStatus');
+      const setStatus = (msg) => { emuStatus.textContent = msg; };
+      setStatus('Loading emulator…');
+      window.EJS_ready = () => setStatus('Ready. Tap Start Game');
+      window.EJS_onGameStart = () => setStatus('');
+      window.addEventListener('error', (ev) => {
+        if (ev.message) setStatus('Error: ' + String(ev.message).slice(0, 140));
+      });
+      window.addEventListener('unhandledrejection', (ev) => {
+        setStatus('Error: ' + String(ev.reason && ev.reason.message || ev.reason).slice(0, 140));
+      });
+      const origConsoleError = console.error.bind(console);
+      console.error = (...args) => {
+        setStatus('Error: ' + args.map(String).join(' ').slice(0, 140));
+        origConsoleError(...args);
+      };
+      // stall watchdog: if the emulator exists but hasn't started long after
+      // launch, say so instead of sitting on a blank screen
+      let stallTicks = 0;
+      const stallTimer = setInterval(() => {
+        if (window.EJS_emulator && window.EJS_emulator.started) { clearInterval(stallTimer); return; }
+        if (++stallTicks >= 4 && !emuStatus.textContent.startsWith('Error')) {
+          setStatus('Still loading after ' + (stallTicks * 10) + 's. Core/ROM download may be stalled. ' +
+            'If this is the WiFi sign-in window, open the page in your real browser instead.');
+        }
+      }, 10000);
 
       const loader = document.createElement('script');
-      loader.src = '/EmulatorJS/loader.js';
+      // vendored EmulatorJS keeps the loader inside data/ (this path being wrong
+      // was the original Gallion "emulator backend broke" bug)
+      loader.src = '/EmulatorJS/data/loader.js';
+      loader.onerror = () => {
+        emuWrap.innerHTML = '<p style="color:#fff;text-align:center;padding-top:2rem;">' +
+          'EmulatorJS failed to load (/EmulatorJS/data/loader.js missing on card).</p>';
+      };
       document.body.appendChild(loader);
     }
 

@@ -1,0 +1,242 @@
+<!DOCTYPE html>
+<!-- Version 4 -->
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Nomad • Go</title>
+<link rel="icon" href="/favicon.ico" type="image/x-icon">
+<link rel="stylesheet" href="/master.css">
+<script src="/theme-boot.js"></script>
+<script src="/theme-manager.js"></script>
+<script src="/assets/tenuki.min.js"></script>
+<script src="/assets/mp-client.js"></script>
+<style>
+  main{max-width:620px;margin:0 auto;padding:14px}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:16px;margin-bottom:14px}
+  .row{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin:8px 0}
+  input[type=text]{background:var(--bg);color:var(--text);border:1px solid var(--line);
+    border-radius:8px;padding:10px 12px;font-size:1.1rem;text-transform:uppercase;width:120px;text-align:center;letter-spacing:.2em}
+  select{background:var(--bg);color:var(--text);border:1px solid var(--line);border-radius:8px;padding:9px 10px}
+  .btn{background:var(--primary);color:var(--color-white,#fff);border:none;border-radius:8px;
+    padding:10px 18px;cursor:pointer;font-size:1rem}
+  .btn.secondary{background:transparent;color:var(--primary);border:1px solid var(--primary)}
+  .code-big{font-size:2rem;letter-spacing:.35em;font-weight:700;color:var(--primary);text-align:center;margin:6px 0}
+  .status{text-align:center;color:var(--muted);min-height:1.4em;margin:8px 0}
+  .status.hot{color:var(--primary);font-weight:600}
+  .caps{text-align:center;color:var(--muted);font-size:.85rem;margin:4px 0}
+  #board{display:grid;margin:0 auto;background:#deb867;border-radius:8px;padding:8px;
+    max-width:min(92vw,540px);touch-action:manipulation;user-select:none}
+  .pt{position:relative;aspect-ratio:1;background:transparent;border:none;padding:0;cursor:pointer}
+  /* board lines: centered 1.5px cross per intersection, clipped at edges */
+  .pt::before,.pt::after{content:'';position:absolute;background:#4a3413;pointer-events:none}
+  .pt::before{left:0;right:0;top:50%;height:1.5px;transform:translateY(-50%)}
+  .pt::after{top:0;bottom:0;left:50%;width:1.5px;transform:translateX(-50%)}
+  .pt.edge-l::before{left:50%}  .pt.edge-r::before{right:50%}
+  .pt.edge-t::after{top:50%}    .pt.edge-b::after{bottom:50%}
+  .stone{position:absolute;inset:8%;border-radius:50%;z-index:1;pointer-events:none}
+  .stone.b{background:radial-gradient(circle at 35% 30%,#555,#000 70%)}
+  .stone.w{background:radial-gradient(circle at 35% 30%,#fff,#cfcfcf 75%);border:1px solid #999}
+  .stone .last{position:absolute;inset:35%;border-radius:50%;border:2px solid var(--primary)}
+  .hidden{display:none!important}
+  .center{text-align:center}
+</style>
+</head>
+<body>
+  <header>
+    <h1>Go</h1>
+    <a class="back-btn" href="/games.html">← Back to Games</a>
+  </header>
+
+  <main>
+    <div class="card" id="lobby">
+      <div class="row" style="justify-content:center">
+        <select id="sizeSel" aria-label="Board size">
+          <option value="9">9 × 9 board</option>
+          <option value="13">13 × 13 board</option>
+        </select>
+        <button class="btn" onclick="createRoom()">Create Room (play Black)</button>
+      </div>
+      <p class="center" style="color:var(--muted)">or join a friend as White</p>
+      <div class="row" style="justify-content:center">
+        <input type="text" id="joinCode" maxlength="4" placeholder="CODE">
+        <button class="btn secondary" onclick="joinRoom()">Join</button>
+      </div>
+      <div class="status" id="lobbyMsg"></div>
+    </div>
+
+    <div class="card hidden" id="game">
+      <div class="code-big" id="roomCode"></div>
+      <div class="status" id="status">Waiting…</div>
+      <div class="caps" id="caps"></div>
+      <div id="board"></div>
+      <div class="row" style="justify-content:center;margin-top:14px">
+        <button class="btn secondary" onclick="doPass()">Pass</button>
+        <button class="btn secondary" onclick="location.reload()">Leave / New Room</button>
+      </div>
+    </div>
+  </main>
+
+<script>
+if (typeof tenuki === 'undefined') {
+  document.addEventListener('DOMContentLoaded', () => {
+    document.getElementById('lobbyMsg').textContent =
+      'Go engine failed to load (/assets/tenuki.min.js). Re-copy the assets folder to the card.';
+  });
+  throw new Error('tenuki missing');
+}
+
+/* State travels as a compact move list: {"s":9,"m":"ddqf..pp"}, two chars
+   per move, ".." = pass. The board is rebuilt by replaying into a fresh tenuki
+   game. Room state caps near 500 bytes, which is why 19x19 is not offered. */
+const MAX_MOVES_CHARS = 480;
+
+let size = 9;
+let moveStr = '';
+let game = null;
+let lastPt = null;   // [x,y] of last stone for the marker
+
+const boardEl = document.getElementById('board');
+const statusEl = document.getElementById('status');
+const myColor = () => MP.room.seat === 0 ? 'black' : 'white';
+
+function rebuild(){
+  game = new tenuki.Game({ boardSize: size, scoring: 'territory' });
+  lastPt = null;
+  for (let i = 0; i + 1 < moveStr.length; i += 2){
+    const a = moveStr[i], b = moveStr[i+1];
+    if (a === '.' && b === '.'){ game.pass(); lastPt = null; }
+    else {
+      const x = a.charCodeAt(0) - 97, y = b.charCodeAt(0) - 97;
+      game.playAt(y, x);
+      lastPt = [x, y];
+    }
+  }
+}
+
+function render(){
+  boardEl.style.gridTemplateColumns = `repeat(${size},1fr)`;
+  boardEl.innerHTML = '';
+  for (let y = 0; y < size; y++){
+    for (let x = 0; x < size; x++){
+      const b = document.createElement('button');
+      b.className = 'pt' +
+        (x === 0 ? ' edge-l' : '') + (x === size-1 ? ' edge-r' : '') +
+        (y === 0 ? ' edge-t' : '') + (y === size-1 ? ' edge-b' : '');
+      const it = game.intersectionAt(y, x);
+      if (!it.isEmpty()){
+        const s = document.createElement('span');
+        s.className = 'stone ' + (it.isBlack() ? 'b' : 'w');
+        if (lastPt && lastPt[0] === x && lastPt[1] === y) s.innerHTML = '<span class="last"></span>';
+        b.appendChild(s);
+      }
+      b.onclick = () => play(x, y);
+      boardEl.appendChild(b);
+    }
+  }
+  updateStatus();
+}
+
+function myTurn(){
+  return MP.room.joined && !game.isOver() &&
+         game.currentPlayer() === myColor() && MP.myTurn();
+}
+
+function updateStatus(){
+  statusEl.classList.remove('hot');
+  const st = game.currentState();
+  // tenuki's <color>StonesCaptured counts stones of that color that were LOST,
+  // so Black's capture count is whiteStonesCaptured (verified against engine)
+  document.getElementById('caps').textContent =
+    `Captures  Black: ${st.whiteStonesCaptured || 0} · White: ${st.blackStonesCaptured || 0}`;
+  const me = myColor() === 'black' ? 'Black' : 'White';
+  if (!MP.room.joined){
+    statusEl.textContent = `Share the code and wait for White to join… (you are ${me})`;
+  } else if (game.isOver()){
+    const sc = game.score();
+    const w = sc.black > sc.white ? 'Black' : sc.white > sc.black ? 'White' : 'Nobody';
+    statusEl.textContent = `Game over. Black ${sc.black} : White ${sc.white}` +
+      (w === 'Nobody' ? ' (draw)' : `. ${w} wins${w === me ? ' (you!)' : ''}`);
+    statusEl.classList.add('hot');
+  } else if (moveStr.length >= MAX_MOVES_CHARS){
+    statusEl.textContent = 'Move limit reached. Both players should pass to score the game.';
+  } else if (myTurn()){
+    statusEl.textContent = `Your move (${me})`;
+    statusEl.classList.add('hot');
+  } else {
+    statusEl.textContent = `Opponent's move (you are ${me})`;
+  }
+}
+
+async function sendState(){
+  await MP.move(JSON.stringify({ s: size, m: moveStr }));
+}
+
+async function play(x, y){
+  if (!myTurn()) return;
+  if (moveStr.length >= MAX_MOVES_CHARS) return;   // only pass fits now
+  if (!game.playAt(y, x)) return;                  // illegal (occupied / ko / suicide)
+  lastPt = [x, y];
+  moveStr += String.fromCharCode(97 + x) + String.fromCharCode(97 + y);
+  render();
+  try { await sendState(); }
+  catch(e){ game.undo(); moveStr = moveStr.slice(0, -2); statusEl.textContent = e.message; render(); }
+}
+
+async function doPass(){
+  if (!myTurn()) return;
+  game.pass();
+  lastPt = null;
+  moveStr += '..';
+  render();
+  try { await sendState(); }
+  catch(e){ game.undo(); moveStr = moveStr.slice(0, -2); statusEl.textContent = e.message; render(); }
+}
+
+function onUpdate(stateStr){
+  try {
+    const s = JSON.parse(stateStr);
+    if (s && typeof s.m === 'string'){
+      if (s.s && s.s !== size) size = s.s;
+      moveStr = s.m;
+      rebuild();
+    }
+  } catch(e){}
+  render();
+}
+
+function onInfo(j){
+  if (j.gone){ statusEl.textContent = 'Room expired.'; MP.stop(); return; }
+  updateStatus();
+}
+
+function enterGame(){
+  document.getElementById('lobby').classList.add('hidden');
+  document.getElementById('game').classList.remove('hidden');
+  document.getElementById('roomCode').textContent = MP.room.code;
+  rebuild();
+  render();
+  MP.poll(onUpdate, onInfo, 1200);
+}
+
+async function createRoom(){
+  size = Number(document.getElementById('sizeSel').value) || 9;
+  try {
+    await MP.create('go');
+    // seed the room state with the board size so the joiner adopts it before any move
+    // (their first poll delivers it; until then they default to 9x9 harmlessly)
+    enterGame();
+  }
+  catch(e){ document.getElementById('lobbyMsg').textContent = e.message; }
+}
+
+async function joinRoom(){
+  const code = document.getElementById('joinCode').value;
+  if (!code) return;
+  try { await MP.join(code); enterGame(); }
+  catch(e){ document.getElementById('lobbyMsg').textContent = e.message; }
+}
+document.getElementById('joinCode').addEventListener('keydown', e => { if (e.key === 'Enter') joinRoom(); });
+</script>
+</body>
+</html>

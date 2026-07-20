@@ -8,10 +8,10 @@
 Stream movies, music, books, and shows anywhere - no internet required.</p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/release-Mk4-red.svg" alt="Release: Mk4" />
+  <img src="https://img.shields.io/badge/branch-experimental-orange.svg" alt="Branch: Experimental" />
   <img src="https://img.shields.io/badge/license-CC--BY--NC--SA%204.0-blue.svg" alt="License: CC BY-NC-SA 4.0" />
   <img src="https://img.shields.io/badge/platform-ESP32--S3-orange" alt="Platform: ESP32-S3" />
-  <img src="https://img.shields.io/badge/status-beta-yellow" alt="Status: Beta" />
+  <img src="https://img.shields.io/badge/status-rough-red" alt="Status: Rough" />
 </p>
 
 <p align="center">
@@ -21,7 +21,11 @@ Stream movies, music, books, and shows anywhere - no internet required.</p>
 
 ---
 
-> **Mk4 Release** - A big one. Full offline Wikipedia support, a redesigned case, and a long list of stability fixes under the hood. This update touches both firmware and frontend, so a reflash is required coming from Mk3. Still semi-stable while I iron out edge cases, but everything core is working well.
+> **Experimental Branch** - This is where new stuff lands before it's ready for main. Right now that means exFAT card support, offline maps, game ROMs, and local multiplayer. Everything from Mk4 is still here and still works, this branch just adds on top of it.
+>
+> Fair warning, these features are rough. They work, I use them, but they haven't been through anywhere near the testing the main branch has. Expect bugs, expect things to change, and don't put this on a Nomad you're relying on. If you want something stable, use main.
+>
+> Firmware and the SD card template both change here, so you'll need to reflash and refresh your card files.
 
 ---
 
@@ -31,24 +35,45 @@ Jcorp Nomad is an open-source offline media server designed for travel, remote w
 
 This project is compact, easy to modify, and includes optional 3D-printable hardware. Both firmware and web interface are fully open-source.
 
----
+## What's New in Experimental
 
-## Get a Nomad
+### exFAT Support
 
-### Build It Yourself (Recommended)
+This is the big one, and it's the thing people have been asking for the longest. FAT32 has been Nomad's biggest limitation since day one, cards over 32GB needed a reformat first, and no single file could go over 4GB. exFAT fixes both of those, aswell as generaly making the system faster.
 
-I strongly recommend building your own Nomad. It's not a very difficult project, if you can follow instructions and plug in a USB cable, you can do it. The parts are cheap, widely available, and the whole build takes under an hour. See Hardware Requirements and Quick Start below. If nothing else please check out the DIY option before purchasing. 
+- Cards mount as **exFAT, FAT32 or FAT16**, auto detected at boot, nothing for you to configure
+- SDXC cards (anything over 32GB) work exactly as they come out of the package, no reformat step at all
+- Single files can go over 4GB now, so a full size Wikipedia can sit on the card as one file instead of split parts
+- Old FAT32 cards keep working exactly like they always did, this is additive, not a migration
+- Writing to a nearly full card is a lot less likely to stall out, that was behind a lot of the upload and save timeouts
 
-### Buy a Prebuilt
+The reason this took so long, the Arduino ESP32 core ships a prebuilt filesystem library with exFAT compiled out of it, and there is no way to turn it back on from a sketch. The fix was to stop using it entirely and swap in SdFat, which brings its own filesystem code. Previously I had tried to make them work together, but the solution was completly removing the default and replacing it. 
 
-That said, I also won't say no to money. If you'd rather skip the DIY and get a ready-to-go unit, prebuilt Nomads are available at **[nomad.jcorptech.net](https://nomad.jcorptech.net)**.
+**You'll need the SdFat library installed** from the Arduino Library Manager before this will compile. (extra library in additon to the normal ones)
 
-Every Nomad, whether you build it or buy it, runs the same open-source firmware and web interface. When new features and updates are released, you can always flash the latest code yourself to stay up to date. This project isn't going anywhere. 
+### Offline Maps
 
-### Support Development
+- Map regions live in `/Maps` and get browsed offline, with search and routing
+- Reads map data straight out of a packed archive instead of unpacking it onto the card, which keeps a region at roughly its download size instead of several times bigger (for streetzim, which is still WIP)
+- The Maps tile only shows up on the menu if you actually have a region on the card
 
-If you just want to support the project, donations are always appreciated:  
-**[ko-fi.com/jcorptech](https://ko-fi.com/jcorptech)**
+This one is the roughest of the bunch. It works, but it's slow, big regions take a while to draw and I'm still working on that. For now it also support standard map tiles in their default format. using that will result in a smoother experiance, but no navigation or advanced features. 
+
+### Game ROMs & Built-in Games
+
+- Drop ROMs into `/Games` and play them in the browser through EmulatorJS
+- Ships with Go, Chess, Connect Four, Tic-Tac-Toe and a shared Whiteboard, all just plain HTML files
+- Cover art works the same as everywhere else, drop an image with the same name next to the file
+- Add or remove games by adding or deleting files, there's nothing to configure
+- Uses emulator.js, may need tweeks, I dont play many games/roms, so feedback is welcome. 
+
+### Local Multiplayer
+
+- Two player game rooms over the Nomad's own Wi-Fi, no internet and no extra hardware
+- One person makes a room, shares the 4 character code, the other joins from their own phone
+- Chess, Go, Connect Four and Tic-Tac-Toe all support it, the Whiteboard is just a shared freeform board (in additon to private)
+- May add a play against computor option later, but for now they are multiplayer only
+- May also add option to spectate in the future. 
 
 ---
 
@@ -69,8 +94,6 @@ If you just want to support the project, donations are always appreciated:
 - New case slides together **front-to-back** instead of the old top-to-bottom design
 - No more direct pressure on the screen, which was a common cause of cracked/broken screens on the old case
 - Buttons stay exposed on the outside, so you can still flash firmware or hit the boot button without disassembling anything
-
-- Based on a remix of [ESP32 C6 with LCD Screen Enclosure Case](https://makerworld.com/en/models/2121443-esp32-c6-with-lcd-screen-enclosure-case) on MakerWorld by [**Adrian**](https://makerworld.com/en/@user_1765744671), full credit to the original design this was built on
 
 ### Indexing & Stability
 - Root-caused and fixed a long-standing random reboot bug tied to files over 2GB, this was the actual cause of crashes on image-heavy Wikipedia pages and big movie scrubbing
@@ -102,7 +125,11 @@ Burgundy Wine, Teal Oasis
 
 ## Features
 
+- **exFAT & FAT32:** Any card format, auto detected at boot. Cards over 32GB and files over 4GB both work.
 - **Offline Encyclopedia:** ZIM archive support for offline Wikipedia and other offline wikis, with fast on-device search.
+- **Offline Maps:** Browsable map regions with search and routing, served straight off the card. (rough)
+- **Games:** Browser-based ROM playback through EmulatorJS, plus built-in board games. (rough)
+- **Local Multiplayer:** Two player game rooms over the Nomad's own Wi-Fi, no internet needed. (rough)
 - **Admin Panel:** Full device controls, library indexing, Theme Customizer, login-gated settings.
 - **File Browser:** Upload, rename, delete, download, and inline file editing. (Recommended to use a PC)
 - **Global Search:** Quickly find media across all categories from the Menu page.
@@ -130,7 +157,7 @@ There are a few community forks that target other ESP32 boards, but your mileage
 - **Waveshare ESP32-S3 Dev Board (1.47" LCD version)**
   [Amazon Link](https://amzn.to/4ktB6oT)
 
-- **FAT32 microSD card (16-128GB recommended, up to 2TB)**
+- **microSD card, exFAT or FAT32 (16-128GB recommended, up to 2TB)**
   [Amazon Link](https://amzn.to/44tM1c4)
 
 - **SD-Card Extender (optional, 3DP case compatible)**
@@ -144,7 +171,6 @@ There are a few community forks that target other ESP32 boards, but your mileage
 ## Software Requirements
 
 - Arduino IDE
-- Fat32Format or equivalent
 - SquareLine Studio (optional, for UI editing)
 
 ---
@@ -152,8 +178,8 @@ There are a few community forks that target other ESP32 boards, but your mileage
 ## Quick Start
 
 1. Flash ESP32-S3 firmware from `/firmware/`.
-2. Format SD card as FAT32 and copy `/SD_Card_Template/` files.
-3. Place media in `/Movies`, `/Shows`, `/Books`, `/Music`, `/Gallery`, `/Files`.
+2. Copy `/SD_Card_Template/` files onto the card. Any exFAT or FAT32 card works as-is, you only need to format if the card is brand new or broken.
+3. Place media in `/Movies`, `/Shows`, `/Books`, `/Music`, `/Gallery`, `/Files`, `/Games`, `/Maps`.
 4. Insert SD card and power device via USB.
 5. Connect to Wi-Fi `Jcorp_Nomad` with password: `password`.
 6. Open the browser interface.
@@ -252,6 +278,22 @@ Folder Structure
     document.pdf
     example.txt
 
+/Games
+    Pokemon Red.gb
+    Pokemon Red.png
+    Chess.html
+    Go.html
+
+/Maps
+    /pennsylvania
+        manifest.json
+        (map data, prepped with Nomad Tools)
+
+/Archive
+    wikipedia_en_all_maxi.zim
+    /.nomad-zim
+        (search index, built by Nomad Tools)
+
 index.html
 appleindex.html
 menu.html
@@ -262,6 +304,9 @@ music.html
 gallery.html
 files.html
 archive.html
+games.html
+maps.html
+chat.html
 Logo.png
 favicon.ico
 ```
@@ -275,6 +320,8 @@ favicon.ico
 - **Books:** `.pdf, .epub, .cbz, .cbr` 
 - **Images:** `.jpg, .jpeg, .png` 
 - **Archives:** `.zim` (offline Wikipedia and other ZIM-format wikis), needs special processing, you cant just drop a .zim in sadly. Prep them with [Nomad Tools](https://github.com/Jstudner/Nomad-Tools) first (still rough, but handles most common ZIMs)
+- **Games:** ROMs for the systems EmulatorJS supports (GB, GBC, GBA, NES, SNES, Genesis, and others), plus `.html` files for built-in games
+- **Maps:** map regions prepped with Nomad Tools, dropped into `/Maps`
 
 ---
 
@@ -285,6 +332,17 @@ The Mk4 default case is a remix of [ESP32 C6 with LCD Screen Enclosure Case](htt
 
 - Mk4 case files: in this repo
 - Original Mk3 top/bottom case (still works, just more prone to screen pressure): [Thingiverse](https://www.thingiverse.com/thing:7223398)
+
+---
+
+## Known Rough Edges
+
+Since this is the experimental branch, here's what I already know isn't great:
+
+- **Free space on FAT32 cards can read slightly wrong.** SdFat doesn't update the counter FAT32 keeps for it, so the number drifts by however much Nomad itself writes. It fixes itself the next time you plug the card into a PC, and it doesn't affect your files at all. exFAT cards aren't affected.
+- **Multiplayer is polling based.** It's a room code and a refresh loop, not a live connection. Fine for turn based games, wouldn't hold up for anything realtime.
+- **EmulatorJS cores download on first play.** Once cached they're fine, but the first launch of a system pulls the core off the card and takes a moment.
+- Everything here has had a fraction of the testing main has. If something breaks, tell me, that's what this branch is for.
 
 ---
 
@@ -323,7 +381,6 @@ The ESP32-S3 provides enough performance to handle these requirements efficientl
 ## Credits
 
 Developed by **Jackson Studner (Jcorp Tech)**.
-Mk4 case design based on a remix of [**Adrian**](https://makerworld.com/en/@user_1765744671)'s [ESP32 C6 LCD Screen Enclosure Case](https://makerworld.com/en/models/2121443-esp32-c6-with-lcd-screen-enclosure-case) on MakerWorld.
 Inspired by open-source offline media projects. Contributions via PRs welcome.
 
 <p align="center">

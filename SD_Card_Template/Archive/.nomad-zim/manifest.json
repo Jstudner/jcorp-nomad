@@ -1,0 +1,199 @@
+{
+  "version": 2,
+  "built": "2026-07-20T13:06:43.234Z",
+  "articleCount": 4972,
+  "wordCount": 17235,
+  "skipStep": 512,
+  "sharded": true,
+  "shards": {
+    "0": {
+      "dat": "words-0.dat",
+      "skp": "words-0.skp",
+      "bytes": 72
+    },
+    "1": {
+      "dat": "words-1.dat",
+      "skp": "words-1.skp",
+      "bytes": 4179
+    },
+    "2": {
+      "dat": "words-2.dat",
+      "skp": "words-2.skp",
+      "bytes": 1026
+    },
+    "3": {
+      "dat": "words-3.dat",
+      "skp": "words-3.skp",
+      "bytes": 226
+    },
+    "4": {
+      "dat": "words-4.dat",
+      "skp": "words-4.skp",
+      "bytes": 54
+    },
+    "5": {
+      "dat": "words-5.dat",
+      "skp": "words-5.skp",
+      "bytes": 386
+    },
+    "6": {
+      "dat": "words-6.dat",
+      "skp": "words-6.skp",
+      "bytes": 138
+    },
+    "8": {
+      "dat": "words-8.dat",
+      "skp": "words-8.skp",
+      "bytes": 288
+    },
+    "a": {
+      "dat": "words-a.dat",
+      "skp": "words-a.skp",
+      "bytes": 64006
+    },
+    "b": {
+      "dat": "words-b.dat",
+      "skp": "words-b.skp",
+      "bytes": 29991
+    },
+    "c": {
+      "dat": "words-c.dat",
+      "skp": "words-c.skp",
+      "bytes": 57792
+    },
+    "d": {
+      "dat": "words-d.dat",
+      "skp": "words-d.skp",
+      "bytes": 28803
+    },
+    "e": {
+      "dat": "words-e.dat",
+      "skp": "words-e.skp",
+      "bytes": 60448
+    },
+    "f": {
+      "dat": "words-f.dat",
+      "skp": "words-f.skp",
+      "bytes": 19598
+    },
+    "g": {
+      "dat": "words-g.dat",
+      "skp": "words-g.skp",
+      "bytes": 30564
+    },
+    "h": {
+      "dat": "words-h.dat",
+      "skp": "words-h.skp",
+      "bytes": 37406
+    },
+    "i": {
+      "dat": "words-i.dat",
+      "skp": "words-i.skp",
+      "bytes": 29147
+    },
+    "j": {
+      "dat": "words-j.dat",
+      "skp": "words-j.skp",
+      "bytes": 12567
+    },
+    "k": {
+      "dat": "words-k.dat",
+      "skp": "words-k.skp",
+      "bytes": 18066
+    },
+    "l": {
+      "dat": "words-l.dat",
+      "skp": "words-l.skp",
+      "bytes": 50858
+    },
+    "m": {
+      "dat": "words-m.dat",
+      "skp": "words-m.skp",
+      "bytes": 39735
+    },
+    "n": {
+      "dat": "words-n.dat",
+      "skp": "words-n.skp",
+      "bytes": 26383
+    },
+    "o": {
+      "dat": "words-o.dat",
+      "skp": "words-o.skp",
+      "bytes": 12048
+    },
+    "p": {
+      "dat": "words-p.dat",
+      "skp": "words-p.skp",
+      "bytes": 38854
+    },
+    "q": {
+      "dat": "words-q.dat",
+      "skp": "words-q.skp",
+      "bytes": 15341
+    },
+    "r": {
+      "dat": "words-r.dat",
+      "skp": "words-r.skp",
+      "bytes": 32395
+    },
+    "s": {
+      "dat": "words-s.dat",
+      "skp": "words-s.skp",
+      "bytes": 63243
+    },
+    "t": {
+      "dat": "words-t.dat",
+      "skp": "words-t.skp",
+      "bytes": 36157
+    },
+    "u": {
+      "dat": "words-u.dat",
+      "skp": "words-u.skp",
+      "bytes": 35078
+    },
+    "v": {
+      "dat": "words-v.dat",
+      "skp": "words-v.skp",
+      "bytes": 8638
+    },
+    "w": {
+      "dat": "words-w.dat",
+      "skp": "words-w.skp",
+      "bytes": 22541
+    },
+    "x": {
+      "dat": "words-x.dat",
+      "skp": "words-x.skp",
+      "bytes": 1120
+    },
+    "y": {
+      "dat": "words-y.dat",
+      "skp": "words-y.skp",
+      "bytes": 12228
+    },
+    "z": {
+      "dat": "words-z.dat",
+      "skp": "words-z.skp",
+      "bytes": 1476
+    }
+  },
+  "archives": [
+    {
+      "idx": 0,
+      "id": "wikipedia_en_100_nopic_2026-07",
+      "name": "wikipedia_en_100_nopic_2026-07",
+      "split": false,
+      "totalSize": 15317049,
+      "parts": [
+        {
+          "path": "/Archive/wikipedia_en_100_nopic_2026-07.zim",
+          "size": 15317049
+        }
+      ],
+      "articleCount": 4972,
+      "mainCluster": 40,
+      "mainBlob": 1262,
+      "hasList": true
+    }
+  ]
+}

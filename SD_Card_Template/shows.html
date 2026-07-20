@@ -752,11 +752,32 @@ function loadSeriesEpisodes(show){
     const entries = [];
     const showEntries = show.entries || [];
 
+    // Sidecar subtitles: collect per directory, matched to an episode when the
+    // subtitle's basename starts with the episode file's basename
+    // (Ep1.srt / Ep1.en.srt next to Ep1.mp4).
+    const isSubName = (n) => SUB_EXTS.includes(ext(n));
+    const subsInDir = new Map();
+    const addSub = (n, p) => {
+      const full = normalizePath(p);
+      const dir = full.replace(/\/[^/]+$/, '');
+      if(!subsInDir.has(dir)) subsInDir.set(dir, []);
+      subsInDir.get(dir).push({ n, p: full });
+    };
+    const subsFor = (videoPath, rawName) => {
+      const dir = normalizePath(videoPath).replace(/\/[^/]+$/, '');
+      const base = String(rawName).replace(/\.[^.]+$/, '').toLowerCase();
+      return (subsInDir.get(dir) || [])
+        .filter(s => s.n.replace(/\.[^.]+$/, '').toLowerCase().startsWith(base))
+        .map(s => s.p);
+    };
+
     // Process all entries in the show
     for(const e of showEntries){
       if(e.t === 'f' && isVideoName(e.n)) {
         // This is a video file directly in the show directory
-        entries.push({ type:'f', name: prettify(e.n), path: normalizePath(e.p), sz: e.sz||0, mt: e.mt||0 });
+        entries.push({ type:'f', name: prettify(e.n), raw: e.n, path: normalizePath(e.p), sz: e.sz||0, mt: e.mt||0 });
+      } else if(e.t === 'f' && isSubName(e.n)) {
+        addSub(e.n, e.p);
       } else if(e.t === 'd') {
         // This is a directory (season folder)
         const seasonPath = normalizePath(e.p);
@@ -766,7 +787,9 @@ function loadSeriesEpisodes(show){
         if(e.entries) {
           for(const se of e.entries) {
             if(se.t === 'f' && isVideoName(se.n)) {
-              children.push({ name: prettify(se.n), path: normalizePath(se.p), sz: se.sz||0, mt: se.mt||0 });
+              children.push({ name: prettify(se.n), raw: se.n, path: normalizePath(se.p), sz: se.sz||0, mt: se.mt||0 });
+            } else if(se.t === 'f' && isSubName(se.n)) {
+              addSub(se.n, se.p);
             }
           }
         }
@@ -788,13 +811,15 @@ function loadSeriesEpisodes(show){
 
     for(const en of entries){
       if(en.type === 'f'){
-        const item = { name: en.name, path: en.path, season: null, sz: en.sz||0, mt: en.mt||0, _seq: idx+1 };
+        const item = { name: en.name, path: en.path, season: null, sz: en.sz||0, mt: en.mt||0, _seq: idx+1,
+                       subtitles: subsFor(en.path, en.raw || en.name) };
         flat.push(item);
         map[normalizePath(item.path)] = idx;
         idx++;
       } else if(en.type === 'd'){
         for(const c of en.children){
-          const item = { name: c.name, path: c.path, season: en.name, sz: c.sz||0, mt:c.mt||0, _seq: idx+1 };
+          const item = { name: c.name, path: c.path, season: en.name, sz: c.sz||0, mt:c.mt||0, _seq: idx+1,
+                         subtitles: subsFor(c.path, c.raw || c.name) };
           flat.push(item);
           map[normalizePath(item.path)] = idx;
           idx++;
@@ -1302,7 +1327,7 @@ function findIndexForPathOrBasename(path){
 }
 
 /* openVideo uses fileKey resume matching and updates title to the current episode */
-function openVideo(src, useResume=false, ep=null){
+async function openVideo(src, useResume=false, ep=null){
   if(ep) currentEpisode = ep;
   if(!currentEpisode || !currentEpisode.path) { console.debug('[Shows] openVideo called without episode'); return; }
 
@@ -1447,16 +1472,20 @@ function openVideo(src, useResume=false, ep=null){
   }
 
   videoPlayer.src = src;
-  if(currentEpisode.subtitles && currentEpisode.subtitles.length > 0){
-    const subtitleUrl = fileUrl(currentEpisode.subtitles[0]);
+  // all sidecar subtitles as selectable tracks; srt converted to VTT (browsers
+  // render nothing for raw srt in <track>)
+  const subTracks = await NomadSubs.buildTracks(
+    (currentEpisode.subtitles || []).map(p => ({ path: p, url: fileUrl(p) })),
+    currentEpisode.path);
+  subTracks.forEach(sub => {
     const track = document.createElement('track');
-    track.kind = 'subtitles';
-    track.label = 'English';
-    track.srclang = 'en';
-    track.src = subtitleUrl;
-    track.default = true;
+    track.kind = sub.kind;
+    track.label = sub.label;
+    track.srclang = sub.srclang;
+    track.src = sub.src;
+    if(sub.default) track.default = true;
     videoPlayer.appendChild(track);
-  }
+  });
   videoPlayer.load();
 
   videoModal.style.display = 'flex';
@@ -1549,7 +1578,7 @@ function handleEpisodeEnded(){
 }
 
 /* Next button (manual) - still allowed; moves to next ep if available */
-function nextEpisode(){
+async function nextEpisode(){
   console.debug('[Shows] nextEpisode called, currentIndex=', currentEpisodeIndex);
   if(!flattenedEpisodes || flattenedEpisodes.length === 0) return;
   let curIdx = currentEpisodeIndex;
@@ -1572,11 +1601,9 @@ function nextEpisode(){
   videoTitle.textContent = currentEpisode.name || '';
 
   const src = fileUrl(currentEpisode.path);
-  const subtitles = [];
-  if(currentEpisode.subtitles && currentEpisode.subtitles.length > 0){
-    const subtitleUrl = fileUrl(currentEpisode.subtitles[0]);
-    subtitles.push({ kind: 'captions', label: 'English', srclang: 'en', src: subtitleUrl, default: true });
-  }
+  const subtitles = await NomadSubs.buildTracks(
+    (currentEpisode.subtitles || []).map(p => ({ path: p, url: fileUrl(p) })),
+    currentEpisode.path);
 
   if(window.plyrInstance){
     window.plyrInstance.source = {
@@ -1805,6 +1832,9 @@ sortSelect.addEventListener('change', () => applySort(sortSelect.value));
   } catch(e){ console.error('init failed', e); }
   setInterval(checkIndex, 30000);
 })();
+
+/* admin toggle: hide the download action when downloads are disabled */
+NomadUI.hideDownloads('downloadButton');
 </script>
 
 </body>

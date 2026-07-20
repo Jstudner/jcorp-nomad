@@ -682,23 +682,6 @@
           <button onclick="triggerSDScan()" class="btn btn-secondary" style="width: 100%;">Scan SD Card</button>
         </div>
         <div id="sd-scan-msg" style="font-size: 0.8rem; color: var(--muted); margin-top: 0.5rem;"></div>
-
-        <!-- Breakdown by folder (populated by the most recent full system scan) -->
-        <details style="margin-top: 1.25rem;">
-          <summary style="cursor: pointer; font-weight: 600; color: var(--muted);">Breakdown by Folder</summary>
-          <div style="margin-top: 0.75rem;">
-            <table id="sd-breakdown-table" style="display: none; width: 100%; font-size: 0.85rem; border-collapse: collapse;">
-              <thead>
-                <tr style="text-align: left; border-bottom: 1px solid var(--card-border);">
-                  <th style="padding: 0.35rem 0.25rem;">Folder</th>
-                  <th style="padding: 0.35rem 0.25rem; text-align: right;">Size</th>
-                  <th style="padding: 0.35rem 0.25rem; text-align: right;">Files</th>
-                </tr>
-              </thead>
-              <tbody id="sd-breakdown-body"></tbody>
-            </table>
-          </div>
-        </details>
       </div>
 
       <!-- RGB Settings -->
@@ -801,6 +784,78 @@
           <div id="generate-msg" style="font-size: 0.875rem; color: var(--muted);"></div>
         </div>
       </div>
+
+      <!-- Menu Pages (frontend-only, stored in /.system-ui.json on the card) -->
+      <div class="card">
+        <h2>Menu Pages</h2>
+        <p style="font-size: 0.85rem; color: var(--muted); margin: 0 0 0.75rem;">
+          Hide pages this Nomad's users don't need. Hidden pages disappear from
+          the menu; their content stays on the card.
+        </p>
+        <div id="ui-pages" style="display: flex; flex-direction: column; gap: 0.5rem;"></div>
+        <div id="ui-pages-msg" style="font-size: 0.85rem; color: var(--muted); margin-top: 0.5rem;"></div>
+      </div>
+
+      <!-- Community & Sharing -->
+      <div class="card">
+        <h2>Community &amp; Sharing</h2>
+        <div class="form-group">
+          <label class="form-label">Message of the day (shown on the menu)</label>
+          <input type="text" id="ui-motd" class="form-control" maxlength="120" placeholder="Empty for none">
+        </div>
+        <button onclick="saveMotd()" class="btn btn-primary" style="width: 100%; margin-bottom: 0.75rem;">Save Message</button>
+        <div style="display: flex; gap: 0.5rem; margin-bottom: 1rem;">
+          <button onclick="clearChatHistory()" class="btn btn-secondary" style="flex: 1;">Clear Chat</button>
+          <button onclick="clearWhiteboard()" class="btn btn-secondary" style="flex: 1;">Clear Whiteboard</button>
+        </div>
+        <div id="ui-community-msg" style="font-size: 0.85rem; color: var(--muted); margin-bottom: 0.75rem;"></div>
+        <div style="border-top: 1px solid var(--card-border, #ddd); padding-top: 0.75rem;">
+          <div style="display: flex; align-items: center; justify-content: space-between;">
+            <label class="form-label" style="margin: 0;">Allow downloads:</label>
+            <label class="toggle-switch">
+              <input type="checkbox" id="ui-downloads" checked>
+              <span class="slider"></span>
+            </label>
+          </div>
+          <div style="display: flex; align-items: center; justify-content: space-between; margin-top: 0.5rem;">
+            <label class="form-label" style="margin: 0;">Allow uploads:</label>
+            <label class="toggle-switch">
+              <input type="checkbox" id="ui-uploads" checked>
+              <span class="slider"></span>
+            </label>
+          </div>
+          <p style="font-size: 0.78rem; color: var(--muted); margin: 0.5rem 0 0;">
+            Downloads control the download buttons on the movie, show, book and
+            music pages. Uploads control the upload buttons on the gallery and
+            files pages.
+          </p>
+          <div id="ui-downloads-msg" style="font-size: 0.85rem; color: var(--muted); margin-top: 0.5rem;"></div>
+        </div>
+      </div>
+
+      <!-- Library -->
+      <div class="card">
+        <h2>Library</h2>
+        <div id="lib-stats" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(90px, 1fr)); gap: 0.5rem; margin-bottom: 1rem;">
+          <div style="grid-column: 1 / -1; font-size: 0.85rem; color: var(--muted);">Counting library…</div>
+        </div>
+        <!-- Breakdown by folder (populated by the most recent full system scan) -->
+        <details>
+          <summary style="cursor: pointer; font-weight: 600; color: var(--muted);">Breakdown by Folder</summary>
+          <div style="margin-top: 0.75rem;">
+            <table id="sd-breakdown-table" style="display: none; width: 100%; font-size: 0.85rem; border-collapse: collapse;">
+              <thead>
+                <tr style="text-align: left; border-bottom: 1px solid var(--card-border);">
+                  <th style="padding: 0.35rem 0.25rem;">Folder</th>
+                  <th style="padding: 0.35rem 0.25rem; text-align: right;">Size</th>
+                  <th style="padding: 0.35rem 0.25rem; text-align: right;">Files</th>
+                </tr>
+              </thead>
+              <tbody id="sd-breakdown-body"></tbody>
+            </table>
+          </div>
+        </details>
+      </div>
     </div>
 
     <!-- Full Width Sections -->
@@ -859,7 +914,8 @@
     </div>
   </div>
 
-  <script src="admin.js"></script>
+  <!-- version query busts the firmware's max-age file caching (bump when admin.js changes) -->
+  <script src="admin.js?v=45"></script>
 </body>
 </html>
 

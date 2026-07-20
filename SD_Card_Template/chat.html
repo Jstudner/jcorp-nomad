@@ -1,0 +1,236 @@
+<!DOCTYPE html>
+<!-- Version 4 -->
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<meta name="description" content="Jcorp Nomad Media Server - Chat">
+<title>Nomad • Chat</title>
+<link rel="icon" href="favicon.ico" type="image/x-icon">
+<link rel="stylesheet" href="/master.css">
+<script src="/theme-boot.js"></script>
+<script src="/theme-manager.js"></script>
+<style>
+  html, body { height: 100dvh; }
+  body { display: flex; flex-direction: column; overflow: hidden; }
+  main { flex: 1; display: flex; flex-direction: column; max-width: 900px; width: 100%;
+    margin: 0 auto; min-height: 0; }
+  .chat-name-row { display: flex; gap: 8px; padding: 10px 14px; border-bottom: 1px solid var(--line); }
+  .chat-name-row input { flex: 1; background: var(--card); color: var(--text);
+    border: 1px solid var(--line); border-radius: 8px; padding: 9px 12px; font-size: .95rem; }
+  .chat-name-row button { background: var(--primary); color: var(--color-white, #fff);
+    border: none; border-radius: 8px; padding: 9px 14px; cursor: pointer; }
+  .chat-msgs { flex: 1; overflow-y: auto; padding: 14px; display: flex;
+    flex-direction: column; gap: 10px; min-height: 0; }
+  .chat-day { text-align: center; color: var(--muted); font-size: .75rem; margin: 8px 0 2px;
+    display: flex; align-items: center; gap: 10px; }
+  .chat-day::before, .chat-day::after { content: ''; flex: 1; height: 1px; background: var(--line); }
+  .chat-msg { max-width: 82%; align-self: flex-start; }
+  .chat-msg.mine { align-self: flex-end; text-align: right; }
+  .chat-who { font-weight: 700; font-size: .8rem; }
+  .chat-time { font-size: .7rem; color: var(--muted); margin-left: 6px; }
+  .chat-text { background: var(--card); border: 1px solid var(--line); border-radius: 12px;
+    padding: 8px 12px; margin-top: 2px; font-size: .95rem; color: var(--text); text-align: left;
+    word-break: break-word; white-space: pre-wrap; }
+  .chat-msg.mine .chat-text { background: var(--primary); color: var(--color-white, #fff);
+    border-color: var(--primary); }
+  .chat-empty { color: var(--muted); text-align: center; margin-top: 28vh; }
+  .chat-input-row { display: flex; gap: 8px; padding: 10px 14px calc(10px + env(safe-area-inset-bottom));
+    border-top: 1px solid var(--line); background: var(--bg); }
+  .chat-input-row input { flex: 1; background: var(--card); color: var(--text);
+    border: 1px solid var(--line); border-radius: 999px; padding: 10px 14px; font-size: .95rem; }
+  .chat-input-row button { background: var(--primary); color: var(--color-white, #fff);
+    border: none; border-radius: 999px; padding: 10px 18px; cursor: pointer; font-size: .95rem; }
+  .name-btn { background: transparent; border: 1px solid rgba(255,255,255,.5);
+    color: var(--header-text, #fff); border-radius: 8px; padding: 6px 12px;
+    cursor: pointer; font-size: .8rem; margin-right: 8px; }
+</style>
+</head>
+<body>
+  <header>
+    <h1>Chat</h1>
+    <div style="display:flex;align-items:center">
+      <button class="name-btn" onclick="Chat.editName()" title="Change your display name">Name</button>
+      <a class="back-btn" href="/menu">← Back to Menu</a>
+    </div>
+  </header>
+
+  <main>
+    <div class="chat-name-row" id="chatNameRow" hidden>
+      <input id="chatNameInput" maxlength="24" placeholder="Pick a display name">
+      <button onclick="Chat.setName()">Set</button>
+    </div>
+    <div class="chat-msgs" id="chatMsgs"></div>
+    <div class="chat-input-row">
+      <input id="chatInput" maxlength="500" placeholder="Message everyone on this Nomad" autocomplete="off">
+      <button onclick="Chat.send()">Send</button>
+    </div>
+  </main>
+
+<script>
+/* Chat synced through the SD card like the live whiteboard: each tab writes
+   its own file under /.chat (a shared file would lose messages to write races),
+   clients poll /listfiles and render the merged history by timestamp. */
+'use strict';
+
+const Chat = {
+  DIR: '/.chat',
+  MAX_OWN: 120,          // own messages kept in the layer file
+  SHOW_LAST: 200,        // merged messages rendered
+  POLL_MS: 2500,
+
+  name: localStorage.getItem('nomad_chat_name') || '',
+  id: (() => {
+    let id = sessionStorage.getItem('nomad_chat_id');   // per-tab, like the whiteboard
+    if(!id){ id = Math.random().toString(36).slice(2, 8); sessionStorage.setItem('nomad_chat_id', id); }
+    return id;
+  })(),
+  own: [],               // [[ts, text], ...]
+  peers: new Map(),      // filename -> {size, name, msgs}
+  _timer: null, _inFlight: false, _pending: false, _mkdirDone: false, _restored: false,
+
+  get file(){ return `${this.DIR}/chat_${this.id}.json`; },
+
+  boot(){
+    if(!this.name){ document.getElementById('chatNameRow').hidden = false; document.getElementById('chatNameInput').focus(); }
+    else document.getElementById('chatInput').focus();
+    this.render();
+    this.poll();
+  },
+
+  setName(){
+    const v = document.getElementById('chatNameInput').value.trim().slice(0, 24);
+    if(!v) return;
+    this.name = v;
+    localStorage.setItem('nomad_chat_name', v);
+    document.getElementById('chatNameRow').hidden = true;
+    if(this.own.length) this.save();   // re-publish history under the new name
+    this.render();
+    document.getElementById('chatInput').focus();
+  },
+  editName(){
+    document.getElementById('chatNameInput').value = this.name;
+    document.getElementById('chatNameRow').hidden = false;
+    document.getElementById('chatNameInput').focus();
+  },
+
+  send(){
+    const inp = document.getElementById('chatInput');
+    const text = inp.value.trim().slice(0, 500);
+    if(!text) return;
+    if(!this.name){ document.getElementById('chatNameRow').hidden = false; return; }
+    inp.value = '';
+    this.own.push([Date.now(), text]);
+    if(this.own.length > this.MAX_OWN) this.own = this.own.slice(-this.MAX_OWN);
+    this.render(true);
+    this.save();
+  },
+
+  async save(){
+    if(this._inFlight){ this._pending = true; return; }
+    this._inFlight = true;
+    try {
+      if(!this._mkdirDone){
+        await fetch('/mkdir', { method:'POST',
+          headers:{ 'Content-Type':'application/x-www-form-urlencoded' },
+          body: new URLSearchParams({ dirname: this.DIR }) }).catch(()=>{});
+        this._mkdirDone = true;
+      }
+      await fetch('/save', { method:'POST',
+        headers:{ 'Content-Type':'application/x-www-form-urlencoded' },
+        body: new URLSearchParams({ filename: this.file,
+          content: JSON.stringify({ v:1, n: this.name, m: this.own }) }) });
+    } catch(e){}
+    this._inFlight = false;
+    if(this._pending){ this._pending = false; this.save(); }
+  },
+
+  async poll(){
+    clearTimeout(this._timer);
+    try {
+      const res = await fetch(`/listfiles?dir=${encodeURIComponent(this.DIR)}&_=${Date.now()}`, { cache:'no-store' });
+      if(res.ok){
+        const arr = JSON.parse(await res.text());
+        const seen = new Set();
+        let changed = false;
+        for(const f of (Array.isArray(arr) ? arr : [])){
+          const n = String(f.name || '');
+          if(!/^chat_.*\.json$/.test(n) || f.isDir) continue;
+          if(`${this.DIR}/${n}` === this.file){
+            // restore this tab's own history once (page reload / revisit)
+            if(!this._restored && !this.own.length){
+              try {
+                const r = await fetch(`${this.DIR}/${n}?_=${Date.now()}`, { cache:'no-store' });
+                if(r.ok){ const j = JSON.parse(await r.text()); this.own = (j && j.m) || []; changed = true; }
+              } catch(e){}
+              this._restored = true;
+            }
+            continue;
+          }
+          seen.add(n);
+          const cached = this.peers.get(n);
+          if(!cached || cached.size !== f.size){
+            try {
+              const r = await fetch(`${this.DIR}/${n}?_=${Date.now()}`, { cache:'no-store' });
+              if(r.ok){
+                const j = JSON.parse(await r.text());
+                this.peers.set(n, { size: f.size, name: (j && j.n) || 'Guest', msgs: (j && j.m) || [] });
+                changed = true;
+              }
+            } catch(e){}
+          }
+        }
+        for(const k of [...this.peers.keys()]){
+          if(!seen.has(k)){ this.peers.delete(k); changed = true; }
+        }
+        if(changed) this.render();
+      }
+    } catch(e){}
+    this._timer = setTimeout(() => this.poll(), this.POLL_MS);
+  },
+
+  _dayLabel(ts){
+    const d = new Date(ts), now = new Date();
+    const day = (x) => x.toDateString();
+    if(day(d) === day(now)) return 'Today';
+    const y = new Date(now); y.setDate(now.getDate() - 1);
+    if(day(d) === day(y)) return 'Yesterday';
+    return d.toLocaleDateString([], { month: 'short', day: 'numeric',
+      year: d.getFullYear() === now.getFullYear() ? undefined : 'numeric' });
+  },
+
+  render(jump){
+    const box = document.getElementById('chatMsgs');
+    const all = [];
+    for(const m of this.own) all.push({ t: m[0], n: this.name || 'Me', text: m[1], mine: true });
+    for(const p of this.peers.values())
+      for(const m of (p.msgs || [])) all.push({ t: m[0], n: p.name, text: m[1], mine: false });
+    all.sort((a,b) => a.t - b.t);
+    const last = all.slice(-this.SHOW_LAST);
+    const esc = (s) => String(s).replace(/[&<>"']/g, c =>
+      ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]));
+    const hue = (s) => { let h = 0; for(const c of String(s)) h = (h*31 + c.charCodeAt(0)) % 360; return h; };
+    const atBottom = box.scrollHeight - box.scrollTop - box.clientHeight < 60;
+
+    let html = '', lastDay = '';
+    for(const m of last){
+      const dayLbl = this._dayLabel(m.t);
+      if(dayLbl !== lastDay){ html += `<div class="chat-day">${dayLbl}</div>`; lastDay = dayLbl; }
+      const time = new Date(m.t).toLocaleTimeString([], { hour:'2-digit', minute:'2-digit' });
+      html += `<div class="chat-msg${m.mine ? ' mine' : ''}">
+        <span class="chat-who" style="color:hsl(${hue(m.n)},55%,45%)">${esc(m.n)}</span>
+        <span class="chat-time">${time}</span>
+        <div class="chat-text">${esc(m.text)}</div>
+      </div>`;
+    }
+    box.innerHTML = html || '<div class="chat-empty">No messages yet. Say hello.</div>';
+    if(jump || atBottom || last.length <= 1) box.scrollTop = box.scrollHeight;
+  }
+};
+
+document.getElementById('chatInput').addEventListener('keydown', (e) => { if(e.key === 'Enter') Chat.send(); });
+document.getElementById('chatNameInput').addEventListener('keydown', (e) => { if(e.key === 'Enter') Chat.setName(); });
+Chat.boot();
+</script>
+</body>
+</html>

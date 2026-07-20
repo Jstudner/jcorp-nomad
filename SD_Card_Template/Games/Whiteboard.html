@@ -1,0 +1,420 @@
+<!DOCTYPE html>
+<!-- Version 4 -->
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Nomad • Whiteboard</title>
+<link rel="icon" href="/favicon.ico" type="image/x-icon">
+<link rel="stylesheet" href="/master.css">
+<script src="/theme-boot.js"></script>
+<script src="/theme-manager.js"></script>
+<style>
+  main{max-width:1150px;margin:0 auto;padding:10px;width:100%;box-sizing:border-box}
+  .toolbar{display:flex;flex-wrap:wrap;gap:8px;align-items:center;background:var(--card);
+    border:1px solid var(--line);border-radius:10px;padding:8px 10px;margin-bottom:10px}
+  .tb-group{display:flex;gap:6px;align-items:center}
+  .tb-sep{width:1px;align-self:stretch;background:var(--line);margin:0 2px}
+  .tool-btn,.mode-btn{background:var(--bg);color:var(--text);border:1px solid var(--line);
+    border-radius:8px;padding:8px 12px;cursor:pointer;font-size:.88rem;min-height:38px}
+  .tool-btn:disabled{opacity:.45;cursor:default}
+  .tool-btn.active,.mode-btn.active{background:var(--primary);color:var(--color-white,#fff);border-color:var(--primary)}
+  .color-picker{width:38px;height:38px;padding:2px;border:1px solid var(--line);border-radius:8px;
+    background:var(--bg);cursor:pointer}
+  .size-control{display:flex;gap:6px;align-items:center;color:var(--muted);font-size:.85rem}
+  .size-control input{width:90px}
+  .live-info{margin-left:auto;color:var(--muted);font-size:.8rem;text-align:right}
+  #wrap{position:relative;width:100%}
+  canvas{display:block;width:100%;height:auto;background:#fff;border:1px solid var(--line);
+    border-radius:10px;touch-action:none;cursor:crosshair}
+  @media(max-width:600px){
+    .toolbar{padding:6px}
+    .tool-btn,.mode-btn{padding:7px 9px;font-size:.8rem}
+    .live-info{width:100%;text-align:left;margin-left:0}
+  }
+</style>
+</head>
+<body>
+  <header>
+    <h1>Whiteboard</h1>
+    <a class="back-btn" href="/games.html">← Back to Games</a>
+  </header>
+
+  <main>
+    <div class="toolbar">
+      <div class="tb-group">
+        <button class="mode-btn active" id="modePrivate" onclick="setMode('private')">My Board</button>
+        <button class="mode-btn" id="modeLive" onclick="setMode('live')">Live Board</button>
+      </div>
+      <div class="tb-sep"></div>
+      <div class="tb-group">
+        <button class="tool-btn" id="undoBtn" onclick="undo()">Undo</button>
+        <button class="tool-btn" id="redoBtn" onclick="redo()">Redo</button>
+      </div>
+      <div class="tb-sep"></div>
+      <div class="tb-group">
+        <input type="color" id="colorPicker" class="color-picker" value="#1d4ed8" aria-label="Pen color">
+        <div class="size-control">
+          <input type="range" id="sizeSlider" min="1" max="20" value="4" aria-label="Pen size">
+          <span id="sizeDisplay">4</span>
+        </div>
+        <button class="tool-btn" id="eraseBtn" onclick="toggleErase()">Erase</button>
+      </div>
+      <div class="tb-sep"></div>
+      <div class="tb-group">
+        <button class="tool-btn" onclick="clearBoard()">Clear</button>
+        <button class="tool-btn" onclick="savePNG()">Save</button>
+        <button class="tool-btn" id="loadBtn" onclick="document.getElementById('imageUpload').click()">Load</button>
+        <input type="file" id="imageUpload" accept="image/*" style="display:none" onchange="loadImageFile(this)">
+      </div>
+      <div class="live-info" id="liveInfo">Private board, saved on this device.</div>
+    </div>
+
+    <div id="wrap"><canvas id="cv" width="1600" height="1200"></canvas></div>
+  </main>
+
+<script>
+/* Whiteboard: two boards behind one set of controls (same layout as Gallion's).
+   - "My Board": strokes autosave to localStorage on this device; Save downloads
+     a PNG, Load draws an image file onto the canvas.
+   - "Live Board": shared with everyone on the Nomad. There are no sockets on the
+     firmware, so each participant writes their OWN stroke layer to the SD card
+     via the open POST /save handler (atomic write) and polls /listfiles for the
+     other layers, refetching only layers whose size changed. Clear deletes every
+     layer file (communal clear, like Gallion's whiteboard-clear broadcast). */
+'use strict';
+
+const W = 1600, H = 1200;               // fixed logical space so all clients agree
+const LIVE_DIR = '/.whiteboard';
+const SAVE_THROTTLE_MS = 900;           // coalesce SD writes (wear + sdMutex traffic)
+const POLL_MS = 2500;
+const MAX_LAYER_JSON = 24000;           // keep POST /save bodies small for the ESP32
+
+const cv = document.getElementById('cv');
+const ctx = cv.getContext('2d');
+const liveInfo = document.getElementById('liveInfo');
+
+let mode = 'private';
+let color = '#1d4ed8', size = 4, erasing = false;
+let myStrokes = { private: [], live: [] };
+let redoStack = { private: [], live: [] };
+let peerLayers = new Map();             // filename -> {size, strokes}
+let cur = null;                         // in-progress stroke
+let pollTimer = null;
+let savePending = false, saveInFlight = false, savedOnce = false;
+let layerFull = false;
+
+const clientId = (() => {
+  // sessionStorage, NOT localStorage: the id must be unique per browser TAB, or
+  // two windows on one device share a layer file and each ignores it as "mine"
+  // (live board looks dead when testing with two windows). Survives reloads
+  // within the tab; a new tab is simply a new participant.
+  let id = sessionStorage.getItem('nomad_wb_id');
+  if (!id){
+    id = Math.random().toString(36).slice(2, 8);
+    sessionStorage.setItem('nomad_wb_id', id);
+  }
+  return id;
+})();
+const myFile = `${LIVE_DIR}/wb_${clientId}.json`;
+
+/* ---------- drawing primitives ---------- */
+
+function drawStroke(s){
+  if (s.img){                            // loaded image (private board only)
+    const im = imgCache.get(s.img);
+    if (im && im.complete) ctx.drawImage(im, s.x, s.y, s.w2, s.h2);
+    return;
+  }
+  const p = s.p;
+  if (!p || p.length < 2) return;
+  ctx.globalCompositeOperation = s.e ? 'destination-out' : 'source-over';
+  ctx.strokeStyle = s.c;
+  ctx.lineWidth = s.w * 2.2;             // logical space is ~2.2x a phone CSS pixel
+  ctx.lineCap = ctx.lineJoin = 'round';
+  ctx.beginPath();
+  ctx.moveTo(p[0], p[1]);
+  if (p.length === 2) ctx.lineTo(p[0] + 0.5, p[1] + 0.5);   // dot
+  for (let i = 2; i + 1 < p.length; i += 2) ctx.lineTo(p[i], p[i+1]);
+  ctx.stroke();
+  ctx.globalCompositeOperation = 'source-over';
+}
+
+const imgCache = new Map();
+function ensureImg(dataUrl){
+  if (imgCache.has(dataUrl)) return;
+  const im = new Image();
+  im.onload = redraw;
+  im.src = dataUrl;
+  imgCache.set(dataUrl, im);
+}
+
+function redraw(){
+  ctx.globalCompositeOperation = 'source-over';
+  ctx.fillStyle = '#fff';
+  ctx.fillRect(0, 0, W, H);
+  if (mode === 'live'){
+    // peers in stable filename order, own layer on top, live stroke last
+    [...peerLayers.keys()].sort().forEach(f => peerLayers.get(f).strokes.forEach(drawStroke));
+  }
+  myStrokes[mode].forEach(s => { if (s.img) ensureImg(s.img); drawStroke(s); });
+  if (cur) drawStroke(cur);
+}
+
+/* ---------- pointer input ---------- */
+
+function toLogical(e){
+  const r = cv.getBoundingClientRect();
+  return [Math.round((e.clientX - r.left) * W / r.width),
+          Math.round((e.clientY - r.top) * H / r.height)];
+}
+
+cv.addEventListener('pointerdown', e => {
+  e.preventDefault();
+  cv.setPointerCapture(e.pointerId);
+  if (layerFull && mode === 'live') return;
+  const [x, y] = toLogical(e);
+  cur = { c: color, w: size, e: erasing ? 1 : 0, p: [x, y] };
+  drawStroke(cur);
+});
+cv.addEventListener('pointermove', e => {
+  if (!cur) return;
+  const [x, y] = toLogical(e);
+  const p = cur.p, n = p.length;
+  if (Math.abs(x - p[n-2]) + Math.abs(y - p[n-1]) < 3) return;  // decimate
+  p.push(x, y);
+  // draw just the new segment (full redraws only on sync/undo)
+  ctx.globalCompositeOperation = cur.e ? 'destination-out' : 'source-over';
+  ctx.strokeStyle = cur.c;
+  ctx.lineWidth = cur.w * 2.2;
+  ctx.lineCap = 'round';
+  ctx.beginPath();
+  ctx.moveTo(p[n-2], p[n-1]);
+  ctx.lineTo(x, y);
+  ctx.stroke();
+  ctx.globalCompositeOperation = 'source-over';
+});
+function endStroke(){
+  if (!cur) return;
+  myStrokes[mode].push(cur);
+  redoStack[mode] = [];
+  cur = null;
+  updateButtons();
+  persist();
+}
+cv.addEventListener('pointerup', endStroke);
+cv.addEventListener('pointercancel', endStroke);
+
+/* ---------- controls ---------- */
+
+document.getElementById('colorPicker').addEventListener('input', e => { color = e.target.value; });
+document.getElementById('sizeSlider').addEventListener('input', e => {
+  size = Number(e.target.value);
+  document.getElementById('sizeDisplay').textContent = size;
+});
+
+function toggleErase(){
+  erasing = !erasing;
+  document.getElementById('eraseBtn').classList.toggle('active', erasing);
+}
+
+function undo(){
+  const st = myStrokes[mode];
+  if (!st.length) return;
+  redoStack[mode].push(st.pop());
+  redraw(); updateButtons(); persist();
+}
+function redo(){
+  if (!redoStack[mode].length) return;
+  myStrokes[mode].push(redoStack[mode].pop());
+  redraw(); updateButtons(); persist();
+}
+function updateButtons(){
+  document.getElementById('undoBtn').disabled = !myStrokes[mode].length;
+  document.getElementById('redoBtn').disabled = !redoStack[mode].length;
+  document.getElementById('loadBtn').disabled = (mode === 'live');
+}
+
+function savePNG(){
+  const link = document.createElement('a');
+  link.download = `whiteboard-${Date.now()}.png`;
+  link.href = cv.toDataURL();
+  link.click();
+}
+
+function loadImageFile(input){
+  const f = input.files && input.files[0];
+  input.value = '';
+  if (!f || mode === 'live') return;
+  const rd = new FileReader();
+  rd.onload = () => {
+    const im = new Image();
+    im.onload = () => {
+      // fit inside the canvas, centered
+      const k = Math.min(W / im.width, H / im.height, 1);
+      const w2 = Math.round(im.width * k), h2 = Math.round(im.height * k);
+      myStrokes.private.push({ img: rd.result,
+        x: Math.round((W - w2) / 2), y: Math.round((H - h2) / 2), w2, h2 });
+      redoStack.private = [];
+      ensureImg(rd.result);
+      redraw(); updateButtons(); persist();
+    };
+    im.src = rd.result;
+  };
+  rd.readAsDataURL(f);
+}
+
+async function clearBoard(){
+  if (mode === 'private'){
+    if (!confirm('Clear your board?')) return;
+    myStrokes.private = []; redoStack.private = [];
+    redraw(); updateButtons(); persist();
+    return;
+  }
+  if (!confirm('Clear the live board for everyone?')) return;
+  try {
+    const res = await fetch(`/listfiles?dir=${encodeURIComponent(LIVE_DIR)}`, { cache: 'no-store' });
+    if (res.ok){
+      const arr = await res.json();
+      for (const f of (Array.isArray(arr) ? arr : [])){
+        const n = String(f.name || '');
+        if (/^wb_.*\.json$/.test(n) && !f.isDir){
+          await fetch('/delete', { method: 'POST',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+            body: new URLSearchParams({ filename: `${LIVE_DIR}/${n}` }) });
+        }
+      }
+    }
+  } catch(e){}
+  myStrokes.live = []; redoStack.live = []; peerLayers.clear();
+  savedOnce = false; layerFull = false;
+  redraw(); updateButtons(); setLiveInfo();
+}
+
+/* ---------- private persistence ---------- */
+
+function persist(){
+  if (mode === 'private'){
+    try {
+      localStorage.setItem('nomad_wb_private', JSON.stringify(myStrokes.private));
+    } catch(e){
+      liveInfo.textContent = 'Private board too large to autosave (Save it as a PNG).';
+    }
+  } else {
+    scheduleSave();
+  }
+}
+function restorePrivate(){
+  try {
+    const raw = localStorage.getItem('nomad_wb_private');
+    if (raw) myStrokes.private = JSON.parse(raw) || [];
+  } catch(e){}
+}
+
+/* ---------- live sync over /save + /listfiles + /delete ---------- */
+
+function scheduleSave(){
+  savePending = true;
+  setTimeout(doSave, SAVE_THROTTLE_MS);
+}
+
+async function doSave(){
+  if (!savePending || saveInFlight || mode !== 'live') return;
+  savePending = false;
+  const json = JSON.stringify({ v: 1, strokes: myStrokes.live });
+  if (json.length > MAX_LAYER_JSON){
+    layerFull = true;
+    liveInfo.textContent = 'Your layer is full. Clear the board to keep drawing.';
+    return;
+  }
+  layerFull = false;
+  saveInFlight = true;
+  try {
+    if (!savedOnce){
+      await fetch('/mkdir', { method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: new URLSearchParams({ dirname: LIVE_DIR }) }).catch(() => {});
+    }
+    const res = await fetch('/save', { method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({ filename: myFile, content: json }) });
+    if (res.ok) savedOnce = true;
+  } catch(e){}
+  saveInFlight = false;
+  if (savePending) setTimeout(doSave, SAVE_THROTTLE_MS);
+}
+
+async function pollLive(){
+  if (mode !== 'live') return;
+  try {
+    const res = await fetch(`/listfiles?dir=${encodeURIComponent(LIVE_DIR)}&_=${Date.now()}`, { cache: 'no-store' });
+    if (res.status === 404){            // nobody has drawn yet
+      peerLayers.clear(); redraw(); setLiveInfo(1);
+    } else if (res.ok){
+      const arr = await res.json();
+      const seen = new Set();
+      let changed = false, sawMine = false;
+      for (const f of (Array.isArray(arr) ? arr : [])){
+        const n = String(f.name || '');
+        if (!/^wb_.*\.json$/.test(n) || f.isDir) continue;
+        if (`${LIVE_DIR}/${n}` === myFile){ sawMine = true; continue; }
+        seen.add(n);
+        const cached = peerLayers.get(n);
+        if (!cached || cached.size !== f.size){
+          try {
+            const r = await fetch(`${LIVE_DIR}/${n}?_=${Date.now()}`, { cache: 'no-store' });
+            if (r.ok){
+              const j = await r.json();
+              peerLayers.set(n, { size: f.size, strokes: (j && j.strokes) || [] });
+              changed = true;
+            }
+          } catch(e){}
+        }
+      }
+      for (const k of [...peerLayers.keys()]){
+        if (!seen.has(k)){ peerLayers.delete(k); changed = true; }
+      }
+      // my file vanished while I had saved -> someone cleared the board
+      if (savedOnce && !sawMine){
+        myStrokes.live = []; redoStack.live = [];
+        savedOnce = false; layerFull = false;
+        changed = true; updateButtons();
+      }
+      if (changed) redraw();
+      setLiveInfo(1 + seen.size);
+    }
+  } catch(e){}
+  pollTimer = setTimeout(pollLive, POLL_MS);
+}
+
+function setLiveInfo(count){
+  if (mode !== 'live'){
+    liveInfo.textContent = 'Private board, saved on this device.';
+  } else if (layerFull){
+    /* message already set */
+  } else {
+    liveInfo.textContent = `Live board, shared with everyone` +
+      (count ? ` · ${count} drawing` : '');
+  }
+}
+
+/* ---------- mode switching ---------- */
+
+function setMode(m){
+  if (m === mode) return;
+  if (cur) endStroke();
+  mode = m;
+  document.getElementById('modePrivate').classList.toggle('active', m === 'private');
+  document.getElementById('modeLive').classList.toggle('active', m === 'live');
+  clearTimeout(pollTimer);
+  if (m === 'live') pollLive();
+  setLiveInfo();
+  redraw(); updateButtons();
+}
+
+restorePrivate();
+redraw();
+updateButtons();
+</script>
+</body>
+</html>

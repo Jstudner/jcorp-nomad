@@ -1,0 +1,15 @@
+# editor / IDE
+.vs/
+.vscode/
+.theia/
+*.suo
+*.user
+
+# build output
+build/
+*.elf
+*.map
+
+# OS noise
+.DS_Store
+Thumbs.db

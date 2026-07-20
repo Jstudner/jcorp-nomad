@@ -9,7 +9,7 @@
   <meta name="description" content="Jcorp Nomad Media Server – Images & Video" />
   <link rel="stylesheet" href="/master.css">
   <script src="/theme-boot.js"></script>
-  <script src="/nomad-utils.js"></script>
+  <script src="/nomad-utils.js?v=45"></script>
   <script src="/theme-manager.js"></script>
   <style>
     /* Functional CSS: Gallery-specific layout and positioning */
@@ -155,8 +155,7 @@
 
   <div class="toolbar" role="toolbar" aria-label="Gallery toolbar">
     <div class="toolbar-left">
-      <!-- Uncomment to add upload functionality / button -->
-      <!-- <button id="uploadBtn" class="btn" title="Upload files">⬆ Upload</button> -->
+      <button id="uploadBtn" class="btn" title="Upload files" style="display:none">Upload</button>
     </div>
 
     <label>
@@ -809,45 +808,21 @@ function closeModal(evt){
   }
 }
 
-/* ---------- upload (sequential XHR; sends dir=/Gallery) ---------- */
-// uploadBtn.addEventListener('click', ()=> uploadInput.click());
-// uploadInput.addEventListener('change', (e)=>{
-//   const files = Array.from(e.target.files || []);
-//   if(files.length === 0) return;
-//   (async ()=>{
-//     uploadBtn.disabled = true;
-//     const originalText = uploadBtn.textContent;
-//     uploadBtn.textContent = 'Uploading…';
-//     try{
-//       for(let i=0;i<files.length;i++){
-//         await uploadSingleFileXHR(files[i], ROOT);
-//       }
-//       await refreshIndex();
-//       uploadBtn.textContent = 'Uploaded ✓';
-//       setTimeout(()=>{ uploadBtn.textContent = originalText; uploadBtn.disabled = false; }, 1000);
-//     }catch(err){
-//       console.error('upload error', err);
-//       uploadBtn.textContent = 'Upload Failed';
-//       setTimeout(()=>{ uploadBtn.textContent = originalText; uploadBtn.disabled = false; }, 1500);
-//     } finally { uploadInput.value = ''; }
-//   })();
-// });
-// function uploadSingleFileXHR(file, dir){
-//   return new Promise((resolve,reject)=>{
-//     const xhr = new XMLHttpRequest();
-//     xhr.open('POST', UPLOAD_ENDPOINT, true);
-//     xhr.withCredentials = true;
-//     const fd = new FormData();
-//     fd.append('dir', (dir.startsWith('/') ? dir : '/' + dir));
-//     fd.append('file', file, file.name);
-//     xhr.onload = function(){
-//       if(xhr.status >= 200 && xhr.status < 300){ resolve(); }
-//       else { reject(new Error('Upload failed: ' + xhr.status)); }
-//     };
-//     xhr.onerror = function(){ reject(new Error('Upload network error')); };
-//     xhr.send(fd);
-//   });
-// }
+/* ---------- upload (shared NomadUpload modal; sends dir=/Gallery) ---------- */
+uploadBtn.addEventListener('click', () => uploadInput.click());
+uploadInput.addEventListener('change', (e) => {
+  const files = Array.from(e.target.files || []);
+  uploadInput.value = '';
+  if(!files.length) return;
+  (async () => {
+    uploadBtn.disabled = true;
+    const ok = await NomadUpload.run(files, ROOT);
+    uploadBtn.disabled = false;
+    if(ok) await refreshIndex();
+  })();
+});
+/* admin toggle: the button only appears when uploads are allowed */
+NomadUI.config().then(c => { if(!c.uploadsDisabled && uploadBtn) uploadBtn.style.display = ''; });
 
 /* ---------- Hash helpers (open via #open=...) ---------- */
 function getHashParam(){

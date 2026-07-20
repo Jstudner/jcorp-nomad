@@ -6,7 +6,7 @@
     <script src="/theme-boot.js"></script>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Nomad — File Manager</title>
+  <title>Nomad • File Manager</title>
   <script src="theme-manager.js"></script>
   <style>
     :root {
@@ -1248,7 +1248,7 @@
           formData.append('destination', dirAbs);
           formData.append('overwrite', '1');
     
-          // now append the file LAST — so the server gets form fields before file part
+          // now append the file LAST so the server gets form fields before the file part
           formData.append('file', file, file.name);
     
           // Create XHR to track progress
@@ -1326,7 +1326,7 @@
 
       try {
         await ajaxPost(mkdirEndpoint, { dirname: path }, 15000);
-        $statusLine.text('Folder create requested — requesting reindex');
+        $statusLine.text('Folder create requested, requesting reindex');
         triggerReindex(currentPath);
         await sleep(1000);
         clearBusy('Folder created');

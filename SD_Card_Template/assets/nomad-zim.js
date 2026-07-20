@@ -23,7 +23,7 @@
   var BLOCK_SIZE = 8192;
   var BLOCK_CACHE_MAX = 128;      // ~1MB of index blocks. big enough that one article's
                                   // whole lookup set stays cached, so later images need zero device reads
-  var CLUSTER_CACHE_MAX = 4;      // decompressed clusters (can be ~2MB each)
+  var CLUSTER_CACHE_MAX = 16;      // decompressed clusters (can be ~2MB each)
   var DIRENT_CACHE_MAX = 512;
   var MAX_CLUSTER_BYTES = 96 * 1024 * 1024;  // big enough for a ZIM-embedded video/epub blob's cluster
 
@@ -155,8 +155,8 @@
   // cap any one range request. a huge read keeps the ESP32 flat-out for seconds, so
   // split into sequential capped reads with a breather. chunks go forward-only in a
   // part so the reused file handle only seeks forward (cheap on FAT32)
-  HttpSource.MAX_REQ_BYTES = 256 * 1024;
-  HttpSource.CHUNK_BREATHER_MS = 25;
+  HttpSource.MAX_REQ_BYTES = 1024 * 1024;
+  HttpSource.CHUNK_BREATHER_MS = 0;
 
   HttpSource.prototype.read = function (offset, length) {
     var self = this;

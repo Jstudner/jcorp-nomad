@@ -511,9 +511,11 @@ async function updateAdminPassword() {
   }
 
   try {
-    const hashedPw = await sha256Hex(newPw);
+    // store the password raw: the firmware compares login submissions directly
+    // against the stored value, and hashing only in secure contexts made the
+    // stored form depend on which browser changed it last (login lottery)
     const settingsUpdate = {
-      adminPassword: hashedPw
+      adminPassword: newPw
     };
 
     const res = await adminFetch('/settings', {
@@ -841,7 +843,7 @@ async function requireAdminAuth(passedSettings) {
   // Check if password is disabled
   if (!settings || !settings.hasOwnProperty('adminPassword') ||
       settings.adminPassword === null || settings.adminPassword === '' || settings.adminPassword === 'null') {
-    console.debug('requireAdminAuth: admin password explicitly disabled on server — skipping auth.');
+    console.debug('requireAdminAuth: admin password explicitly disabled on server, skipping auth.');
     overlay.classList.add('hidden');
     return;
   }
@@ -854,7 +856,7 @@ async function requireAdminAuth(passedSettings) {
   }
 
   // Show auth overlay if password is set and no valid session token
-  console.debug('requireAdminAuth: admin password is set — showing auth overlay.');
+  console.debug('requireAdminAuth: admin password is set, showing auth overlay.');
   overlay.classList.remove('hidden');
   passwordInput.focus();
 
@@ -865,12 +867,23 @@ async function requireAdminAuth(passedSettings) {
       if (!inputPw) return;
 
       try {
-        const hashedInput = await sha256Hex(inputPw);
-        const res = await fetch('/auth/login', {
+        // The firmware compares the submitted value directly against whatever
+        // /config/settings.json holds. Historically this UI hashed the password
+        // only when crypto.subtle existed (secure contexts), so cards can hold
+        // either plaintext or a sha256 hex depending on where the password was
+        // last changed. Try raw first (current convention), then the hash.
+        const attempt = (value) => fetch('/auth/login', {
           method: 'POST',
           headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-          body: new URLSearchParams({ 'body': JSON.stringify({ hash: hashedInput }) })
+          body: new URLSearchParams({ 'body': JSON.stringify({ hash: value }) })
         });
+        let res = await attempt(inputPw);
+        if (res.status === 401 && inputPw !== inputPw.trim()) {
+          res = await attempt(inputPw.trim());   // pasted passwords often carry stray whitespace
+        }
+        if (res.status === 401 && window.crypto && crypto.subtle) {
+          res = await attempt(await sha256Hex(inputPw.trim()));
+        }
 
         if (res.ok) {
           // Success - the server verified the password hash and issued a session token.
@@ -989,7 +1002,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         }
       } catch (err) {
         addConsoleLog('Device disconnected - shutdown in progress', 'warning');
-        alert('Device disconnected — shutdown likely in progress.');
+        alert('Device disconnected, shutdown likely in progress.');
       }
     });
   }
@@ -1160,3 +1173,194 @@ function checkScreenSize() {
 
 window.addEventListener('resize', checkScreenSize);
 window.addEventListener('load', checkScreenSize);
+
+/* ================= UI configuration (/.system-ui.json) =================
+   Frontend-only settings written to the card with the open POST /save handler
+   (atomic temp+rename in firmware). No firmware settings involved, so no
+   reflash needed and unknown keys can't be lost by the fixed AdminSettings
+   struct. menu.html + the media pages read this via NomadUI.config(). */
+
+const UI_CFG_FILE = '/.system-ui.json';
+const UI_PAGES = [
+  ['movies',  'Movies'],  ['shows',   'Shows'],   ['music', 'Music'],
+  ['books',   'Books'],   ['gallery', 'Gallery'], ['files', 'Files'],
+  ['games',   'Games'],   ['maps',    'Maps'],    ['archive', 'Archive'],
+  ['chat',    'Chat'],
+];
+let uiCfg = { hiddenPages: [], downloadsDisabled: false, uploadsDisabled: false, motd: '' };
+
+async function loadUiConfig() {
+  try {
+    const r = await fetch(UI_CFG_FILE + '?_=' + Date.now(), { cache: 'no-store' });
+    if (r.ok) uiCfg = Object.assign(uiCfg, JSON.parse(await r.text()) || {});
+  } catch (e) {}
+  const wrap = document.getElementById('ui-pages');
+  if (!wrap) return;
+  wrap.innerHTML = '';
+  for (const [key, label] of UI_PAGES) {
+    const row = document.createElement('div');
+    row.style.cssText = 'display:flex;align-items:center;justify-content:space-between;';
+    row.innerHTML = `
+      <label class="form-label" style="margin:0;">${label}</label>
+      <label class="toggle-switch">
+        <input type="checkbox" data-page="${key}" ${uiCfg.hiddenPages.includes(key) ? '' : 'checked'}>
+        <span class="slider"></span>
+      </label>`;
+    row.querySelector('input').addEventListener('change', savePageToggles);
+    wrap.appendChild(row);
+  }
+  const dl = document.getElementById('ui-downloads');
+  dl.checked = !uiCfg.downloadsDisabled;
+  dl.addEventListener('change', () => {
+    uiCfg.downloadsDisabled = !dl.checked;
+    saveUiConfig('ui-downloads-msg');
+  });
+  const ul = document.getElementById('ui-uploads');
+  ul.checked = !uiCfg.uploadsDisabled;
+  ul.addEventListener('change', () => {
+    uiCfg.uploadsDisabled = !ul.checked;
+    saveUiConfig('ui-downloads-msg');
+  });
+  document.getElementById('ui-motd').value = uiCfg.motd || '';
+}
+
+function savePageToggles() {
+  uiCfg.hiddenPages = [...document.querySelectorAll('#ui-pages input[data-page]')]
+    .filter(i => !i.checked).map(i => i.dataset.page);
+  saveUiConfig('ui-pages-msg');
+}
+
+function saveMotd() {
+  uiCfg.motd = document.getElementById('ui-motd').value.trim().slice(0, 120);
+  saveUiConfig('ui-community-msg');
+}
+
+async function saveUiConfig(msgId) {
+  const msg = document.getElementById(msgId);
+  try {
+    const res = await fetch('/save', { method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({ filename: UI_CFG_FILE,
+        content: JSON.stringify({ v: 1, hiddenPages: uiCfg.hiddenPages,
+          downloadsDisabled: !!uiCfg.downloadsDisabled,
+          uploadsDisabled: !!uiCfg.uploadsDisabled, motd: uiCfg.motd || '' }) }) });
+    if (msg) msg.textContent = res.ok ? 'Saved. Takes effect when pages reload.' : 'Save failed (' + res.status + ')';
+  } catch (e) {
+    if (msg) msg.textContent = 'Save failed: ' + e.message;
+  }
+}
+
+/* delete every file in a community dotfolder (chat / whiteboard state) */
+async function clearCommunityDir(dir, label) {
+  const msg = document.getElementById('ui-community-msg');
+  if (!confirm(`Clear the ${label} for everyone? This cannot be undone.`)) return;
+  let n = 0;
+  try {
+    const res = await fetch(`/listfiles?dir=${encodeURIComponent(dir)}&_=${Date.now()}`, { cache: 'no-store' });
+    if (res.ok) {
+      const arr = JSON.parse(await res.text());
+      for (const f of (Array.isArray(arr) ? arr : [])) {
+        if (f.isDir) continue;
+        const ok = await fetch('/delete', { method: 'POST',
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+          body: new URLSearchParams({ filename: `${dir}/${f.name}` }) });
+        if (ok.ok) n++;
+      }
+    }
+  } catch (e) {}
+  if (msg) msg.textContent = `${label} cleared (${n} file${n === 1 ? '' : 's'} removed).`;
+}
+const clearChatHistory = () => clearCommunityDir('/.chat', 'chat history');
+const clearWhiteboard  = () => clearCommunityDir('/.whiteboard', 'live whiteboard');
+
+loadUiConfig();
+
+/* ================= Library statistics =================
+   Counts computed client-side from the /.system-index NDJSON files (fetched
+   directly with cache-busting; leading-dot paths are served by any firmware).
+   Bucket indexes hold top-level rows; <Bucket>__<name>.nested.ndjson files hold
+   each series/album's full flat descendant list, so extension counting over
+   both gives totals without touching the firmware. */
+const STAT_EXTS = {
+  video: ['.mp4', '.mkv', '.webm', '.avi', '.mov', '.m4v'],
+  audio: ['.mp3', '.m4a', '.m4b', '.flac', '.wav', '.ogg', '.aac', '.opus'],
+  book:  ['.pdf', '.epub', '.cbz', '.cbr', '.azw3', '.mobi'],
+  image: ['.jpg', '.jpeg', '.png', '.webp', '.gif', '.bmp'],
+};
+function statExt(name) {
+  const m = String(name).toLowerCase().match(/\.[a-z0-9]+$/);
+  return m ? m[0] : '';
+}
+
+async function computeLibraryStats() {
+  const wrap = document.getElementById('lib-stats');
+  if (!wrap) return;
+  try {
+    const listRes = await fetch(`/listfiles?dir=${encodeURIComponent('/.system-index')}&_=${Date.now()}`, { cache: 'no-store' });
+    if (!listRes.ok) throw new Error('no index dir');
+    const files = (JSON.parse(await listRes.text()) || [])
+      .filter(f => !f.isDir && /\.ndjson$/.test(f.name)).map(f => f.name);
+
+    // group index files by bucket; fetch with limited concurrency
+    const byBucket = {};
+    for (const n of files) {
+      const bucket = n.split(/\.|__/)[0];
+      (byBucket[bucket] = byBucket[bucket] || []).push(n);
+    }
+    const rowsOf = async (name) => {
+      try {
+        const r = await fetch(`/.system-index/${encodeURIComponent(name)}?_=${Date.now()}`, { cache: 'no-store' });
+        if (!r.ok) return [];
+        return (await r.text()).split('\n').slice(1).filter(Boolean).map(l => {
+          try { return JSON.parse(l); } catch (e) { return null; }
+        }).filter(Boolean);
+      } catch (e) { return []; }
+    };
+    // STRICTLY sequential with breathing room: the device serves these off the
+    // SD inside its network task, and bursts of parallel index fetches have
+    // starved its watchdog when combined with other requests (e.g. a settings
+    // save). Slow and steady is fine for an admin statistics panel.
+    const breather = () => new Promise(r => setTimeout(r, 150));
+    const bucketRows = async (bucket) => {
+      const out = [];
+      for (const name of (byBucket[bucket] || [])) {
+        out.push(...await rowsOf(name));
+        await breather();
+      }
+      return out;
+    };
+    const count = (rows, exts) => rows.filter(r => r.t === 'f' && exts.includes(statExt(r.n))).length;
+
+    const results = [];
+    for (const b of ['Movies', 'Shows', 'Music', 'Books', 'Gallery', 'Files', 'Games']) {
+      results.push(await bucketRows(b));
+    }
+    const [movies, shows, music, books, gallery, filesRows, games] = results;
+    const topDirs = (rows, bucket) => rows.filter(r =>
+      r.t === 'd' && (r.p.match(/\//g) || []).length === 2).length;
+
+    const stats = [
+      ['Movies',    count(movies, STAT_EXTS.video)],
+      ['Shows',     (byBucket['Shows'] || []).filter(n => n.includes('__')).length || topDirs(shows, 'Shows')],
+      ['Episodes',  count(shows, STAT_EXTS.video)],
+      ['Albums',    topDirs(music, 'Music')],
+      ['Songs',     count(music, STAT_EXTS.audio)],
+      ['Books',     count(books, STAT_EXTS.book)],
+      ['Audiobooks',count(books, STAT_EXTS.audio)],
+      ['Photos',    count(gallery, STAT_EXTS.image)],
+      ['Files',     filesRows.filter(r => r.t === 'f').length],
+      ['Games',     games.filter(r => r.t === 'f' && !STAT_EXTS.image.includes(statExt(r.n))).length],
+    ].filter(([, v]) => v > 0);
+
+    wrap.innerHTML = stats.length ? stats.map(([label, v]) => `
+      <div style="background: var(--bg); border: 1px solid var(--card-border, var(--line, #ddd)); border-radius: 8px; padding: 0.5rem; text-align: center;">
+        <div style="font-weight: 700; font-size: 1.05rem;">${v.toLocaleString()}</div>
+        <div style="font-size: 0.72rem; color: var(--muted);">${label}</div>
+      </div>`).join('')
+      : '<div style="grid-column:1/-1;font-size:0.85rem;color:var(--muted);">No library index yet. Run a scan below.</div>';
+  } catch (e) {
+    wrap.innerHTML = '<div style="grid-column:1/-1;font-size:0.85rem;color:var(--muted);">Library counts unavailable (' + e.message + ').</div>';
+  }
+}
+// delayed start so the admin page's initial settings/status fetches finish first
+setTimeout(computeLibraryStats, 2500);

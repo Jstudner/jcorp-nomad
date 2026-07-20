@@ -2,7 +2,7 @@
 #include "boot_mode.h"      // for set_boot_mode()/MEDIA_MODE
 #include <USB.h>
 #include <USBMSC.h>
-#include <SD_MMC.h>
+#include "NomadSD.h"
 #define BOOT_BUTTON_PIN 0 
 // USB Mass Storage Class (MSC) object
 USBMSC msc;
@@ -26,13 +26,13 @@ static volatile bool s_usbWroteData = false;
 // --------------------- Callbacks ---------------------
 
 static int32_t onWrite(uint32_t lba, uint32_t offset, uint8_t *buffer, uint32_t bufsize) {
-  uint32_t secSize = SD_MMC.sectorSize();
+  uint32_t secSize = NomadSD.sectorSize();
   if (!secSize) {
     return false;  // disk error
   }
   s_usbWroteData = true;
   for (int x = 0; x < bufsize / secSize; x++) {
-    if (!SD_MMC.writeRAW(buffer + secSize * x, lba + x)) {
+    if (!NomadSD.writeRAW(buffer + secSize * x, lba + x)) {
       return false;
     }
   }
@@ -40,12 +40,12 @@ static int32_t onWrite(uint32_t lba, uint32_t offset, uint8_t *buffer, uint32_t 
 }
 
 static int32_t onRead(uint32_t lba, uint32_t offset, void *buffer, uint32_t bufsize) {
-  uint32_t secSize = SD_MMC.sectorSize();
+  uint32_t secSize = NomadSD.sectorSize();
   if (!secSize) {
     return false;  // disk error
   }
   for (int x = 0; x < bufsize / secSize; x++) {
-    if (!SD_MMC.readRAW((uint8_t *)buffer + secSize * x, lba + x)) {
+    if (!NomadSD.readRAW((uint8_t *)buffer + secSize * x, lba + x)) {
       return false;  // outside of volume boundary
     }
   }
@@ -83,9 +83,12 @@ void usb_setup() {
   delay(200);
   Serial.println(">>> USB mode: mounting SD & starting MSC");
 
-  SD_MMC.setPins(clk, cmd, d0, d1, d2, d3);
-  if (!SD_MMC.begin("/sdcard", false, true, 50000000)) {
-    Serial.println("ERROR: SD card mount failed!");
+  NomadSD.setPins(clk, cmd, d0, d1, d2, d3);
+  // raw card init only: MSC shuttles sectors, the HOST interprets the
+  // filesystem, so USB mode works no matter what format the card holds
+  // (and can never trigger a mount-failure auto-format like SD_MMC could)
+  if (!NomadSD.beginRaw(false, SDMMC_FREQ_HIGHSPEED)) {
+    Serial.println("ERROR: SD card init failed!");
     return;
   }
 
@@ -97,7 +100,7 @@ void usb_setup() {
   msc.onWrite(onWrite);
   msc.onStartStop(onStartStop);
   msc.mediaPresent(true);
-  msc.begin(SD_MMC.numSectors(), SD_MMC.sectorSize());
+  msc.begin(NomadSD.numSectors(), NomadSD.sectorSize());
 
   USB.begin();
   USB.onEvent(usbEventCallback);

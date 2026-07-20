@@ -1,0 +1,211 @@
+<!DOCTYPE html>
+<!-- Version 4 -->
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Nomad • Chess</title>
+<link rel="icon" href="favicon.ico" type="image/x-icon">
+<link rel="stylesheet" href="/master.css">
+<script src="/theme-boot.js"></script>
+<script src="/theme-manager.js"></script>
+<script src="/assets/chess.min.js"></script>
+<script src="/assets/mp-client.js"></script>
+<style>
+  main{max-width:560px;margin:0 auto;padding:14px}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:16px;margin-bottom:14px}
+  .row{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin:8px 0}
+  input[type=text]{background:var(--bg);color:var(--text);border:1px solid var(--line);
+    border-radius:8px;padding:10px 12px;font-size:1.1rem;text-transform:uppercase;width:120px;text-align:center;letter-spacing:.2em}
+  .btn{background:var(--primary);color:var(--color-white,#fff);border:none;border-radius:8px;
+    padding:10px 18px;cursor:pointer;font-size:1rem}
+  .btn.secondary{background:transparent;color:var(--primary);border:1px solid var(--primary)}
+  .code-big{font-size:2rem;letter-spacing:.35em;font-weight:700;color:var(--primary);text-align:center;margin:6px 0}
+  .status{text-align:center;color:var(--muted);min-height:1.4em;margin:8px 0}
+  .status.hot{color:var(--primary);font-weight:600}
+  #board{display:grid;grid-template-columns:repeat(8,1fr);max-width:480px;margin:0 auto;
+    border:2px solid var(--line);border-radius:6px;overflow:hidden;user-select:none}
+  .sq{aspect-ratio:1;display:flex;align-items:center;justify-content:center;
+    font-size:clamp(1.6rem,6.5vw,2.6rem);cursor:pointer;position:relative;line-height:1}
+  .sq.light{background:#f0d9b5}
+  .sq.dark{background:#b58863}
+  .sq.sel{outline:3px solid var(--primary);outline-offset:-3px;z-index:1}
+  .sq.tgt::after{content:'';position:absolute;width:26%;height:26%;border-radius:50%;
+    background:rgba(20,90,200,.55)}
+  .sq.cap::after{content:'';position:absolute;inset:6%;border-radius:50%;
+    border:4px solid rgba(20,90,200,.55);background:transparent;width:auto;height:auto}
+  .sq .wp{color:#fff;text-shadow:0 0 2px #000,0 0 2px #000,0 1px 2px rgba(0,0,0,.7)}
+  .sq .bp{color:#111;text-shadow:0 0 2px rgba(255,255,255,.35)}
+  .hidden{display:none!important}
+  .center{text-align:center}
+</style>
+</head>
+<body>
+  <header>
+    <h1>Chess</h1>
+    <a class="back-btn" href="/games.html">← Back to Games</a>
+  </header>
+
+  <main>
+    <div class="card" id="lobby">
+      <div class="row" style="justify-content:center">
+        <button class="btn" onclick="createRoom()">Create Room (play White)</button>
+      </div>
+      <p class="center" style="color:var(--muted)">or join a friend as Black</p>
+      <div class="row" style="justify-content:center">
+        <input type="text" id="joinCode" maxlength="4" placeholder="CODE">
+        <button class="btn secondary" onclick="joinRoom()">Join</button>
+      </div>
+      <div class="status" id="lobbyMsg"></div>
+    </div>
+
+    <div class="card hidden" id="game">
+      <div class="code-big" id="roomCode"></div>
+      <div class="status" id="status">Waiting…</div>
+      <div id="board"></div>
+      <div class="row" style="justify-content:center;margin-top:14px">
+        <button class="btn secondary" onclick="location.reload()">Leave / New Room</button>
+      </div>
+    </div>
+  </main>
+
+<script>
+// If the engine script failed to load/parse, say so instead of leaving dead buttons.
+if (typeof Chess === 'undefined') {
+  document.addEventListener('DOMContentLoaded', () => {
+    document.getElementById('lobbyMsg').textContent =
+      'Chess engine failed to load (/assets/chess.min.js). Re-copy the assets folder to the card.';
+  });
+  throw new Error('chess.min.js missing');
+}
+const game = new Chess();
+const GLYPH = { k:'♚', q:'♛', r:'♜', b:'♝', n:'♞', p:'♟' };
+let selected = null;   // 'e2'
+let targets = [];      // verbose move list from the selected square
+
+const boardEl = document.getElementById('board');
+const statusEl = document.getElementById('status');
+
+const myColor = () => MP.room.seat === 0 ? 'w' : 'b';
+const canPlay = () => MP.room.joined && !game.game_over() &&
+                      game.turn() === myColor() && MP.myTurn();
+
+function squares(){
+  // Board rows top->bottom; White sees rank 8 first, Black is flipped.
+  const files = ['a','b','c','d','e','f','g','h'];
+  const ranks = [8,7,6,5,4,3,2,1];
+  const rows = [];
+  for (const r of ranks){
+    for (const f of files) rows.push(f + r);
+  }
+  return MP.room.seat === 1 ? rows.reverse() : rows;
+}
+
+function render(){
+  boardEl.innerHTML = '';
+  for (const sq of squares()){
+    const d = document.createElement('div');
+    const file = sq.charCodeAt(0) - 96, rank = Number(sq[1]);
+    d.className = 'sq ' + ((file + rank) % 2 === 0 ? 'dark' : 'light');
+    d.dataset.sq = sq;
+    const piece = game.get(sq);
+    if (piece){
+      const span = document.createElement('span');
+      span.className = piece.color === 'w' ? 'wp' : 'bp';
+      span.textContent = GLYPH[piece.type];
+      d.appendChild(span);
+    }
+    if (selected === sq) d.classList.add('sel');
+    const tgt = targets.find(m => m.to === sq);
+    if (tgt) d.classList.add(tgt.captured ? 'cap' : 'tgt');
+    d.onclick = () => tap(sq);
+    boardEl.appendChild(d);
+  }
+  updateStatus();
+}
+
+function updateStatus(){
+  statusEl.classList.remove('hot');
+  const me = myColor() === 'w' ? 'White' : 'Black';
+  if (!MP.room.joined){
+    statusEl.textContent = `Share the code and wait for Black to join… (you are ${me})`;
+  } else if (game.in_checkmate()){
+    const winner = game.turn() === 'w' ? 'Black' : 'White';
+    statusEl.textContent = `Checkmate! ${winner} wins${winner === me ? ', that is you!' : ''}`;
+    statusEl.classList.add('hot');
+  } else if (game.in_draw()){
+    statusEl.textContent = 'Draw.';
+  } else if (game.turn() === myColor()){
+    statusEl.textContent = `Your move (${me})${game.in_check() ? ', CHECK!' : ''}`;
+    statusEl.classList.add('hot');
+  } else {
+    statusEl.textContent = `Opponent's move${game.in_check() ? ', check' : ''} (you are ${me})`;
+  }
+}
+
+async function tap(sq){
+  if (!canPlay()){ selected = null; targets = []; render(); return; }
+  const piece = game.get(sq);
+
+  if (selected && targets.some(m => m.to === sq)){
+    const mv = game.move({ from: selected, to: sq, promotion: 'q' });
+    selected = null; targets = [];
+    if (mv){
+      render();
+      try {
+        await MP.move(JSON.stringify({ fen: game.fen(), san: mv.san }));
+      } catch(e){
+        game.undo();               // server rejected (stale seq / race), roll back
+        statusEl.textContent = e.message;
+      }
+      render();
+    }
+    return;
+  }
+
+  if (piece && piece.color === myColor()){
+    selected = sq;
+    targets = game.moves({ square: sq, verbose: true });
+  } else {
+    selected = null; targets = [];
+  }
+  render();
+}
+
+function onUpdate(stateStr){
+  try {
+    const s = JSON.parse(stateStr);
+    if (s && s.fen) game.load(s.fen);
+  } catch(e){}
+  selected = null; targets = [];
+  render();
+}
+
+function onInfo(j){
+  if (j.gone){ statusEl.textContent = 'Room expired.'; MP.stop(); return; }
+  updateStatus();
+}
+
+function enterGame(){
+  document.getElementById('lobby').classList.add('hidden');
+  document.getElementById('game').classList.remove('hidden');
+  document.getElementById('roomCode').textContent = MP.room.code;
+  render();
+  MP.poll(onUpdate, onInfo, 1200);
+}
+
+async function createRoom(){
+  try { await MP.create('chess'); enterGame(); }
+  catch(e){ document.getElementById('lobbyMsg').textContent = e.message; }
+}
+
+async function joinRoom(){
+  const code = document.getElementById('joinCode').value;
+  if (!code) return;
+  try { await MP.join(code); enterGame(); }
+  catch(e){ document.getElementById('lobbyMsg').textContent = e.message; }
+}
+document.getElementById('joinCode').addEventListener('keydown', e => { if (e.key === 'Enter') joinRoom(); });
+</script>
+</body>
+</html>

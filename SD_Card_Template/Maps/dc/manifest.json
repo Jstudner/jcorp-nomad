@@ -1,0 +1,19 @@
+{
+  "id": "dc",
+  "name": "Washington DC",
+  "bounds": [
+    -77.12,
+    38.79,
+    -76.91,
+    39.0
+  ],
+  "minZoom": 10,
+  "maxZoom": 14,
+  "format": "jpg",
+  "tilePath": "tiles/{z}/{x}/{y}.jpg",
+  "attribution": "USGS The National Map",
+  "source": "https://basemap.nationalmap.gov/arcgis/rest/services/USGSTopo/MapServer/tile/{z}/{y}/{x}",
+  "tileCount": 187,
+  "sizeBytes": 6398201,
+  "built": "2026-07-20T12:56:15+00:00"
+}

@@ -1492,6 +1492,10 @@
                 viewButton.onclick = () => { actionModal.style.display = 'none'; setTimeout(() => downloadFile(file.path, file.name), 20); };
             }
 
+            // the modal is reused: when downloads are disabled, hide the view
+            // button only while it acts as a Download fallback
+            viewButton.style.display = (window.__dlDisabled && viewButton.textContent === 'Download') ? 'none' : '';
+
             downloadButton.onclick = () => { actionModal.style.display = 'none'; setTimeout(() => downloadFile(file.path, file.name), 20); };
             actionModal.style.display = 'flex';
         }
@@ -1708,7 +1712,12 @@
                 gridEl.innerHTML = '<p style="grid-column:1/-1;text-align:center;color:red;padding:20px">Failed to load library.</p>';
             }
         })();
-    </script>
+    
+/* admin toggle: hide download actions when downloads are disabled (the
+   fallback 'Download' view-button is handled where the modal is populated) */
+NomadUI.hideDownloads('downloadButton');
+NomadUI.config().then(c => { window.__dlDisabled = !!c.downloadsDisabled; });
+</script>
 </body>
 </html>
 
