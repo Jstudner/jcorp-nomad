@@ -3448,11 +3448,19 @@ void ensureApDhcpServer(const char *phase) {
                 (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL),
                 WiFi.softAPIP().toString().c_str());
   if (st != ESP_NETIF_DHCP_STARTED) {
+    // A bare dhcps_start on a netif left half-initialised by an AP restart can report
+    // STARTED yet never serve leases. Do a clean rebuild: stop, re-assert the AP IP, start.
+    esp_netif_dhcps_stop(ap);
+    esp_netif_ip_info_t ipInfo;
+    esp_netif_str_to_ip4("192.168.4.1",   &ipInfo.ip);
+    esp_netif_str_to_ip4("192.168.4.1",   &ipInfo.gw);
+    esp_netif_str_to_ip4("255.255.255.0", &ipInfo.netmask);
+    esp_netif_set_ip_info(ap, &ipInfo);
     esp_err_t e = esp_netif_dhcps_start(ap);
     st = ESP_NETIF_DHCP_INIT;
     esp_netif_dhcps_get_status(ap, &st);
-    Serial.printf("[DHCP] (%s) dhcps was down -> restart %s, now %s\n",
-                  phase, (e == ESP_OK ? "issued" : "FAILED"),
+    Serial.printf("[DHCP] (%s) dhcps down -> rebuild %s, now %s\n",
+                  phase, (e == ESP_OK ? "ok" : "err"),
                   st == ESP_NETIF_DHCP_STARTED ? "STARTED" : "STILL-DOWN");
   }
 }
@@ -3460,7 +3468,9 @@ void ensureApDhcpServer(const char *phase) {
 void applyWiFiSettings() {
   Serial.print("Stopping existing WiFi Access Point...");
   stopNomadMDNS();              // must happen while the AP netif still exists
-  WiFi.softAPdisconnect(true);  // Stop AP and clear config
+  WiFi.softAPdisconnect(false);  // bring the AP iface down but keep WiFi running --
+                                 // (true) calls esp_wifi_stop() and the next softAP() then
+                                 // can't rebind dhcps, so clients get no lease (issue #126)
   delay(100);  // Give time for cleanup
 
   Serial.print("Starting WiFi with SSID: ");
