@@ -1,6 +1,6 @@
 <!DOCTYPE html>
 <!-- Nomad Gallery -->
-<!-- Version 4 -->
+<!-- Version 4.1 -->
 <html lang="en">
 <head>
   <meta charset="utf-8" />
@@ -240,7 +240,13 @@ let currentPage = 1;
 let sortMode = localStorage.getItem('nomadGallery.sort') || sortSelect.value;
 
 /* ---------- THUMBNAIL QUEUE & DEDUPE ---------- */
-const thumbQueue = [];           // { item, imgEl, spinner }
+// Images go through this queue too, not just videos. There is no device-side
+// thumbnailing, so an image thumb pulls the FULL original off the SD card. A
+// gallery of a few hundred photos firing those in parallel outruns the
+// firmware's 8 concurrent streams and its ~60KB of internal heap: responses get
+// truncated mid-body (NS_ERROR_NET_RESET) and every thumb falls back to the
+// white placeholder. Sequential + paced keeps us under that ceiling.
+const thumbQueue = [];           // { item, imgEl, spinner, kind }
 const thumbPending = new Set();  // dedupe by path
 let thumbWorkerRunning = false;
 
@@ -250,9 +256,9 @@ const cardObserver = new IntersectionObserver((entries) => {
   for(const e of entries){
     if(e.isIntersecting){
       const card = e.target;
-      const jobData = card._thumbJob; // set in createCard for video cards
+      const jobData = card._thumbJob; // set in createCard for image + video cards
       if(jobData){
-        enqueueThumbJob(jobData.item, jobData.imgEl, jobData.spinner);
+        enqueueThumbJob(jobData.item, jobData.imgEl, jobData.spinner, jobData.kind);
         // after queued, stop observing
         cardObserver.unobserve(card);
       }
@@ -290,10 +296,10 @@ async function storeThumbToCache(item, blob, mime='image/jpeg'){
 }
 
 /* ---------- Queue processor (sequential) ---------- */
-function enqueueThumbJob(item, imgEl, spinner){
+function enqueueThumbJob(item, imgEl, spinner, kind='video'){
   if(thumbPending.has(item.path)) return;
   thumbPending.add(item.path);
-  thumbQueue.push({ item, imgEl, spinner });
+  thumbQueue.push({ item, imgEl, spinner, kind });
   processThumbQueue().catch(()=>{/* ignore */});
 }
 
@@ -302,7 +308,7 @@ async function processThumbQueue(){
   thumbWorkerRunning = true;
   while(thumbQueue.length){
     const job = thumbQueue.shift();
-    const { item, imgEl, spinner } = job;
+    const { item, imgEl, spinner, kind } = job;
     if(!document.body.contains(imgEl)){ thumbPending.delete(item.path); continue; }
     spinner.style.display = 'flex';
 
@@ -317,18 +323,31 @@ async function processThumbQueue(){
         continue;
       }
 
-      // range-first strategy: try to fetch a partial chunk and extract a frame from ~3s into the video
-      const videoUrl = mediaStreamUrlWithVersion(item.path, item);
-      const dataUrl = await rangeFetchAndExtract(videoUrl, 3.0, 450000).catch(()=>null);
-
-      if(dataUrl){
-        const blob = dataURLToBlob(dataUrl);
-        await storeThumbToCache(item, blob, 'image/jpeg');
-        const blobUrl = URL.createObjectURL(blob);
-        setImageFromBlobUrl(imgEl, blobUrl);
+      if(kind === 'image'){
+        // one full-size original at a time. no direct-URL fallback on failure:
+        // that would re-request the same bytes off-queue and undo the pacing.
+        const r = await fetch(fileUrlWithVersion(item.path,item), { cache:'no-store', credentials:'same-origin' });
+        if(r.ok){
+          const b = await r.blob();
+          await storeThumbToCache(item, b, b.type || 'image/jpeg');
+          setImageFromBlobUrl(imgEl, URL.createObjectURL(b));
+        } else {
+          imgEl.src = WHITE_SVG;
+        }
       } else {
-        // fallback white placeholder
-        imgEl.src = WHITE_SVG;
+        // range-first strategy: try to fetch a partial chunk and extract a frame from ~3s into the video
+        const videoUrl = mediaStreamUrlWithVersion(item.path, item);
+        const dataUrl = await rangeFetchAndExtract(videoUrl, 3.0, 450000).catch(()=>null);
+
+        if(dataUrl){
+          const blob = dataURLToBlob(dataUrl);
+          await storeThumbToCache(item, blob, 'image/jpeg');
+          const blobUrl = URL.createObjectURL(blob);
+          setImageFromBlobUrl(imgEl, blobUrl);
+        } else {
+          // fallback white placeholder
+          imgEl.src = WHITE_SVG;
+        }
       }
     }catch(e){
       imgEl.src = WHITE_SVG;
@@ -480,6 +499,41 @@ async function fetchRawNDJSONFile(urlPath){
   return parseNDJSONWithHeader(text);
 }
 
+/* Reindex is a last resort, and it must be capped.
+   While a reindex runs the firmware sets indexingTasksActive and returns 503 for
+   EVERY media request device-wide (not just gallery), so an uncapped
+   fail -> reindex -> retry -> fail loop bricks playback on every page until
+   reboot. One attempt per page load is enough to recover a genuinely missing
+   index; more than that means something else is wrong and retrying won't fix it. */
+const MAX_REINDEX_ATTEMPTS = 1;
+let reindexAttempts = 0;
+const MAX_BUILD_POLLS = 10;   // ~30s of 202 polling, then stop
+let buildPolls = 0;
+async function triggerReindexOnce(path, reason){
+  if(reindexAttempts >= MAX_REINDEX_ATTEMPTS){
+    console.warn(`Gallery: reindex already attempted this session (${reason}); not retrying.`);
+    return false;
+  }
+  reindexAttempts++;
+  try{
+    const res = await fetch('/api/reindex', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: `path=${encodeURIComponent(path)}`
+    });
+    if(!res.ok){ console.error('Failed to trigger gallery reindex:', res.status); return false; }
+    console.log(`Gallery reindex triggered (${reason})`);
+    return true;
+  }catch(e){
+    console.error('Error triggering gallery reindex:', e);
+    return false;
+  }
+}
+
+function showGalleryMessage(msg){
+  grid.innerHTML = `<p style="grid-column:1/-1;text-align:center;color:var(--primary-dark);">${msg}</p>`;
+}
+
 async function fetchIndexWithFallback(path){
   try{
     const apiUrl = `${INDEX_ENDPOINT}?path=${encodeURIComponent(normalizePath(path))}&_=${Date.now()}`;
@@ -488,41 +542,26 @@ async function fetchIndexWithFallback(path){
       const text = await res.text();
       const parsed = parseNDJSONWithHeader(text);
 
-      // Check if we have a valid header signature
+      // Check if we have a valid header signature.
+      // A missing sig can also mean the response was truncated in transit under
+      // load, so only act on it if we haven't already tried once.
       if(!parsed.header || !parsed.header.sig){
-        console.warn('No index signature found in gallery. Index may be building or missing - triggering reindex.');
+        console.warn('No index signature found in gallery. Index may be building or missing.');
 
-        // Trigger a reindex
-        try {
-          const reindexUrl = '/api/reindex';
-          const reindexRes = await fetch(reindexUrl, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-            body: `path=${encodeURIComponent(path)}`
-          });
-
-          if (reindexRes.ok) {
-            console.log('Gallery reindex triggered successfully');
-            // Show loading message
-            grid.innerHTML = '<p style="grid-column:1/-1;text-align:center;color:var(--primary-dark);">Building gallery index... Please wait.</p>';
-
-            // Retry after a delay
-            setTimeout(async () => {
-              try {
-                await refreshIndex();
-                renderPage();
-              } catch(e) {
-                console.error('Retry refreshIndex failed', e);
-                grid.innerHTML = '<p style="grid-column:1/-1;text-align:center;color:var(--primary-dark);">Could not load gallery.</p>';
-              }
-            }, 3000);
-            return { source: null, header: null, entries: [] };
-          } else {
-            console.error('Failed to trigger gallery reindex:', reindexRes.status);
-          }
-        } catch(reindexErr) {
-          console.error('Error triggering gallery reindex:', reindexErr);
+        if(await triggerReindexOnce(path, 'missing sig')){
+          showGalleryMessage('Building gallery index... Please wait.');
+          setTimeout(async () => {
+            try {
+              await refreshIndex();
+              renderPage();
+            } catch(e) {
+              console.error('Retry refreshIndex failed', e);
+              showGalleryMessage('Could not load gallery.');
+            }
+          }, 3000);
+          return { source: null, header: null, entries: [] };
         }
+        // cap hit: fall through and use whatever entries we did parse
       }
 
       if(parsed.header && parsed.header.count !== undefined && parsed.entries.length < parsed.header.count){
@@ -531,19 +570,25 @@ async function fetchIndexWithFallback(path){
         return { source: 'api', header: parsed.header, entries: parsed.entries };
       }
     } else if(res.status === 202) {
-      // Server is building index - show message and retry
-      console.log('Gallery index is building (202 status)');
-      grid.innerHTML = '<p style="grid-column:1/-1;text-align:center;color:var(--primary-dark);">Building gallery index... Please wait.</p>';
-
-      setTimeout(async () => {
-        try {
-          await refreshIndex();
-          renderPage();
-        } catch(e) {
-          console.error('Retry after 202 failed', e);
-          grid.innerHTML = '<p style="grid-column:1/-1;text-align:center;color:var(--primary-dark);">Could not load gallery.</p>';
-        }
-      }, 3000);
+      // Server is building the index on its own. Poll, but bounded: an unbounded
+      // 3s poll never stops if the build keeps failing.
+      if(buildPolls < MAX_BUILD_POLLS){
+        buildPolls++;
+        console.log(`Gallery index is building (202) - poll ${buildPolls}/${MAX_BUILD_POLLS}`);
+        showGalleryMessage('Building gallery index... Please wait.');
+        setTimeout(async () => {
+          try {
+            await refreshIndex();
+            renderPage();
+          } catch(e) {
+            console.error('Retry after 202 failed', e);
+            showGalleryMessage('Could not load gallery.');
+          }
+        }, 3000);
+      } else {
+        console.warn('Gallery index still building after max polls; giving up.');
+        showGalleryMessage('Gallery index is still building. Reload the page in a moment.');
+      }
       return { source: null, header: null, entries: [] };
     }
   }catch(e){
@@ -561,32 +606,21 @@ async function fetchIndexWithFallback(path){
     }catch(e){}
   }
 
-  // If no fallback worked, trigger reindex as last resort
-  console.warn('No gallery index found in API or fallback files - triggering reindex');
-  try {
-    const reindexUrl = '/api/reindex';
-    const reindexRes = await fetch(reindexUrl, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: `path=${encodeURIComponent(path)}`
-    });
-
-    if (reindexRes.ok) {
-      console.log('Gallery fallback reindex triggered successfully');
-      grid.innerHTML = '<p style="grid-column:1/-1;text-align:center;color:var(--primary-dark);">Building gallery index... Please wait.</p>';
-
-      setTimeout(async () => {
-        try {
-          await refreshIndex();
-          renderPage();
-        } catch(e) {
-          console.error('Retry after fallback reindex failed', e);
-          grid.innerHTML = '<p style="grid-column:1/-1;text-align:center;color:var(--primary-dark);">Could not load gallery.</p>';
-        }
-      }, 3000);
-    }
-  } catch(reindexErr) {
-    console.error('Error triggering gallery fallback reindex:', reindexErr);
+  // If no fallback worked, trigger reindex as last resort (capped)
+  console.warn('No gallery index found in API or fallback files');
+  if(await triggerReindexOnce(path, 'no index found')){
+    showGalleryMessage('Building gallery index... Please wait.');
+    setTimeout(async () => {
+      try {
+        await refreshIndex();
+        renderPage();
+      } catch(e) {
+        console.error('Retry after fallback reindex failed', e);
+        showGalleryMessage('Could not load gallery.');
+      }
+    }, 3000);
+  } else {
+    showGalleryMessage('Could not load the gallery index. Try reloading, or reindex from the admin page.');
   }
 
   return { source: null, header: null, entries: [] };
@@ -646,33 +680,15 @@ function createCard(item){
     card.appendChild(overlay);
 
     // attach job metadata to card and observe it (thumbnail will only be queued when visible)
-    card._thumbJob = { item, imgEl: thumb, spinner };
+    card._thumbJob = { item, imgEl: thumb, spinner, kind: 'video' };
     cardObserver.observe(card);
   } else {
-    // image: try cached first, otherwise fetch and store to cache, then set blobURL.
+    // image: same observer + queue as video. previously this fired its own
+    // unthrottled fetch per card at creation time, so a full page of photos hit
+    // the server all at once and starved it.
     thumb.src = WHITE_SVG;
-    (async ()=>{
-      const cached = await getCachedThumb(item);
-      if(cached){
-        setImageFromBlobUrl(thumb, cached.url);
-      } else {
-        try{
-          const r = await fetch(fileUrlWithVersion(item.path,item), { cache:'no-store', credentials:'same-origin' });
-          if(r.ok){
-            const b = await r.blob();
-            // store to cache for future loads
-            await storeThumbToCache(item, b, b.type || 'image/jpeg');
-            const url = URL.createObjectURL(b);
-            setImageFromBlobUrl(thumb, url);
-          } else {
-            // fallback to direct URL if fetch failed
-            thumb.src = fileUrlWithVersion(item.path,item);
-          }
-        }catch(e){
-          thumb.src = fileUrlWithVersion(item.path,item);
-        }
-      }
-    })();
+    card._thumbJob = { item, imgEl: thumb, spinner, kind: 'image' };
+    cardObserver.observe(card);
   }
 
   card.addEventListener('click', ()=> openModal(item));
@@ -896,4 +912,3 @@ init();
 </script>
 </body>
 </html>
-
