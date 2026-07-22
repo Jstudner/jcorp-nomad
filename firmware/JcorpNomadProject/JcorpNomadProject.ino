@@ -4258,6 +4258,12 @@ void setup() {
     }
     pinMode(BOOT_BUTTON_PIN, INPUT_PULLUP);
 
+    // Arm the boot button before any SD task starts. The ISR install does a
+    // cross-core IPC that hangs if SdFat holds the card on the other core.
+    attachInterrupt(BOOT_BUTTON_PIN, [](){
+      bootButtonPressed = true;
+    }, FALLING);
+
     if (get_boot_mode() == USB_MODE) {
       clear_boot_mode();    // next boot will go back to MEDIA
       delay(500);
@@ -4946,9 +4952,16 @@ Serial.println("SD Card initialized successfully!");
             url.startsWith("/Shows") || url.startsWith("/Archive") || url.startsWith("/Games") ||
             url.startsWith("/Maps")) {
 
-            // ex-serveStatic buckets: route them through handleRangeRequest so reads
-            // stay under sdMutex. Only these two - root pages must serve during indexing.
-            if (url.startsWith("/Gallery/") || url.startsWith("/Files/")) {
+            // Route bucket file reads through handleRangeRequest so they stay
+            // under sdMutex, same as /media?file=. The fallthrough opens a bare
+            // handle and streams it after dropping the lock, so many covers at
+            // once raced the SD bus and crashed. Trailing slash = a file inside
+            // the bucket, not its page.
+            if (url.startsWith("/Gallery/") || url.startsWith("/Files/") ||
+                url.startsWith("/Movies/") || url.startsWith("/Shows/") ||
+                url.startsWith("/Books/")  || url.startsWith("/Music/") ||
+                url.startsWith("/Archive/")|| url.startsWith("/Games/") ||
+                url.startsWith("/Maps/")) {
                 handleRangeRequest(request);
                 return;
             }
@@ -6056,10 +6069,7 @@ server.on("/auth/logout", HTTP_POST, [](AsyncWebServerRequest *request){
   });
 
 
-// ─── USB‑mode switch: jump to USB MSC on Boot‑button press ───
-attachInterrupt(BOOT_BUTTON_PIN, [](){
-  bootButtonPressed = true;
-}, FALLING);
+// ─── USB‑mode switch: boot-button interrupt is armed early in setup() ───
 // Start the web server
   server.begin();
   lv_textarea_set_text(ui_MediaGen, "");

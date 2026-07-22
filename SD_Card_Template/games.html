@@ -76,8 +76,9 @@
       background: var(--thumb-bg, var(--card)); color: var(--thumb-text, var(--text));
       font-size: 0.9rem; text-align: center; width: 100%; aspect-ratio: 2/3;
       border-radius: var(--radius); overflow: hidden; box-shadow: var(--shadow); }
-    .fallback-text { padding: .5rem; position: absolute; z-index: 2; text-align: center;
-      font-weight: 700; color: var(--thumb-title, var(--text)); left: 8px; right: 8px; }
+    .fallback-text { position: absolute; inset: 0; display: flex; align-items: center;
+      justify-content: center; z-index: 2; text-align: center; font-weight: 700;
+      color: var(--thumb-title, var(--text)); pointer-events: none; padding: 6px; }
     .media-thumb { width: 100%; height: 100%; object-fit: cover; position: absolute; top: 0; left: 0;
       z-index: 1; opacity: 0; transition: opacity .35s ease; }
     /* name lives in the artwork (or as the no-image fallback text); the row

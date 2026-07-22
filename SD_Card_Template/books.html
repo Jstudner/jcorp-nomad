@@ -1232,7 +1232,7 @@
                     const pathVal = item.type === 'file' ? (item.fileEntry?.path || '') : (item.dir || '');
                     card.dataset.path = pathVal;
 
-                    const coverPath = item.cover || '';
+                    const coverPath = item.cover ? fileUrlDirect(item.cover) : '';
                     const imgHTML = coverPath ? `<img class="media-thumb" loading="lazy" src="${coverPath}" alt="${escapeHtml(item.name)}">` : '';
 
                     const showFolderIcon = item.type === 'dir' && !item.isComic;
@@ -1384,7 +1384,7 @@
                     card.classList.add('is-directory');
                 }
 
-                const coverPath = f.cover || '';
+                const coverPath = f.cover ? fileUrlDirect(f.cover) : '';
                 const imgHTML = coverPath ? `<img class="media-thumb" loading="lazy" src="${coverPath}" alt="${escapeHtml(f.name)}">` : '';
 
                 card.innerHTML = `

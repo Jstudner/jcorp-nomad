@@ -895,7 +895,7 @@ function renderGrid(){
     }
 
     if(show.cover){
-      const img = document.createElement('img'); img.className='media-thumb'; img.loading='lazy'; img.alt = show.name; img.src = show.cover;
+      const img = document.createElement('img'); img.className='media-thumb'; img.loading='lazy'; img.alt = show.name; img.src = `${MEDIA_ENDPOINT}?file=${encodeURIComponent(show.cover)}`;
       img.onload = ()=>{ img.style.opacity='1'; if(fallback) fallback.style.display='none'; };
       img.onerror = ()=>{ img.style.display='none'; if(fallback) fallback.style.display='block'; };
       thumb.appendChild(img);
