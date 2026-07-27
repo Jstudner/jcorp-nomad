@@ -11,7 +11,7 @@ Stream movies, music, books, and shows anywhere - no internet required.</p>
   <img src="https://img.shields.io/badge/branch-experimental-orange.svg" alt="Branch: Experimental" />
   <img src="https://img.shields.io/badge/license-CC--BY--NC--SA%204.0-blue.svg" alt="License: CC BY-NC-SA 4.0" />
   <img src="https://img.shields.io/badge/platform-ESP32--S3-orange" alt="Platform: ESP32-S3" />
-  <img src="https://img.shields.io/badge/status-rough-red" alt="Status: Rough" />
+  <img src="https://img.shields.io/badge/status-rough-red" alt="Status: Stable" />
 </p>
 
 <p align="center">
@@ -21,7 +21,7 @@ Stream movies, music, books, and shows anywhere - no internet required.</p>
 
 ---
 
-> **Experimental Branch** - This is where new stuff lands before it's ready for main. Right now that means exFAT card support, offline maps, game ROMs, and local multiplayer. Everything from Mk4 is still here and still works, this branch just adds on top of it.
+> **Experimental Branch** - This is where new stuff lands before it's ready for main. Right now that means exFAT card support, offline maps with turn by turn directions, game ROMs and a shelf of built-in games, local multiplayer, TV support over DLNA, a WiFi Mode that joins your home network, offline translation, and recipe + 3D model libraries. Everything from Mk4 is still here and still works, this branch just adds on top of it.
 >
 > Fair warning, these features are rough. They work, I use them, but they haven't been through anywhere near the testing the main branch has. Expect bugs, expect things to change, and don't put this on a Nomad you're relying on. If you want something stable, use main.
 >
@@ -74,24 +74,58 @@ The reason this took so long, the Arduino ESP32 core ships a prebuilt filesystem
 
 ### Offline Maps
 
-- Map regions live in `/Maps` and get browsed offline, with search and routing
+- Map regions live in `/Maps` and get browsed offline, with place search and real turn by turn directions (Drive and Walk)
+- Regions are prepped on your PC with Nomad Tools, which downloads the map picture and the road network for the areas you pick
 - Reads map data straight out of a packed archive instead of unpacking it onto the card, which keeps a region at roughly its download size instead of several times bigger
 - The Maps tile only shows up on the menu if you actually have a region on the card
 
 This one is the roughest of the bunch. It works, but it's slow, big regions take a while to draw and I'm still working on that.
 
+### WiFi Mode (join your home network)
+
+Instead of running its own hotspot, Nomad can now join a WiFi network you already have and serve everything to that network, the browser interface, DLNA, all of it. Your phone stays on your normal internet-connected WiFi and Nomad is just another device on it. This is also the fix for TV devices like Fire Sticks that refuse to do anything on a network with no internet.
+
+- Set it up from the admin panel: **WiFi Mode** button in the top bar opens a popup with a network scanner, password field, and an auto-reconnect option
+- The captive portal turns itself off in this mode (hijacking DNS on someone's home network is uhh.. lets say frowned upon), and the screen shows the IP address the router assigned instead of a hotspot name
+
+### TV Support (DLNA)
+
+Nomad now shows up as a media server on anything that speaks DLNA - smart TVs, VLC, Kodi, Roku Media Player.
+
+- Browse Movies, Shows, Music and Gallery straight from the TV, with cover art, and seeking works
+- On the TV side there's nothing to set up, it just appears in the device list
+- Works on the hotspot or in WiFi Mode; for Fire Sticks use WiFi Mode and the VLC app, since Fire OS breaks without internet now (so lame)
+- Toggle it off in the admin panel if you don't want the Nomad announcing itself / makes everything else a bit faster
+
+### Offline Translation
+
+A Translate page that works with zero internet. Two people can pass a phone back and forth and each type in their own language.
+
+- Language packs live in `/Translate` on the card and are installed with Nomad Tools, which always grabs both directions of a pair
+- Translation runs in the browser of whoever connected, nothing heavy runs on the Nomad itself
+- Can be very slow to load the first time, but after that back and forth is fairly quick, and the info is cached so its quick if you load it again.  
+
+### Cookbook & Workshop
+
+Two new library pages, both optional, both invisible until you enable them.
+
+- **Cookbook:** drop `.md`, `.cook` or `.json` recipe files into `/Cookbook` (photos work, same-name image convention). Recipes render with ingredient and step checklists you can tick off while cooking.
+- **Workshop:** drop `.stl`, `.3mf` or `.obj` files into `/Workshop` and preview them in 3D right in the browser. A README or notes file in a folder describes every model in it. The viewer is a few hundred lines of raw WebGL, not a bundled 3D engine, so it stays fast off the card.
+
 ### Game ROMs & Built-in Games
 
 - Drop ROMs into `/Games` and play them in the browser through EmulatorJS
-- Ships with Go, Chess, Connect Four, Tic-Tac-Toe and a shared Whiteboard, all just plain HTML files
+- Ships with Go, Chess, Connect Four, Tic-Tac-Toe, 2048, Minesweeper, Snake, Crazy Eights, Dots and Boxes, and a shared Whiteboard, all just plain HTML files
+- Also ships with **DOOM** - the shareware WAD is included, and any `.wad` you drop in `/Games` runs through the same engine (this is here so I can say it runs doom, you must keep this on the card it is load bearing.. I swear lol)
 - Cover art works the same as everywhere else, drop an image with the same name next to the file
-- Add or remove games by adding or deleting files, there's nothing to configure
+- Add or remove games by adding or deleting files, there's nothing to configure, this works for the inbuilt games aswell. 
 
 ### Local Multiplayer
 
-- Two player game rooms over the Nomad's own Wi-Fi, no internet and no extra hardware
+- Two player game rooms for multidevice use. 
 - One person makes a room, shares the 4 character code, the other joins from their own phone
 - Chess, Go, Connect Four and Tic-Tac-Toe all support it, the Whiteboard is just a shared freeform board
+- There are also "pass and play games" that only need one device, I will eventualy make this an option for all of the defaults. 
 
 ---
 
@@ -146,11 +180,17 @@ Burgundy Wine, Teal Oasis
 ## Features
 
 - **exFAT & FAT32:** Any card format, auto detected at boot. Cards over 32GB and files over 4GB both work.
+- **WiFi Mode:** Join an existing WiFi network instead of running the hotspot, with automatic fallback so you can't lock yourself out. (rough)
+- **TV Support (DLNA):** Shows up as a media server for smart TVs, VLC, Kodi and friends, with cover art and seeking. (rough)
 - **Offline Encyclopedia:** ZIM archive support for offline Wikipedia and other offline wikis, with fast on-device search.
-- **Offline Maps:** Browsable map regions with search and routing, served straight off the card. (rough)
-- **Games:** Browser-based ROM playback through EmulatorJS, plus built-in board games. (rough)
+- **Offline Maps:** Browsable map regions with place search and turn by turn directions, served straight off the card. (rough)
+- **Offline Translation:** In-browser translation between installed language pairs, no internet ever. (rough)
+- **Games:** Browser-based ROM playback through EmulatorJS, DOOM, plus ten built-in games. (rough)
 - **Local Multiplayer:** Two player game rooms over the Nomad's own Wi-Fi, no internet needed. (rough)
-- **Admin Panel:** Full device controls, library indexing, Theme Customizer, login-gated settings.
+- **Cookbook:** Recipe library with tick-off ingredient and step checklists. (rough)
+- **Workshop:** 3D-print model library with an in-browser STL/3MF/OBJ preview. (rough)
+- **Chat:** A simple local chat room for everyone connected to the Nomad.
+- **Admin Panel:** Full device controls, library indexing, Theme Customizer, menu page toggles, login-gated settings.
 - **File Browser:** Upload, rename, delete, download, and inline file editing. (Recommended to use a PC)
 - **Global Search:** Quickly find media across all categories from the Menu page.
 - **Music Player:** Seamless background playback with subdirectory playlists and a dynamic Queue.
@@ -200,13 +240,14 @@ There are a few community forks that target other ESP32 boards, but your mileage
 
 1. Flash ESP32-S3 firmware from `/firmware/`.
 2. Copy `/SD_Card_Template/` files onto the card. Any exFAT or FAT32 card works as-is, you only need to format if the card is brand new or broken.
-3. Place media in `/Movies`, `/Shows`, `/Books`, `/Music`, `/Gallery`, `/Files`, `/Games`, `/Maps`.
+3. Place media in `/Movies`, `/Shows`, `/Books`, `/Music`, `/Gallery`, `/Files`, `/Games`, `/Cookbook`, `/Workshop`. (ZIMs, Maps and Translate packs get prepped with Nomad Tools, see below.)
 4. Insert SD card and power device via USB.
 5. Connect to Wi-Fi `Jcorp_Nomad` with password: `password`.
 6. Open the browser interface.
 7. Click the gear icon → Library Index → **Full Scan Now**.
 8. Monitor Admin Console for progress; scan may take minutes.
 9. Return to Menu page and enjoy your media!
+10. Optional: to serve your home network (and TVs) instead of running a hotspot, open Admin → **WiFi Mode** and join your network from there.
 
 ---
 
@@ -302,13 +343,29 @@ Folder Structure
 /Games
     Pokemon Red.gb
     Pokemon Red.png
+    Doom.wad
     Chess.html
     Go.html
+
+/Cookbook
+    Grandma's Chili.md
+    Grandma's Chili.jpg
+    /Desserts
+        Brownies.md
+
+/Workshop
+    /Brackets
+        shelf bracket.stl
+        README.txt
 
 /Maps
     /pennsylvania
         manifest.json
         (map data, prepped with Nomad Tools)
+
+/Translate
+    manifest.json
+    (language packs, installed with Nomad Tools)
 
 /Archive
     wikipedia_en_all_maxi.zim
@@ -325,6 +382,11 @@ music.html
 gallery.html
 files.html
 archive.html
+games.html
+maps.html
+translate.html
+cookbook.html
+workshop.html
 Logo.png
 favicon.ico
 ```
@@ -338,8 +400,34 @@ favicon.ico
 - **Books:** `.pdf, .epub, .cbz, .cbr` 
 - **Images:** `.jpg, .jpeg, .png` 
 - **Archives:** `.zim` (offline Wikipedia and other ZIM-format wikis), needs special processing, you cant just drop a .zim in sadly. Prep them with [Nomad Tools](https://github.com/Jstudner/Nomad-Tools) first (still rough, but handles most common ZIMs)
-- **Games:** ROMs for the systems EmulatorJS supports (GB, GBC, GBA, NES, SNES, Genesis, and others), plus `.html` files for built-in games
+- **Games:** ROMs for the systems EmulatorJS supports (GB, GBC, GBA, NES, SNES, Genesis, and others), `.wad` files for DOOM, plus `.html` files for built-in games
 - **Maps:** map regions prepped with Nomad Tools, dropped into `/Maps`
+- **Recipes:** `.md`, `.cook`, or `.json` files in `/Cookbook`
+- **3D Models:** `.stl`, `.3mf`, `.obj` in `/Workshop`
+- **Translation:** language packs installed into `/Translate` with Nomad Tools
+
+---
+
+## Nomad Tools (companion PC app)
+
+Some content needs a one-time prep step on your computer before the Nomad can use it, ZIM archives need a search index built, maps need downloading, translation packs need fetching. [Nomad Tools](https://github.com/Jstudner/Nomad-Tools) is a simple menu that does all of it. Windows and Linux (macOS untested).
+
+Basic usage:
+
+1. Download Nomad Tools and put your Nomad card in the computer.
+2. **Windows:** double-click `START-Windows.bat`. **Linux:** run `./start-linux.sh`.
+3. Pick your card from the list (or type its path), then pick a job from the menu.
+
+What the menu covers:
+
+- **Add ZIM archives** - copies Wikipedia/Gutenberg/etc. onto the card and builds the search index. Adds to what's there, never wipes your existing archives, and splits oversized files automatically.
+- **Optimize cover images** - shrinks Movie/Show/Book covers so pages load fast on the device.
+- **Rebuild media index** - refreshes the library listing after you've added or removed files from the PC.
+- **Download offline maps** - grabs map tiles for an area you pick, with a size estimate and free-space check before anything downloads.
+- **Build a routing map** - maps plus the road network and place search, for turn by turn directions. Pick from ready-made areas (any US state, big regions, or the whole country) and they join into one seamless map. US only for now
+- **Add translation languages** - installs offline translation packs, always both directions of a pair. Comes in collections (`starter`, `traveler`, `europe`, `asia`, `world`) or single languages. (I recomend just grabbing all as its less than 4GB)
+
+A good order for a fresh card: media and ZIMs first, optimize images, rebuild the index last. Maps and languages can be added any time.
 
 ---
 
@@ -358,7 +446,9 @@ The Mk4 default case is a remix of [ESP32 C6 with LCD Screen Enclosure Case](htt
 Since this is the experimental branch, here's what I already know isn't great:
 
 - **Maps are slow.** Big regions take a while to load and pan. It works, it's just not snappy yet, and that's the main thing I'm working on.
-- **Free space on FAT32 cards can read slightly wrong.** SdFat doesn't update the counter FAT32 keeps for it, so the number drifts by however much the Nomad itself writes. It fixes itself the next time you plug the card into a PC, and it doesn't affect your files at all. exFAT cards aren't affected.
+- **WiFi Mode and DLNA are days old.** They work (tested with VLC on a Fire Stick, desktop VLC, and phones), but they haven't seen many routers or many TVs yet. If your TV can't find Nomad, tell me what TV it is and I will see what I can do.
+- **Set an admin password before using WiFi Mode.** On the hotspot only people you gave the password to can reach the admin panel. On your home network, everything on that network can.
+- **Free space on FAT32 cards can read slightly wrong.** SdFat doesn't update the counter FAT32 keeps for it, so the number drifts by however much Nomad itself writes. It fixes itself the next time you plug the card into a PC, and it doesn't affect your files at all. exFAT cards aren't affected.
 - **Multiplayer is polling based.** It's a room code and a refresh loop, not a live connection. Fine for turn based games, wouldn't hold up for anything realtime.
 - **EmulatorJS cores download on first play.** Once cached they're fine, but the first launch of a system pulls the core off the card and takes a moment.
 - Everything here has had a fraction of the testing main has. If something breaks, tell me, that's what this branch is for.
