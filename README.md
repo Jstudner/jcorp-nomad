@@ -151,6 +151,8 @@ There are a few community forks that target other ESP32 boards, but your mileage
 "LVGL" by kisvegabor v8.3.10,
 "SDFat" by Bill Greiman v2.3.0,
 - Fat32Format or equivalent
+- **Optional:** [HandBrake 1.11.2 preset](tools/handbrake/) for small,
+  browser-friendly 480p MP4 files
 - SquareLine Studio (optional, for UI editing)
 
 ---
