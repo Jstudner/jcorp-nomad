@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- Version 4 -->
+<!-- Version 5 -->
 <html lang="en">
 <head>
 <meta charset="utf-8"/>
@@ -43,7 +43,7 @@
 <body>
   <header>
     <h1>Chess</h1>
-    <a class="back-btn" href="/games.html">← Back to Games</a>
+    <a class="back-btn" href="/games">← Back to Games</a>
   </header>
 
   <main>
@@ -64,6 +64,7 @@
       <div class="status" id="status">Waiting…</div>
       <div id="board"></div>
       <div class="row" style="justify-content:center;margin-top:14px">
+        <button class="btn hidden" id="againBtn" onclick="playAgain()">Play again</button>
         <button class="btn secondary" onclick="location.reload()">Leave / New Room</button>
       </div>
     </div>
@@ -126,6 +127,8 @@ function render(){
 
 function updateStatus(){
   statusEl.classList.remove('hot');
+  document.getElementById('againBtn').classList.toggle('hidden',
+    !(MP.room.joined && game.game_over()));
   const me = myColor() === 'w' ? 'White' : 'Black';
   if (!MP.room.joined){
     statusEl.textContent = `Share the code and wait for Black to join… (you are ${me})`;
@@ -179,6 +182,21 @@ function onUpdate(stateStr){
   } catch(e){}
   selected = null; targets = [];
   render();
+}
+
+/* Rematch in the same room, same code. Colors stay with their seats, and
+   chess rules fix the first mover, so the reset pins seat 0 (White) to move
+   first instead of the default alternation. */
+async function playAgain(){
+  try {
+    const fresh = new Chess();
+    await MP.reset(JSON.stringify({ fen: fresh.fen(), san: '' }), 0);
+    game.reset();
+    selected = null; targets = [];
+    render();
+  } catch(e){
+    statusEl.textContent = e.message;
+  }
 }
 
 function onInfo(j){

@@ -7,7 +7,9 @@
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>Nomad • Gallery</title>
   <meta name="description" content="Jcorp Nomad Media Server – Images & Video" />
+  <link rel="stylesheet" href="/assets/plyr.css">
   <link rel="stylesheet" href="/master.css">
+  <script src="/assets/plyr.min.js"></script>
   <script src="/theme-boot.js"></script>
   <script src="/nomad-utils.js?v=45"></script>
   <script src="/theme-manager.js"></script>
@@ -123,6 +125,9 @@
     }
     #modalMedia { flex: 1; display: flex; align-items: center; justify-content: center; overflow: hidden; }
     #modalMedia img, #modalMedia video { width: 100%; height: 100%; object-fit: contain; }
+    /* Plyr wraps the <video> in its own container; let it fill the modal */
+    #modalMedia .plyr { width: 100%; max-height: 100%; --plyr-color-main: var(--primary); }
+    #modalMedia .plyr__video-wrapper { height: 100%; }
     .modal-info { flex: 0 0 auto; padding: 1rem 0 0; overflow-y: auto; max-height: 25vh; color: rgba(255,255,255,0.75); font-size: .95rem; }
     .modal-close {
       position: absolute;
@@ -241,11 +246,10 @@ let sortMode = localStorage.getItem('nomadGallery.sort') || sortSelect.value;
 
 /* ---------- THUMBNAIL QUEUE & DEDUPE ---------- */
 // Images go through this queue too, not just videos. There is no device-side
-// thumbnailing, so an image thumb pulls the FULL original off the SD card. A
-// gallery of a few hundred photos firing those in parallel outruns the
-// firmware's 8 concurrent streams and its ~60KB of internal heap: responses get
-// truncated mid-body (NS_ERROR_NET_RESET) and every thumb falls back to the
-// white placeholder. Sequential + paced keeps us under that ceiling.
+// thumbnailing, so an image thumb pulls the full original off the card. A gallery of
+// a few hundred photos firing those in parallel outruns the firmware's 8 concurrent
+// streams and its ~60KB of internal heap: responses get truncated mid-body and every
+// thumb falls back to the white placeholder.
 const thumbQueue = [];           // { item, imgEl, spinner, kind }
 const thumbPending = new Set();  // dedupe by path
 let thumbWorkerRunning = false;
@@ -499,36 +503,14 @@ async function fetchRawNDJSONFile(urlPath){
   return parseNDJSONWithHeader(text);
 }
 
-/* Reindex is a last resort, and it must be capped.
-   While a reindex runs the firmware sets indexingTasksActive and returns 503 for
-   EVERY media request device-wide (not just gallery), so an uncapped
-   fail -> reindex -> retry -> fail loop bricks playback on every page until
-   reboot. One attempt per page load is enough to recover a genuinely missing
-   index; more than that means something else is wrong and retrying won't fix it. */
-const MAX_REINDEX_ATTEMPTS = 1;
-let reindexAttempts = 0;
+/* This page never asks for a reindex on its own.
+   While a reindex runs the firmware sets indexingTasksActive and returns 503 for every
+   media request device-wide, so triggering one from a page load can stall playback
+   everywhere. An empty or unsigned index is nearly always just an empty folder.
+   Reindex lives on the admin page. A 202 is different, the firmware is already
+   building, so polling for it is fine as long as it stops. */
 const MAX_BUILD_POLLS = 10;   // ~30s of 202 polling, then stop
 let buildPolls = 0;
-async function triggerReindexOnce(path, reason){
-  if(reindexAttempts >= MAX_REINDEX_ATTEMPTS){
-    console.warn(`Gallery: reindex already attempted this session (${reason}); not retrying.`);
-    return false;
-  }
-  reindexAttempts++;
-  try{
-    const res = await fetch('/api/reindex', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: `path=${encodeURIComponent(path)}`
-    });
-    if(!res.ok){ console.error('Failed to trigger gallery reindex:', res.status); return false; }
-    console.log(`Gallery reindex triggered (${reason})`);
-    return true;
-  }catch(e){
-    console.error('Error triggering gallery reindex:', e);
-    return false;
-  }
-}
 
 function showGalleryMessage(msg){
   grid.innerHTML = `<p style="grid-column:1/-1;text-align:center;color:var(--primary-dark);">${msg}</p>`;
@@ -537,31 +519,22 @@ function showGalleryMessage(msg){
 async function fetchIndexWithFallback(path){
   try{
     const apiUrl = `${INDEX_ENDPOINT}?path=${encodeURIComponent(normalizePath(path))}&_=${Date.now()}`;
-    const res = await fetch(apiUrl, { cache:'no-store', credentials:'same-origin' });
+    let res = await fetch(apiUrl, { cache:'no-store', credentials:'same-origin' });
+    // 503 means the SD is busy for a moment, retry before falling back
+    for(let i=0; i<3 && res.status===503; i++){
+      await new Promise(r=>setTimeout(r, 800*(i+1)));
+      res = await fetch(apiUrl, { cache:'no-store', credentials:'same-origin' });
+    }
     if(res.ok){
       const text = await res.text();
       const parsed = parseNDJSONWithHeader(text);
 
-      // Check if we have a valid header signature.
-      // A missing sig can also mean the response was truncated in transit under
-      // load, so only act on it if we haven't already tried once.
+      // check for a valid header signature. a missing sig can also mean the response was
+      // truncated in transit under load, so only act on it if we havent already tried once
       if(!parsed.header || !parsed.header.sig){
-        console.warn('No index signature found in gallery. Index may be building or missing.');
-
-        if(await triggerReindexOnce(path, 'missing sig')){
-          showGalleryMessage('Building gallery index... Please wait.');
-          setTimeout(async () => {
-            try {
-              await refreshIndex();
-              renderPage();
-            } catch(e) {
-              console.error('Retry refreshIndex failed', e);
-              showGalleryMessage('Could not load gallery.');
-            }
-          }, 3000);
-          return { source: null, header: null, entries: [] };
-        }
-        // cap hit: fall through and use whatever entries we did parse
+        // nearly always just an empty folder, so take the answer and move on. asking for a
+        // rebuild here put that load on the device from every phone for nothing
+        console.warn('No index signature found in gallery, treating as empty.');
       }
 
       if(parsed.header && parsed.header.count !== undefined && parsed.entries.length < parsed.header.count){
@@ -606,22 +579,10 @@ async function fetchIndexWithFallback(path){
     }catch(e){}
   }
 
-  // If no fallback worked, trigger reindex as last resort (capped)
+  // Nothing in the API or the fallback files. Usually just an empty /Gallery,
+  // so say so rather than asking the device to rebuild.
   console.warn('No gallery index found in API or fallback files');
-  if(await triggerReindexOnce(path, 'no index found')){
-    showGalleryMessage('Building gallery index... Please wait.');
-    setTimeout(async () => {
-      try {
-        await refreshIndex();
-        renderPage();
-      } catch(e) {
-        console.error('Retry after fallback reindex failed', e);
-        showGalleryMessage('Could not load gallery.');
-      }
-    }, 3000);
-  } else {
-    showGalleryMessage('Could not load the gallery index. Try reloading, or reindex from the admin page.');
-  }
+  showGalleryMessage('No photos found. If you just added files, reindex from the admin page.');
 
   return { source: null, header: null, entries: [] };
 }
@@ -683,9 +644,8 @@ function createCard(item){
     card._thumbJob = { item, imgEl: thumb, spinner, kind: 'video' };
     cardObserver.observe(card);
   } else {
-    // image: same observer + queue as video. previously this fired its own
-    // unthrottled fetch per card at creation time, so a full page of photos hit
-    // the server all at once and starved it.
+    // image: same observer and queue as video. this used to fire its own unthrottled
+    // fetch per card at creation time, so a full page of photos starved the server
     thumb.src = WHITE_SVG;
     card._thumbJob = { item, imgEl: thumb, spinner, kind: 'image' };
     cardObserver.observe(card);
@@ -738,7 +698,7 @@ function setViewSize(size){
   grid.className = 'media-grid ' + size;
   localStorage.setItem('nomadGallery.viewSize', size);
 }
-viewButtons.forEach(btn => btn.addEventListener('click', ()=> setViewSize(btn.dataset.size)));
+// the click handler is wired once in init(), with the rest of the UI
 
 function applySort(){
   sortMode = sortSelect.value;
@@ -796,6 +756,10 @@ function openModal(item){
                          <p><strong>Size:</strong> ${formatBytes(item.size)}</p>`;
   modal.style.display = 'flex';
 
+  // Zoom and pan belong to photos. Bound to a video they swallowed every
+  // click on the player controls, which is why playback looked broken.
+  const zoomable = (item.type !== 'video');
+  if (zoomable) {
   mediaEl.style.transformOrigin = 'center center';
   mediaEl.style.cursor = 'zoom-in';
   mediaEl.style.transition = 'none';
@@ -810,8 +774,24 @@ function openModal(item){
   window.addEventListener('mousemove', onMouseMove); window.addEventListener('mouseup', onMouseUp);
   function onMouseMove(e){ if(!isDragging) return; const dx=(e.clientX-dragStartX)/zoom; const dy=(e.clientY-dragStartY)/zoom; if(Math.abs(dx)>3 || Math.abs(dy)>3) dragMoved=true; offsetX+=dx; offsetY+=dy; dragStartX=e.clientX; dragStartY=e.clientY; updateTransform(); }
   function onMouseUp(){ if(!isDragging) return; isDragging=false; mediaEl.style.cursor='grab'; setTimeout(()=>dragMoved=false,100); }
+  }   // end zoomable
+
+  // videos get the same Plyr player the movies page uses
+  let plyr = null;
+  if (item.type === 'video' && window.Plyr) {
+    NomadPlyr.ready().then(() => {
+      if (gen !== modalGeneration) return;      // modal already moved on
+      try {
+        plyr = new Plyr(mediaEl, NomadPlyr.opts({
+          controls: ['play-large','play','progress','current-time','duration','mute','volume','fullscreen']
+        }));
+      } catch(e){ mediaEl.controls = true; }
+    });
+  }
+
   modal._cleanup = ()=>{
-    window.removeEventListener('mousemove', onMouseMove); window.removeEventListener('mouseup', onMouseUp);
+    if (zoomable) { window.removeEventListener('mousemove', onMouseMove); window.removeEventListener('mouseup', onMouseUp); }
+    if (plyr) { try { plyr.destroy(); } catch(e){} plyr = null; }
     const v = modalMedia.querySelector('video'); if(v){ v.pause(); try{ v.removeAttribute('src'); v.load(); }catch(e){} }
     for(const url of modalUrls){ try{ URL.revokeObjectURL(url); }catch(e){} }
   };

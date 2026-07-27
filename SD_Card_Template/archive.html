@@ -7,9 +7,10 @@
 <title>Nomad • Archive</title>
 <link rel="stylesheet" href="/master.css">
 <script src="/theme-boot.js"></script>
-<script src="/assets/xzwasm.min.js"></script>
-<script src="/assets/fzstd.min.js"></script>
-<script src="/assets/nomad-zim.js"></script>
+<script src="/nomad-utils.js"></script>
+<script src="/assets/xzwasm.min.js?v=2"></script>
+<script src="/assets/fzstd.min.js?v=2"></script>
+<script src="/assets/nomad-zim.js?v=8"></script>
 <style>
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 html, body { height: 100%; }
@@ -23,10 +24,7 @@ body {
 }
 body.dark { background: var(--bg); color: var(--text); }
 
-/* Header uses master.css's shared header/.back-btn components (same as
-   movies.html, gallery.html, games.html, etc.) rather than a page-local
-   reimplementation, so colors/height/hover states stay in sync with the
-   rest of the app automatically. */
+/* header uses master.css's shared header + .back-btn, same as the other pages */
 
 .toolbar {
   background: var(--bg);
@@ -351,7 +349,13 @@ main {
 .nav-btn:disabled { opacity: 0.3; cursor: not-allowed; }
 
 @media (max-width: 600px) {
-  #reader-search-input { width: 120px; }
+  /* the bar didnt fit on a phone. the article title is already in the page header
+     above, so it goes and the search box takes what is left */
+  #reader-topbar { gap: 6px; padding: 8px; }
+  #reader-back-btn { padding: 6px 8px; font-size: 13px; }
+  #article-title { display: none; }
+  #reader-search-input { width: auto; flex: 1 1 60px; min-width: 0; }
+  .nav-btn { padding: 4px 8px; }
   .sidebar { width: 100%; }
   .toolbar { flex-wrap: wrap; }
 }
@@ -389,6 +393,7 @@ main {
     <span id="article-title">Loading...</span>
     <input type="search" id="reader-search-input" placeholder="Search articles..." onkeydown="if(event.key==='Enter')searchArticles()">
     <button class="nav-btn" onclick="searchArticles()">🔍</button>
+    <button class="nav-btn" id="btn-list" onclick="openBrowseList()" title="All articles" style="display:none">≡</button>
     <button class="nav-btn" id="btn-toc" onclick="toggleSidebar()">☰</button>
   </div>
   <div id="search-results" class="search-results-panel"></div>
@@ -412,10 +417,9 @@ main {
 
 <script>
 /* Nomad Archive reader (preindexed).
- * search + article location come from the PC-built sidecar index, the device never
- * binary-searches the multi-GB ZIM - a search is a couple of tiny reads, opening an
- * article reads only its cluster.
- * deep link: /archive.html?a=<archiveIdx>&c=<cluster>&b=<blob>&t=<title> */
+   search and article location come from the PC-built sidecar index, so the device
+   never binary-searches the multi-GB ZIM.
+   deep link: /archive.html?a=<archiveIdx>&c=<cluster>&b=<blob>&t=<title> */
 
 const decompressors = {
   zstd: async (data) => fzstd.decompress(data),
@@ -487,13 +491,27 @@ function renderLibrary(archives){
 }
 function filterLibrary(){ if(window.__archives) renderLibrary(window.__archives); }
 
-/* Open an archive. Browsable-sized archives (TED, Gutenberg, php.net) get our
-   OWN book/talk list from the index - their built-in browse pages (bookshelves,
-   author lists, language pickers) are JS-driven and dead in the sandboxed
-   reader. Wikipedia (no list; huge) opens its main page, which IS its A-Z index. */
+/* Open an archive. Browsable ones (TED, Gutenberg, php.net) get our own list from
+   the index, their built-in browse pages are JS-driven and dead in the sandbox.
+   Wikipedia has no list so it opens its main page, which is its A-Z index. */
 async function openArchive(i){
   const a = (window.__archives||[])[i];
   if(!a) return;
+  _currentArchive = a; updateListButton();
+  // app archives (nautilus libraries and other JS apps) have a shell page and
+  // data, so the shell IS the interface. Straight in, no list in between.
+  if(a.app && a.mainCluster != null && a.mainCluster >= 0){
+    return openArticle({archiveIdx:a.idx, cluster:a.mainCluster, blob:a.mainBlob,
+                        title:a.name||a.id, url:a.mainUrl||null}, true);
+  }
+  // video channel scrapes used to skip to our list because their shell is a SPA that
+  // could not run here. app mode runs them now, so they open on their channel page.
+  // anything with a real front page opens straight onto it (a wiki main page is its
+  // own best index); the list button brings up the title list
+  if(a.mainCluster != null && a.mainCluster >= 0 && a.mainUrl){
+    return openArticle({archiveIdx:a.idx, cluster:a.mainCluster, blob:a.mainBlob,
+                        title:a.name||a.id, url:a.mainUrl}, true);
+  }
   if(a.hasList) return browseArchive(a);
   if(a.mainCluster==null || a.mainCluster<0){
     enterReader(a.name||a.id);
@@ -502,13 +520,19 @@ async function openArchive(i){
     setFrame('<h2>'+escapeHtml(a.name||a.id)+'</h2><p>Use the search bar above to find articles.</p>');
     return;
   }
-  openArticle({archiveIdx:a.idx, cluster:a.mainCluster, blob:a.mainBlob, title:a.name||a.id}, true);
+  openArticle({archiveIdx:a.idx, cluster:a.mainCluster, blob:a.mainBlob, title:a.name||a.id, url:a.mainUrl||null}, true);
 }
 
-/* Browse view: the archive's whole title list (from the index) rendered in the
-   PARENT (so row clicks work - the article iframe is script-sandboxed), with a
-   filter box. Each row opens the article/video/book. */
-let _browseRows=null, _browseArchive=null;
+/* Browse view: the archive's title list rendered in the PARENT so row clicks work,
+   the article iframe is script-sandboxed. Each row opens the article/video/book. */
+let _browseRows=null, _browseArchive=null, _currentArchive=null;
+function updateListButton(){
+  const b = document.getElementById('btn-list');
+  if (b) b.style.display = (_currentArchive && _currentArchive.hasList) ? '' : 'none';
+}
+function openBrowseList(){
+  if (_currentArchive && _currentArchive.hasList) browseArchive(_currentArchive);
+}
 async function browseArchive(a){
   enterReader(a.name||a.id);
   document.getElementById('article-title').textContent = a.name||a.id;
@@ -542,9 +566,20 @@ function renderBrowse(filter){
   document.getElementById('browse-count').textContent =
     rows.length+' items'+(rows.length>500?' (showing first 500)':'');
   const list=document.getElementById('browse-list');
-  list.innerHTML = shown.map((r,i)=>`<div class="browse-row" data-i="${i}">${escapeHtml(r.title)}</div>`).join('')
+  // a wiki's own front page is the best entry point; pin it above the list
+  const a = _browseArchive;
+  const homeRow = (!f && a && a.mainCluster != null && a.mainCluster >= 0)
+    ? `<div class="browse-row" data-home="1" style="font-weight:600;color:var(--primary)">⌂ ${escapeHtml(a.name||a.id)} main page</div>` : '';
+  list.innerHTML = homeRow + shown.map((r,i)=>`<div class="browse-row" data-i="${i}">${escapeHtml(r.title)}</div>`).join('')
     || '<div class="media-msg" style="color:var(--muted)">No matches</div>';
-  list.onclick = (e)=>{ const row=e.target.closest('.browse-row'); if(!row) return; const r=shown[+row.dataset.i]; if(r) openArticle(r, true); };
+  list.onclick = (e)=>{
+    const row=e.target.closest('.browse-row'); if(!row) return;
+    if(row.dataset.home){
+      openArticle({archiveIdx:a.idx, cluster:a.mainCluster, blob:a.mainBlob, title:a.name||a.id, url:a.mainUrl||null}, true);
+      return;
+    }
+    const r=shown[+row.dataset.i]; if(r) openArticle(r, true);
+  };
 }
 
 /* ---------------- reader ---------------- */
@@ -561,6 +596,7 @@ function closeReader(){
   releaseArticleImages(); _articleHit = null;
   if (_epubRendition){ try{_epubRendition.destroy();}catch(e){} _epubRendition=null; }
   const mv=document.getElementById('media-view'); if(mv){ mv.innerHTML=''; mv.style.display='none'; }
+  blankArticleFrame();
   document.getElementById('article-frame').style.display='block';
   if (window.location.search) history_replace();
 
@@ -574,9 +610,18 @@ function closeReader(){
 }
 function history_replace(){ try{ window.history.replaceState(null,'',window.location.pathname); }catch(e){} }
 
+/* hiding the frame isnt enough, a video inside a hidden iframe keeps playing */
+function blankArticleFrame(){
+  const f = document.getElementById('article-frame');
+  if (!f) return;
+  f.onload = null;
+  f.setAttribute('sandbox', 'allow-same-origin');
+  f.srcdoc = '<!DOCTYPE html><html><body></body></html>';
+}
+
 // Show the article iframe (hide the media player) or vice versa.
 function showArticleFrame(){ document.getElementById('article-frame').style.display='block'; const mv=document.getElementById('media-view'); mv.style.display='none'; mv.innerHTML=''; }
-function showMediaView(cls){ document.getElementById('article-frame').style.display='none'; const mv=document.getElementById('media-view'); mv.className=cls||''; mv.style.display='block'; return mv; }
+function showMediaView(cls){ blankArticleFrame(); document.getElementById('article-frame').style.display='none'; const mv=document.getElementById('media-view'); mv.className=cls||''; mv.style.display='block'; return mv; }
 
 // Detect a playable/readable resource embedded in an article's HTML.
 function detectMedia(html){
@@ -588,6 +633,17 @@ function detectMedia(html){
   return null;
 }
 
+const _listUrlCache = new Map();
+async function listUrlForHit(hit){
+  const a = (window.__archives||[]).find(x => x.idx === +hit.archiveIdx);
+  if (!a || !a.hasList) return null;
+  const idx = await getIndex();
+  let rows = _listUrlCache.get(a.idx);
+  if (!rows){ rows = await idx.listArchive(a.idx); _listUrlCache.set(a.idx, rows); }
+  const r = rows.find(r => r.cluster === hit.cluster && r.blob === hit.blob);
+  return (r && r.url) || null;
+}
+
 // Open by location; push onto history unless we're navigating history.
 let navigatingHistory=false;
 async function openArticle(hit, resetHistory){
@@ -595,6 +651,19 @@ async function openArticle(hit, resetHistory){
   try {
     const idx = await getIndex();
     const content = await idx.openArticle(hit, decompressors);
+    // links and images resolve against the article's own ZIM url. search hits arrive
+    // without one, so recover it from the title listing. a miss just means the reader
+    // falls back to search-style links
+    if (!hit.url) {
+      try { hit.url = await idx.urlForHit(hit, decompressors); } catch(e){}
+    }
+    // zimit title listings only carry front articles, so search hits into those miss
+    // above. the browse list knows every url (cached, the lists are small here)
+    if (!hit.url) {
+      try { hit.url = await listUrlForHit(hit); } catch(e){}
+    }
+    _currentArchive = (window.__archives||[]).find(x => x.idx === +hit.archiveIdx) || _currentArchive;
+    updateListButton();
     enterReader();
     document.getElementById('article-title').textContent = hit.title||'';
     document.title = (hit.title||'Article')+' · Nomad Archive';
@@ -607,7 +676,51 @@ async function openArticle(hit, resetHistory){
     updateHistoryButtons();
     document.getElementById('search-results').style.display='none';
 
+    // PDFs, videos, books and images indexed as entries open in their viewer, not as
+    // garbage text. hits opened by cluster/blob carry no mime, so fall back to the
+    // url extension, then to magic bytes
+    let cmime = content.mimeType || '';
+    if (!cmime) cmime = mimeFromName(hit.url || hit.title || '');
+    if (!cmime && content.data && content.data.length > 4){
+      const d = content.data;
+      if (d[0]===0x25 && d[1]===0x50 && d[2]===0x44 && d[3]===0x46) cmime = 'application/pdf'; // %PDF
+    }
+    if (cmime && cmime.indexOf('text/html') !== 0 && cmime.indexOf('text/plain') !== 0) {
+      hideOverlay();
+      content.mimeType = cmime;
+      return openZimDoc(hit, content);
+    }
     const html = new TextDecoder('utf-8').decode(content.data);
+    // meta-refresh stubs (zimit video pages) redirect into an app with a hash
+    // route. Follow the redirect ourselves and hand the hash to the app.
+    const refresh = html.match(/http-equiv=["']?refresh["']?[^>]*content=["'][^"']*URL=['"]?([^'">]+)/i);
+    if (refresh && html.replace(/<[^>]+>/g,' ').replace(/\s+/g,'').length < 200) {
+      const rurl = refresh[1];
+      const hashAt = rurl.indexOf('#');
+      const path = hashAt >= 0 ? rurl.slice(0, hashAt) : rurl;
+      const rhash = hashAt >= 0 ? rurl.slice(hashAt) : '';
+      // zimit video archives: a watch route has a per-video JSON with the
+      // title, description and file path. Native page beats booting the SPA.
+      const wm = rhash.match(/^#\/watch\/([^?]+)/);
+      if (wm) {
+        const done = await openZimitVideo(hit, decodeURIComponent(wm[1]));
+        hideOverlay();
+        if (done) return;
+        // a watch stub must never fall through and boot the archive's SPA shell, its
+        // router walks the frame into nested reader chrome
+        showArticleFrame();
+        setFrame('<h2>'+escapeHtml(hit.title||'Video')+'</h2>'+
+          '<p>This video could not be read from the archive just now. '+
+          'Go back to the list and try it again.</p>');
+        return;
+      }
+      const t = await idx.resolveLink(hit.archiveIdx, hit.url || '', path, decompressors);
+      if (t) {
+        hideOverlay();
+        return openArticle({ archiveIdx: t.archiveIdx, cluster: t.cluster, blob: t.blob,
+                             title: hit.title || t.title, url: t.url, _hash: rhash });
+      }
+    }
     // StreetZim app pages (map viewer, place browser) are fetch-driven JS apps
     // that cannot run in the script-less reader iframe, so show a landing instead
     if (isMapAppPage(html)) { hideOverlay(); return showMapLanding(hit); }
@@ -616,7 +729,12 @@ async function openArticle(hit, resetHistory){
     if (media && media.type === 'epub')  { hideOverlay(); return openEpub(hit, media.url, html); }
     showArticleFrame();
     _articleHit = hit;
-    setFrame(sanitizeArticle(html));
+    // JS-app archives (knot browsers, PDF libraries) have no readable static body,
+    // just a shell plus script bundles plus data. those run in app mode
+    if (isAppShell(html)) { await setFrameApp(html, hit, hit._hash || ''); hideOverlay(); return; }
+    const body = sanitizeArticle(html);
+    const css = _articleSelfStyled ? await preloadArticleCss(hit, _articleCssRefs) : [];
+    setFrame(body, css);
   } catch (e) {
     console.error('[ZIM] open failed', e);
     enterReader();
@@ -633,9 +751,8 @@ function loadScriptOnce(src){
   });
   return loadScriptOnce._p[src];
 }
-// load a big lib by fetching its exact bytes through /media and injecting inline.
-// plain /assets serving mangles files with raw high bytes (JSZip/epub.js) so they
-// fail to parse - /media is byte-exact and an inline <script> runs regardless of type
+// fetch a big lib's exact bytes through /media and inject inline. plain /assets
+// mangles files with raw high bytes (JSZip/epub.js) so they fail to parse
 function loadScriptViaMedia(path){
   loadScriptViaMedia._p = loadScriptViaMedia._p || {};
   if (!loadScriptViaMedia._p[path]) loadScriptViaMedia._p[path] = (async()=>{
@@ -652,6 +769,203 @@ function loadCssOnce(href){
   const l=document.createElement('link'); l.rel='stylesheet'; l.href=href; document.head.appendChild(l);
 }
 
+/* ---- in-archive document viewer ----
+   PDFs, media, books and images that live inside a ZIM open here instead of
+   forcing a download. content arrives as bytes, so every viewer works from a blob */
+const _docBlobUrls = [];
+function releaseDocBlobs(){ while(_docBlobUrls.length){ try{ URL.revokeObjectURL(_docBlobUrls.pop()); }catch(e){} } }
+function docBlobUrl(data, mime){
+  const u = URL.createObjectURL(new Blob([data], { type: mime || 'application/octet-stream' }));
+  _docBlobUrls.push(u);
+  return u;
+}
+
+function mimeFromName(u){
+  u = (u||'').toLowerCase().split('?')[0];
+  if (/\.pdf$/.test(u)) return 'application/pdf';
+  if (/\.epub$/.test(u)) return 'application/epub+zip';
+  if (/\.(mp4|m4v)$/.test(u)) return 'video/mp4';
+  if (/\.webm$/.test(u)) return 'video/webm';
+  if (/\.ogv$/.test(u)) return 'video/ogg';
+  if (/\.mp3$/.test(u)) return 'audio/mpeg';
+  if (/\.ogg$/.test(u)) return 'audio/ogg';
+  if (/\.(jpe?g)$/.test(u)) return 'image/jpeg';
+  if (/\.png$/.test(u)) return 'image/png';
+  if (/\.webp$/.test(u)) return 'image/webp';
+  if (/\.svg$/.test(u)) return 'image/svg+xml';
+  return '';
+}
+
+function closeZimDoc(){
+  releaseDocBlobs();
+  const mv = document.getElementById('media-view');
+  mv.innerHTML = ''; mv.style.display = 'none';
+  // return to whatever was underneath: the app/article frame if one is live,
+  // else the browse list, else the library
+  if (_articleHit) { showArticleFrame(); return; }
+  if (_browseArchive) { browseArchive(_browseArchive); return; }
+  closeReader();
+}
+
+function docShell(mv, title, dlUrl, dlName){
+  mv.innerHTML =
+    '<div class="doc-bar" style="display:flex;gap:8px;align-items:center;padding:8px 10px;background:var(--card);border-bottom:1px solid var(--line);position:sticky;top:0;z-index:5">'+
+      '<button onclick="closeZimDoc()" style="border:1px solid var(--line);background:var(--bg);color:var(--text);border-radius:8px;padding:6px 12px;cursor:pointer">✕ Close</button>'+
+      '<span style="flex:1;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+escapeHtml(title||'')+'</span>'+
+      '<a href="'+dlUrl+'" data-dl download="'+escapeHtml(dlName||'file')+'" style="border:1px solid var(--line);background:var(--bg);color:var(--text);border-radius:8px;padding:6px 12px;text-decoration:none">⬇</a>'+
+    '</div>'+
+    '<div class="doc-body" id="doc-body" style="padding:10px"></div>';
+  return document.getElementById('doc-body');
+}
+
+async function openZimDoc(hit, content){
+  const mime = (content.mimeType || '').toLowerCase();
+  const title = hit.title || (hit.url || '').split('/').pop() || 'Document';
+  const fname = decodeURIComponent(((hit.url || title).split('/').pop() || 'file'));
+  releaseDocBlobs();
+  const mv = showMediaView('zimdoc');
+  mv.style.overflowY = 'auto';
+  const url = docBlobUrl(content.data, mime);
+  const body = docShell(mv, title, url, fname);
+
+  if (mime.indexOf('application/pdf') === 0){
+    body.innerHTML = '<div class="media-msg" style="color:var(--muted)">Opening PDF…</div>';
+    try {
+      if (!window.pdfjsLib) await loadScriptOnce('/assets/pdf.min.js');
+      pdfjsLib.GlobalWorkerOptions.workerSrc = '/assets/pdf.worker.min.js';
+      const pdf = await pdfjsLib.getDocument({ data: content.data.slice(0) }).promise;
+      body.innerHTML = '';
+      const pages = Math.min(pdf.numPages, 120);
+      const width = Math.min(mv.clientWidth - 24, 900);
+      for (let n = 1; n <= pages; n++){
+        const page = await pdf.getPage(n);
+        const vp1 = page.getViewport({ scale: 1 });
+        const scale = width / vp1.width;
+        const vp = page.getViewport({ scale: scale * (window.devicePixelRatio || 1) });
+        const canvas = document.createElement('canvas');
+        canvas.width = vp.width; canvas.height = vp.height;
+        canvas.style.cssText = 'width:100%;max-width:'+width+'px;display:block;margin:0 auto 10px;box-shadow:var(--shadow,0 1px 4px rgba(0,0,0,.2));border-radius:4px;background:#fff';
+        body.appendChild(canvas);
+        await page.render({ canvasContext: canvas.getContext('2d'), viewport: vp }).promise;
+        if (mv.style.display === 'none') return;   // viewer closed mid-render
+      }
+      if (pdf.numPages > pages){
+        body.insertAdjacentHTML('beforeend',
+          '<div class="media-msg" style="color:var(--muted)">Showing the first '+pages+' of '+pdf.numPages+' pages. Use ⬇ for the whole file.</div>');
+      }
+    } catch(e){
+      body.innerHTML = '<div class="media-msg" style="color:var(--red)">Could not render this PDF ('+escapeHtml(e.message||String(e))+'). Use ⬇ to download it.</div>';
+    }
+    return;
+  }
+
+  if (mime.indexOf('video/') === 0){
+    body.innerHTML = '';
+    const v = document.createElement('video');
+    v.controls = true; v.setAttribute('playsinline',''); v.src = url;
+    v.style.cssText = 'width:100%;max-height:70vh;background:#000;border-radius:8px';
+    body.appendChild(v);
+    try {
+      loadCssOnce('/assets/plyr.css');
+      await loadScriptOnce('/assets/plyr.min.js');
+      if (window.Plyr) new Plyr(v, NomadPlyr.opts({}));
+    } catch(e){}
+    v.play().catch(()=>{});
+    return;
+  }
+  if (mime.indexOf('audio/') === 0){
+    body.innerHTML = '';
+    const au = document.createElement('audio');
+    au.controls = true; au.src = url; au.style.width = '100%';
+    body.appendChild(au);
+    return;
+  }
+  if (mime.indexOf('image/') === 0){
+    body.innerHTML = '<img src="'+url+'" style="max-width:100%;display:block;margin:0 auto;border-radius:8px" alt="">';
+    return;
+  }
+  if (mime.indexOf('epub') >= 0){
+    body.innerHTML = '<div class="media-msg" style="color:var(--muted)">Loading book…</div>';
+    try {
+      if (!window.JSZip) await loadScriptViaMedia('/assets/jszip.min.js');
+      if (!window.ePub)  await loadScriptViaMedia('/assets/epub.min.js');
+      body.innerHTML = '<div class="epub-wrap"><div class="epub-area" id="epub-area" style="height:70vh"></div>'+
+        '<div class="epub-bar"><button id="epub-prev">‹ Prev</button><button id="epub-next">Next ›</button></div></div>';
+      if (_epubRendition){ try{_epubRendition.destroy();}catch(e){} }
+      _epubBook = ePub(content.data.buffer.slice(content.data.byteOffset, content.data.byteOffset + content.data.byteLength));
+      _epubRendition = _epubBook.renderTo('epub-area', { width:'100%', height:'100%', flow:'paginated', spread:'none' });
+      await _epubRendition.display();
+      document.getElementById('epub-prev').onclick = ()=> _epubRendition.prev();
+      document.getElementById('epub-next').onclick = ()=> _epubRendition.next();
+    } catch(e){
+      body.innerHTML = '<div class="media-msg" style="color:var(--red)">Could not open this book: '+escapeHtml(e.message||String(e))+'</div>';
+    }
+    return;
+  }
+  body.innerHTML = '<div class="media-msg" style="color:var(--muted)">No viewer for '+escapeHtml(mime||'this file')+'. Use ⬇ to download it.</div>';
+}
+
+/* zimit video archives: videos/<slug>.json describes the video, play it on a native
+   page with title and description. false when the archive lacks that layout */
+async function openZimitVideo(hit, slug){
+  try {
+    const idx = await getIndex();
+    // one retry: a busy moment throws, and giving up here used to boot the SPA shell.
+    // only a genuine miss reports false without a second attempt
+    let meta;
+    try {
+      meta = await idx.openResource(hit.archiveIdx, '', 'videos/' + slug + '.json', decompressors);
+    } catch(e){
+      if (/resource not found/i.test(e && e.message || '')) return false;
+      meta = await idx.openResource(hit.archiveIdx, '', 'videos/' + slug + '.json', decompressors);
+    }
+    const j = JSON.parse(new TextDecoder('utf-8').decode(meta.data));
+    if (!j || !j.videoPath) return false;
+
+    releaseDocBlobs();
+    const mv = showMediaView('zimdoc');
+    mv.style.overflowY = 'auto';
+    const title = j.title || hit.title || slug;
+    document.getElementById('article-title').textContent = title;
+    mv.innerHTML = '<div class="doc-bar" style="display:flex;gap:8px;align-items:center;padding:8px 10px;background:var(--card);border-bottom:1px solid var(--line);position:sticky;top:0;z-index:5">'+
+      '<button onclick="closeZimDoc()" style="border:1px solid var(--line);background:var(--bg);color:var(--text);border-radius:8px;padding:6px 12px;cursor:pointer">✕ Close</button>'+
+      '<span style="flex:1;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+escapeHtml(title)+'</span></div>'+
+      '<div id="doc-body" style="padding:10px"><div class="media-msg" style="color:var(--muted)">Loading video…</div></div>';
+    const body = document.getElementById('doc-body');
+
+    showOverlay('Loading video…');
+    const res = await idx.openResource(hit.archiveIdx, '', j.videoPath, decompressors);
+    hideOverlay();
+    const url = docBlobUrl(res.data, res.mimeType || 'video/webm');
+    body.innerHTML = '';
+    const v = document.createElement('video');
+    v.controls = true; v.setAttribute('playsinline',''); v.src = url;
+    v.style.cssText = 'width:100%;max-height:60vh;background:#000;border-radius:8px';
+    body.appendChild(v);
+    if (j.thumbnailPath) {
+      try {
+        const th = await idx.openResource(hit.archiveIdx, '', j.thumbnailPath, decompressors);
+        v.poster = docBlobUrl(th.data, th.mimeType || 'image/webp');
+      } catch(e){}
+    }
+    try {
+      loadCssOnce('/assets/plyr.css');
+      await loadScriptOnce('/assets/plyr.min.js');
+      if (window.Plyr) new Plyr(v, NomadPlyr.opts({}));
+    } catch(e){}
+    if (j.description) {
+      const d = document.createElement('div');
+      d.style.cssText = 'margin-top:12px;font-size:.9rem;line-height:1.6;color:var(--text);white-space:pre-wrap;word-break:break-word';
+      d.textContent = String(j.description).slice(0, 4000);
+      body.appendChild(d);
+    }
+    v.play().catch(()=>{});
+    return true;
+  } catch(e){
+    return false;   // not this layout, let the caller try the app route
+  }
+}
+
 /* ---- video: same Plyr player the media pages use ---- */
 async function playVideo(hit, src){
   const mv = showMediaView('');
@@ -659,7 +973,7 @@ async function playVideo(hit, src){
   try {
     const idx = await getIndex();
     showOverlay('Loading video…');
-    const res = await idx.openResource(hit.archiveIdx, articleSlug(hit.title), src, decompressors);
+    const res = await idx.openResource(hit.archiveIdx, hit.url || articleSlug(hit.title), src, decompressors);
     const url = URL.createObjectURL(new Blob([res.data], { type: res.mimeType || 'video/webm' }));
     mv.innerHTML = '';
     const video = document.createElement('video');
@@ -670,7 +984,7 @@ async function playVideo(hit, src){
     try {
       loadCssOnce('/assets/plyr.css');
       await loadScriptOnce('/assets/plyr.min.js');
-      if (window.Plyr) new Plyr(video, { iconUrl: '/assets/plyr.svg', blankVideo: '', loadSprite: true });
+      if (window.Plyr) new Plyr(video, NomadPlyr.opts({}));
     } catch(e) {}
     video.play().catch(()=>{});
   } catch (e) {
@@ -687,7 +1001,7 @@ async function openEpub(hit, href){
   try {
     const idx = await getIndex();
     showOverlay('Loading book…');
-    const res = await idx.openResource(hit.archiveIdx, articleSlug(hit.title), href, decompressors);
+    const res = await idx.openResource(hit.archiveIdx, hit.url || articleSlug(hit.title), href, decompressors);
     // epub.js needs JSZip as a global before it loads. both via /media, /assets corrupts them
     if (!window.JSZip) await loadScriptViaMedia('/assets/jszip.min.js');
     if (!window.ePub)  await loadScriptViaMedia('/assets/epub.min.js');
@@ -710,7 +1024,7 @@ async function openEpub(hit, href){
 // best-effort article path from its title (TED/Gutenberg sit at the ZIM root so any slug works)
 function articleSlug(title){ return (title||'').toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-+|-+$/g,''); }
 
-/* ---- alphabetical range listing (ZIM index pages: "A – Aeolic Greek") ---- */
+/* ---- alphabetical range listing (ZIM index pages: "A - Aeolic Greek") ---- */
 async function showRange(from, to){
   const panel = document.getElementById('search-results');
   panel.innerHTML = '<div class="search-result-item"><span class="sr-title">Listing '+escapeHtml(from)+' – '+escapeHtml(to)+'…</span></div>';
@@ -729,7 +1043,7 @@ async function showRange(from, to){
     panel.innerHTML='<div class="search-result-item"><span class="sr-title">Error: '+escapeHtml(e.message)+'</span></div>';
   }
 }
-// Range-link text looks like "A – Aeolic Greek" (dash with surrounding spaces).
+// range-link text looks like "A - Aeolic Greek", a dash with spaces around it
 function parseRangeLink(text){
   const m = (text||'').match(/^(.{1,70}?)\s+[–—-]\s+(.{1,70})$/);
   if (!m) return null;
@@ -738,22 +1052,147 @@ function parseRangeLink(text){
   return { from:a, to:b };
 }
 
-function setFrame(bodyHtml){
+/* transient message in the reader. a link that cant be opened used to silently
+   turn into a title search, which reads as the link doing nothing */
+function readerNote(msg){
+  let el = document.getElementById('reader-note');
+  if (!el) {
+    el = document.createElement('div');
+    el.id = 'reader-note';
+    el.style.cssText = 'position:fixed;left:50%;transform:translateX(-50%);bottom:24px;z-index:2200;' +
+      'background:var(--card);color:var(--text);border:1px solid var(--line);border-radius:999px;' +
+      'padding:10px 18px;font-size:.9rem;box-shadow:var(--shadow-large,0 4px 18px rgba(0,0,0,.3));' +
+      'max-width:88vw;text-align:center;opacity:0;transition:opacity .2s';
+    document.body.appendChild(el);
+  }
+  el.textContent = msg;
+  requestAnimationFrame(() => { el.style.opacity = '1'; });
+  clearTimeout(readerNote._t);
+  readerNote._t = setTimeout(() => { el.style.opacity = '0'; }, 3200);
+}
+
+/* archives are scraped from desktop sites, so their CSS assumes a wide window.
+   this sheet loads after the site's own so it wins.
+
+   min-width:0 is the big one. grid and flex items default to min-width:auto and
+   refuse to shrink below their content, so one 800px image in a WordPress columns
+   block grows its track to 800px and the page ends up 3000px wide on a phone.
+   it only changes flex and grid items, a plain block already computes to 0 */
+const FIT_CSS =
+  '*{min-width:0}' +
+  'html,body{max-width:100%;overflow-x:hidden}' +
+  'img,video,canvas,svg,iframe,embed,object{max-width:100%!important}' +
+  'pre{max-width:100%;overflow-x:auto}' +
+  // a pending image has no pixels and so no aspect to size by, and a stretched grid
+  // cell can hand it the whole screen. keep the placeholder small until it loads
+  'img[data-zim-src]{max-height:40vh;background:rgba(127,127,127,.12)}' +
+  // MediaWiki desktop skins hold an 11em gutter open for a sidebar no scraper puts
+  // in the archive, so the article sits in a narrow strip off to one side
+  // auto margins rather than 0 so it centres on desktop and fills on a phone
+  '.mw-body,#content.mw-body,#column-content,#mw-content-container{' +
+    'margin-left:auto!important;margin-right:auto!important;max-width:64em!important;' +
+    'float:none!important;width:auto!important;' +
+    'border-left-width:0!important;border-right-width:0!important}' +
+  '#mw-panel,#column-one,#mw-head,#mw-head-base,#mw-page-base,#p-logo,#jump-to-nav{display:none!important}' +
+  // a 300px wiki thumbnail floated beside text has nowhere to go on a phone. only
+  // the wiki classes: a plain <figure> is a card or tile as often as a floated image
+  '@media (max-width:700px){' +
+    '.thumb,.thumbinner,.floatleft,.floatright,.tleft,.tright{' +
+      'float:none!important;max-width:100%!important;margin-left:0!important;margin-right:0!important}' +
+  '}';
+
+/* backstop for what CSS cant describe: a hard width:1200px wrapper, a nav that
+   wont wrap, a wide table. let them scroll in their own box instead of dragging
+   the page sideways */
+const FIT_SCAN_MAX = 4000;
+function fitFrameWidth(cdoc){
+  try {
+    if (!cdoc || !cdoc.body) return;
+    const de = cdoc.documentElement;
+    const cw = de.clientWidth;
+    // no early out on scrollWidth: the sheet above sets overflow-x:hidden on the root,
+    // which makes scrollWidth equal clientWidth even when the content is twice as wide
+    if (!cw) return;
+    const all = cdoc.body.querySelectorAll('*');
+    const n = Math.min(all.length, FIT_SCAN_MAX);
+    const PARTS = { TBODY:1, THEAD:1, TFOOT:1, TR:1, TD:1, TH:1, CAPTION:1, COLGROUP:1 };
+    const wide = [];
+    for (let i = 0; i < n; i++){
+      const el = all[i];
+      if (el.getBoundingClientRect().width <= cw + 4) continue;
+      // a row or a cell cannot scroll by itself, only the table around it can,
+      // and a table often measures narrow while its rows stick out
+      const t = PARTS[el.tagName] ? el.closest('table') : el;
+      if (t && wide.indexOf(t) < 0) wide.push(t);
+    }
+    const set = new Set(wide);
+    for (const el of wide){
+      // clamp only the outermost offenders, the ones inside are just stretched
+      let p = el.parentElement, nested = false;
+      while (p && p !== cdoc.body){ if (set.has(p)) { nested = true; break; } p = p.parentElement; }
+      if (nested) continue;
+      el.style.maxWidth = '100%';
+      if (el.tagName === 'IMG') continue;
+      el.style.overflowX = 'auto';
+      // overflow does nothing on a table box, so the ones that need to scroll
+      // have to become block containers first
+      if (el.tagName === 'TABLE') el.style.display = 'block';
+    }
+  } catch(e){}
+}
+// images and late stylesheets both change the layout, so re-check as they land
+function scheduleFit(cdoc, hit){
+  [0, 900, 2500, 6000].forEach(ms => setTimeout(() => {
+    if (_articleHit === hit) fitFrameWidth(cdoc);
+  }, ms));
+}
+
+/* Scroll the reader frame to an in-page target. ZIM pages use both id= and
+   the older name= form, and the fragment may be percent-encoded. */
+function scrollToAnchor(cdoc, frag){
+  if (!cdoc || !frag) { cdoc && cdoc.defaultView && cdoc.defaultView.scrollTo(0, 0); return true; }
+  let raw = frag;
+  try { raw = decodeURIComponent(frag); } catch(e){}
+  const find = (v) => {
+    if (!v) return null;
+    let el = null;
+    try { el = cdoc.getElementById(v); } catch(e){}
+    if (el) return el;
+    try {
+      const esc = (window.CSS && CSS.escape) ? CSS.escape(v) : v.replace(/["\\]/g, '\\$&');
+      el = cdoc.querySelector('[name="' + esc + '"], a[id="' + esc + '"]');
+    } catch(e){}
+    return el;
+  };
+  const target = find(raw) || find(frag) || (raw === 'top' ? cdoc.body : null);
+  if (!target) return false;
+  try { target.scrollIntoView({ block: 'start' }); } catch(e){ target.scrollIntoView(); }
+  return true;
+}
+
+function setFrame(bodyHtml, preloadedCss){
   const frame = document.getElementById('article-frame');
-  const dark = document.documentElement.classList.contains('dark') || document.body.classList.contains('dark');
+  frame.setAttribute('sandbox', 'allow-same-origin');   // app mode may have widened this
+  // a page with its own CSS gets a white canvas whatever the app theme says,
+  // reader-dark under site CSS is how black-on-black happens
+  const selfStyled = _articleSelfStyled;
+  const dark = !selfStyled && (document.documentElement.classList.contains('dark') || document.body.classList.contains('dark'));
   const bg = dark?'#12131a':'#fff', fg = dark?'#e4e6ee':'#1a1a1a', link = dark?'#6db3f2':'#1a56db';
   const doc = `<!DOCTYPE html><html><head>
     <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; img-src data: blob:;">
     <meta name="viewport" content="width=device-width,initial-scale=1">
     <style>
-      body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;max-width:820px;margin:0 auto;padding:16px 18px 60px;line-height:1.65;background:${bg};color:${fg};word-wrap:break-word;}
+      body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;${selfStyled?'':'max-width:820px;'}margin:0 auto;padding:${selfStyled?'0 0 60px':'16px 18px 60px'};line-height:1.65;background:${bg};color:${fg};word-wrap:break-word;}
+      .mwe-math-mathml-inline,.mwe-math-mathml-display,.mwe-math-mathml-a11y{display:none!important}
+      img.lazyload,img.lazyloading,img.lazyloaded{opacity:1!important;visibility:visible!important}
       a{color:${link};text-decoration:none;} a:hover{text-decoration:underline;}
       h1,h2,h3,h4{line-height:1.25;margin:1.1em 0 .4em;} h1{font-size:1.7em;}
       pre,code{background:${dark?'#1e202b':'#f3f4f6'};border-radius:4px;} code{padding:1px 5px;} pre{padding:12px;overflow-x:auto;}
       table{border-collapse:collapse;max-width:100%;display:block;overflow-x:auto;} th,td{border:1px solid ${dark?'#333':'#ddd'};padding:6px 9px;}
       img{max-width:100%;height:auto;} blockquote{border-left:3px solid ${dark?'#3a3f52':'#ddd'};margin:1em 0;padding-left:14px;color:${dark?'#aab':'#555'};}
       .nomad-note{font-size:.85em;color:${dark?'#8890a6':'#888'};border-top:1px solid ${dark?'#2a2d3a':'#eee'};margin-top:24px;padding-top:10px;}
-    </style></head><body>${bodyHtml}
+    </style>${(preloadedCss||[]).map(c => '<style>'+c+'</style>').join('')}
+    <style id="nomad-fit">${FIT_CSS}</style></head><body>${bodyHtml}
     <div class="nomad-note">Offline article · Nomad Archive</div>
     </body></html>`;
   // iframe is sandbox="allow-same-origin" (no scripts), so wire link clicks from the
@@ -762,51 +1201,506 @@ function setFrame(bodyHtml){
     try {
       const cdoc = frame.contentDocument;
       if (!cdoc) return;
+      // the source page's body classes drive its skin (mwoffliner layouts,
+      // centered site wrappers); reapply them on the reader body
+      if (_articleBodyClass) cdoc.body.className += ' ' + _articleBodyClass;
       cdoc.addEventListener('click', function (e) {
         const a = e.target.closest && e.target.closest('a');
         if (!a) return;
         e.preventDefault();
+        // same-page anchor (a contents list, back to top, a footnote). must be handled
+        // here: a srcdoc frame inherits the parent's URL as its base, so following
+        // "#what-is-risk" navigated the frame to /archive#what-is-risk and loaded the
+        // whole archive page inside itself
+        const selfHref = a.getAttribute('href') || '';
+        if (!a.getAttribute('data-zim-href') && selfHref.charAt(0) === '#') {
+          scrollToAnchor(cdoc, selfHref.slice(1));
+          return;
+        }
+        if (a.getAttribute('data-zim-ext')) { readerNote('That link points at the live web, so it is not in this archive.'); return; }
         // map-landing "Open the map" button: direct navigation to the /Maps copy
         const szTarget = a.getAttribute('data-sz-target');
         if (szTarget) { location.href = szTarget; return; }
-        const rawHref = a.getAttribute('href') || '';
+        const rawHref = a.getAttribute('data-zim-href') || a.getAttribute('href') || '';
         // StreetZim place-page buttons ("Directions to here" / "View on map")
         // deep-link into the map app: index.html#dest=… / #map=…
         const szm = rawHref.match(/index\.html(#(?:dest|map)=.*)$/);
         if (szm) { szOpenMap(szm[1]); return; }
         const text = (a.textContent || a.getAttribute('title') || '').trim();
-        // ZIM index pages link alphabetical ranges ("A – Aeolic Greek"); list them.
-        const range = parseRangeLink(text);
-        if (range) { showRange(range.from, range.to); return; }
-        const q = linkToQuery(rawHref, text);
-        if (q) { document.getElementById('reader-search-input').value = q; searchArticles(); }
+        // resolve the href against the article's own ZIM url and open the target. only
+        // a miss degrades to a range listing or a title search
+        followLink(rawHref, text);
       });
-      cdoc.defaultView && cdoc.defaultView.scrollTo(0, 0);
+      // a link that carried "page#section" scrolls once the page is up
+      if (_articleHit && _articleHit._anchor) {
+        const want = _articleHit._anchor;
+        _articleHit._anchor = null;
+        if (!scrollToAnchor(cdoc, want)) setTimeout(() => scrollToAnchor(cdoc, want), 400);
+      } else {
+        cdoc.defaultView && cdoc.defaultView.scrollTo(0, 0);
+      }
+      scheduleFit(cdoc, _articleHit);
+      inlineStylesheets(cdoc, _articleHit, _articleCssRefs.slice((preloadedCss||[]).length));
       inlineImages(cdoc, _articleHit);
     } catch (err) {}
   };
   frame.srcdoc = doc;
 }
 
-/* Lazily inline an article's images. The sanitizer left each <img> with a
-   data-zim-src (its relative ZIM ref) and no src, so nothing loaded. Here the
-   PARENT (same-origin with the sandboxed iframe) fetches each image's blob from
-   the ZIM via openResource - a bounded findByUrl + cluster read - and sets a
-   blob: URL. Modern Wikipedia stores every image as WebP regardless of the .jpg/
-   .png filename, so we trust the ZIM's mimeType, not the extension.
+/* ---- app mode: run a ZIM-packaged web app inside the sandbox ----
 
-   DEVICE SAFETY (this is why it's so conservative): the firmware serves ZIM
-   byte-ranges from a single reused file handle, and each image is ~dozens of
-   range reads. Firing images in parallel crashes it (ERR_CONNECTION_RESET ->
-   reboot loop). So we (1) load STRICTLY ONE IMAGE AT A TIME - one openResource,
-   which is itself many serialized reads (sharedQueue is concurrency 1) - only
-   as images scroll into view; (2) pause briefly between images so the device can
-   breathe / serve navigation; and (3) trip a circuit breaker after a few
-   consecutive failures (a struggling or rebooting device) instead of retrying
-   into the ground. */
+   Some archives are applications, not documents: a shell page, script bundles and
+   a data set loaded at runtime (the knot library is PouchDB + jQuery). Script-less
+   sanitizing shows an eternal spinner, so these run with scripts enabled and every
+   resource they ask for is served out of the ZIM. <script src> and stylesheets are
+   inlined by the parent, runtime fetch/XHR are shimmed onto the ZIM bridge.
+   The iframe stays same-origin so the shim can reach the bridge, which is fine
+   because the content came off the user's own card. */
+function isAppShell(html){
+  if (!/<script[^>]*src=/i.test(html)) return false;
+  const text = html
+    .replace(/<script[\s\S]*?<\/script>/gi, ' ')
+    .replace(/<style[\s\S]*?<\/style>/gi, ' ')
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/\s+/g, ' ').trim();
+  return text.length < 500;
+}
+
+async function setFrameApp(html, hit, hash){
+  const frame = document.getElementById('article-frame');
+  const idx = await getIndex();
+  const base = hit.url || '';
+
+  // the bridge the shim calls: path -> {buf, mime}, serialized by the shared ZIM
+  // queue like every other read. file taps open the in-archive viewer, not a download
+  window.__zimOpenFile = async (path) => {
+    try {
+      showOverlay('Opening…');
+      const target = await idx.resolveLink(hit.archiveIdx, base, path, decompressors);
+      if (!target) throw new Error('not in this archive');
+      const zim = await idx._zim(hit.archiveIdx, decompressors);
+      const content = await zim.getContentAt(target.cluster, target.blob, target.mimeType);
+      hideOverlay();
+      openZimDoc({ archiveIdx: hit.archiveIdx, title: target.title, url: target.url }, content);
+    } catch(e){
+      hideOverlay();
+      return Promise.reject(e);
+    }
+  };
+  window.__zimBridgeCallLog = [];
+  window.__zimBridge = async (path) => {
+    window.__zimBridgeCallLog.push(path);
+    const res = await idx.openResource(hit.archiveIdx, base, path, decompressors);
+    return { buf: res.data.buffer.slice(res.data.byteOffset, res.data.byteOffset + res.data.byteLength),
+             mime: res.mimeType || '' };
+  };
+
+  showOverlay('Loading app…');
+  let doc = html;
+
+  // inline the stylesheets
+  const cssTags = [...doc.matchAll(/<link\b[^>]*rel=["']?stylesheet["']?[^>]*>/gi)]
+    .concat([...doc.matchAll(/<link\b[^>]*href=["'][^"']+\.css[^"']*["'][^>]*>/gi)]);
+  const seenCss = new Set();
+  for (const m of cssTags){
+    const tag = m[0];
+    const href = (tag.match(/href\s*=\s*["']([^"']+)["']/i) || [])[1];
+    if (!href || seenCss.has(tag) || /^(https?:|\/\/)/i.test(href)) { doc = doc.replace(tag, ''); continue; }
+    seenCss.add(tag);
+    try {
+      const r = await idx.openResource(hit.archiveIdx, base, href, decompressors);
+      const css = new TextDecoder('utf-8').decode(r.data);
+      // function replacement: a string one would expand $-sequences in the CSS
+      doc = doc.replace(tag, () => '<style>' + css.replace(/<\/style/gi, '<\\/style') + '</style>');
+    } catch(e){ doc = doc.replace(tag, ''); }
+  }
+
+  // inline the script bundles in order. type="module" has to survive, modern zimit
+  // apps are ES modules and module code run as a classic script dies on its exports
+  const jsTags = [...doc.matchAll(/<script\b[^>]*src=["']([^"']+)["'][^>]*>\s*<\/script>/gi)];
+  for (const m of jsTags){
+    const [tag, src] = m;
+    if (/^(https?:|\/\/)/i.test(src)) { doc = doc.replace(tag, ''); continue; }
+    const isModule = /type\s*=\s*["']?module["']?/i.test(tag);
+    try {
+      showOverlay('Loading app… ' + src.split('/').pop());
+      const r = await idx.openResource(hit.archiveIdx, base, src, decompressors);
+      const js = new TextDecoder('utf-8').decode(r.data);
+      const open = isModule ? '<script type="module">' : '<script>';
+      // function replacement: minified bundles are full of $& and $' patterns
+      doc = doc.replace(tag, () => open + js.replace(/<\/script/gi, '<\\/script') + '<\/script>');
+    } catch(e){ doc = doc.replace(tag, ''); }
+  }
+
+  // the runtime shim runs before any app code
+  const shim = `<script>(function(){
+    ${hash ? "try { if (location.hash !== '" + hash.replace(/'/g, "\\'") + "') location.hash = '" + hash.replace(/'/g, "\\'") + "'; } catch(e){}" : ''}
+    /* a srcdoc document has no real URL, so history.pushState throws SecurityError.
+       every SPA router catches that and falls back to location.replace, which walks
+       the frame out of the archive and loads the reader page inside itself (the page
+       with two headers). give them a history that just remembers */
+    var histState = null;
+    try { histState = history.state; } catch(e){}
+    var remember = function(st){
+      histState = st;
+      try { Object.defineProperty(history, 'state', { get: function(){ return histState; }, configurable: true }); } catch(e){}
+    };
+    var realPush = history.pushState, realRep = history.replaceState;
+    history.pushState = function(st, t, u){ try { realPush.call(history, st, t, u); } catch(e){ remember(st); } };
+    history.replaceState = function(st, t, u){ try { realRep.call(history, st, t, u); } catch(e){ remember(st); } };
+    /* "about:srcdoc" is not a hierarchical address, so new URL(path, location.href)
+       throws in anything that checks origins. axios does it on every request, which
+       is why these apps stall on "failed to load data" */
+    var RealURL = window.URL;
+    function SafeURL(u, b){
+      try { return b === undefined ? new RealURL(u) : new RealURL(u, b); }
+      catch(e){
+        try { return new RealURL(String(u), 'http://zim.local/'); } catch(e2){ throw e; }
+      }
+    }
+    SafeURL.prototype = RealURL.prototype;
+    ['createObjectURL','revokeObjectURL','canParse','parse'].forEach(function(k){
+      if (typeof RealURL[k] === 'function') SafeURL[k] = RealURL[k].bind(RealURL);
+    });
+    try { window.URL = SafeURL; } catch(e){}
+    var bridge = function(path){ return window.parent.__zimBridge(path); };
+    var strip = function(u){
+      u = String(u || '');
+      if (/^(https?:)?\\/\\//i.test(u) || /^(data:|blob:)/i.test(u)) return null;
+      return u.replace(/^\\.\\//, '').replace(/^\\//, '');
+    };
+    var realFetch = window.fetch ? window.fetch.bind(window) : null;
+    window.fetch = function(input, init){
+      var u = (typeof input === 'string') ? input : (input && input.url) || '';
+      var p = strip(u);
+      if (p == null) return realFetch ? realFetch(input, init) : Promise.reject(new Error('offline'));
+      return bridge(p).then(function(r){
+        return new Response(r.buf, { status: 200, headers: { 'Content-Type': r.mime || 'application/octet-stream' } });
+      });
+    };
+    var RealXHR = window.XMLHttpRequest;
+    function ZimXHR(){
+      var self = this, real = new RealXHR();
+      this._zim = null;
+      this.readyState = 0; this.status = 0; this.response = null; this.responseText = '';
+      this.responseType = ''; this.onload = null; this.onerror = null; this.onreadystatechange = null;
+      this._real = real;
+      this.open = function(method, url){
+        var p = strip(url);
+        if (String(method).toUpperCase() === 'GET' && p != null){ self._zim = p; self.readyState = 1; return; }
+        self._passthru = true; real.open.apply(real, arguments);
+      };
+      this.setRequestHeader = function(){ if (self._passthru) real.setRequestHeader.apply(real, arguments); };
+      this.getResponseHeader = function(){ return null; };
+      this.getAllResponseHeaders = function(){ return ''; };
+      this.addEventListener = function(ev, fn){ self['on' + ev] = fn; };
+      this.abort = function(){ if (self._passthru) real.abort(); };
+      this.send = function(body){
+        if (self._passthru){
+          ['onload','onerror','onreadystatechange'].forEach(function(k){ real[k] = self[k]; });
+          real.responseType = self.responseType || '';
+          real.send(body);
+          return;
+        }
+        bridge(self._zim).then(function(r){
+          self.readyState = 4; self.status = 200;
+          if (self.responseType === 'arraybuffer') self.response = r.buf;
+          else if (self.responseType === 'blob') self.response = new Blob([r.buf], { type: r.mime });
+          else if (self.responseType === 'json'){
+            try { self.response = JSON.parse(new TextDecoder().decode(r.buf)); } catch(e){ self.response = null; }
+          } else {
+            self.responseText = new TextDecoder().decode(r.buf);
+            self.response = self.responseText;
+          }
+          if (self.onreadystatechange) self.onreadystatechange();
+          if (self.onload) self.onload();
+        }, function(e){
+          self.readyState = 4; self.status = 404;
+          if (self.onreadystatechange) self.onreadystatechange();
+          if (self.onerror) self.onerror(e);
+        });
+      };
+    }
+    window.XMLHttpRequest = ZimXHR;
+    // dynamically inserted <script src> (nautilus apps load their database
+    // this way): fetch the code from the ZIM and run it inline instead
+    var origAppend = Node.prototype.appendChild;
+    var origInsert = Node.prototype.insertBefore;
+    function hijackScript(node){
+      try {
+        if (!node || node.tagName !== 'SCRIPT' || !node.getAttribute) return false;
+        var src = node.getAttribute('src');
+        var p = src && strip(src);
+        if (!p) return false;
+        bridge(p).then(function(r){
+          var code = new TextDecoder().decode(new Uint8Array(r.buf));
+          var s2 = document.createElement('script');
+          s2.textContent = code;
+          origAppend.call(document.head, s2);
+          var ev = null;
+          try { ev = new Event('load'); } catch(e){}
+          if (node.onload) try { node.onload(ev); } catch(e){}
+          try { node.dispatchEvent(ev); } catch(e){}
+        }, function(){
+          var ev = null;
+          try { ev = new Event('error'); } catch(e){}
+          if (node.onerror) try { node.onerror(ev); } catch(e){}
+          try { node.dispatchEvent(ev); } catch(e){}
+        });
+        return true;
+      } catch(e){ return false; }
+    }
+    Node.prototype.appendChild = function(n){ if (hijackScript(n)) return n; return origAppend.call(this, n); };
+    Node.prototype.insertBefore = function(n, ref){ if (hijackScript(n)) return n; return origInsert.call(this, n, ref); };
+    // images and other src-loaded media: rewrite as they are added
+    var MEDIA_TAGS = { IMG: 1, VIDEO: 1, AUDIO: 1, SOURCE: 1 };
+    var fixEl = function(el){
+      try {
+        if (!el.getAttribute || !MEDIA_TAGS[el.tagName]) return;
+        var src = el.getAttribute('src');
+        var p = src && strip(src);
+        if (!p || el.__zimDone) return;
+        el.__zimDone = true;
+        el.removeAttribute('src');
+        bridge(p).then(function(r){
+          el.src = URL.createObjectURL(new Blob([r.buf], { type: r.mime || '' }));
+          // a replaced <source> needs its player poked to pick the change up
+          if (el.tagName === 'SOURCE' && el.parentElement && el.parentElement.load) {
+            try { el.parentElement.load(); } catch(e){}
+          }
+        }, function(){});
+      } catch(e){}
+    };
+    new MutationObserver(function(muts){
+      muts.forEach(function(mu){
+        mu.addedNodes && mu.addedNodes.forEach(function(n){
+          if (n.tagName && MEDIA_TAGS[n.tagName]) fixEl(n);
+          if (n.querySelectorAll) n.querySelectorAll('img[src],video[src],audio[src],source[src]').forEach(fixEl);
+        });
+        if (mu.type === 'attributes' && mu.target.tagName && MEDIA_TAGS[mu.target.tagName]) fixEl(mu.target);
+      });
+    }).observe(document.documentElement, { childList: true, subtree: true, attributes: true, attributeFilter: ['src'] });
+    document.addEventListener('DOMContentLoaded', function(){
+      document.querySelectorAll('img[src],video[src],audio[src],source[src]').forEach(fixEl);
+    });
+    // clicks on file links (the PDFs in a nautilus library): pull the blob
+    // out of the ZIM and hand it over as a download
+    var FILE_RE = /\.(pdf|epub|mp4|webm|ogv|mp3|ogg|zip|svg|png|jpe?g)([?#]|$)/i;
+    document.addEventListener('click', function(ev){
+      var a = ev.target && ev.target.closest && ev.target.closest('a[href]');
+      if (!a) return;
+      var href = a.getAttribute('href') || '';
+      if (!FILE_RE.test(href)) return;
+      var p = strip(href);
+      if (p == null) return;
+      ev.preventDefault(); ev.stopPropagation();
+      // open in the reader's own viewer; fall back to a download only if the
+      // parent could not make sense of it
+      Promise.resolve().then(function(){ return window.parent.__zimOpenFile(p); })
+      .catch(function(){
+        return bridge(p).then(function(r){
+          var url = URL.createObjectURL(new Blob([r.buf], { type: r.mime || 'application/octet-stream' }));
+          var dl = document.createElement('a');
+          dl.href = url;
+          dl.download = decodeURIComponent(p.split('/').pop() || 'file');
+          document.body.appendChild(dl); dl.click(); dl.remove();
+        });
+      }).catch(function(){});
+    }, true);
+  })();<\/script>`;
+
+  doc = doc.replace(/<head([^>]*)>/i, '<head$1>' + shim);
+  if (doc.indexOf(shim) < 0) doc = shim + doc;
+  // same phone sizing pass the document reader gets, last in the head so the
+  // app's own sheets do not win
+  const fitTag = '<style id="nomad-fit">' + FIT_CSS + '</style>';
+  if (/<\/head>/i.test(doc)) doc = doc.replace(/<\/head>/i, fitTag + '</head>');
+  else doc = fitTag + doc;
+
+  frame.setAttribute('sandbox', 'allow-same-origin allow-scripts allow-downloads');
+  // an app that still redirects itself renders the reader page inside the reader.
+  // bail out to something usable instead of a page with two of everything
+  frame.onload = function(){
+    let cdoc = null;
+    try { cdoc = frame.contentDocument; } catch(e){ return; }
+    if (!cdoc) return;
+    if (!cdoc.getElementById('zim-grid')){ fitFrameWidth(cdoc); return; }
+    frame.onload = null;
+    frame.srcdoc = '<!DOCTYPE html><html><body></body></html>';
+    readerNote('That page is an interactive app that will not run offline.');
+    if (_currentArchive && _currentArchive.hasList) browseArchive(_currentArchive);
+  };
+  frame.srcdoc = doc;
+}
+
+/* Resolve a clicked link to a ZIM entry and open it. Non-HTML targets route to the
+   media handlers, anything unresolvable falls back to a title search */
+async function followLink(rawHref, text){
+  const hit = _articleHit;
+  const q = () => {
+    // ZIM index pages link alphabetical ranges ("A - Aeolic Greek"), so list the range
+    // instead of searching. only checked after the href fails to resolve: plenty of
+    // ordinary links read like a range by accident ("Next - History >>") and those
+    // have to follow their href
+    const range = parseRangeLink(text);
+    if (range) { showRange(range.from, range.to); return; }
+    const query = linkToQuery(rawHref, text);
+    if (query) {
+      readerNote('That page is not in this archive - searching for it instead.');
+      document.getElementById('reader-search-input').value = query; searchArticles();
+    } else {
+      readerNote('That page is not in this archive.');
+    }
+  };
+  if (!hit || !rawHref || rawHref.startsWith('#')) return;
+  if (/^(https?:|mailto:|tel:|\/\/)/i.test(rawHref)) return;   // external, dead offline
+  showOverlay('Opening link…');
+  // "page.html#section" resolves on the path; the fragment rides along so the
+  // new page opens scrolled to the right place
+  const hashAt = rawHref.indexOf('#');
+  const anchor = hashAt >= 0 ? rawHref.slice(hashAt + 1) : '';
+  try {
+    const idx = await getIndex();
+    // a link that IS in the archive must not degrade into a title search just because
+    // the card was busy. only a real miss (null) falls back, a throw is retried first
+    let target = null;
+    for (let attempt = 0; attempt < 3; attempt++) {
+      try {
+        target = await idx.resolveLink(hit.archiveIdx, hit.url || '', rawHref, decompressors);
+        break;
+      } catch (err) {
+        if (attempt === 2) throw err;
+        showOverlay('Card busy, retrying…');
+        await new Promise(r => setTimeout(r, 600 * (attempt + 1)));
+      }
+    }
+    hideOverlay();
+    if (!target) return q();
+    const mime = target.mimeType || '';
+    if (mime.indexOf('text/html') === 0) {
+      openArticle({ archiveIdx: target.archiveIdx, cluster: target.cluster, blob: target.blob,
+                    title: target.title || text || rawHref, url: target.url, _anchor: anchor });
+      return;
+    }
+    if (/^video\//.test(mime)) return playVideo(hit, rawHref);
+    if (/epub/.test(mime) || /\.epub$/i.test(rawHref)) return openEpub(hit, rawHref);
+    if (/^application\/pdf/.test(mime)) return q();   // no inline pdf in the sandbox
+    return q();
+  } catch (e) {
+    hideOverlay();
+    q();
+  }
+}
+
+/* Load the article's own stylesheets from the ZIM so scraped sites keep their
+   layout. Capped and serialized, each sheet is one ZIM read chain. url(...) refs
+   inside the CSS are neutralized rather than fetched, one page must not fan out
+   into a hundred font and background requests. */
+/* Fetch an article's own stylesheets before the frame is painted.
+
+   A page that ships its own CSS is unreadable without it, every icon renders at
+   full width. In the harness the sheet arrives in milliseconds so the gap is
+   invisible, but on the card a 400KB sheet is many seconds of serialized reads and
+   the user is looking at the broken version the whole time.
+
+   Bounded: only the first few sheets, and only for as long as PRELOAD_MS. */
+const CSS_PRELOAD_SHEETS = 3;
+const CSS_PRELOAD_MS = 12000;
+async function preloadArticleCss(hit, refs){
+  if (!hit || !refs || !refs.length) return [];
+  const out = [];
+  const deadline = Date.now() + CSS_PRELOAD_MS;
+  for (const r of refs.slice(0, CSS_PRELOAD_SHEETS)){
+    if (Date.now() > deadline) break;
+    const ref = (r && r.ref) || r || '';
+    const media = (r && r.media) || '';
+    if (!ref) break;
+    if (media && !/^\s*all\s*$/i.test(media)) break;   // scoped sheets keep the old path
+    const baseDir = (hit.url || '').replace(/[^\/]*$/, '');
+    const key = hit.archiveIdx + '|' + baseDir + '|' + ref;
+    let css = _cssCache.get(key);
+    if (css == null) {
+      try {
+        const idx = await getIndex();
+        const res = await Promise.race([
+          idx.openResource(hit.archiveIdx, hit.url || articleSlug(hit.title), ref, decompressors),
+          new Promise(r2 => setTimeout(() => r2(null), Math.max(0, deadline - Date.now())))
+        ]);
+        if (!res || !res.data || res.data.byteLength > CSS_MAX_BYTES) break;
+        css = new TextDecoder('utf-8').decode(res.data)
+                .replace(/url\(([^)]*)\)/gi, (m, u) => /^\s*['"]?data:/i.test(u) ? m : 'none');
+        if (_cssCacheBytes + css.length > 6 * 1024 * 1024) { _cssCache.clear(); _cssCacheBytes = 0; }
+        _cssCache.set(key, css); _cssCacheBytes += css.length;
+      } catch(e){ break; }
+    }
+    if (!css) break;
+    out.push(css);
+  }
+  return out;
+}
+
+const CSS_MAX_SHEETS = 8;
+const CSS_MAX_BYTES  = 768 * 1024;   // autoptimize bundles run ~400-500KB
+// sheets are cached per archive+directory: a site reuses the same few on every
+// page, and each fetch on the device is a long serialized cluster read
+const _cssCache = new Map();
+let _cssCacheBytes = 0;
+async function inlineStylesheets(cdoc, hit, refs){
+  if (!hit || !cdoc || !refs || !refs.length) return;
+  const use = refs.slice(0, CSS_MAX_SHEETS);
+  const baseDir = (hit.url || '').replace(/[^\/]*$/, '');
+  for (const r of use){
+    if (_imgStop) return;             // teardown happened mid-load
+    const ref = (r && r.ref) || r || '';
+    const media = (r && r.media) || '';
+    if (!ref) continue;
+    try {
+      const key = hit.archiveIdx + '|' + baseDir + '|' + ref;
+      let css = _cssCache.get(key);
+      if (css == null) {
+        const idx = await getIndex();
+        const res = await idx.openResource(hit.archiveIdx, hit.url || articleSlug(hit.title), ref, decompressors);
+        if (!res || !res.data || res.data.byteLength > CSS_MAX_BYTES) { _cssCache.set(key, ''); continue; }
+        css = new TextDecoder('utf-8').decode(res.data);
+        css = css.replace(/url\(([^)]*)\)/gi, (m, u) =>
+          /^\s*['"]?data:/i.test(u) ? m : 'none');
+        if (_cssCacheBytes + css.length > 6 * 1024 * 1024) { _cssCache.clear(); _cssCacheBytes = 0; }
+        _cssCache.set(key, css); _cssCacheBytes += css.length;
+      }
+      if (!css) continue;
+      if (_articleHit !== hit) return; // user moved on
+      const st = cdoc.createElement('style');
+      if (media && !/^\s*all\s*$/i.test(media)) st.media = media;
+      st.textContent = css;
+      // the fit sheet has to stay last or the site's desktop widths win again
+      const fit = cdoc.getElementById('nomad-fit');
+      if (fit) cdoc.head.insertBefore(st, fit); else cdoc.head.appendChild(st);
+      fitFrameWidth(cdoc);
+    } catch(e){
+      // a sheet that is not in the archive stays skipped; a device hiccup
+      // (busy / dropped read) is retried on the next article instead
+      if (/resource not found/i.test(e && e.message || ''))
+        _cssCache.set(hit.archiveIdx + '|' + baseDir + '|' + ref, '');
+    }
+  }
+}
+
+/* Lazily inline an article's images. The sanitizer left each <img> with a
+   data-zim-src and no src, so nothing loaded. Here the parent (same-origin with
+   the sandboxed iframe) fetches each blob from the ZIM and sets a blob: URL.
+   Modern Wikipedia stores every image as WebP whatever the filename says, so
+   trust the ZIM's mimeType and not the extension.
+
+   Why this is so conservative: the firmware serves ZIM byte-ranges from a single
+   reused file handle and each image is dozens of range reads. Firing images in
+   parallel crashes it (ERR_CONNECTION_RESET then a reboot loop). So it loads one
+   image at a time as they scroll into view, pauses between them, and backs off
+   after a run of failures instead of retrying into the ground. */
 const IMG_MAX_PER_ARTICLE = 120;   // hard ceiling per page
 const IMG_THROTTLE_MS = 80;        // breather between images (ms)
-const IMG_FAIL_LIMIT = 3;          // consecutive device-pressure failures -> stop
+const IMG_FAIL_LIMIT = 3;          // consecutive device-pressure failures -> cool off
+const IMG_COOLDOWN_MS = 2500;      // breather before trying the card again
+const IMG_MAX_COOLDOWNS = 4;       // after this many, give the page up as a bad job
 const IMG_EAGER_FALLBACK = 8;      // if no IntersectionObserver: load only this many
 let _articleHit = null;
 let _imgObserver = null;
@@ -827,38 +1721,57 @@ function inlineImages(cdoc, hit) {
   if (!imgs.length) return;
 
   const queue = [];
-  let running = false, fails = 0;
+  let running = false, fails = 0, cooldowns = 0;
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-  // Strictly serial: one image (one ZIM read chain) in flight at a time.
+  // strictly serial, one image (one ZIM read chain) in flight at a time.
+  // a run of failures means the card is under strain, so back off and try again
+  // later. the old breaker stopped a page's images permanently after three bad
+  // reads, which left every remaining picture blank for as long as the page was open
   async function drain() {
     if (running) return; running = true;
     while (queue.length && !_imgStop) {
-      const ok = await loadOne(queue.shift());
+      const im = queue.shift();
+      const ok = await loadOne(im);
       if (ok) { fails = 0; }
-      else if (++fails >= IMG_FAIL_LIMIT) { _imgStop = true; break; }  // device likely down - stop hammering
+      else if (++fails >= IMG_FAIL_LIMIT) {
+        if (cooldowns >= IMG_MAX_COOLDOWNS) { _imgStop = true; break; }
+        cooldowns++; fails = 0;
+        queue.unshift(im);                       // the one that failed goes back
+        await sleep(IMG_COOLDOWN_MS * cooldowns);
+        continue;
+      } else {
+        queue.unshift(im);                       // one retry before moving on
+        await sleep(IMG_THROTTLE_MS * 4);
+        continue;
+      }
       if (queue.length && !_imgStop) await sleep(IMG_THROTTLE_MS);
     }
     running = false;
+    // an image that just got its real size can change the layout, so re-check
+    if (!_imgStop) fitFrameWidth(cdoc);
   }
 
   // returns false only on a device-pressure failure (feeds the circuit breaker),
   // a benign "not found" or a success returns true
   async function loadOne(im) {
-    const ref = im.getAttribute('data-zim-src'); im.removeAttribute('data-zim-src');
-    if (!ref || /^(https?:|\/\/|data:)/i.test(ref)) { im.remove(); return true; }
+    const ref = im.getAttribute('data-zim-src');
+    if (!ref || /^(https?:|\/\/|data:)/i.test(ref)) { im.removeAttribute('data-zim-src'); im.remove(); return true; }
     try {
       const idx = await getIndex();
-      const res = await idx.openResource(hit.archiveIdx, articleSlug(hit.title), ref, decompressors);
+      const res = await idx.openResource(hit.archiveIdx, hit.url || articleSlug(hit.title), ref, decompressors);
       if (_imgStop) return true;
+      im.removeAttribute('data-zim-src');
       const url = URL.createObjectURL(new Blob([res.data], { type: res.mimeType || 'image/webp' }));
       _imgBlobUrls.push(url); im.src = url;
       return true;
     } catch (e) {
-      im.remove();
       const msg = (e && e.message || '').toLowerCase();
-      // reset/abort/timeout/fetch fail = device under strain, "not found" is harmless
-      return !/reset|network|failed to fetch|abort|timeout|load /.test(msg);
+      // "not in the archive" is final; a strained device is worth another go,
+      // so the element keeps its data-zim-src and stays in the document
+      const pressure = /reset|network|failed to fetch|abort|timeout|load /.test(msg);
+      if (!pressure) { im.removeAttribute('data-zim-src'); im.remove(); }
+      return !pressure;
     }
   }
 
@@ -876,12 +1789,11 @@ function inlineImages(cdoc, hit) {
   if (!observed) { imgs.slice(0, IMG_EAGER_FALLBACK).forEach((im) => queue.push(im)); drain(); }
 }
 
-/* Turn a clicked link into a search query, handling the different ZIM linking
-   styles. We can't resolve a raw ZIM URL to an article on the device (that needs
-   a live binary search), so instead we search for the target's name. Returns a
-   query string, or null when the link isn't worth searching (external site,
-   downloadable resource, page anchor, generic nav). Prefers the article-name
-   embedded in the href (wiki style: "Eurasian_otter"), else the link text. */
+/* Turn a clicked link into a search query. We cant resolve a raw ZIM url to an
+   article on the device (that needs a live binary search) so we search for the
+   target's name instead. Returns null when the link isnt worth searching:
+   external site, downloadable resource, page anchor, generic nav. Prefers the
+   article name in the href ("Eurasian_otter") over the link text. */
 function linkToQuery(href, text) {
   href = (href || '').trim();
   text = (text || '').trim();
@@ -901,9 +1813,9 @@ function linkToQuery(href, text) {
 }
 
 /* ---------------- map archives ----------------
-   Some ZIMs are full offline map apps. Their place pages read fine here, but
-   the viewer pages need scripts and runtime fetches, so those get a landing
-   that links to the app copy under /Maps/<id>/ when one is installed. */
+   Some ZIMs are full offline map apps. Their place pages read fine here, but the
+   viewer pages need scripts, so those get a landing that links to the app copy
+   under /Maps/<id>/ when one is installed. */
 
 function isMapAppPage(html){
   return html.indexOf('maplibre-gl.js') !== -1 ||
@@ -974,43 +1886,112 @@ async function showMapLanding(hit){
     'navigation) which runs as its own page rather than inside the article reader.</p>' + open);
 }
 
-/* Sanitize ZIM article HTML for offline display: keep text/structure, drop
-   scripts and external refs. Images are kept but disarmed to data-zim-src for
-   lazy inlining (see inlineImages). Internal links stay as <a> so a click can
-   trigger a search for the link text. */
+/* Sanitize ZIM article HTML: keep text and structure, drop scripts and external
+   refs. Images are kept but disarmed to data-zim-src for lazy inlining. Internal
+   links stay as <a> so a click can be handled by the parent. */
+let _articleCssRefs = [];
+let _articleBodyClass = '';
+let _articleSelfStyled = false;
 function sanitizeArticle(html){
-  // keep the document's own <style> blocks (head ones included): self-styled
-  // pages (StreetZim place pages, iFixit, recipe ZIMs) are an unreadable pile
-  // without them. They render after the reader's base style, so they win.
+  // body classes drive mwoffliner/site skins (centering, colors); carry them over
+  const bm = html.match(/<body[^>]*class\s*=\s*("([^"]*)"|'([^']*)')/i);
+  _articleBodyClass = bm ? (bm[2] != null ? bm[2] : bm[3]) : '';
+  _articleSelfStyled = /<link\b[^>]*\.css|<style\b/i.test(html);
+  // stylesheet links are collected (loaded later from the ZIM), not dropped. media is
+  // kept so a print sheet cant blank the screen view, print-only sheets are skipped
+  _articleCssRefs = [];
+  html.replace(/<link\b[^>]*rel=["']?stylesheet["']?[^>]*>/gi, (tag) => {
+    const m = tag.match(/href\s*=\s*("([^"]*)"|'([^']*)')/i);
+    const ref = m ? (m[2] != null ? m[2] : m[3]) : '';
+    const mm = tag.match(/media\s*=\s*("([^"]*)"|'([^']*)')/i);
+    const media = mm ? (mm[2] != null ? mm[2] : mm[3]) : '';
+    if (/^\s*print\s*$/i.test(media)) return tag;
+    if (ref && !/^(https?:|\/\/|data:)/i.test(ref)) _articleCssRefs.push({ ref, media });
+    return tag;
+  });
+  // keep the document's own <style> blocks. self-styled pages (StreetZim, iFixit,
+  // recipe ZIMs) are an unreadable pile without them
   const styles = (html.match(/<style\b[\s\S]*?<\/style>/gi) || []).join('\n');
   // take <body> if present
   const bodyM = html.match(/<body[^>]*>([\s\S]*?)<\/body>/i);
   let s = bodyM ? bodyM[1] : html;
   s = s.replace(/<script\b[\s\S]*?<\/script>/gi,'');
+  s = s.replace(/<script\b[^>]*>/gi,'');        // unpaired/self-closed leftovers
+  s = s.replace(/<\/script>/gi,'');
+  // <base> rewrites where every relative link points, and a stray meta refresh in
+  // the body would navigate the frame on its own. both are ways the reader ends up
+  // loading the archive page inside its own iframe
+  s = s.replace(/<base\b[^>]*>/gi,'');
+  s = s.replace(/<meta\b[^>]*http-equiv=["']?refresh[^>]*>/gi,'');
   s = s.replace(/<style\b[\s\S]*?<\/style>/gi,'');
   s = s.replace(/<link\b[^>]*>/gi,'');
-  s = s.replace(/<noscript\b[\s\S]*?<\/noscript>/gi,'');
+  // server-side errors the scraper captured as if they were article text. a wiki with
+  // a broken Widgets extension writes one of these where each social button used to
+  // be, so the reader shows file paths off somebody else's web server
+  s = s.replace(/Error in widget[^:<]{0,80}:\s*unable to write file\s*[^\s<]*/gi, '');
+  // unwrap noscript rather than dropping it: this reader runs no scripts, so the
+  // no-script markup is the version meant for us. lazy-loading sites put the real
+  // archive-local <img> in here and leave a blank placeholder outside it, and
+  // dropping the block is what left TruePrepper pages full of empty picture boxes
+  s = s.replace(/<noscript\b[^>]*>([\s\S]*?)<\/noscript>/gi, (m, inner) => inner);
+  s = s.replace(/<\/?noscript\b[^>]*>/gi,'');
+  // embedded frames (spotify/youtube) are dead offline and spam the console with
+  // sandbox warnings; forms could navigate the frame to the captive portal on submit
+  s = s.replace(/<iframe\b[\s\S]*?<\/iframe>/gi,'');
+  s = s.replace(/<iframe\b[^>]*>/gi,'');
+  s = s.replace(/<embed\b[^>]*>/gi,'');
+  s = s.replace(/<object\b[\s\S]*?<\/object>/gi,'');
+  s = s.replace(/<form\b[^>]*>/gi,'<div>');
+  s = s.replace(/<\/form>/gi,'</div>');
+  // MathML: phones without MathML support render the raw {\displaystyle...}
+  // annotation as text. Every wiki formula ships a fallback <img>, use that.
+  s = s.replace(/<math\b[\s\S]*?<\/math>/gi,'');
   s = s.replace(/\son\w+\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/gi,'');
   s = s.replace(/\ssrcset\s*=\s*("[^"]*"|'[^']*')/gi,'');
   // disarm images: src -> data-zim-src so the sandboxed iframe makes no request,
   // inlineImages() then lazily fetches each blob from the ZIM. external/sourceless imgs are dropped
   s = s.replace(/<img\b([^>]*)>/gi, (m, attrs) => {
-    const mm = attrs.match(/\b(?:data-)?src\s*=\s*("([^"]*)"|'([^']*)')/i);
-    const ref = mm ? (mm[2] != null ? mm[2] : mm[3]) : '';
-    if (!ref) return '';                                        // no source -> drop
-    if (/^(https?:|\/\/)/i.test(ref)) return '';                // external -> dead offline
-    if (/^data:/i.test(ref)) return m;                          // already inline -> keep
+    const attr = (name) => {
+      const r = attrs.match(new RegExp('\\b' + name + '\\s*=\\s*("([^"]*)"|\'([^\']*)\')', 'i'));
+      return r ? (r[2] != null ? r[2] : r[3]) : '';
+    };
+    const firstOfSet = (v) => (v || '').split(',')[0].trim().split(/\s+/)[0];
+    // a scraped page carries the same picture twice: the copy the scraper rewrote to a
+    // path inside the archive, and a lazy-loading copy still pointing at the live web.
+    // take whichever candidate actually lives in the archive
+    const candidates = [
+      attr('src'), attr('data-src'), attr('data-lazy-src'), attr('data-original'),
+      attr('data-lazy'), firstOfSet(attr('srcset')), firstOfSet(attr('data-srcset'))
+    ];
+    const usable = candidates.find(c => c && !/^(https?:|\/\/|data:)/i.test(c));
+    if (!usable) {
+      // nothing local: a bare placeholder would just hold open an empty box
+      const inlineOnly = candidates.find(c => c && /^data:/i.test(c));
+      return (inlineOnly && !candidates.some(c => c && /^(https?:|\/\/)/i.test(c))) ? m : '';
+    }
     const rest = attrs
-      .replace(/\b(?:data-)?src\s*=\s*("[^"]*"|'[^']*')/gi, '')
-      .replace(/\bsrcset\s*=\s*("[^"]*"|'[^']*')/gi, '');
-    return '<img data-zim-src="' + ref.replace(/"/g, '&quot;') + '"' + rest + '>';
+      .replace(/\b(?:data-)?(?:src|lazy-src|original|lazy)\s*=\s*("[^"]*"|'[^']*')/gi, '')
+      .replace(/\b(?:data-)?srcset\s*=\s*("[^"]*"|'[^']*')/gi, '')
+      // the page's own script would have swapped this class once the image loaded.
+      // without scripts its not-loaded styling (often opacity:0) hides our blob
+      .replace(/\bclass\s*=\s*"([^"]*)"/i, (cm, cls) => 'class="' + cls.replace(/\blazyload(ing)?\b/g, 'lazyloaded') + '"');
+    return '<img data-zim-src="' + usable.replace(/"/g, '&quot;') + '"' + rest + '>';
   });
   s = s.replace(/<source\b[^>]*>/gi,'');
-  // neutralize external links; keep internal ones clickable (handled via postMessage)
-  s = s.replace(/<a\b([^>]*)>/gi, (m,attrs) => {
-    const href=(attrs.match(/href\s*=\s*("([^"]*)"|'([^']*)')/i)||[])[0]||'';
-    if(/https?:|mailto:|\/\//i.test(href)) return '<a>';
-    return '<a'+attrs+'>';
+  // external links are stripped, internal ones move their target into data-zim-href
+  // so the iframe can never navigate on its own (a click racing the handler used to
+  // sail off to the captive portal). same-page anchors keep a real href
+  s = s.replace(/<a\b([^>]*)>/gi, (m, attrs) => {
+    const hm = attrs.match(/href\s*=\s*("([^"]*)"|'([^']*)')/i);
+    const href = hm ? (hm[2] != null ? hm[2] : hm[3]) : '';
+    if (!href) return '<a' + attrs + '>';
+    if (/^(https?:|mailto:|tel:|\/\/)/i.test(href))
+      return '<a data-zim-ext="1" title="Links to the live web, not saved in this archive">';
+    if (href.charAt(0) === '#') return '<a' + attrs + '>';
+    const rest = attrs
+      .replace(/\shref\s*=\s*("[^"]*"|'[^']*')/i, '')
+      .replace(/\starget\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/gi, '');   // no _top/_parent escapes
+    return '<a data-zim-href="' + href.replace(/"/g, '&quot;') + '"' + rest + ' style="cursor:pointer">';
   });
   return styles + s;
 }
@@ -1067,10 +2048,16 @@ if (localStorage.getItem('nomad_dark_mode')==='true'){ document.documentElement.
 
 /* ---------------- boot ---------------- */
 (async function boot(){
+  NomadUI.applyDownloadPolicy();
+  NomadPlyr.ready();
   await loadZimList();
   const p = new URLSearchParams(window.location.search);
   if (p.has('a') && p.has('c') && p.has('b')){
-    openArticle({ archiveIdx:+p.get('a'), cluster:+p.get('c'), blob:+p.get('b'), title:p.get('t')||'' }, true);
+    const hit = { archiveIdx:+p.get('a'), cluster:+p.get('c'), blob:+p.get('b'), title:p.get('t')||'' };
+    // a deep link to an archive's main page can take its URL from the manifest
+    const arc = (window.__archives||[]).find(x => x.idx === hit.archiveIdx);
+    if (arc && hit.cluster === arc.mainCluster && hit.blob === arc.mainBlob && arc.mainUrl) hit.url = arc.mainUrl;
+    openArticle(hit, true);
   } else if (SINGLE_ARCHIVE_IDX >= 0){
     // Only one archive on the card - go straight into it, no selection screen.
     document.getElementById('library-view').style.display='none';

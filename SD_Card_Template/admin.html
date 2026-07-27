@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- Version 4 -->
+<!-- Version 5 -->
 <html lang="en">
 <head>
     <link rel="stylesheet" href="/master.css">
@@ -489,6 +489,93 @@
       display: none;
     }
 
+    /* WiFi Mode popup (reuses the auth-overlay backdrop) */
+    .wifi-modal {
+      max-width: 440px;
+      max-height: 90vh;
+      overflow-y: auto;
+      text-align: left;
+    }
+
+    .wifi-status {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      padding: 0.6rem 0.75rem;
+      border-radius: 0.5rem;
+      background: var(--bg);
+      border: 1px solid var(--card-border);
+      font-size: 0.875rem;
+      margin-bottom: 1rem;
+      color: var(--text);
+    }
+
+    .wifi-status .dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      background: var(--muted);
+      flex-shrink: 0;
+    }
+
+    .wifi-status.online .dot { background: var(--success); }
+    .wifi-status.warn .dot { background: var(--warning); }
+
+    .wifi-scan-list {
+      border: 1px solid var(--card-border);
+      border-radius: 0.5rem;
+      margin: 0.5rem 0 1rem;
+      max-height: 180px;
+      overflow-y: auto;
+    }
+
+    .wifi-scan-list.hidden { display: none; }
+
+    .wifi-net-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 0.5rem;
+      width: 100%;
+      padding: 0.5rem 0.75rem;
+      background: none;
+      border: none;
+      border-bottom: 1px solid var(--card-border);
+      color: var(--text);
+      font-size: 0.875rem;
+      cursor: pointer;
+      text-align: left;
+    }
+
+    .wifi-net-row:last-child { border-bottom: none; }
+    .wifi-net-row:hover { background: var(--bg); }
+    .wifi-net-row .meta { color: var(--muted); font-size: 0.75rem; flex-shrink: 0; }
+
+    .wifi-persist-row {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      margin: 0.75rem 0;
+      font-size: 0.875rem;
+      color: var(--text);
+      cursor: pointer;
+    }
+
+    .wifi-help {
+      font-size: 0.78rem;
+      color: var(--muted);
+      line-height: 1.45;
+      margin: 0.75rem 0 1rem;
+    }
+
+    .wifi-actions {
+      display: flex;
+      flex-direction: column;
+      gap: 0.5rem;
+    }
+
+    .wifi-actions .btn { width: 100%; }
+
     /* Responsive Design */
     @media (max-width: 768px) {
       .header {
@@ -628,6 +715,47 @@
     </div>
   </div>
 
+  <!-- WiFi Mode popup -->
+  <div id="wifi-overlay" class="auth-overlay hidden">
+    <div class="auth-modal wifi-modal">
+      <h3>WiFi Mode</h3>
+      <div id="wifi-status" class="wifi-status"><span class="dot"></span><span id="wifi-status-text">Loading…</span></div>
+
+      <div class="form-group">
+        <label class="form-label" for="wifi-sta-ssid">Network name (SSID)</label>
+        <input type="text" id="wifi-sta-ssid" class="form-control" autocomplete="off" placeholder="Your home WiFi">
+      </div>
+
+      <button id="wifi-scan-btn" class="btn btn-secondary" style="width: 100%;">Scan for networks</button>
+      <div id="wifi-scan-list" class="wifi-scan-list hidden"></div>
+
+      <div class="form-group" style="margin-top: 1rem;">
+        <label class="form-label" for="wifi-sta-pass">Network password</label>
+        <input type="password" id="wifi-sta-pass" class="form-control" autocomplete="off" placeholder="Leave empty for open networks">
+      </div>
+
+      <label class="wifi-persist-row">
+        <input type="checkbox" id="wifi-sta-persist">
+        <span>Reconnect automatically on every boot</span>
+      </label>
+
+      <p class="wifi-help">
+        Nomad restarts, joins your network, and serves its library (plus DLNA and OPDS)
+        to every device on it — no captive portal. The Nomad screen shows the address it
+        was given. If the network can't be reached, it falls back to hotspot mode on its own.
+        Without auto-reconnect, unplugging and replugging always returns to hotspot mode;
+        with it, hold the side button while Nomad boots to force hotspot mode.
+        Tip: set an admin password before joining a shared network.
+      </p>
+
+      <div class="wifi-actions">
+        <button id="wifi-connect-btn" class="btn btn-primary">Connect to network</button>
+        <button id="wifi-disable-btn" class="btn btn-warning">Return to hotspot mode</button>
+        <button id="wifi-close-btn" class="btn btn-secondary">Close</button>
+      </div>
+    </div>
+  </div>
+
   <!-- Header -->
   <header class="header">
     <h1>Admin Panel</h1>
@@ -641,6 +769,7 @@
       <button id="btn-shutdown" class="btn btn-danger">Shutdown</button>
       <button id="btn-usbmode" class="btn btn-warning">USB Mode</button>
       <button id="btn-flashmode" class="btn btn-info">Flash Mode</button>
+      <button id="btn-wifimode" class="btn btn-primary">WiFi Mode</button>
       <button id="cpu-temp" class="btn btn-secondary">🌡️ --°C</button>
     </div>
 
@@ -824,11 +953,20 @@
               <span class="slider"></span>
             </label>
           </div>
+          <div style="display: flex; align-items: center; justify-content: space-between; margin-top: 0.5rem;">
+            <label class="form-label" style="margin: 0;">TV support (DLNA):</label>
+            <label class="toggle-switch">
+              <input type="checkbox" id="dlna-enabled">
+              <span class="slider"></span>
+            </label>
+          </div>
           <p style="font-size: 0.78rem; color: var(--muted); margin: 0.5rem 0 0;">
             Downloads control the download buttons on the movie, show, book and
             music pages. Uploads control the upload buttons on the gallery and
-            files pages.
+            files pages, and adding recipes in the cookbook. TV support lets
+            smart TVs and players (DLNA, Roku, VLC, Kodi) browse this Nomad.
           </p>
+          <div id="dlna-msg" style="font-size: 0.85rem; color: var(--muted); margin-top: 0.5rem;"></div>
           <div id="ui-downloads-msg" style="font-size: 0.85rem; color: var(--muted); margin-top: 0.5rem;"></div>
         </div>
       </div>
@@ -915,7 +1053,7 @@
   </div>
 
   <!-- version query busts the firmware's max-age file caching (bump when admin.js changes) -->
-  <script src="admin.js?v=45"></script>
+  <script src="admin.js?v=46"></script>
 </body>
 </html>
 

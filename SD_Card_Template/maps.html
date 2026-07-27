@@ -4,7 +4,7 @@
 <head>
 <meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width,initial-scale=1"/>
-<meta name="description" content="Jcorp Nomad Media Server - Offline Maps">
+<meta name="description" content="Jcorp Nomad Media Server – Offline Maps">
 <title>Nomad • Maps</title>
 <link rel="icon" href="favicon.ico" type="image/x-icon">
 <link rel="stylesheet" href="/master.css">
@@ -57,14 +57,6 @@
   </div>
 
   <div id="map"></div>
-  <!-- Full-map regions live as complete apps under /Maps/<id>/. Selecting one
-       shows this panel instead of a tile layer; the button opens the app. -->
-  <div id="szPanel" style="display:none;flex:1;flex-direction:column;align-items:center;justify-content:center;gap:14px;padding:24px;text-align:center">
-    <div style="font-size:1.15rem;font-weight:600" id="szName"></div>
-    <div style="color:var(--muted);max-width:520px;font-size:.92rem" id="szDetail"></div>
-    <button id="szOpen" style="background:var(--primary);color:var(--color-white,#fff);border:none;border-radius:10px;padding:12px 26px;font-size:1rem;cursor:pointer">Open Map</button>
-    <div style="color:var(--muted);font-size:.8rem;max-width:520px">Street map, place and address search, and directions, all offline. Use your browser's back button to return here.</div>
-  </div>
   <div id="empty">
     <div><b>No offline maps installed yet.</b></div>
     <div id="emptyReason" style="color:var(--primary);font-size:.85rem;max-width:92vw"></div>
@@ -94,6 +86,10 @@
 let map = null, tileLayer = null, regions = [];
 let probeNote = ''; // last /api/maps-list outcome, shown in the empty state for diagnosis
 
+/* A region that ships its own app (index.html) opens that app instead of a plain
+   tile layer: streetzim maps and the newer routing maps both do this. */
+const isAppRegion = (m) => m.type === 'streetzim' || !!m.app;
+
 /* Never leave a silently blank page: every failure path ends in showEmpty(reason). */
 function showEmpty(reason){
   document.getElementById('map').style.display = 'none';
@@ -121,7 +117,7 @@ async function fetchRegionList(attempt = 0){
       catch(parseErr){
         // an HTML page instead of JSON = captive-portal fallback for a route
         // that doesn't exist -> firmware predates maps support
-        probeNote = 'This Nomad’s firmware has no maps support (/api/maps-list is missing). Maps need the experimental 4.6 firmware or newer. The map data on the card is fine.';
+        probeNote = 'This Nomad’s firmware has no maps support (/api/maps-list is missing). It needs the Mk4.3+ update. The map data on the card is fine.';
         return [];
       }
       const list = j.regions || j.maps || [];
@@ -166,29 +162,34 @@ async function boot(){
   }
 
   const sel = document.getElementById('regionSel');
-  sel.innerHTML = regions.map((r,i)=>`<option value="${i}">${(r.name || r.id) + (r.type === 'streetzim' ? ' · full map' : '')}</option>`).join('');
+  sel.innerHTML = regions.map((r,i)=>`<option value="${i}">${(r.name || r.id) + (isAppRegion(r) ? ' · ' + (r.kind || 'full map') : '')}</option>`).join('');
   sel.onchange = () => openRegion(regions[Number(sel.value)]);
-  openRegion(regions[0]);
+  // initial view: a tile region if there is one, so the chooser stays usable;
+  // a card with only full-map apps skips this page entirely
+  const firstTiles = regions.findIndex(r => !isAppRegion(r));
+  if (firstTiles >= 0){
+    sel.value = String(firstTiles);
+    openRegion(regions[firstTiles]);
+  } else {
+    openRegion(regions[0], true);
+    return;
+  }
   document.getElementById('gpsOrigin').textContent = location.origin;
 }
 
-/* Full-map region: a complete app extracted under /Maps/<id>/. No tile layer
-   here, just hand over to it (it has its own search and routing UI). */
-function openStreetZim(man){
-  document.getElementById('map').style.display = 'none';
-  const p = document.getElementById('szPanel');
-  p.style.display = 'flex';
-  document.getElementById('szName').textContent = man.name || man.id;
-  document.getElementById('szDetail').textContent =
-    (man.sizeBytes ? (man.sizeBytes/1048576).toFixed(0) + 'MB · ' : '') + (man.attribution || '');
-  document.getElementById('szOpen').onclick = () =>
-    location.href = man._base + (man.app || 'index.html');
-  document.getElementById('regionInfo').textContent = '';
+/* Full-map region: a complete app extracted under /Maps/<id>/. No panel in between,
+   picking one goes straight into the app. replace=true is used for the automatic open
+   at boot so the back button returns to the menu instead of bouncing through here. */
+function openAppRegion(man, replace){
+  // Region files are served with max-age=3600, so a rebuilt region would keep
+  // opening the browser's cached app. Tag the URL with the build stamp.
+  const ver = encodeURIComponent(man.built || man.sizeBytes || '1');
+  const url = man._base + (man.app || 'index.html') + '?v=' + ver;
+  if (replace) location.replace(url); else location.href = url;
 }
 
-function openRegion(man){
-  if (man.type === 'streetzim'){ openStreetZim(man); return; }
-  document.getElementById('szPanel').style.display = 'none';
+function openRegion(man, replace){
+  if (isAppRegion(man)){ openAppRegion(man, replace); return; }
   document.getElementById('map').style.display = '';
   if (map) setTimeout(() => map.invalidateSize(), 50); // was display:none while a streetzim region showed
   const [w,s,e,n] = man.bounds;
@@ -220,7 +221,7 @@ function openRegion(man){
   map.fitBounds(bounds);
 
   document.getElementById('regionInfo').textContent =
-    `z${man.minZoom}-${man.maxZoom} · ${(man.sizeBytes/1048576||0).toFixed(0)}MB · ${man.attribution || ''}`;
+    `z${man.minZoom}–${man.maxZoom} · ${(man.sizeBytes/1048576||0).toFixed(0)}MB · ${man.attribution || ''}`;
 }
 
 let meMarker = null;

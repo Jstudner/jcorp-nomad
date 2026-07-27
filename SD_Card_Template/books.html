@@ -711,10 +711,28 @@
                 transform: scale(1.05);
             }
 
-            .audio-btn.play-pause {
-                padding: 8px 16px;
-                font-size: 0.95em;
+            /* skip buttons: themed glyphs rather than emoji, which render at a
+               different size and baseline on every platform */
+            .audio-btn.icon {
+                width: 40px; height: 40px; padding: 0; border-radius: 50%;
+                display: inline-flex; align-items: center; justify-content: center;
+                background: transparent; color: var(--primary);
+                border: 1px solid var(--line);
             }
+            .audio-btn.icon:hover { background: var(--primary); color: #fff; border-color: var(--primary); }
+            .audio-btn.icon svg { width: 22px; height: 22px; fill: currentColor; }
+            .audio-btn.icon svg text { font-size: 8px; font-weight: 700; fill: currentColor; }
+
+            /* a fixed square with the glyph centered by flex: the old pill sat
+               visibly off-center because a text triangle carries side bearing */
+            .audio-btn.play-pause {
+                width: 52px; height: 52px; padding: 0; border-radius: 50%;
+                display: inline-flex; align-items: center; justify-content: center;
+            }
+            .audio-btn.play-pause svg { width: 24px; height: 24px; fill: currentColor; display: block; }
+            .audio-btn.play-pause .ic-pause { display: none; }
+            .audio-btn.play-pause.playing .ic-play { display: none; }
+            .audio-btn.play-pause.playing .ic-pause { display: block; }
 
         .audio-progress-section {
             width: 100%;
@@ -842,7 +860,7 @@
             <h2 id="actionTitle">What do you want to do?</h2>
             <div id="actionSub"></div>
             <button id="viewButton" class="btn" aria-label="Primary action"></button>
-            <button id="downloadButton" class="btn-muted" aria-label="Download file">Download</button>
+            <button id="downloadButton" class="btn-muted" aria-label="Download file" data-dl>Download</button>
             <button id="actionCancelBtn" class="btn-muted">Cancel</button>
         </div>
     </div>
@@ -885,9 +903,16 @@
             </div>
             <div class="audio-actions">
                 <div class="audio-controls">
-                    <button class="audio-btn" id="rewind" title="Rewind 15s">⏪ 15s</button>
-                    <button class="audio-btn play-pause" id="playPause" title="Play/Pause">▶</button>
-                    <button class="audio-btn" id="forward" title="Forward 15s">⏩ 15s</button>
+                    <button class="audio-btn icon" id="rewind" title="Back 15 seconds" aria-label="Back 15 seconds">
+                        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5V2L7 6l5 4V7a6 6 0 1 1-6 6H4a8 8 0 1 0 8-8z"/><text x="12" y="16" text-anchor="middle">15</text></svg>
+                    </button>
+                    <button class="audio-btn play-pause" id="playPause" title="Play/Pause" aria-label="Play or pause">
+                        <svg class="ic-play" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5.5v13l11-6.5z"/></svg>
+                        <svg class="ic-pause" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 5h3.2v14H7zm6.8 0H17v14h-3.2z"/></svg>
+                    </button>
+                    <button class="audio-btn icon" id="forward" title="Forward 15 seconds" aria-label="Forward 15 seconds">
+                        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5V2l5 4-5 4V7a6 6 0 1 0 6 6h2a8 8 0 1 1-8-8z"/><text x="12" y="16" text-anchor="middle">15</text></svg>
+                    </button>
                     <button class="audio-btn" id="speedBtn" title="Speed">1.0x</button>
                 </div>
             </div>
@@ -977,7 +1002,9 @@
             }
             if (changed) writeResume(store);
         }
-        function updateResumeBadge(movie, positionOrPercent) {
+        // kind is 'percent' or 'time'. Without it the value was guessed from its
+        // size, so an audiobook paused at 45 seconds read as "Resume 45%".
+        function updateResumeBadge(movie, positionOrPercent, kind) {
             if (!movie || !movie.path) return;
             const cards = Array.from(gridEl.querySelectorAll('.media-card'));
             for (const card of cards) {
@@ -986,7 +1013,10 @@
                     const wrapper = card.querySelector('.thumb-wrapper');
                     const show = positionOrPercent && positionOrPercent > 1;
                     if (show) {
-                        const text = typeof positionOrPercent === 'number' && positionOrPercent <= 100
+                        const asPercent = kind
+                            ? kind === 'percent'
+                            : (typeof positionOrPercent === 'number' && positionOrPercent <= 100);
+                        const text = asPercent
                             ? `Resume ${Math.round(positionOrPercent)}%`
                             : `Resume ${formatTime(positionOrPercent)}`;
                         if (badge) { badge.textContent = text; }
@@ -1068,7 +1098,12 @@
         /* Index fetch (NDJSON) */
         async function fetchIndex(path) {
             const url = `${INDEX_ENDPOINT}?path=${encodeURIComponent(normalizePath(path))}`;
-            const res = await fetch(url);
+            let res = await fetch(url);
+            // 503 means the SD is busy for a moment, not that the index is missing
+            for (let i = 0; i < 3 && res.status === 503; i++) {
+                await new Promise(r => setTimeout(r, 800 * (i + 1)));
+                res = await fetch(url);
+            }
             if (!res.ok) throw new Error('index fetch failed ' + res.status);
             const text = await res.text();
             const lines = text.split('\n').filter(Boolean);
@@ -1259,7 +1294,7 @@
                     card.addEventListener('click', async () => {
                         if (item.type === 'dir') {
                             if (item.isComic) {
-                                window.location.href = `/comics.html?path=${encodeURIComponent(item.dir)}`;
+                                window.location.href = `/comics?path=${encodeURIComponent(item.dir)}`;
                             } else {
                                 await openListModal(item);
                             }
@@ -1280,7 +1315,7 @@
                         if (resume && resume.entry) {
                             const e = resume.entry;
                             if (e.cfi || e.page || (e.time && e.duration)) {
-                                updateResumeBadge({ path: fe.path }, e.percent ? e.percent : e.time);
+                                updateResumeBadge({ path: fe.path }, e.percent ? e.percent : e.time, e.percent ? 'percent' : 'time');
                             }
                         }
                     }
@@ -1323,7 +1358,7 @@
                     row.addEventListener('click', async () => {
                         if (item.type === 'dir') {
                             if (item.isComic) {
-                                window.location.href = `/comics.html?path=${encodeURIComponent(item.dir)}`;
+                                window.location.href = `/comics?path=${encodeURIComponent(item.dir)}`;
                             } else {
                                 await openListModal(item);
                             }
@@ -1414,7 +1449,7 @@
                     listModal.style.display = 'none';
                     if (f.isDir) {
                         if (f.isComic) {
-                            window.location.href = `/comics.html?path=${encodeURIComponent(f.path)}`;
+                            window.location.href = `/comics?path=${encodeURIComponent(f.path)}`;
                         } else {
                             openListModal({ name: f.name, dir: f.path });
                         }
@@ -1463,7 +1498,7 @@
                 viewButton.onclick = () => {
                     actionModal.style.display = 'none';
                     setTimeout(() => {
-                        window.location.href = `/pdf.html?path=${encodeURIComponent(file.path)}`;
+                        window.location.href = `/pdf?path=${encodeURIComponent(file.path)}`;
                     }, 20);
                 };
             } else if (fext === '.epub') {
@@ -1471,7 +1506,7 @@
                 viewButton.onclick = () => {
                     actionModal.style.display = 'none';
                     setTimeout(() => {
-                        window.location.href = `/epub.html?path=${encodeURIComponent(file.path)}`;
+                        window.location.href = `/epub?path=${encodeURIComponent(file.path)}`;
                     }, 20);
                 };
             } else if (isComicName(file.path)) {
@@ -1565,7 +1600,7 @@
                     const key = fileKey(file.path, file.sz, file.mt);
                     store[key] = { cfi: location.start.cfi, percent: Math.round(percent * 100), time: Date.now() };
                     writeResume(store);
-                    updateResumeBadge(file, Math.round(percent * 100));
+                    updateResumeBadge(file, Math.round(percent * 100), 'percent');
                 });
 
                 prevBtn.onclick = () => rendition.prev();
@@ -1614,7 +1649,7 @@
 
         /* comics open in comics.html, which streams pages instead of loading the whole archive here */
         async function openComicReader(file) {
-            window.location.href = `comics.html?path=${encodeURIComponent(file.path)}`;
+            window.location.href = `/comics?path=${encodeURIComponent(file.path)}`;
         }
 
         /* Audio Player */
@@ -1637,7 +1672,7 @@
             }
 
             audioElement.play();
-            playPauseBtn.textContent = '⏸';
+            playPauseBtn.classList.add('playing');
         }
 
         document.getElementById('closeAudio').addEventListener('click', () => {
@@ -1649,13 +1684,8 @@
         });
 
         playPauseBtn.addEventListener('click', () => {
-            if (audioElement.paused) {
-                audioElement.play();
-                playPauseBtn.textContent = '⏸';
-            } else {
-                audioElement.pause();
-                playPauseBtn.textContent = '▶';
-            }
+            if (audioElement.paused) audioElement.play();
+            else audioElement.pause();
         });
 
         document.getElementById('rewind').addEventListener('click', () => {
@@ -1676,24 +1706,43 @@
             durationEl.textContent = formatTime(audioElement.duration);
         });
 
+        // Position is written on a timer, not on every timeupdate. timeupdate fires about
+        // four times a second and each one re-parsed and rewrote the whole resume store,
+        // then scanned the grid for the card.
+        let lastAudioSave = 0;
+        function saveAudioPosition(force) {
+            if (!currentAudio || !(audioElement.duration > 0)) return;
+            const now = Date.now();
+            if (!force && now - lastAudioSave < 5000) return;
+            lastAudioSave = now;
+            const store = readResume();
+            const key = fileKey(currentAudio.path, currentAudio.sz, currentAudio.mt);
+            store[key] = {
+                time: audioElement.currentTime,
+                duration: audioElement.duration,
+                percent: Math.round((audioElement.currentTime / audioElement.duration) * 100),
+                timestamp: now
+            };
+            writeResume(store);
+            updateResumeBadge(currentAudio, audioElement.currentTime, 'time');
+        }
+
         audioElement.addEventListener('timeupdate', () => {
             currentTimeEl.textContent = formatTime(audioElement.currentTime);
             const percent = (audioElement.currentTime / audioElement.duration) * 100;
             audioProgressFill.style.width = percent + '%';
-
-            if (currentAudio && audioElement.duration > 0) {
-                const store = readResume();
-                const key = fileKey(currentAudio.path, currentAudio.sz, currentAudio.mt);
-                store[key] = {
-                    time: audioElement.currentTime,
-                    duration: audioElement.duration,
-                    percent: Math.round(percent),
-                    timestamp: Date.now()
-                };
-                writeResume(store);
-                updateResumeBadge(currentAudio, audioElement.currentTime);
-            }
+            saveAudioPosition(false);
         });
+
+        // the throttle above could otherwise drop the last few seconds
+        audioElement.addEventListener('pause', () => saveAudioPosition(true));
+        // drive the icon off the element, so it stays right no matter what
+        // paused playback (end of file, another tab, headphone controls)
+        audioElement.addEventListener('play',  () => playPauseBtn.classList.add('playing'));
+        audioElement.addEventListener('pause', () => playPauseBtn.classList.remove('playing'));
+        audioElement.addEventListener('ended', () => playPauseBtn.classList.remove('playing'));
+        audioElement.addEventListener('ended', () => saveAudioPosition(true));
+        window.addEventListener('pagehide', () => saveAudioPosition(true));
 
         audioProgressBar.addEventListener('click', (e) => {
             const rect = audioProgressBar.getBoundingClientRect();
@@ -1715,7 +1764,7 @@
     
 /* admin toggle: hide download actions when downloads are disabled (the
    fallback 'Download' view-button is handled where the modal is populated) */
-NomadUI.hideDownloads('downloadButton');
+NomadUI.applyDownloadPolicy('downloadButton');
 NomadUI.config().then(c => { window.__dlDisabled = !!c.downloadsDisabled; });
 </script>
 </body>

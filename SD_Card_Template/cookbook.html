@@ -1,0 +1,1494 @@
+<!DOCTYPE html>
+<!-- Version 4 -->
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1.0">
+  <meta name="description" content="Jcorp Nomad Media Server - Cookbook">
+  <title>Nomad • Cookbook</title>
+  <link rel="icon" href="favicon.ico" type="image/x-icon">
+  <link rel="stylesheet" href="/master.css">
+  <script src="/theme-boot.js"></script>
+  <script src="/theme-manager.js"></script>
+  <script src="/nomad-utils.js"></script>
+  <style>
+    body { display: flex; flex-direction: column; min-height: 100vh; }
+
+    /* Toolbar / grid mirror movies.html and games.html so the library behaves
+       identically across pages (sticky offsets, mobile columns, cover fallbacks). */
+    .toolbar {
+      padding: .6rem 1rem; display: flex; flex-wrap: wrap; gap: .6rem; align-items: center;
+      border-bottom: 1px solid var(--line); position: sticky; top: var(--header-height);
+      z-index: 55; background: var(--bg);
+    }
+    .toolbar input[type="search"] {
+      flex: 1 1 220px; padding: .5rem .75rem; border: 1px solid var(--line);
+      border-radius: var(--radius); font-size: .95rem; background: var(--card); color: var(--text);
+    }
+    .toolbar select, .toolbar .view-btn {
+      padding: .48rem .7rem; border: 1px solid var(--line); background: var(--card);
+      color: var(--text); border-radius: var(--radius); font-size: .9rem; cursor: pointer;
+    }
+    .view-btn.active { background: var(--primary); color: var(--color-white); border-color: var(--primary-dark); }
+
+    main { flex: 1; display: flex; flex-direction: column; max-width: 1100px; width: 100%; margin: 0 auto; padding: 1rem; }
+    .grid-wrapper { flex: 1; padding-bottom: 12px; }
+    .media-grid { display: grid; gap: var(--card-gap, 1rem); }
+    /* auto-fill, not auto-fit: with only a couple of recipes the empty tracks keep the
+       cards at card size on the left, matching the other pages */
+    .media-grid.small  { grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); }
+    .media-grid.medium { grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); }
+    .media-grid.large  { grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); }
+    @media (max-width:600px) {
+      .media-grid.small  { grid-template-columns: repeat(2, 1fr); }
+      .media-grid.medium { grid-template-columns: repeat(2, 1fr); }
+      .media-grid.large  { grid-template-columns: repeat(3, 1fr); }
+    }
+
+    .media-card { width: 100%; cursor: pointer; }
+    /* food photos are wide far more often than tall, so recipe cards use 4/3
+       rather than the 2/3 poster shape the video pages use */
+    .thumb-wrapper {
+      position: relative; display: flex; align-items: center; justify-content: center;
+      background: var(--thumb-bg, var(--card)); width: 100%; aspect-ratio: 4/3;
+      border-radius: var(--radius); overflow: hidden; box-shadow: var(--shadow);
+    }
+    .fallback-text {
+      position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+      z-index: 2; text-align: center; font-weight: 700; color: var(--thumb-title, var(--text));
+      pointer-events: none; padding: 8px; font-size: .95rem; line-height: 1.25;
+    }
+    .media-thumb {
+      width: 100%; height: 100%; object-fit: cover; position: absolute; inset: 0;
+      z-index: 1; opacity: 0; transition: opacity .35s ease;
+    }
+    .meta { padding: 6px 4px 0; text-align: center; }
+    .meta strong { display: block; font-size: .9rem; line-height: 1.25; }
+    .meta small { display: block; font-size: .72rem; color: var(--muted); margin-top: 2px; }
+
+    /* ---- recipe view ---- */
+    #recipe { display: none; }
+    .recipe-head { display: flex; gap: 1.25rem; flex-wrap: wrap; align-items: flex-start; margin-bottom: 1.25rem; }
+    .recipe-head img {
+      width: 260px; max-width: 100%; aspect-ratio: 4/3; object-fit: cover;
+      border-radius: var(--radius); box-shadow: var(--shadow);
+    }
+    .recipe-head .info { flex: 1 1 260px; min-width: 0; }
+    .recipe-head h2 { margin: 0 0 .4rem; font-size: 1.5rem; }
+    .facts { display: flex; flex-wrap: wrap; gap: .4rem; margin: .5rem 0; }
+    .fact {
+      font-size: .78rem; padding: .22rem .6rem; border-radius: 999px;
+      background: var(--primary-alpha-8, rgba(0,123,255,.08)); color: var(--primary);
+      border: 1px solid var(--primary-alpha-20, rgba(0,123,255,.2));
+    }
+    .recipe-cols { display: grid; grid-template-columns: minmax(240px, 1fr) 2fr; gap: 1.5rem; align-items: start; }
+    @media (max-width: 780px) { .recipe-cols { grid-template-columns: 1fr; } }
+
+    .panel { background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); padding: 1rem; }
+    .panel h3 { margin: 0 0 .6rem; font-size: 1.05rem; }
+
+    /* Scaling: turns a recipe for 4 into a recipe for 9 with no mental math, which is
+       why quantities get parsed out of the text instead of just printed. */
+    .scaler { display: flex; align-items: center; gap: .5rem; margin-bottom: .8rem; flex-wrap: wrap; }
+    .scaler button {
+      width: 32px; height: 32px; border-radius: 50%; border: 1px solid var(--line);
+      background: var(--bg); color: var(--text); cursor: pointer; font-size: 1.1rem; line-height: 1;
+    }
+    .scaler button:disabled { opacity: .4; cursor: default; }
+    .scaler .amount { font-weight: 700; min-width: 5.5rem; text-align: center; }
+    .scaler .reset { width: auto; border-radius: 999px; padding: 0 .7rem; font-size: .78rem; height: 28px; }
+
+    ul.ing, ol.steps { list-style: none; margin: 0; padding: 0; }
+    ul.ing li {
+      display: flex; gap: .55rem; align-items: flex-start; padding: .4rem 0;
+      border-bottom: 1px dashed var(--line); cursor: pointer; user-select: none;
+    }
+    ul.ing li:last-child { border-bottom: none; }
+    ul.ing li .box {
+      flex: 0 0 auto; width: 17px; height: 17px; margin-top: 2px; border-radius: 4px;
+      border: 2px solid var(--muted); display: grid; place-items: center; font-size: 11px;
+      color: var(--color-white); line-height: 1;
+    }
+    ul.ing li.done { opacity: .5; }
+    ul.ing li.done .box { background: var(--primary); border-color: var(--primary); }
+    ul.ing li.done .txt { text-decoration: line-through; }
+    ul.ing li .qty { font-weight: 700; color: var(--primary); }
+
+    ol.steps li {
+      display: flex; gap: .75rem; padding: .6rem 0; border-bottom: 1px solid var(--line);
+      cursor: pointer; user-select: none; line-height: 1.5;
+    }
+    ol.steps li:last-child { border-bottom: none; }
+    ol.steps li .num {
+      flex: 0 0 auto; width: 26px; height: 26px; border-radius: 50%; background: var(--primary);
+      color: var(--color-white); display: grid; place-items: center; font-size: .8rem; font-weight: 700;
+    }
+    ol.steps li.done { opacity: .45; }
+    ol.steps li.done .txt { text-decoration: line-through; }
+
+    .notes { margin-top: 1rem; font-size: .92rem; color: var(--muted); line-height: 1.6; white-space: pre-wrap; }
+    .recipe-actions { display: flex; gap: .5rem; flex-wrap: wrap; margin: .75rem 0 0; }
+    .recipe-actions button {
+      padding: .45rem .9rem; border: 1px solid var(--line); background: var(--card);
+      color: var(--text); border-radius: var(--radius); cursor: pointer; font-size: .88rem;
+    }
+    .recipe-actions button.on { background: var(--primary); color: var(--color-white); border-color: var(--primary-dark); }
+
+    .empty { text-align: center; color: var(--muted); padding: 2.5rem 1rem; line-height: 1.7; }
+    .empty code { background: var(--card); padding: .12rem .4rem; border-radius: 4px; }
+    footer { text-align: center; padding: 1rem 0; font-size: .9rem; color: var(--muted); }
+
+    /* ---- editor ---- */
+    #editor { display: none; max-width: 780px; }
+    #editor h2 { margin: 0 0 1rem; font-size: 1.35rem; }
+    .field { margin-bottom: .9rem; }
+    .field label { display: block; font-size: .82rem; font-weight: 700; margin-bottom: .25rem; }
+    .field .sub { font-weight: 400; color: var(--muted); font-size: .76rem; }
+    .field input, .field textarea, .field select {
+      width: 100%; box-sizing: border-box; padding: .5rem .65rem; font-size: .95rem;
+      font-family: inherit; border: 1px solid var(--line); border-radius: var(--radius);
+      background: var(--bg); color: var(--text);
+    }
+    .field textarea { resize: vertical; line-height: 1.5; }
+    .field-row { display: flex; gap: .75rem; flex-wrap: wrap; }
+    .field-row .field { flex: 1 1 130px; }
+    .editor-actions { display: flex; gap: .5rem; flex-wrap: wrap; margin-top: 1.1rem; align-items: center; }
+    .editor-actions button {
+      padding: .55rem 1.1rem; border: 1px solid var(--line); background: var(--card); color: var(--text);
+      border-radius: var(--radius); cursor: pointer; font-size: .92rem;
+    }
+    .editor-actions button.primary { background: var(--primary); color: var(--color-white); border-color: var(--primary-dark); font-weight: 700; }
+    .editor-actions button.danger { color: #c0392b; border-color: rgba(192,57,43,.4); margin-left: auto; }
+    .editor-actions button:disabled { opacity: .55; cursor: default; }
+    #editorMsg { font-size: .87rem; margin-top: .7rem; min-height: 1.2em; }
+    #editorMsg.err { color: #c0392b; }
+    #editorMsg.ok  { color: var(--primary); }
+    .path-hint { font-size: .78rem; color: var(--muted); margin-top: .3rem; word-break: break-all; }
+
+    /* ---- timers ----
+       A dock rather than a modal: a timer has to stay readable while the steps it
+       belongs to are being followed, so it sits over the corner of the page. */
+    #timerDock {
+      position: fixed; right: 12px; bottom: 12px; z-index: 900; width: min(300px, calc(100vw - 24px));
+      background: var(--card); border: 1px solid var(--line); border-radius: var(--radius);
+      box-shadow: 0 8px 28px var(--black-alpha-8, rgba(0,0,0,.22)); display: none; overflow: hidden;
+    }
+    #timerDock.show { display: block; }
+    .dock-head {
+      display: flex; align-items: center; justify-content: space-between; gap: .5rem;
+      padding: .5rem .7rem; border-bottom: 1px solid var(--line); font-weight: 700; font-size: .88rem;
+    }
+    .dock-head button { background: transparent; border: none; color: var(--muted); cursor: pointer; font-size: 1rem; padding: 0 .2rem; }
+    .dock-body { max-height: 46vh; overflow-y: auto; }
+    #timerDock.min .dock-body, #timerDock.min .dock-add { display: none; }
+    .timer {
+      display: flex; align-items: center; gap: .6rem; padding: .55rem .7rem; border-bottom: 1px solid var(--line);
+    }
+    .timer:last-child { border-bottom: none; }
+    .timer .tinfo { flex: 1; min-width: 0; }
+    .timer .tname { font-size: .82rem; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .timer .tleft { font-size: 1.25rem; font-weight: 800; font-variant-numeric: tabular-nums; line-height: 1.1; }
+    .timer button {
+      flex: 0 0 auto; background: transparent; border: 1px solid var(--line); color: var(--text);
+      border-radius: var(--radius); cursor: pointer; font-size: .78rem; padding: .25rem .55rem;
+    }
+    .timer.done { background: rgba(217,119,6,.1); }
+    .timer.done .tleft { color: #b45309; }
+    @keyframes tflash { 0%,100% { background: rgba(217,119,6,.1); } 50% { background: rgba(217,119,6,.3); } }
+    .timer.done.ringing { animation: tflash 1s ease-in-out infinite; }
+    .dock-add { display: flex; gap: .35rem; padding: .5rem .7rem; border-top: 1px solid var(--line); }
+    .dock-add input {
+      flex: 1; min-width: 0; padding: .3rem .45rem; font-size: .85rem; border: 1px solid var(--line);
+      border-radius: var(--radius); background: var(--bg); color: var(--text);
+    }
+    .dock-add button {
+      background: var(--primary); color: var(--color-white); border: none; border-radius: var(--radius);
+      padding: .3rem .7rem; cursor: pointer; font-size: .85rem; font-weight: 700;
+    }
+
+    /* a duration found in a step becomes a one-tap timer */
+    .tchip {
+      display: inline-flex; align-items: center; gap: .2rem; margin-left: .4rem; padding: .1rem .45rem;
+      font-size: .75rem; font-weight: 700; border-radius: 999px; cursor: pointer; vertical-align: middle;
+      background: var(--primary-alpha-8, rgba(0,123,255,.08)); color: var(--primary);
+      border: 1px solid var(--primary-alpha-20, rgba(0,123,255,.2));
+    }
+    .tchip:hover { background: var(--primary); color: var(--color-white); }
+    ol.steps li.done .tchip { display: none; }
+
+    @media print { #timerDock, .tchip, #newBtn, #editBtn { display: none !important; } }
+
+    /* Cook mode: bigger type and no chrome, for a phone propped up on the
+       counter and read from arm's length with messy hands. */
+    body.cooking .toolbar, body.cooking footer, body.cooking .recipe-head img { display: none; }
+    body.cooking ul.ing li, body.cooking ol.steps li { font-size: 1.15rem; padding: .7rem 0; }
+    body.cooking .panel { padding: 1.25rem; }
+
+    @media print {
+      header, .toolbar, footer, .recipe-actions, .scaler button, #backToGrid { display: none !important; }
+      .panel { border: none; padding: 0; }
+      .recipe-cols { display: block; }
+      ul.ing li, ol.steps li { cursor: default; }
+    }
+  </style>
+</head>
+<body data-page="cookbook">
+  <header>
+    <h1>Cookbook</h1>
+    <a class="back-btn" href="/menu">← Back to Menu</a>
+  </header>
+
+  <div class="toolbar">
+    <input id="searchInput" type="search" placeholder="Search recipes, ingredients, tags…" aria-label="Search recipes">
+    <select id="catSelect" aria-label="Filter by category"><option value="">All Categories</option></select>
+    <select id="sortSelect" aria-label="Sort recipes">
+      <option value="nameAsc">A → Z</option>
+      <option value="nameDesc">Z → A</option>
+      <option value="timeAsc">Quickest first</option>
+    </select>
+    <div style="display:flex;gap:.5rem;">
+      <button class="view-btn" data-size="small" title="Compact view">🔳</button>
+      <button class="view-btn active" data-size="medium" title="Comfort view">🔲</button>
+      <button class="view-btn" data-size="large" title="Gallery view">⬜</button>
+    </div>
+    <!-- hidden when the admin has turned writing off -->
+    <button class="view-btn" id="newBtn" style="display:none;font-weight:700;">＋ New recipe</button>
+  </div>
+
+  <main>
+    <div class="grid-wrapper" id="library">
+      <div id="grid" class="media-grid medium"></div>
+    </div>
+
+    <div id="recipe">
+      <button id="backToGrid" class="back-btn" style="margin-bottom:1rem;">← All recipes</button>
+      <div class="recipe-head">
+        <img id="rImg" alt="" style="display:none;">
+        <div class="info">
+          <h2 id="rTitle"></h2>
+          <div class="facts" id="rFacts"></div>
+          <div id="rDesc" style="color:var(--muted);line-height:1.6;"></div>
+          <div class="recipe-actions">
+            <button id="cookBtn" title="Bigger type and keeps the screen awake">👨‍🍳 Cook mode</button>
+            <button id="printBtn">🖨 Print</button>
+            <button id="resetChecks">↺ Clear checkmarks</button>
+            <button id="editBtn" style="display:none;">✎ Edit</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="recipe-cols">
+        <div class="panel">
+          <h3>Ingredients</h3>
+          <div class="scaler">
+            <button id="scaleDown" aria-label="Fewer servings">−</button>
+            <span class="amount" id="scaleLabel">—</span>
+            <button id="scaleUp" aria-label="More servings">+</button>
+            <button class="reset" id="scaleReset">Reset</button>
+          </div>
+          <ul class="ing" id="rIng"></ul>
+        </div>
+        <div class="panel">
+          <h3>Steps</h3>
+          <ol class="steps" id="rSteps"></ol>
+          <div class="notes" id="rNotes"></div>
+        </div>
+      </div>
+    </div>
+
+    <div id="editor">
+      <button id="editorBack" class="back-btn" style="margin-bottom:1rem;">← Cancel</button>
+      <h2 id="editorTitle">New recipe</h2>
+
+      <div class="field">
+        <label for="fTitle">Title</label>
+        <input id="fTitle" type="text" maxlength="80" placeholder="Skillet Cornbread" autocomplete="off">
+        <div class="path-hint" id="pathHint"></div>
+      </div>
+
+      <div class="field-row">
+        <div class="field">
+          <label for="fCategory">Category <span class="sub">optional</span></label>
+          <input id="fCategory" type="text" maxlength="40" placeholder="Bread" autocomplete="off" list="catList">
+          <datalist id="catList"></datalist>
+        </div>
+        <div class="field">
+          <label for="fServings">Servings <span class="sub">enables scaling</span></label>
+          <input id="fServings" type="text" maxlength="20" placeholder="8" autocomplete="off">
+        </div>
+        <div class="field">
+          <label for="fTime">Time <span class="sub">optional</span></label>
+          <input id="fTime" type="text" maxlength="30" placeholder="35 min" autocomplete="off">
+        </div>
+      </div>
+
+      <div class="field-row">
+        <div class="field">
+          <label for="fTags">Tags <span class="sub">comma separated</span></label>
+          <input id="fTags" type="text" maxlength="120" placeholder="quick, one pan" autocomplete="off">
+        </div>
+        <div class="field">
+          <label for="fSource">Source <span class="sub">optional</span></label>
+          <input id="fSource" type="text" maxlength="60" placeholder="Grandma" autocomplete="off">
+        </div>
+      </div>
+
+      <div class="field">
+        <label for="fDesc">Description <span class="sub">one or two lines, shown under the title</span></label>
+        <textarea id="fDesc" rows="2" maxlength="400"></textarea>
+      </div>
+
+      <div class="field">
+        <label for="fIng">Ingredients <span class="sub">one per line — start with the amount and it will rescale</span></label>
+        <textarea id="fIng" rows="9" placeholder="1 cup cornmeal&#10;1 1/2 tsp salt&#10;2 eggs&#10;salt to taste"></textarea>
+      </div>
+
+      <div class="field">
+        <label for="fSteps">Steps <span class="sub">one per line — any time you mention becomes a tappable timer</span></label>
+        <textarea id="fSteps" rows="9" placeholder="Heat the oven to 425°F.&#10;Bake 20-25 minutes until the top springs back."></textarea>
+      </div>
+
+      <div class="field">
+        <label for="fNotes">Notes <span class="sub">optional</span></label>
+        <textarea id="fNotes" rows="3" maxlength="800"></textarea>
+      </div>
+
+      <div class="editor-actions">
+        <button id="saveBtn" class="primary">Save to card</button>
+        <button id="editorCancel">Cancel</button>
+        <button id="deleteBtn" class="danger" style="display:none;">Delete recipe</button>
+      </div>
+      <div id="editorMsg"></div>
+    </div>
+  </main>
+
+  <div id="timerDock">
+    <div class="dock-head">
+      <span id="dockTitle">Timers</span>
+      <span>
+        <button id="dockMin" title="Collapse">▾</button>
+        <button id="dockClose" title="Clear all timers">✕</button>
+      </span>
+    </div>
+    <div class="dock-body" id="dockBody"></div>
+    <div class="dock-add">
+      <input id="tName" type="text" placeholder="Name" maxlength="30" autocomplete="off">
+      <input id="tMins" type="text" placeholder="min" maxlength="7" inputmode="decimal" style="max-width:4.5rem;">
+      <button id="tAdd">Start</button>
+    </div>
+  </div>
+
+  <footer>© <span id="year"></span> Jcorp Nomad</footer>
+
+<script>
+document.getElementById('year').textContent = new Date().getFullYear();
+
+const COOKBOOK_DIR = '/Cookbook';
+const RECIPE_RE = /\.(json|md|markdown|txt|cook)$/i;
+const IMG_RE    = /\.(jpe?g|png|webp|gif|bmp)$/i;
+// documentation that lives in the folder is not a recipe. Without this the
+// README shipped alongside the recipes shows up as a dish called "README".
+const NOT_RECIPE = /^(readme|index|notes|_.*)$/i;
+/* metadata is read per file, so a big cookbook is a lot of small SD reads. cards
+   appear from filenames and fill in as the reads land, the cap stops a runaway
+   folder queueing thousands of requests */
+const META_CONCURRENCY = 3;
+const META_LIMIT       = 250;
+
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, c => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[c]));
+}
+
+// sticky offset from the header's real height, same as games.html. a fixed value
+// either floats the toolbar over the first row or lets it slide under a wrapped header
+(function fitToolbar() {
+  const apply = () => {
+    const h = document.querySelector('header'), tb = document.querySelector('.toolbar');
+    if (h && tb) tb.style.top = h.offsetHeight + 'px';
+  };
+  apply();
+  window.addEventListener('resize', apply);
+})();
+
+const grid        = document.getElementById('grid');
+const library     = document.getElementById('library');
+const recipeView  = document.getElementById('recipe');
+const searchInput = document.getElementById('searchInput');
+const catSelect   = document.getElementById('catSelect');
+const sortSelect  = document.getElementById('sortSelect');
+const viewButtons = document.querySelectorAll('.view-btn');
+
+let recipes     = [];    // { name, path, category, cover, meta|null }
+let filtered    = [];
+let current     = null;  // recipe being viewed
+let scale       = 1;
+let debounce    = null;
+let currentSize = localStorage.getItem('nomadCookbookSize') || 'medium';
+
+/* ---------------- quantity parsing ----------------
+   Ingredient lines get their leading amount pulled out and multiplied. Everything
+   after the number is left exactly as the author wrote it. */
+
+const VULGAR = { '½':.5, '⅓':1/3, '⅔':2/3, '¼':.25, '¾':.75, '⅕':.2, '⅖':.4, '⅗':.6,
+                 '⅘':.8, '⅙':1/6, '⅚':5/6, '⅐':1/7, '⅛':.125, '⅜':.375, '⅝':.625, '⅞':.875, '⅑':1/9, '⅒':.1 };
+const VULGAR_CLASS = Object.keys(VULGAR).join('');
+
+// "1 1/2", "1½", "½", "1.5", "2" -> number. null if the text doesn't start with one.
+const QTY_RE = new RegExp(
+  '^\\s*(' +
+    '\\d+\\s+\\d+\\s*\\/\\s*\\d+' +      // 1 1/2
+    '|\\d+\\s*\\/\\s*\\d+' +             // 1/2
+    '|\\d+\\s*[' + VULGAR_CLASS + ']' +  // 1½
+    '|[' + VULGAR_CLASS + ']' +          // ½
+    '|\\d*\\.\\d+' +                     // 1.5 / .5
+    '|\\d+' +                            // 2
+  ')' +
+  // optional "2-3" / "2 to 3" upper bound. The padding lives inside each
+  // alternative: hoisting it out lets \s* eat the space that "\s+to\s+" needs.
+  '(?:(?:\\s*[-–—]\\s*|\\s+to\\s+)(' +
+    '\\d+\\s+\\d+\\s*\\/\\s*\\d+|\\d+\\s*\\/\\s*\\d+|\\d+\\s*[' + VULGAR_CLASS + ']' +
+    '|[' + VULGAR_CLASS + ']|\\d*\\.\\d+|\\d+' +
+  '))?'
+);
+
+function qtyToNumber(txt) {
+  if (txt == null) return null;
+  let s = String(txt).trim();
+  if (!s) return null;
+  let total = 0, matched = false;
+  // strip a trailing vulgar fraction and add it in ("1½" -> 1 + .5)
+  const v = s.match(new RegExp('([' + VULGAR_CLASS + '])\\s*$'));
+  if (v) { total += VULGAR[v[1]]; s = s.slice(0, v.index).trim(); matched = true; }
+  if (s) {
+    const mixed = s.match(/^(\d+)\s+(\d+)\s*\/\s*(\d+)$/);
+    const frac  = s.match(/^(\d+)\s*\/\s*(\d+)$/);
+    if (mixed)      { total += +mixed[1] + (+mixed[2] / +mixed[3]); matched = true; }
+    else if (frac)  { total += (+frac[1] / +frac[2]);               matched = true; }
+    else if (/^\d*\.?\d+$/.test(s)) { total += parseFloat(s);       matched = true; }
+    else if (!matched) return null;
+  }
+  return matched && isFinite(total) ? total : null;
+}
+
+// back to something a cook wants to read: whole numbers stay whole, and
+// anything close to a familiar fraction is written as one instead of "0.33".
+const NICE = [[1,8],[1,6],[1,4],[1,3],[3,8],[1,2],[5,8],[2,3],[3,4],[5,6],[7,8]];
+const VULGAR_OUT = { '1/2':'½', '1/3':'⅓', '2/3':'⅔', '1/4':'¼', '3/4':'¾',
+                     '1/6':'⅙', '5/6':'⅚', '1/8':'⅛', '3/8':'⅜', '5/8':'⅝', '7/8':'⅞' };
+
+function numberToQty(n) {
+  if (!isFinite(n) || n <= 0) return String(n);
+  if (n >= 10) return String(Math.round(n));                      // big amounts: no fractions
+  const whole = Math.floor(n + 1e-9);
+  const rem   = n - whole;
+  if (rem < 0.045) return String(whole || 0);
+  if (rem > 0.955) return String(whole + 1);                      // 1.98 is 2, not "1.98"
+  let best = null;
+  for (const [num, den] of NICE) {
+    const d = Math.abs(rem - num / den);
+    if (d < 0.055 && (!best || d < best.d)) best = { num, den, d };
+  }
+  if (!best) {
+    const dec = n < 1 ? n.toFixed(2).replace(/0$/, '') : n.toFixed(2).replace(/0$/, '');
+    return dec.replace(/\.$/, '');
+  }
+  const key  = best.num + '/' + best.den;
+  const frac = VULGAR_OUT[key] || key;
+  return whole ? whole + (VULGAR_OUT[key] ? frac : ' ' + frac) : frac;
+}
+
+/* Rewrite one ingredient line at the current scale. Returns {qty, rest} so the amount
+   can be styled apart from the text. A line with no leading number ("salt to taste")
+   passes through untouched, those dont scale. */
+function scaleIngredient(line, factor) {
+  const text = String(line).trim();
+  const m = QTY_RE.exec(text);
+  if (!m || !m[1]) return { qty: '', rest: text };
+  const lo = qtyToNumber(m[1]);
+  if (lo == null) return { qty: '', rest: text };
+  const hi = m[2] != null ? qtyToNumber(m[2]) : null;
+  let qty = numberToQty(lo * factor);
+  if (hi != null) qty += '–' + numberToQty(hi * factor);
+  return { qty, rest: text.slice(m[0].length).trim() };
+}
+
+/* ---------------- recipe file parsing ----------------
+   Two formats: JSON for anything generated by a tool, Markdown for someone typing a
+   recipe straight onto the card in a text editor. Both end up as the same object. */
+
+/* Cooklang (.cook): plain text where @ingredient{qty%unit}, #cookware{} and
+   ~timer{5%min} are tagged inline, blank lines separate steps, and ">> key: value"
+   lines carry metadata. Amounts are lifted into an ingredients list and clean
+   sentences left behind for the steps. Twin of the Node parser in src/media/library.js,
+   keep the two in step. https://cooklang.org/docs/spec/ */
+function parseCookRecipe(raw) {
+  const out = { ingredients: [], steps: [] };
+  const text = String(raw).replace(/\[-[\s\S]*?-\]/g, '');           // block comments
+  const bodyLines = [];
+  for (const line of text.split(/\r?\n/)) {
+    const m = line.match(/^\s*>>\s*([^:]+):\s*(.*)$/);               // >> key: value
+    if (m) {
+      const key = m[1].trim().toLowerCase().replace(/\s+/g, '');
+      const val = m[2].trim();
+      if (key === 'tags') out.tags = val.split(/[,;]/).map(s => s.trim()).filter(Boolean);
+      else out[key] = val;
+      continue;
+    }
+    bodyLines.push(line.replace(/--.*$/, ''));                       // line comments
+  }
+  if (out.course && !out.category) out.category = out.course;
+
+  const amount = (inner) => {
+    const [q, u] = String(inner == null ? '' : inner).split('%');
+    return { qty: (q || '').trim(), unit: (u || '').trim() };
+  };
+  // @ingredient{q%u} | @word | #cookware{q} | #word | ~timer{q%u}
+  const TOKEN = /@([^@#~{]+?)\{([^}]*)\}|@([\p{L}\p{N}][\p{L}\p{N}'-]*)|#([^@#~{]+?)\{([^}]*)\}|#([\p{L}\p{N}][\p{L}\p{N}'-]*)|~([^@#~{]*)\{([^}]*)\}/gu;
+  const render = (para) => para.replace(TOKEN,
+    (whole, iName, iAmt, iWord, cName, cAmt, cWord, tName, tAmt) => {
+      if (iName != null) {
+        const { qty, unit } = amount(iAmt);
+        out.ingredients.push([qty, unit, iName.trim()].filter(Boolean).join(' '));
+        return iName.trim();
+      }
+      if (iWord != null) { out.ingredients.push(iWord); return iWord; }
+      if (cName != null) return cName.trim();
+      if (cWord != null) return cWord;
+      if (tName != null || tAmt != null) {
+        const { qty, unit } = amount(tAmt);
+        return [qty, unit].filter(Boolean).join(' ') || (tName || '').trim();
+      }
+      return whole;
+    });
+
+  for (const para of bodyLines.join('\n').split(/\n\s*\n/)) {
+    const step = render(para.replace(/\s*\n\s*/g, ' ')).replace(/\s+/g, ' ').trim();
+    if (step) out.steps.push(step);
+  }
+  out.ingredients = [...new Set(out.ingredients)];                   // de-dup, keep order
+  return out;
+}
+
+function looksCooklang(raw) {
+  if (raw.startsWith('{')) return false;
+  return /@[^\s@#~{]+\{[^}]*\}|~[^@#~{]*\{[^}]*\}|#[^\s@#~{]+\{[^}]*\}|^\s*>>\s*[^:]+:/m.test(raw);
+}
+
+function parseRecipe(text, fallbackName, ext) {
+  const raw = String(text).replace(/^﻿/, '').trim();
+  if (ext === '.cook' || (!ext && looksCooklang(raw))) {
+    return normalizeRecipe(parseCookRecipe(raw), fallbackName);
+  }
+  if (raw.startsWith('{')) {
+    try { return normalizeRecipe(JSON.parse(raw), fallbackName); } catch (e) { /* fall through to markdown */ }
+  }
+  return normalizeRecipe(parseMarkdownRecipe(raw), fallbackName);
+}
+
+function extOfPath(p) {
+  const m = /\.[^./]+$/.exec(String(p || ''));
+  return m ? m[0].toLowerCase() : '';
+}
+
+/* Markdown recipes: an optional `---` front matter block of key: value pairs, then
+   "## Ingredients" and "## Steps". Bullets and numbers are stripped so both
+   `- 2 eggs` and `2 eggs` work. */
+function parseMarkdownRecipe(raw) {
+  const out = { ingredients: [], steps: [] };
+  let body = raw;
+
+  const fm = raw.match(/^---\r?\n([\s\S]*?)\r?\n---\r?\n?/);
+  if (fm) {
+    body = raw.slice(fm[0].length);
+    for (const line of fm[1].split(/\r?\n/)) {
+      const kv = line.match(/^\s*([A-Za-z_][\w ]*?)\s*:\s*(.*)$/);
+      if (!kv) continue;
+      const key = kv[1].trim().toLowerCase().replace(/\s+/g, '');
+      let val = kv[2].trim().replace(/^["']|["']$/g, '');
+      if (key === 'tags') out.tags = val.split(/[,;]/).map(s => s.trim().replace(/^[-\[]|[\]]$/g, '')).filter(Boolean);
+      else out[key] = val;
+    }
+  }
+
+  // an H1 before any section is the title, if front matter didn't set one
+  const h1 = body.match(/^\s*#\s+(.+)$/m);
+  if (h1 && !out.title) out.title = h1[1].trim();
+
+  let section = null;
+  for (const line of body.split(/\r?\n/)) {
+    const h = line.match(/^\s{0,3}#{2,6}\s+(.+?)\s*$/);
+    if (h) {
+      const name = h[1].toLowerCase();
+      if (/ingredient/.test(name))                       section = 'ingredients';
+      else if (/step|method|direction|instruction/.test(name)) section = 'steps';
+      else if (/note|tip/.test(name))                    section = 'notes';
+      else                                               section = null;
+      continue;
+    }
+    const t = line.trim();
+    if (!t) continue;
+    if (section === 'ingredients' || section === 'steps') {
+      const item = t.replace(/^[-*+]\s+/, '').replace(/^\d+[.)]\s+/, '').trim();
+      if (item) out[section].push(item);
+    } else if (section === 'notes') {
+      out.notes = (out.notes ? out.notes + '\n' : '') + t;
+    } else if (!out.description && !/^[-*+#]/.test(t) && out.ingredients.length === 0) {
+      out.description = t;
+    }
+  }
+  return out;
+}
+
+// accept the loose shapes people actually write and produce one predictable object
+function normalizeRecipe(o, fallbackName) {
+  o = o || {};
+  const asList = (v) => Array.isArray(v) ? v
+    : (typeof v === 'string' ? v.split(/\r?\n/).map(s => s.trim()).filter(Boolean) : []);
+
+  const ingredients = asList(o.ingredients || o.ingredient).map(i => {
+    if (i && typeof i === 'object') {
+      // structured {qty, unit, item} still has to come out as a scalable line
+      const parts = [i.qty ?? i.quantity ?? i.amount, i.unit, i.item ?? i.name ?? i.ingredient]
+        .filter(v => v !== undefined && v !== null && String(v).trim() !== '');
+      return parts.join(' ');
+    }
+    return String(i);
+  }).filter(Boolean);
+
+  const servingsRaw = o.servings ?? o.serves ?? o.yield ?? null;
+  const servingsNum = qtyToNumber(servingsRaw);
+
+  return {
+    title:       (o.title || o.name || fallbackName || 'Untitled').toString().trim(),
+    description: (o.description || o.summary || '').toString().trim(),
+    category:    (o.category || o.course || '').toString().trim(),
+    time:        (o.time || o.totaltime || o.total_time || o.duration || '').toString().trim(),
+    servings:    servingsRaw != null ? String(servingsRaw).trim() : '',
+    servingsNum: servingsNum,
+    source:      (o.source || o.author || '').toString().trim(),
+    image:       (o.image || o.cover || o.photo || '').toString().trim(),
+    tags:        (Array.isArray(o.tags) ? o.tags : String(o.tags || '').split(/[,;]/)).map(s => String(s).trim()).filter(Boolean),
+    ingredients,
+    steps:       asList(o.steps || o.instructions || o.directions || o.method).map(String).filter(Boolean),
+    notes:       (o.notes || o.note || o.tip || '').toString().trim()
+  };
+}
+
+// "35 min" / "1h 20m" / "90" -> minutes, for the "quickest first" sort
+function timeToMinutes(t) {
+  if (!t) return null;
+  const s = String(t).toLowerCase();
+  let mins = 0, hit = false;
+  const h = s.match(/(\d+(?:\.\d+)?)\s*(?:h|hr|hrs|hour|hours)/);
+  const m = s.match(/(\d+(?:\.\d+)?)\s*(?:m|min|mins|minute|minutes)/);
+  if (h) { mins += parseFloat(h[1]) * 60; hit = true; }
+  if (m) { mins += parseFloat(m[1]);      hit = true; }
+  if (!hit) { const n = s.match(/(\d+(?:\.\d+)?)/); if (n) { mins = parseFloat(n[1]); hit = true; } }
+  return hit ? mins : null;
+}
+
+/* ---------------- loading ---------------- */
+
+/* One directory listing. Prefers the firmware's NDJSON index and falls back to a live
+   /listfiles scan, so the page works on firmware that indexes /Cookbook and firmware
+   that doesnt yet. A busy card answers 503 right after boot, so retry instead of
+   reporting an empty cookbook. */
+// encode a card path for a URL, per segment: encodeURI leaves # and ? alone,
+// so a file named "Cake #2.md" used to truncate at the hash
+function encPath(p) { return String(p || '').split('/').map(encodeURIComponent).join('/'); }
+async function fetch503(url, tries = 3) {
+  for (let i = 0; i < tries; i++) {
+    const res = await fetch(url, { cache: 'no-store' });
+    if (res.status !== 503) return res;
+    await new Promise(r => setTimeout(r, 700 * (i + 1)));
+  }
+  return fetch(url, { cache: 'no-store' });
+}
+async function listDir(dir) {
+  try {
+    const res = await fetch503('/api/index?path=' + encodeURIComponent(dir));
+    if (res.ok) {
+      const lines = (await res.text()).split('\n').filter(Boolean);
+      const out = [];
+      for (let i = 1; i < lines.length; i++) {   // line 0 is the index header
+        try {
+          const e = JSON.parse(lines[i]);
+          if (e && e.n) out.push({ name: e.n, path: e.p, isDir: e.t === 'd' });
+        } catch (e) {}
+      }
+      if (out.length) return out;
+    }
+  } catch (e) {}
+  try {
+    const res = await fetch503('/listfiles?dir=' + encodeURIComponent(dir) + '&_=' + Date.now());
+    if (!res.ok) return [];
+    const arr = JSON.parse(await res.text());
+    return (Array.isArray(arr) ? arr : []).map(f => {
+      const name = String(f.name || '').replace(/\/$/, '');
+      return { name, path: dir + '/' + name, isDir: !!f.isDir };
+    }).filter(f => f.name);
+  } catch (e) { return []; }
+}
+
+/* The library is built in the browser: list each folder, then read every recipe file
+   a few at a time, capped, because flooding the SD bus is what crashes the device.
+   Voyager has a server-side /api/cookbook for this, the Nomad does the walk itself. */
+async function loadLibrary() {
+  grid.innerHTML = '<p class="empty" style="grid-column:1/-1;">Reading the cookbook…</p>';
+  await loadLibraryFallback();
+}
+
+/* Client-side walk, kept as the fallback path. Same behaviour as the Nomad:
+   filename-only cards appear immediately and fill in as the reads land. */
+async function loadLibraryFallback() {
+  const top  = await listDir(COOKBOOK_DIR);
+  const dirs = top.filter(e => e.isDir && !e.name.startsWith('.'));
+  const all  = [{ dir: COOKBOOK_DIR, category: '', entries: top.filter(e => !e.isDir) }];
+
+  for (const d of dirs.slice(0, 24)) {
+    all.push({ dir: d.path, category: d.name, entries: (await listDir(d.path)).filter(e => !e.isDir) });
+  }
+
+  recipes = [];
+  for (const group of all) {
+    const covers = new Map();
+    for (const e of group.entries) {
+      if (IMG_RE.test(e.name)) covers.set(e.name.replace(/\.[^/.]+$/, '').toLowerCase(), e.path);
+    }
+    for (const e of group.entries) {
+      if (!RECIPE_RE.test(e.name) || e.name.startsWith('.')) continue;
+      const base = e.name.replace(/\.[^/.]+$/, '');
+      if (NOT_RECIPE.test(base)) continue;
+      recipes.push({
+        name:     base.replace(/[_]+/g, ' ').trim() || e.name,
+        path:     e.path,
+        category: group.category,
+        cover:    covers.get(base.toLowerCase()) || null,
+        meta:     null
+      });
+    }
+  }
+
+  buildCategories();
+  applyFilters();
+  // menu search deep link: /cookbook#open=<path> lands on the recipe itself
+  const om = location.hash.match(/^#open=(.+)$/);
+  if (om) {
+    const want = decodeURIComponent(om[1]);
+    const hit = recipes.find(r => r.path === want);
+    if (hit) openRecipe(hit);
+  }
+  if (recipes.length) loadAllMeta();
+}
+
+/* Read each recipe's contents in the background so search covers ingredients and
+   tags and the cards can show time/servings. Throttled for the same SD bus reason. */
+async function loadAllMeta() {
+  const queue = recipes.slice(0, META_LIMIT);
+  let cursor = 0, dirty = false;
+
+  const paint = setInterval(() => { if (dirty) { dirty = false; applyFilters(); } }, 600);
+
+  async function worker() {
+    while (cursor < queue.length) {
+      const r = queue[cursor++];
+      try {
+        const res = await fetch(encPath(r.path), { cache: 'no-store' });
+        if (res.ok) {
+          r.meta = parseRecipe(await res.text(), r.name, extOfPath(r.path));
+          if (r.meta.title) r.name = r.meta.title;
+          if (r.meta.category && !r.category) r.category = r.meta.category;
+          if (r.meta.image && !r.cover) {
+            r.cover = r.meta.image.startsWith('/') ? r.meta.image
+              : r.path.slice(0, r.path.lastIndexOf('/')) + '/' + r.meta.image;
+          }
+          dirty = true;
+        }
+      } catch (e) { /* unreadable file just stays filename-only */ }
+    }
+  }
+
+  await Promise.all(Array.from({ length: META_CONCURRENCY }, worker));
+  clearInterval(paint);
+  buildCategories();
+  applyFilters();
+}
+
+function buildCategories() {
+  const cats = [...new Set(recipes.map(r => r.category).filter(Boolean))].sort((a, b) => a.localeCompare(b));
+  const keep = catSelect.value;
+  catSelect.innerHTML = '<option value="">All Categories</option>' +
+    cats.map(c => `<option value="${escapeHtml(c)}">${escapeHtml(c)}</option>`).join('');
+  if (cats.includes(keep)) catSelect.value = keep;
+}
+
+/* ---------------- library view ---------------- */
+
+function setViewSize(size) {
+  currentSize = size;
+  grid.className = `media-grid ${size}`;
+  viewButtons.forEach(b => b.classList.toggle('active', b.dataset.size === size));
+  localStorage.setItem('nomadCookbookSize', size);
+}
+setViewSize(currentSize);
+viewButtons.forEach(b => b.addEventListener('click', () => setViewSize(b.dataset.size)));
+
+function haystack(r) {
+  const m = r.meta;
+  return [r.name, r.category, m && m.tags.join(' '), m && m.ingredients.join(' '), m && m.description]
+    .filter(Boolean).join(' ').toLowerCase();
+}
+
+function applyFilters() {
+  const txt = searchInput.value.trim().toLowerCase();
+  const cat = catSelect.value;
+  filtered = recipes.filter(r => (!cat || r.category === cat) && (!txt || haystack(r).includes(txt)));
+  applySort(sortSelect.value);
+}
+
+function applySort(mode) {
+  filtered.sort((a, b) => {
+    if (mode === 'timeAsc') {
+      const ta = timeToMinutes(a.meta && a.meta.time), tb = timeToMinutes(b.meta && b.meta.time);
+      if (ta != null && tb != null && ta !== tb) return ta - tb;
+      if (ta != null && tb == null) return -1;      // timed recipes ahead of untimed
+      if (ta == null && tb != null) return 1;
+      return a.name.localeCompare(b.name);
+    }
+    return mode === 'nameDesc' ? b.name.localeCompare(a.name) : a.name.localeCompare(b.name);
+  });
+  renderGrid();
+}
+
+function renderGrid() {
+  grid.innerHTML = '';
+  grid.className = `media-grid ${currentSize}`;
+
+  if (!recipes.length) {
+    grid.innerHTML = '<div class="empty" style="grid-column:1/-1;">' +
+      '<strong>No recipes on this card yet.</strong><br>' +
+      (writesAllowed ? 'Tap <strong>＋ New recipe</strong> to write one here, or drop ' : 'Drop ') +
+      '<code>.md</code>, <code>.cook</code> or <code>.json</code> recipe files into <code>/Cookbook</code>' +
+      ' — subfolders become categories, and an image beside a recipe becomes its photo.' +
+      '</div>';
+    return;
+  }
+  if (!filtered.length) {
+    grid.innerHTML = '<p class="empty" style="grid-column:1/-1;">No recipes match that.</p>';
+    return;
+  }
+
+  for (const r of filtered) {
+    const card = document.createElement('div');
+    card.className = 'media-card';
+    const bits = [];
+    if (r.meta && r.meta.time) bits.push(escapeHtml(r.meta.time));
+    if (r.meta && r.meta.servings) bits.push('serves ' + escapeHtml(r.meta.servings));
+    if (!bits.length && r.category) bits.push(escapeHtml(r.category));
+
+    card.innerHTML = `
+      <div class="thumb-wrapper">
+        <span class="fallback-text">${escapeHtml(r.name)}</span>
+        ${r.cover ? `<img class="media-thumb" loading="lazy" src="${encPath(r.cover)}" alt="${escapeHtml(r.name)}">` : ''}
+      </div>
+      <div class="meta">
+        <strong>${escapeHtml(r.name)}</strong>
+        <small>${bits.join(' · ') || '&nbsp;'}</small>
+      </div>`;
+
+    const img = card.querySelector('img'), fb = card.querySelector('.fallback-text');
+    if (img) {
+      img.onload  = () => { img.style.opacity = '1'; fb.style.display = 'none'; };
+      img.onerror = () => { img.style.display = 'none'; fb.style.display = 'flex'; };
+    }
+    card.onclick = () => openRecipe(r);
+    grid.appendChild(card);
+  }
+}
+
+/* ---------------- recipe view ---------------- */
+
+async function openRecipe(r) {
+  if (!r.meta) {
+    try {
+      const res = await fetch(encPath(r.path), { cache: 'no-store' });
+      r.meta = res.ok ? parseRecipe(await res.text(), r.name, extOfPath(r.path)) : normalizeRecipe({}, r.name);
+    } catch (e) { r.meta = normalizeRecipe({}, r.name); }
+  }
+  current = r;
+  scale = 1;
+  history.replaceState(null, '', '?r=' + encodeURIComponent(r.path));
+  renderRecipe();
+  library.style.display = 'none';
+  recipeView.style.display = 'block';
+  document.querySelector('.toolbar').style.display = 'none';
+  window.scrollTo({ top: 0 });
+}
+
+function closeRecipe() {
+  setCookMode(false);
+  current = null;
+  history.replaceState(null, '', location.pathname);
+  recipeView.style.display = 'none';
+  library.style.display = '';
+  document.querySelector('.toolbar').style.display = '';
+}
+
+function renderRecipe() {
+  const m = current.meta;
+  document.getElementById('rTitle').textContent = m.title || current.name;
+  document.getElementById('rDesc').textContent  = m.description || '';
+
+  const img = document.getElementById('rImg');
+  if (current.cover) { img.src = encPath(current.cover); img.style.display = ''; img.onerror = () => { img.style.display = 'none'; }; }
+  else img.style.display = 'none';
+
+  const facts = [];
+  if (m.time)     facts.push('⏱ ' + m.time);
+  if (current.category) facts.push('🍽 ' + current.category);
+  if (m.source)   facts.push('📖 ' + m.source);
+  for (const t of m.tags) facts.push('#' + t);
+  document.getElementById('rFacts').innerHTML = facts.map(f => `<span class="fact">${escapeHtml(f)}</span>`).join('');
+
+  document.getElementById('rNotes').textContent = m.notes || '';
+  renderScale();
+  renderSteps();
+}
+
+function renderScale() {
+  const m = current.meta;
+  const label = document.getElementById('scaleLabel');
+  // if the recipe declared a serving count, scaling talks in servings; if it
+  // didn't, there's nothing to count so it talks in multiples instead
+  if (m.servingsNum) {
+    const n = m.servingsNum * scale;
+    label.textContent = numberToQty(n) + ' serving' + (Math.abs(n - 1) < .01 ? '' : 's');
+  } else {
+    label.textContent = scale === 1 ? 'Original' : '×' + numberToQty(scale);
+  }
+  document.getElementById('scaleDown').disabled = scale <= 0.25 + 1e-9;
+  document.getElementById('scaleUp').disabled   = scale >= 8 - 1e-9;
+  document.getElementById('scaleReset').style.visibility = scale === 1 ? 'hidden' : '';
+  renderIngredients();
+}
+
+function renderIngredients() {
+  const ul = document.getElementById('rIng');
+  ul.innerHTML = '';
+  const list = current.meta.ingredients;
+  if (!list.length) {
+    ul.innerHTML = '<li style="cursor:default;color:var(--muted);"><span class="txt">No ingredients listed.</span></li>';
+    return;
+  }
+  list.forEach((line, i) => {
+    const { qty, rest } = scaleIngredient(line, scale);
+    const li = document.createElement('li');
+    li.innerHTML = `<span class="box">✓</span><span class="txt">${qty ? `<span class="qty">${escapeHtml(qty)}</span> ` : ''}${escapeHtml(rest)}</span>`;
+    li.onclick = () => li.classList.toggle('done');
+    ul.appendChild(li);
+  });
+}
+
+function renderSteps() {
+  const ol = document.getElementById('rSteps');
+  ol.innerHTML = '';
+  const list = current.meta.steps;
+  if (!list.length) {
+    ol.innerHTML = '<li style="cursor:default;color:var(--muted);"><span class="txt">No steps listed.</span></li>';
+    return;
+  }
+  list.forEach((step, i) => {
+    const li = document.createElement('li');
+    li.innerHTML = `<span class="num">${i + 1}</span><span class="txt">${escapeHtml(step)}</span>`;
+
+    // any duration written into the step gets a one-tap timer beside it, which
+    // is the moment someone actually wants one - not five taps into a menu
+    const chipHost = li.querySelector('.txt');
+    for (const d of findDurations(step)) {
+      const chip = document.createElement('button');
+      chip.className = 'tchip';
+      chip.type = 'button';
+      chip.textContent = '⏲ ' + d.label;
+      chip.title = 'Start a ' + d.label + ' timer';
+      chip.onclick = (ev) => {
+        ev.stopPropagation();                       // don't also tick the step off
+        NomadTimers.start(d.seconds, 'Step ' + (i + 1) + ' · ' + (current.meta.title || current.name));
+      };
+      chipHost.appendChild(chip);
+    }
+
+    li.onclick = () => li.classList.toggle('done');
+    ol.appendChild(li);
+  });
+}
+
+/* ---------------- durations in step text ----------------
+   Turns "bake 20-25 minutes" or "rest 1 hr 30 min" into something startable. Ranges
+   use the low end, the point of the timer is to come back and check. Unit words are
+   spelled out far enough to avoid matching a bare "m" or "s" in ordinary prose. */
+const DUR_RE = /\b(\d+(?:\.\d+)?)\s*(?:[-–—]|\s+to\s+)?\s*(\d+(?:\.\d+)?)?\s*(hours?|hrs?|h|minutes?|mins?|m|seconds?|secs?|s)\b/gi;
+
+function unitSeconds(u) {
+  u = u.toLowerCase();
+  if (u[0] === 'h') return 3600;
+  if (u[0] === 'm') return 60;
+  return 1;
+}
+
+function humanDuration(sec) {
+  if (sec >= 3600) {
+    const h = Math.floor(sec / 3600), m = Math.round((sec % 3600) / 60);
+    return m ? h + ' hr ' + m + ' min' : h + ' hr';
+  }
+  if (sec >= 60) {
+    const m = Math.floor(sec / 60), s = Math.round(sec % 60);
+    return s ? m + ' min ' + s + ' s' : m + ' min';
+  }
+  return Math.round(sec) + ' s';
+}
+
+function findDurations(text) {
+  const raw = [];
+  let m;
+  DUR_RE.lastIndex = 0;
+  while ((m = DUR_RE.exec(text))) {
+    // a bare "m"/"s"/"h" is only a unit when it's written tight against the
+    // number ("30m"), otherwise it's a word that happens to be one letter
+    const loose = m[3].length === 1 && /\s/.test(m[0].slice(m[1].length, m[0].length - 1));
+    if (loose) continue;
+    raw.push({ start: m.index, end: m.index + m[0].length,
+               seconds: parseFloat(m[1]) * unitSeconds(m[3]), unit: unitSeconds(m[3]) });
+  }
+
+  // "1 hr 30 min" arrives as two matches sitting next to each other; join them
+  // so it starts one 90-minute timer rather than two competing ones
+  const out = [];
+  for (let i = 0; i < raw.length; i++) {
+    let sec = raw[i].seconds, end = raw[i].end;
+    while (i + 1 < raw.length && raw[i + 1].unit < raw[i].unit &&
+           text.slice(end, raw[i + 1].start).trim().length <= 4) {
+      sec += raw[i + 1].seconds;
+      end = raw[i + 1].end;
+      i++;
+    }
+    if (sec >= 10 && sec <= 24 * 3600) out.push({ seconds: sec, label: humanDuration(sec) });
+    if (out.length >= 3) break;                       // a step doesn't need more
+  }
+  return out;
+}
+
+/* ---------------- timers ----------------
+   Kept as absolute end times in localStorage so a reload, or wandering off to another
+   page and back, doesnt lose one. Anything that finished while the page was closed
+   comes back marked done rather than silently dropped. */
+const NomadTimers = (() => {
+  const KEY = 'nomad:cookbook:timers:v1';
+  let list = [];
+  let tick = null;
+  let audio = null;
+
+  const dock     = () => document.getElementById('timerDock');
+  const body     = () => document.getElementById('dockBody');
+
+  function load() {
+    try {
+      const raw = JSON.parse(localStorage.getItem(KEY) || '[]');
+      const now = Date.now();
+      list = (Array.isArray(raw) ? raw : [])
+        // forget anything that finished more than two hours ago; keeping those
+        // would greet you with a dock full of yesterday's cooking
+        .filter(t => t && t.endsAt && (t.endsAt > now - 2 * 3600 * 1000))
+        .map(t => ({ ...t, ringing: false, done: t.endsAt <= now }));
+    } catch (e) { list = []; }
+  }
+
+  function save() {
+    try { localStorage.setItem(KEY, JSON.stringify(list.map(({ id, label, endsAt, total }) => ({ id, label, endsAt, total })))); }
+    catch (e) {}
+  }
+
+  /* Web Audio rather than an audio file: nothing extra to ship on the card, and it cant
+     fail because a media element was blocked. The context is created on the tap that
+     starts a timer, which is the user gesture browsers require before making noise. */
+  function ensureAudio() {
+    if (audio) return audio;
+    try {
+      const Ctx = window.AudioContext || window.webkitAudioContext;
+      if (Ctx) audio = new Ctx();
+    } catch (e) {}
+    return audio;
+  }
+
+  function beep() {
+    const ctx = ensureAudio();
+    if (!ctx) return;
+    if (ctx.state === 'suspended') ctx.resume().catch(() => {});
+    const now = ctx.currentTime;
+    for (let i = 0; i < 3; i++) {
+      const osc = ctx.createOscillator(), gain = ctx.createGain();
+      osc.type = 'sine';
+      osc.frequency.value = 880;
+      const t = now + i * 0.28;
+      gain.gain.setValueAtTime(0.0001, t);
+      gain.gain.exponentialRampToValueAtTime(0.35, t + 0.02);
+      gain.gain.exponentialRampToValueAtTime(0.0001, t + 0.22);
+      osc.connect(gain).connect(ctx.destination);
+      osc.start(t);
+      osc.stop(t + 0.24);
+    }
+  }
+
+  function fmt(ms) {
+    const neg = ms < 0;
+    let s = Math.max(0, Math.round(Math.abs(ms) / 1000));
+    const h = Math.floor(s / 3600); s -= h * 3600;
+    const m = Math.floor(s / 60);   s -= m * 60;
+    const pad = n => String(n).padStart(2, '0');
+    return (neg ? '+' : '') + (h ? h + ':' + pad(m) : m) + ':' + pad(s);
+  }
+
+  function render() {
+    const d = dock();
+    d.classList.toggle('show', list.length > 0);
+    const running = list.filter(t => !t.done).length;
+    document.getElementById('dockTitle').textContent =
+      running ? 'Timers · ' + running + ' running' : 'Timers';
+
+    body().innerHTML = '';
+    for (const t of list) {
+      const el = document.createElement('div');
+      el.className = 'timer' + (t.done ? ' done' : '') + (t.ringing ? ' ringing' : '');
+      const left = t.endsAt - Date.now();
+      el.innerHTML = `
+        <div class="tinfo">
+          <div class="tleft">${t.done ? 'Done' : fmt(left)}</div>
+          <div class="tname">${escapeHtml(t.label)}</div>
+        </div>`;
+      const btn = document.createElement('button');
+      btn.textContent = t.done ? 'Dismiss' : 'Stop';
+      btn.onclick = () => remove(t.id);
+      el.appendChild(btn);
+      body().appendChild(el);
+    }
+
+    // the tab title is the only thing visible when the phone is on another app
+    const first = list.find(t => t.done) || list.find(t => !t.done);
+    document.title = !first ? 'Nomad • Cookbook'
+      : (first.done ? '⏰ Timer done — Nomad' : '⏲ ' + fmt(first.endsAt - Date.now()) + ' — Nomad');
+  }
+
+  function pump() {
+    let changed = false;
+    for (const t of list) {
+      if (!t.done && Date.now() >= t.endsAt) {
+        t.done = true; t.ringing = true; changed = true;
+        beep();
+        if (navigator.vibrate) { try { navigator.vibrate([300, 150, 300]); } catch (e) {} }
+        // stop flashing after a while so it doesn't strobe forever unattended
+        setTimeout(() => { t.ringing = false; render(); }, 30000);
+      }
+    }
+    render();
+    if (changed) save();
+    if (!list.some(t => !t.done)) stopTick();
+  }
+
+  function startTick() {
+    if (tick) return;
+    tick = setInterval(pump, 250);
+    // a timer is useless if the screen sleeps through it
+    try { requestWakeLock(); } catch (e) {}
+  }
+  function stopTick() {
+    if (tick) { clearInterval(tick); tick = null; }
+    if (!document.body.classList.contains('cooking')) { try { releaseWakeLock(); } catch (e) {} }
+  }
+
+  function start(seconds, label) {
+    seconds = Math.round(+seconds);
+    if (!(seconds > 0)) return;
+    ensureAudio();                                   // claim the gesture now
+    list.push({ id: Date.now() + '-' + Math.random().toString(36).slice(2, 7),
+                label: label || humanDuration(seconds), endsAt: Date.now() + seconds * 1000,
+                total: seconds, done: false, ringing: false });
+    save(); render(); startTick();
+  }
+
+  function remove(id) {
+    list = list.filter(t => t.id !== id);
+    save(); render();
+    if (!list.length) document.title = 'Nomad • Cookbook';
+    if (!list.some(t => !t.done)) stopTick();
+  }
+
+  function clearAll() { list = []; save(); render(); stopTick(); document.title = 'Nomad • Cookbook'; }
+
+  function init() {
+    load();
+    render();
+    if (list.some(t => !t.done)) startTick();
+
+    document.getElementById('dockClose').onclick = clearAll;
+    document.getElementById('dockMin').onclick = () => {
+      const d = dock();
+      d.classList.toggle('min');
+      document.getElementById('dockMin').textContent = d.classList.contains('min') ? '▴' : '▾';
+    };
+    const addTimer = () => {
+      const mins = parseFloat(document.getElementById('tMins').value);
+      if (!(mins > 0)) { document.getElementById('tMins').focus(); return; }
+      const name = document.getElementById('tName').value.trim();
+      start(mins * 60, name || humanDuration(mins * 60));
+      document.getElementById('tName').value = '';
+      document.getElementById('tMins').value = '';
+    };
+    document.getElementById('tAdd').onclick = addTimer;
+    for (const id of ['tName', 'tMins']) {
+      document.getElementById(id).addEventListener('keydown', e => { if (e.key === 'Enter') addTimer(); });
+    }
+  }
+
+  return { init, start, clearAll, running: () => list.some(t => !t.done) };
+})();
+
+/* Cook mode uses the shared wake lock helper from nomad-utils.js, the same one the
+   video player uses, so a recipe left open on the counter doesnt blank out. */
+function setCookMode(on) {
+  document.body.classList.toggle('cooking', on);
+  document.getElementById('cookBtn').classList.toggle('on', on);
+  if (on) { try { requestWakeLock(); } catch (e) {} }
+  // leaving cook mode must not blank the screen out from under a timer that's
+  // still counting - whichever of the two still needs the lock keeps it
+  else if (!NomadTimers.running()) { try { releaseWakeLock(); } catch (e) {} }
+}
+
+/* ---------------- editor ----------------
+   Writes recipes back to the card as Markdown through /save, the same atomic
+   temp-then-rename endpoint the admin panel uses. Markdown rather than JSON so what
+   gets written stays readable and hand-editable on a computer later. */
+
+const editorView = document.getElementById('editor');
+let editingPath = null;      // null = writing a new file
+let writesAllowed = false;
+
+const F = id => document.getElementById(id);
+
+/* SD-safe, and safe to put in a URL. FAT rejects most of what's stripped here;
+   the rest would just make the file annoying to handle from a PC. */
+function safeFilename(title) {
+  let s = String(title).trim()
+    .replace(/[\\/:*?"<>|\x00-\x1f]/g, ' ')   // illegal on FAT
+    .replace(/\s+/g, ' ')
+    .replace(/^[.\s]+|[.\s]+$/g, '');          // no leading dot, no trailing dot/space
+  if (!s) s = 'Recipe';
+  return s.slice(0, 64);
+}
+
+// front matter is only quoted when it has to be, so the file stays pleasant to read
+function fmValue(v) {
+  const s = String(v).trim();
+  return /^[\s"']|[:#]|[\s"']$/.test(s) ? JSON.stringify(s) : s;
+}
+
+function buildMarkdown(r) {
+  const fm = [];
+  fm.push('title: ' + fmValue(r.title));
+  if (r.servings)    fm.push('servings: ' + fmValue(r.servings));
+  if (r.time)        fm.push('time: ' + fmValue(r.time));
+  if (r.category)    fm.push('category: ' + fmValue(r.category));
+  if (r.tags.length) fm.push('tags: ' + r.tags.join(', '));
+  if (r.source)      fm.push('source: ' + fmValue(r.source));
+
+  let out = '---\n' + fm.join('\n') + '\n---\n\n';
+  if (r.description) out += r.description.trim() + '\n\n';
+  out += '## Ingredients\n' + r.ingredients.map(i => '- ' + i).join('\n') + '\n\n';
+  out += '## Steps\n' + r.steps.map((s, i) => (i + 1) + '. ' + s).join('\n') + '\n';
+  if (r.notes) out += '\n## Notes\n' + r.notes.trim() + '\n';
+  return out;
+}
+
+const lines = v => String(v).split(/\r?\n/).map(s => s.trim().replace(/^[-*+]\s+/, '').replace(/^\d+[.)]\s+/, '')).filter(Boolean);
+
+function openEditor(recipe) {
+  if (!writesAllowed) return;
+  editingPath = recipe ? recipe.path : null;
+  const m = recipe ? recipe.meta : null;
+
+  F('editorTitle').textContent = recipe ? 'Edit recipe' : 'New recipe';
+  F('fTitle').value    = m ? (m.title || recipe.name) : '';
+  F('fCategory').value = recipe ? (recipe.category || (m && m.category) || '') : '';
+  F('fServings').value = m ? (m.servings || '') : '';
+  F('fTime').value     = m ? (m.time || '') : '';
+  F('fTags').value     = m ? m.tags.join(', ') : '';
+  F('fSource').value   = m ? (m.source || '') : '';
+  F('fDesc').value     = m ? (m.description || '') : '';
+  F('fIng').value      = m ? m.ingredients.join('\n') : '';
+  F('fSteps').value    = m ? m.steps.join('\n') : '';
+  F('fNotes').value    = m ? (m.notes || '') : '';
+
+  F('deleteBtn').style.display = recipe ? '' : 'none';
+  F('editorMsg').textContent = '';
+  F('editorMsg').className = '';
+  F('catList').innerHTML = [...new Set(recipes.map(r => r.category).filter(Boolean))]
+    .map(c => `<option value="${escapeHtml(c)}">`).join('');
+  updatePathHint();
+
+  library.style.display = 'none';
+  recipeView.style.display = 'none';
+  editorView.style.display = 'block';
+  document.querySelector('.toolbar').style.display = 'none';
+  window.scrollTo({ top: 0 });
+}
+
+function closeEditor() {
+  editorView.style.display = 'none';
+  if (current) { recipeView.style.display = 'block'; }
+  else { library.style.display = ''; document.querySelector('.toolbar').style.display = ''; }
+}
+
+function updatePathHint() {
+  const name = safeFilename(F('fTitle').value);
+  F('pathHint').textContent = editingPath
+    ? 'Saves over ' + editingPath
+    : 'Saves as /Cookbook/' + name + '.md';
+}
+
+async function saveRecipe() {
+  const msg = F('editorMsg');
+  const title = F('fTitle').value.trim();
+  if (!title) { msg.className = 'err'; msg.textContent = 'A recipe needs a title.'; F('fTitle').focus(); return; }
+
+  const ing = lines(F('fIng').value), steps = lines(F('fSteps').value);
+  if (!ing.length && !steps.length) {
+    msg.className = 'err'; msg.textContent = 'Add at least one ingredient or step.'; return;
+  }
+
+  const md = buildMarkdown({
+    title, category: F('fCategory').value.trim(), servings: F('fServings').value.trim(),
+    time: F('fTime').value.trim(), source: F('fSource').value.trim(),
+    tags: F('fTags').value.split(',').map(s => s.trim()).filter(Boolean),
+    description: F('fDesc').value, ingredients: ing, steps, notes: F('fNotes').value
+  });
+
+  const path = editingPath || (COOKBOOK_DIR + '/' + safeFilename(title) + '.md');
+
+  // only guard new files: saving over the one being edited is the point
+  if (!editingPath && recipes.some(r => r.path.toLowerCase() === path.toLowerCase())) {
+    msg.className = 'err';
+    msg.textContent = 'A recipe file with that name is already on the card. Change the title, or open that one and edit it.';
+    return;
+  }
+
+  F('saveBtn').disabled = true;
+  msg.className = ''; msg.textContent = 'Writing to the card…';
+  try {
+    const res = await fetch('/save', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({ filename: path, content: md })
+    });
+    if (!res.ok) throw new Error('the device answered ' + res.status + ' ' + (await res.text()).slice(0, 90));
+
+    msg.className = 'ok'; msg.textContent = 'Saved.';
+    editingPath = path;
+    // the firmware queues the write; give it a beat before re-listing
+    await new Promise(r => setTimeout(r, 900));
+    await loadLibrary();
+    // loadLibrary rebuilt the list, so the old `current` object is stale - drop
+    // it before closeEditor() decides which view to restore
+    const saved = recipes.find(r => r.path === path);
+    current = null;
+    closeEditor();
+    if (saved) openRecipe(saved);
+  } catch (e) {
+    msg.className = 'err';
+    msg.textContent = 'Could not save: ' + e.message;
+  } finally {
+    F('saveBtn').disabled = false;
+  }
+}
+
+async function deleteRecipe() {
+  if (!editingPath) return;
+  if (!confirm('Delete this recipe from the card? This cannot be undone.')) return;
+  const msg = F('editorMsg');
+  msg.className = ''; msg.textContent = 'Deleting…';
+  try {
+    const res = await fetch('/delete', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({ filename: editingPath })
+    });
+    if (!res.ok) throw new Error('the device answered ' + res.status);
+    editingPath = null;
+    current = null;
+    await new Promise(r => setTimeout(r, 400));
+    await loadLibrary();
+    editorView.style.display = 'none';
+    recipeView.style.display = 'none';
+    library.style.display = '';
+    document.querySelector('.toolbar').style.display = '';
+    history.replaceState(null, '', location.pathname);
+  } catch (e) {
+    msg.className = 'err';
+    msg.textContent = 'Could not delete: ' + e.message;
+  }
+}
+
+F('fTitle').addEventListener('input', updatePathHint);
+F('saveBtn').onclick     = saveRecipe;
+F('deleteBtn').onclick   = deleteRecipe;
+F('editorCancel').onclick = closeEditor;
+F('editorBack').onclick  = closeEditor;
+F('newBtn').onclick      = () => openEditor(null);
+F('editBtn').onclick     = () => { if (current) openEditor(current); };
+
+/* Writing follows the admin's "Allow uploads" switch (Community card). The firmware
+   queues /save writes on a background task, so saving never stalls the web server. */
+async function applyWritePermission() {
+  try {
+    NomadUI._cfg = null;   // always re-read, the admin may have just flipped it
+    const cfg = await NomadUI.config();
+    writesAllowed = !cfg.uploadsDisabled;
+  } catch (e) { writesAllowed = true; }
+  F('newBtn').style.display  = writesAllowed ? '' : 'none';
+  F('editBtn').style.display = writesAllowed ? '' : 'none';
+}
+applyWritePermission();
+window.addEventListener('pageshow', e => { if (e.persisted) applyWritePermission(); });
+
+document.getElementById('backToGrid').onclick = closeRecipe;
+document.getElementById('printBtn').onclick   = () => window.print();
+document.getElementById('cookBtn').onclick    = () => setCookMode(!document.body.classList.contains('cooking'));
+document.getElementById('resetChecks').onclick = () => {
+  document.querySelectorAll('#rIng li, #rSteps li').forEach(li => li.classList.remove('done'));
+};
+
+// quarter steps below 1, half steps above: the useful sizes, without landing on
+// amounts nobody measures
+document.getElementById('scaleUp').onclick   = () => { scale = +(scale + (scale < 1 ? .25 : .5)).toFixed(2); renderScale(); };
+document.getElementById('scaleDown').onclick = () => { scale = +(scale - (scale <= 1 ? .25 : .5)).toFixed(2); renderScale(); };
+document.getElementById('scaleReset').onclick = () => { scale = 1; renderScale(); };
+
+searchInput.addEventListener('input', () => { clearTimeout(debounce); debounce = setTimeout(applyFilters, 150); });
+catSelect.addEventListener('change', applyFilters);
+sortSelect.addEventListener('change', () => applySort(sortSelect.value));
+document.addEventListener('keydown', e => {
+  if (e.key !== 'Escape') return;
+  if (editorView.style.display === 'block') closeEditor();
+  else if (current) closeRecipe();
+});
+
+(async function init() {
+  NomadTimers.init();
+  await loadLibrary();
+  // ?r=<path> deep link, so a recipe can be bookmarked or reloaded in place
+  const want = new URLSearchParams(location.search).get('r');
+  if (want) {
+    const hit = recipes.find(r => r.path === want);
+    if (hit) openRecipe(hit);
+  }
+})();
+</script>
+</body>
+</html>

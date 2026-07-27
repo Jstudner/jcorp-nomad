@@ -68,9 +68,9 @@
   </main>
 
 <script>
-/* Chat synced through the SD card like the live whiteboard: each tab writes
-   its own file under /.chat (a shared file would lose messages to write races),
-   clients poll /listfiles and render the merged history by timestamp. */
+/* Chat synced through the SD card like the live whiteboard: each tab writes its own
+   file under /.chat (a shared file would lose messages to write races), clients poll
+   /listfiles and render the merged history by timestamp. */
 'use strict';
 
 const Chat = {
@@ -147,8 +147,16 @@ const Chat = {
 
   async poll(){
     clearTimeout(this._timer);
+    // A hidden tab still pulls a directory listing off the card every 2.5s,
+    // plus a fetch per changed peer, and nobody is reading it.
+    if(document.hidden){
+      this._timer = setTimeout(() => this.poll(), this.POLL_MS);
+      return;
+    }
+    let failed = false;
     try {
       const res = await fetch(`/listfiles?dir=${encodeURIComponent(this.DIR)}&_=${Date.now()}`, { cache:'no-store' });
+      if(!res.ok) failed = true;
       if(res.ok){
         const arr = JSON.parse(await res.text());
         const seen = new Set();
@@ -185,8 +193,15 @@ const Chat = {
         }
         if(changed) this.render();
       }
-    } catch(e){}
-    this._timer = setTimeout(() => this.poll(), this.POLL_MS);
+    } catch(e){ failed = true; }
+    // back off while the device is struggling instead of asking again at full
+    // rate from every phone
+    if(failed){
+      this._backoff = Math.min((this._backoff || this.POLL_MS) * 2, 30000);
+    } else {
+      this._backoff = 0;
+    }
+    this._timer = setTimeout(() => this.poll(), this._backoff || this.POLL_MS);
   },
 
   _dayLabel(ts){

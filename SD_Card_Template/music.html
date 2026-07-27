@@ -278,7 +278,7 @@
         <button class="control-btn secondary prev" id="prevBtn" title="Previous">⏮</button>
         <button class="control-btn play" id="playBtn" title="Play" aria-label="Play"></button>
         <button class="control-btn secondary next" id="nextBtn" title="Next">⏭</button>
-        <button class="control-btn secondary edge download" id="downloadBtn" title="Download">⬇</button>
+        <button class="control-btn secondary edge download" id="downloadBtn" data-dl title="Download">⬇</button>
       </div>
     </div>
   </div>
@@ -288,7 +288,7 @@
 
 <audio id="audio" preload="metadata"></audio>
 
-<div id="toast"></div>
+
 
 <script>
 const audio = document.getElementById('audio');
@@ -433,6 +433,8 @@ let _playGeneration = 0;
 let _lastLoadTime = 0;
 let _retryTimer = null;
 let _retrying = false;
+// failure handler for the load attempt in flight, read by the audio error event
+let _failCurrent = null;
 const _MIN_LOAD_GAP = 300;
 const _MAX_RETRIES = 2;
 
@@ -452,6 +454,9 @@ function playTrack(track, _retryCount){
 
   clearTimeout(_playDebounce);
 
+  // drop the old handler first so tearing down the previous src cannot be
+  // mistaken for this track failing
+  _failCurrent = null;
   audio.pause();
   audio.removeAttribute('src');
   audio.load();
@@ -469,37 +474,14 @@ function playTrack(track, _retryCount){
     if(gen !== _playGeneration) return;
     _lastLoadTime = Date.now();
     const url = `/media?file=${encodeURIComponent(track.path)}`;
-    fetch(url, { method: 'HEAD' }).then(resp => {
-      if(gen !== _playGeneration) return;
-      if(resp.status === 404){
-        _retrying = false;
-        playerTitle.textContent = 'Track not found';
-        console.warn('[Music] Track not found on device:', track.path);
-        return;
-      }
-      if(!resp.ok){
-        throw new Error('Server error: ' + resp.status);
-      }
-      audio.src = url;
-      audio.load();
-      audio.play().catch(e => {
-        if(gen !== _playGeneration) return;
-        console.warn('[Music] Play failed:', e);
-        if(_retryCount < _MAX_RETRIES){
-          _retrying = true;
-          playerTitle.textContent = (track.name || 'Unknown') + ' (retrying...)';
-          _retryTimer = setTimeout(() => {
-            if(gen !== _playGeneration) return;
-            playTrack(track, _retryCount + 1);
-          }, 2000 * (_retryCount + 1));
-        } else {
-          _retrying = false;
-          playerTitle.textContent = 'Error loading track';
-        }
-      });
-    }).catch(e => {
-      if(gen !== _playGeneration) return;
-      console.warn('[Music] HEAD check failed:', e);
+
+    // retry or give up. shared by the play() rejection and the audio error event, and
+    // only allowed to fire once per load attempt since a failed source triggers both
+    let handled = false;
+    const onFail = (why) => {
+      if(gen !== _playGeneration || handled) return;
+      handled = true;
+      console.warn('[Music] ' + why, track.path);
       if(_retryCount < _MAX_RETRIES){
         _retrying = true;
         playerTitle.textContent = (track.name || 'Unknown') + ' (retrying...)';
@@ -507,11 +489,24 @@ function playTrack(track, _retryCount){
           if(gen !== _playGeneration) return;
           playTrack(track, _retryCount + 1);
         }, 2000 * (_retryCount + 1));
-      } else {
-        _retrying = false;
-        playerTitle.textContent = 'Error loading track';
+        return;
       }
-    });
+      _retrying = false;
+      // Everything failed, so spend one HEAD to say whether the file is
+      // missing or the card was just busy.
+      playerTitle.textContent = 'Error loading track';
+      fetch(url, { method: 'HEAD' }).then(r => {
+        if(gen !== _playGeneration) return;
+        if(r.status === 404) playerTitle.textContent = 'Track not found';
+      }).catch(() => {});
+    };
+    _failCurrent = onFail;
+
+    // straight to the audio element. this used to send a HEAD first, which doubled every
+    // play into two requests and two SD reads for no gain
+    audio.src = url;
+    audio.load();
+    audio.play().catch(e => onFail('Play failed: ' + e));
     broadcastPlaybackUpdate();
     saveState();
   }, delay);
@@ -788,8 +783,10 @@ audio.addEventListener('ended', handleNext);
 
 audio.addEventListener('error', (e) => {
   if(!audio.src || audio.src === '' || audio.src === location.href) return;
-  if(_retrying) return;
   console.error('[Music] Audio error:', e);
+  // this is now the main signal that a load failed, so hand it to the retry
+  // logic for the attempt in flight
+  if(_failCurrent){ _failCurrent('Audio error'); return; }
   _retrying = false;
   playerTitle.textContent = 'Error loading track';
 });
@@ -962,7 +959,7 @@ setTimeout(() => {
 }, 500);
 
 /* admin toggle: hide the download control when downloads are disabled */
-NomadUI.hideDownloads('downloadBtn');
+NomadUI.applyDownloadPolicy('downloadBtn');
 </script>
 </body>
 </html>

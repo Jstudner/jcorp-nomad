@@ -74,14 +74,13 @@
   </main>
 
 <script>
-/* Whiteboard: two boards behind one set of controls (same layout as Gallion's).
-   - "My Board": strokes autosave to localStorage on this device; Save downloads
-     a PNG, Load draws an image file onto the canvas.
+/* Whiteboard: two boards behind one set of controls, same layout as Gallion's.
+   - "My Board": strokes autosave to localStorage on this device, Save downloads a
+     PNG, Load draws an image file onto the canvas.
    - "Live Board": shared with everyone on the Nomad. There are no sockets on the
-     firmware, so each participant writes their OWN stroke layer to the SD card
-     via the open POST /save handler (atomic write) and polls /listfiles for the
-     other layers, refetching only layers whose size changed. Clear deletes every
-     layer file (communal clear, like Gallion's whiteboard-clear broadcast). */
+     firmware, so each participant writes their own stroke layer to the card via the
+     open POST /save handler and polls /listfiles for the other layers, refetching
+     only layers whose size changed. Clear deletes every layer file. */
 'use strict';
 
 const W = 1600, H = 1200;               // fixed logical space so all clients agree
@@ -105,10 +104,9 @@ let savePending = false, saveInFlight = false, savedOnce = false;
 let layerFull = false;
 
 const clientId = (() => {
-  // sessionStorage, NOT localStorage: the id must be unique per browser TAB, or
-  // two windows on one device share a layer file and each ignores it as "mine"
-  // (live board looks dead when testing with two windows). Survives reloads
-  // within the tab; a new tab is simply a new participant.
+  // sessionStorage, not localStorage: the id must be unique per browser tab, or two
+  // windows on one device share a layer file and each ignores it as "mine", which
+  // makes the live board look dead when testing with two windows
   let id = sessionStorage.getItem('nomad_wb_id');
   if (!id){
     id = Math.random().toString(36).slice(2, 8);

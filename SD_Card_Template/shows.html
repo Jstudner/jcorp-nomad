@@ -9,6 +9,7 @@
 <link rel="stylesheet" href="/master.css">
 <script src="/theme-boot.js"></script>
 <script src="/nomad-utils.js"></script>
+<script>document.addEventListener('DOMContentLoaded', () => NomadPlyr.ready());</script>
 <script src="assets/plyr.min.js"></script>
 <script src="/theme-manager.js"></script>
 <style>
@@ -182,7 +183,7 @@
       <h2 id="actionTitle">Play / Download</h2>
       <div id="actionSub"></div>
       <button id="playButton">Play (from start)</button>
-      <button id="downloadButton" class="cancel">Download</button>
+      <button id="downloadButton" class="cancel" data-dl>Download</button>
       <button id="actionCloseBtn" class="cancel">Cancel</button>
     </div>
   </div>
@@ -392,6 +393,9 @@ let currentEpisode = null;
 let currentEpisodeIndex = -1;
 let autosaveTimer = null;
 let rootSig = null;
+// Bounds the "index is building" wait so it cannot poll forever.
+let _buildingRetries = 0;
+const _MAX_BUILDING_RETRIES = 10;
 
 /* Helpers */
 function ext(name){ const i=name.lastIndexOf('.'); return i>=0? name.slice(i).toLowerCase() : ''; }
@@ -444,46 +448,18 @@ function saveResumeEntryByKey(key, entry, purgeOtherNonCompleted = true){
 async function loadLibrary(){
   try {
     const { header, entries } = await fetchIndex(ROOT_PATH);
-    if(!header || !header.sig){
-      console.warn('No index signature found. Index may be building or missing - triggering reindex.');
 
-      // Trigger a reindex instead of returning early
-      try {
-        const reindexUrl = '/api/reindex';
-        const reindexRes = await fetch(reindexUrl, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-          body: `path=${encodeURIComponent(ROOT_PATH)}`
-        });
-
-        if (reindexRes.ok) {
-          console.log('Reindex triggered successfully');
-          // Show loading message and retry after a delay
-          gridEl.innerHTML = '<p style="grid-column:1/-1;text-align:center;color:var(--primary-dark);">Building index... Please wait.</p>';
-
-          // Retry loading after a delay
-          setTimeout(async () => {
-            try {
-              await loadLibrary();
-            } catch(e) {
-              console.error('Retry loadLibrary failed', e);
-              gridEl.innerHTML = '<p style="grid-column:1/-1;text-align:center;color:var(--primary-dark);">Could not load library.</p>';
-            }
-          }, 3000);
-          return;
-        } else {
-          console.error('Failed to trigger reindex:', reindexRes.status);
-        }
-      } catch(reindexErr) {
-        console.error('Error triggering reindex:', reindexErr);
-      }
-
-      // If reindex failed, show error message
-      gridEl.innerHTML = '<p style="grid-column:1/-1;text-align:center;color:var(--primary-dark);">Index missing. Please try refreshing the page.</p>';
+    // no usable index nearly always just means /Shows is empty. this used to POST
+    // /api/reindex and retry every 3s from every phone with no limit
+    if(!header){
+      console.warn('No index header for /Shows, treating as empty');
+      shows = [];
+      filtered = [];
+      renderGrid();
       return;
     }
 
-    rootSig = header.sig;
+    rootSig = header.sig || null;
     const data = [header, ...entries];
     shows = buildShowsFromIndexes(data, ROOT_PATH);
     applyFilter(searchInput.value);
@@ -492,9 +468,15 @@ async function loadLibrary(){
     checkIndex();
   } catch(err){
     if(err && err.message === 'INDEX_BUILDING') {
-      // Show loading message and retry after delay
-      gridEl.innerHTML = '<p style="grid-column:1/-1;text-align:center;color:var(--primary-dark);">Building shows index, please wait...</p>';
-      setTimeout(() => loadLibrary(), 3000); // Retry in 3 seconds
+      // Retry while it builds, but not forever. A build that never finishes
+      // should not leave every phone polling the device.
+      if(_buildingRetries < _MAX_BUILDING_RETRIES){
+        _buildingRetries++;
+        gridEl.innerHTML = '<p style="grid-column:1/-1;text-align:center;color:var(--primary-dark);">Building shows index, please wait...</p>';
+        setTimeout(() => loadLibrary(), 3000);
+      } else {
+        gridEl.innerHTML = '<p style="grid-column:1/-1;text-align:center;color:var(--primary-dark);">Index is still building. Pull to refresh to try again.</p>';
+      }
       return;
     }
     console.error('loadLibrary failed', err);
@@ -623,7 +605,13 @@ function isShowFullyCompleted(show){
 /* fetch NDJSON index */
 async function fetchIndex(path){
   const url = `${INDEX_ENDPOINT}?path=${encodeURIComponent(normalizePath(path))}&_=${Date.now()}`;
-  const res = await fetch(url, { cache: 'no-store' });
+  let res = await fetch(url, { cache: 'no-store' });
+
+  // 503 means the SD is busy for a moment, not that the index is missing
+  for(let i=0; i<3 && res.status===503; i++){
+    await new Promise(r=>setTimeout(r, 800*(i+1)));
+    res = await fetch(url, { cache: 'no-store' });
+  }
 
   if(res.status === 202) {
     // Server is building index - throw a specific error that can be caught
@@ -752,9 +740,8 @@ function loadSeriesEpisodes(show){
     const entries = [];
     const showEntries = show.entries || [];
 
-    // Sidecar subtitles: collect per directory, matched to an episode when the
-    // subtitle's basename starts with the episode file's basename
-    // (Ep1.srt / Ep1.en.srt next to Ep1.mp4).
+    // sidecar subtitles: collected per directory, matched to an episode when the
+    // subtitle's basename starts with the episode file's (Ep1.en.srt next to Ep1.mp4)
     const isSubName = (n) => SUB_EXTS.includes(ext(n));
     const subsInDir = new Map();
     const addSub = (n, p) => {
@@ -1143,7 +1130,9 @@ function openActionModalForEpisode(ep){
 function startDownload(ep){
   if(!confirm(`Download "${ep.name}"?`)) return;
   const a = document.createElement('a');
-  a.href = ep.path.startsWith('/') ? ep.path : ('/' + ep.path);
+  // go through /media like playback does. a raw path truncated the request at the
+  // first # or ? in a filename, so those downloads 404'd while the file streamed fine
+  a.href = `${MEDIA_ENDPOINT}?file=${encodeURIComponent(normalizePath(ep.path))}&download=1`;
   a.download = ep.name || ep.file;
   document.body.appendChild(a);
   a.click();
@@ -1352,7 +1341,8 @@ async function openVideo(src, useResume=false, ep=null){
 
   if (!window.plyrInstance) {
     window.plyrInstance = new Plyr(videoPlayer, {
-      iconUrl: 'assets/plyr.svg',
+      iconUrl: '',            // sprite injected by NomadPlyr, see nomad-utils.js
+      loadSprite: false,
       controls: [
         'play-large',
         'play',
@@ -1686,8 +1676,12 @@ function setViewSize(size){ currentSize = size; viewButtons.forEach(btn => { btn
 
 /* Index watcher + load library */
 async function checkIndex(){
+  // Skip when the tab is hidden or a video is playing. The library cannot
+  // change while you are watching, and the poll competes for the SD mutex.
+  if(document.hidden) return;
+  if(videoModal && videoModal.style.display === 'flex') return;
   try {
-    const res = await fetch(`${INDEX_ENDPOINT}?path=${encodeURIComponent(ROOT_PATH)}`);
+    const res = await fetch(`${INDEX_ENDPOINT}?path=${encodeURIComponent(ROOT_PATH)}&_=${Date.now()}`, { cache: 'no-store' });
     if(!res.ok) return;
     const text = await res.text();
     const headerLine = text.split('\n')[0];
@@ -1834,7 +1828,7 @@ sortSelect.addEventListener('change', () => applySort(sortSelect.value));
 })();
 
 /* admin toggle: hide the download action when downloads are disabled */
-NomadUI.hideDownloads('downloadButton');
+NomadUI.applyDownloadPolicy('downloadButton');
 </script>
 
 </body>

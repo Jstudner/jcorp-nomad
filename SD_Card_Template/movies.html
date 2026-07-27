@@ -10,6 +10,7 @@
 <link rel="stylesheet" href="/master.css">
 <script src="/theme-boot.js"></script>
 <script src="/nomad-utils.js"></script>
+<script>document.addEventListener('DOMContentLoaded', () => NomadPlyr.ready());</script>
 <script src="assets/plyr.min.js"></script>
 <script src="/theme-manager.js"></script>
 
@@ -225,7 +226,7 @@
 
       <button id="playButton">Play from Start</button>
       <button id="resumeButton" class="secondary" style="display:none">Resume</button>
-      <button id="downloadButton" class="cancel">Download</button>
+      <button id="downloadButton" class="cancel" data-dl>Download</button>
       <button onclick="closeModal()" class="cancel">Cancel</button>
     </div>
   </div>
@@ -301,6 +302,9 @@ let currentSize = localStorage.getItem('nomadMoviesSize') || 'medium';
 let currentMovie = null;
 let autosaveTimer = null;
 let rootSig = null;
+// limit for the "index building" retry chain in loadLibrary
+let _buildingRetries = 0;
+const _MAX_BUILDING_RETRIES = 10;
 
 
 /* Helpers */
@@ -398,7 +402,13 @@ function clearResumeFor(path){
 /* Fetch NDJSON index for a path, cache-busted to avoid stale results */
 async function fetchIndex(path){
   const url = `${INDEX_ENDPOINT}?path=${encodeURIComponent(normalizePath(path))}&_=${Date.now()}`;
-  const res = await fetch(url, { cache: 'no-store' });
+  let res = await fetch(url, { cache: 'no-store' });
+
+  // 503 means the SD is busy for a moment, not that the index is missing
+  for(let i=0; i<3 && res.status===503; i++){
+    await new Promise(r=>setTimeout(r, 800*(i+1)));
+    res = await fetch(url, { cache: 'no-store' });
+  }
 
   if(res.status === 202) {
     // Server is building index - throw a specific error that can be caught
@@ -454,9 +464,8 @@ async function buildFromIndexes(root){
     }
   }
 
-  // Attach language-suffixed subtitles (Movie.en.srt) to their video's group:
-  // the suffix makes their basename differ, so they land in a video-less group
-  // of their own and would otherwise be dropped.
+  // attach language-suffixed subtitles (Movie.en.srt) to their video's group. the
+  // suffix makes their basename differ, so they land in a video-less group of their own
   for(const [k,v] of map.entries()){
     if(v.files.some(x => isVideoName(x.name))) continue;
     const subsOnly = v.files.filter(x => isSubtitleName(x.name));
@@ -498,25 +507,6 @@ function prettify(filename){
   let t = n.replace(/[_\.]+/g,' ').trim();
   t = t.replace(/\s*\(?\d{4}\)?\s*$/,'').trim();
   return t || filename;
-}
-
-/* fallback load media.json */
-async function loadFromMediaJson(){
-  const res = await fetch('/media.json');
-  if(!res.ok) throw new Error('media.json missing');
-  const json = await res.json();
-  const raw = json.movies || json.Movies || [];
-  const out = raw.filter(m => isVideoName(m.file || m.path || '')).map(m => ({
-    name: prettify(m.name || m.title || (m.file||m.path||'')),
-    rawName: m.file || m.path || '',
-    cover: m.cover || m.thumbnail || m.poster || null,
-    path: m.file || m.path || '',
-    dir: '/',
-    sz: m.sz || 0,
-    mt: m.mt || 0,
-    subtitles: []
-  }));
-  return out;
 }
 
 /* Render grid with optional staggered animation on first load */
@@ -658,7 +648,9 @@ function closeModal(){ modal.style.display = 'none'; }
 function openMovieFromHash(hashObj){
   if(!hashObj || !hashObj.path) return;
   const wantRaw = hashObj.path || '';
-  const want = normalizePath(decodeURIComponent(wantRaw));
+  // getHashParam already decoded this. Decoding twice threw a URIError on
+  // names holding a literal % like "50% Off.mp4" and killed the deep link.
+  const want = normalizePath(wantRaw);
 
   // Try to find the movie by exact normalized path, rawName, or basename fallback
   let found = movies.find(m => normalizePath(m.path) === want)
@@ -669,15 +661,7 @@ function openMovieFromHash(hashObj){
   // If not found, try a quick reload of library once (in case hash arrived before library loaded fully)
   if(!found){
     try {
-      // loadLibrary is defined elsewhere; we try to refresh the list then search again
-      // (useful when hash handling runs early)
-      // NOTE: this is non-blocking if loadLibrary already ran
-      // but we await to give the library a chance to populate
-      // only do this when movies[] is empty to avoid unnecessary reloads
-      if(!movies || movies.length === 0){
-        // eslint-disable-next-line no-undef
-        // await loadLibrary(); // if you prefer to await here, uncomment and ensure this function is marked async
-      }
+      // search again, for when hash handling runs early
       found = movies.find(m => normalizePath(m.path) === want) ||
               movies.find(m => normalizePath('/' + (m.rawName||'')) === want) ||
               movies.find(m => normalizePath(m.path).endsWith(want.split('/').pop()));
@@ -713,7 +697,9 @@ function handleHashNavigation(hashObj){
 function startDownload(movie){
   if(!confirm(`Download "${movie.name}"?`)) return;
   const a = document.createElement('a');
-  a.href = movie.path.startsWith('/') ? movie.path : ('/' + movie.path);
+  // go through /media like playback does. a raw path truncated the request at the
+  // first # or ? in a filename, so those downloads 404'd while the file streamed fine
+  a.href = `${MEDIA_ENDPOINT}?file=${encodeURIComponent(normalizePath(movie.path))}&download=1`;
   a.download = movie.name;
   document.body.appendChild(a);
   a.click();
@@ -806,7 +792,8 @@ async function openVideo(src, useResume=false){
 
   if (!window.plyrInstance) {
     window.plyrInstance = new Plyr(videoPlayer, {
-      iconUrl: 'assets/plyr.svg',
+      iconUrl: '',            // sprite injected by NomadPlyr, see nomad-utils.js
+      loadSprite: false,
       controls: [
         'play-large',
         'play',
@@ -1097,22 +1084,23 @@ async function loadLibrary(){
     }
   } catch(e){
     if(e && e.message === 'INDEX_BUILDING') {
-      // Show loading message and retry after delay
-      gridEl.innerHTML = '<p style="grid-column:1/-1;text-align:center;color:var(--primary-dark);">Building movie index, please wait...</p>';
-      setTimeout(() => loadLibrary(), 3000); // Retry in 3 seconds
+      // Retry while the index builds, but not forever. A build that never
+      // finishes should not leave every phone polling the device.
+      if(_buildingRetries < _MAX_BUILDING_RETRIES){
+        _buildingRetries++;
+        gridEl.innerHTML = '<p style="grid-column:1/-1;text-align:center;color:var(--primary-dark);">Building movie index, please wait...</p>';
+        setTimeout(() => loadLibrary(), 3000);
+        return;
+      }
+      gridEl.innerHTML = '<p style="grid-column:1/-1;text-align:center;color:var(--primary-dark);">Index is still building. Refresh to try again.</p>';
       return;
     }
     console.warn('index build failed, falling back', e);
   }
 
-  try {
-    movies = await loadFromMediaJson();
-    filtered = movies.slice();
-    renderGrid();
-  } catch(e){
-    console.error('media.json fallback failed', e);
-    gridEl.innerHTML = '<p style="grid-column:1/-1;text-align:center;color:var(--primary-dark);">Unable to load content.</p>';
-  }
+  // media.json is only a bucket-count summary on this firmware (see
+  // games.html), so there is no fallback list left to read
+  gridEl.innerHTML = '<p style="grid-column:1/-1;text-align:center;color:var(--primary-dark);">Unable to load content.</p>';
 }
 
 /* UI: search, sort, size buttons */
@@ -1141,6 +1129,10 @@ function setViewSize(size){
 
 /* index poll (cheap) to refresh if index sig changes */
 async function checkIndex(){
+  // Skip when the tab is hidden or a video is playing. The library cannot
+  // change while you are watching, and the poll competes for the SD mutex.
+  if(document.hidden) return;
+  if(videoModal && videoModal.style.display === 'flex') return;
   try {
     const url = `${INDEX_ENDPOINT}?path=${encodeURIComponent(ROOT_PATH)}&_=${Date.now()}`;
     const res = await fetch(url, { cache: 'no-store' });
@@ -1208,7 +1200,7 @@ window.addEventListener('hashchange', ()=> handleHashNavigation(getHashParam()))
 })();
 
 /* admin toggle: hide the download action when downloads are disabled */
-NomadUI.hideDownloads('downloadButton');
+NomadUI.applyDownloadPolicy('downloadButton');
 </script>
 </body>
 </html>

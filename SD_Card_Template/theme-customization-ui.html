@@ -14,6 +14,9 @@
     const isDark = localStorage.getItem('nomad_dark_mode') === 'true';
     if (isDark) {
       document.documentElement.classList.add('dark');
+      new MutationObserver((m, o) => {
+        if (document.body) { document.body.classList.add('dark'); o.disconnect(); }
+      }).observe(document.documentElement, { childList: true });
       document.documentElement.classList.add('dark-mode');
     }
 

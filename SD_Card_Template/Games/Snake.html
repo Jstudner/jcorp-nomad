@@ -1,0 +1,467 @@
+<!DOCTYPE html>
+<!-- Version 2: locked no-scroll layout, board sized to fit, restart on the board -->
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover"/>
+<title>Nomad • Snake</title>
+<link rel="icon" href="/favicon.ico" type="image/x-icon">
+<link rel="stylesheet" href="/master.css">
+<script src="/theme-boot.js"></script>
+<script src="/theme-manager.js"></script>
+<style>
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  /* the whole game is one fixed screen: nothing scrolls, nothing bounces */
+  html,body{margin:0;padding:0;height:100%;overflow:hidden;overscroll-behavior:none}
+  body{
+    position:fixed;inset:0;width:100%;
+    display:flex;flex-direction:column;
+    height:100dvh;
+    background:var(--bg,#f4f4f9);
+    color:var(--text,#333);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    -webkit-font-smoothing:antialiased;
+    touch-action:manipulation;
+  }
+  header{flex:0 0 auto}
+  main{
+    flex:1;display:flex;flex-direction:column;min-height:0;
+    width:100%;max-width:560px;margin:0 auto;padding:8px 10px calc(10px + env(safe-area-inset-bottom));
+    gap:8px;
+  }
+  /* one compact row: new game, scores, pause */
+  .hud{display:flex;align-items:stretch;gap:8px;flex:0 0 auto}
+  .hud .btn{
+    display:inline-flex;align-items:center;justify-content:center;
+    padding:0 14px;min-height:44px;font-size:.9rem;font-weight:600;
+    color:#fff;background:var(--primary,#4f46e5);
+    border:1px solid var(--primary,#4f46e5);border-radius:var(--radius,10px);
+    cursor:pointer;user-select:none;white-space:nowrap;
+  }
+  .hud .btn.ghost{color:var(--text,#333);background:var(--card,#fff);border-color:var(--line,#dcdce3)}
+  .hud .btn:active{transform:translateY(1px)}
+  .score-card{
+    flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;
+    background:var(--card,#fff);border:1px solid var(--line,#dcdce3);
+    border-radius:var(--radius,10px);padding:2px 8px;line-height:1.15;
+  }
+  .score-card .label{font-size:.62rem;text-transform:uppercase;letter-spacing:.06em;color:var(--muted,#777)}
+  .score-card .val{font-size:1.15rem;font-weight:700}
+  /* the board takes whatever space is left; JS fits the square inside it */
+  .stage{flex:1;min-height:0;display:flex;align-items:center;justify-content:center}
+  .board-wrap{position:relative}
+  canvas{
+    display:block;
+    background:var(--card,#fff);
+    border:1px solid var(--line,#dcdce3);
+    border-radius:var(--radius,10px);
+    touch-action:none;
+  }
+  .overlay{
+    position:absolute;inset:0;display:none;flex-direction:column;
+    align-items:center;justify-content:center;gap:12px;text-align:center;
+    background:rgba(0,0,0,.5);border-radius:var(--radius,10px);color:#fff;padding:16px;
+  }
+  .overlay.show{display:flex}
+  .overlay .msg{font-size:1.3rem;font-weight:700}
+  .overlay .sub{font-size:.85rem;opacity:.9;margin-top:-6px}
+  .overlay .btn{
+    display:inline-flex;align-items:center;justify-content:center;gap:6px;
+    min-height:44px;padding:0 22px;font-size:.95rem;font-weight:600;
+    color:#fff;background:var(--primary,#4f46e5);
+    border:1px solid var(--primary,#4f46e5);border-radius:999px;cursor:pointer;user-select:none;
+  }
+  body.dark .overlay{background:rgba(0,0,0,.62)}
+  /* two-row d-pad: up above, left/down/right below - half the height of the
+     old 3x3 cross, so it always fits under the board on a phone */
+  .controls{flex:0 0 auto;display:flex;justify-content:center}
+  .dpad{display:grid;grid-template-columns:repeat(3,minmax(64px,88px));grid-auto-rows:52px;gap:6px;width:100%;max-width:320px}
+  .dpad button{
+    font-size:1.25rem;line-height:1;color:var(--text,#333);
+    background:var(--card,#fff);border:1px solid var(--line,#dcdce3);
+    border-radius:var(--radius,10px);cursor:pointer;user-select:none;touch-action:manipulation;
+  }
+  .dpad button:active{background:var(--primary,#4f46e5);color:#fff;border-color:var(--primary,#4f46e5)}
+  .dpad .up{grid-column:2;grid-row:1}
+  .dpad .left{grid-column:1;grid-row:2}
+  .dpad .down{grid-column:2;grid-row:2}
+  .dpad .right{grid-column:3;grid-row:2}
+  /* a keyboard user doesn't need the d-pad; free its space for the board */
+  @media (min-width:900px) and (hover:hover) and (pointer:fine){
+    .controls{display:none}
+  }
+</style>
+</head>
+<body>
+  <header>
+    <h1>Snake</h1>
+    <a class="back-btn" href="/games">← Back to Games</a>
+  </header>
+
+  <main>
+    <div class="hud">
+      <button class="btn" id="newGame" title="Restart">↻ New</button>
+      <div class="score-card"><span class="label">Score</span><span class="val" id="score">0</span></div>
+      <div class="score-card"><span class="label">Best</span><span class="val" id="best">0</span></div>
+      <button class="btn ghost" id="pauseBtn">Pause</button>
+    </div>
+
+    <div class="stage" id="stage">
+      <div class="board-wrap" id="boardWrap">
+        <canvas id="board" width="460" height="460"></canvas>
+        <div class="overlay" id="overlay">
+          <div class="msg" id="overlayMsg">Game over</div>
+          <div class="sub" id="overlaySub"></div>
+          <button class="btn" id="overlayBtn">Play again</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="controls">
+      <div class="dpad">
+        <button class="up" data-dir="up" aria-label="Up">▲</button>
+        <button class="left" data-dir="left" aria-label="Left">◀</button>
+        <button class="down" data-dir="down" aria-label="Down">▼</button>
+        <button class="right" data-dir="right" aria-label="Right">▶</button>
+      </div>
+    </div>
+  </main>
+
+<script>
+(function(){
+  "use strict";
+
+  // ---- Config ----
+  var GRID = 17;                 // cells per side
+  var START_INTERVAL = 130;      // ms per step at start
+  var MIN_INTERVAL = 70;         // fastest step
+  var SPEEDUP_PER_FOOD = 3;      // ms shaved off per food eaten
+  var BEST_KEY = 'nomadgame_snake_best';
+
+  // ---- DOM ----
+  var canvas   = document.getElementById('board');
+  var ctx      = canvas.getContext('2d');
+  var stage    = document.getElementById('stage');
+  var scoreEl  = document.getElementById('score');
+  var bestEl   = document.getElementById('best');
+  var overlay  = document.getElementById('overlay');
+  var overMsg  = document.getElementById('overlayMsg');
+  var overSub  = document.getElementById('overlaySub');
+  var overBtn  = document.getElementById('overlayBtn');
+
+  // ---- Theme colors (read live from resolved CSS so canvas matches theme) ----
+  var COL = {};
+  function refreshColors(){
+    var cs = getComputedStyle(document.body);
+    function pick(name, fb){ var v = cs.getPropertyValue(name).trim(); return v || fb; }
+    COL.bg     = pick('--card', '#fff');    // board background
+    COL.text   = pick('--text', '#333');
+    COL.accent = pick('--primary', '#4f46e5');
+    COL.accentD= pick('--primary-dark', '#3f37c9');
+    COL.line   = pick('--line', '#dcdce3');
+    COL.food   = pick('--danger', '#d94b4b');
+  }
+
+  // ---- Board sizing: the square fits whatever space the stage has left,
+  // so the d-pad always stays on screen and the page never scrolls ----
+  var cell = 0; // pixel size of one grid cell in CSS px
+  function sizeCanvas(){
+    var r = stage.getBoundingClientRect();
+    var cssSize = Math.floor(Math.min(r.width, r.height)) - 2; // border allowance
+    if(cssSize < 120) cssSize = 120;
+    var dpr = window.devicePixelRatio || 1;
+    cell = cssSize / GRID;
+    canvas.style.width  = cssSize + 'px';
+    canvas.style.height = cssSize + 'px';
+    canvas.width  = Math.round(cssSize * dpr);
+    canvas.height = Math.round(cssSize * dpr);
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0); // draw in CSS pixels
+    draw();
+  }
+
+  // ---- Game state ----
+  var snake, dir, nextDir, food, score, best, interval, timer, running, over, paused, waiting;
+
+  best = parseInt(localStorage.getItem(BEST_KEY) || '0', 10) || 0;
+  bestEl.textContent = best;
+
+  function reset(){
+    refreshColors();
+    // Snake length 3 in the middle, moving right.
+    var mid = Math.floor(GRID / 2);
+    snake = [
+      {x: mid,     y: mid},
+      {x: mid - 1, y: mid},
+      {x: mid - 2, y: mid}
+    ];
+    dir = {x: 1, y: 0};      // moving right
+    nextDir = {x: 1, y: 0};
+    score = 0;
+    interval = START_INTERVAL;
+    over = false;
+    paused = false;
+    waiting = true;   // don't run into the wall while nobody is steering yet
+    stopLoop();
+    spawnFood();
+    scoreEl.textContent = score;
+    document.getElementById('pauseBtn').textContent = 'Pause';
+    draw();
+    showOverlay('Snake', 'Swipe, tap a direction, or press an arrow', 'Start');
+  }
+
+  function beginRun(){
+    waiting = false;
+    hideOverlay();
+    startLoop();
+  }
+
+  // Food spawns on a random cell that is NOT occupied by the snake.
+  function spawnFood(){
+    var free = [];
+    for(var y=0; y<GRID; y++){
+      for(var x=0; x<GRID; x++){
+        if(!cellOnSnake(x, y)) free.push({x:x, y:y});
+      }
+    }
+    if(free.length === 0){ food = null; return; } // board full = win-ish, no crash
+    food = free[(Math.random() * free.length) | 0];
+  }
+
+  function cellOnSnake(x, y){
+    for(var i=0; i<snake.length; i++){
+      if(snake[i].x === x && snake[i].y === y) return true;
+    }
+    return false;
+  }
+
+  // ---- Fixed-timestep loop ----
+  function startLoop(){
+    stopLoop();
+    running = true;
+    timer = setInterval(tick, interval);
+  }
+  function stopLoop(){
+    running = false;
+    if(timer){ clearInterval(timer); timer = null; }
+  }
+  function restartTimerSpeed(){ // re-arm interval after speed change
+    if(running && !paused && !over){
+      clearInterval(timer);
+      timer = setInterval(tick, interval);
+    }
+  }
+
+  function tick(){
+    if(paused || over) return;
+    step();
+    draw();
+  }
+
+  // ---- One game step: movement + collision + eating ----
+  function step(){
+    dir = nextDir; // commit the queued direction for this step
+
+    var head = snake[0];
+    var nx = head.x + dir.x;
+    var ny = head.y + dir.y;
+
+    // Wrap OFF: hitting a wall = game over.
+    if(nx < 0 || ny < 0 || nx >= GRID || ny >= GRID){ gameOver(); return; }
+
+    // Self collision = game over. (Tail cell is freed unless we grow this step.)
+    var willEat = food && nx === food.x && ny === food.y;
+    var checkLen = willEat ? snake.length : snake.length - 1; // ignore tail if it moves
+    for(var i=0; i<checkLen; i++){
+      if(snake[i].x === nx && snake[i].y === ny){ gameOver(); return; }
+    }
+
+    // Advance: add new head.
+    snake.unshift({x:nx, y:ny});
+
+    if(willEat){
+      // Grow (+1) by keeping the tail, +1 score, respawn food, gentle speed-up.
+      score++;
+      scoreEl.textContent = score;
+      spawnFood();
+      var newInterval = Math.max(MIN_INTERVAL, START_INTERVAL - score * SPEEDUP_PER_FOOD);
+      if(newInterval !== interval){ interval = newInterval; restartTimerSpeed(); }
+    } else {
+      snake.pop(); // no food: drop the tail so length stays the same
+    }
+  }
+
+  function gameOver(){
+    over = true;
+    stopLoop();
+    if(score > best){
+      best = score;
+      bestEl.textContent = best;
+      try{ localStorage.setItem(BEST_KEY, String(best)); }catch(e){}
+    }
+    showOverlay('Game over', 'Score ' + score, 'Play again');
+  }
+
+  // ---- Direction input (ignore a 180° reversal into itself) ----
+  function setDir(x, y){
+    if(over) return;
+    if(waiting){ nextDir = {x:x, y:y}; if(x !== -dir.x || y !== -dir.y) dir = nextDir; beginRun(); return; }
+    // Can't reverse directly onto the current heading.
+    if(x === -dir.x && y === -dir.y) return;
+    // Guard against double input within one step reversing via nextDir.
+    if(x === -nextDir.x && y === -nextDir.y && snake.length > 1) return;
+    nextDir = {x:x, y:y};
+  }
+  var DIRS = {
+    up:    [0,-1], down:  [0, 1],
+    left:  [-1,0], right: [1, 0]
+  };
+  function move(name){ var d = DIRS[name]; if(d) setDir(d[0], d[1]); }
+
+  // ---- Drawing ----
+  function draw(){
+    if(!snake) return;            // sizeCanvas() can fire at boot before reset() seeds state
+    var w = GRID * cell;
+    // background
+    ctx.fillStyle = COL.bg;
+    ctx.fillRect(0, 0, w, w);
+
+    // subtle grid lines
+    ctx.strokeStyle = COL.line;
+    ctx.globalAlpha = 0.35;
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    for(var g=1; g<GRID; g++){
+      var p = Math.round(g * cell) + 0.5;
+      ctx.moveTo(p, 0); ctx.lineTo(p, w);
+      ctx.moveTo(0, p); ctx.lineTo(w, p);
+    }
+    ctx.stroke();
+    ctx.globalAlpha = 1;
+
+    // food
+    if(food){
+      ctx.fillStyle = COL.food;
+      roundCell(food.x, food.y, 0.30);
+    }
+
+    // snake (head brighter than body)
+    for(var i=snake.length-1; i>=0; i--){
+      ctx.fillStyle = (i === 0) ? COL.accentD : COL.accent;
+      roundCell(snake[i].x, snake[i].y, 0.22);
+    }
+  }
+
+  // Rounded square filling a grid cell with a small inset.
+  function roundCell(cx, cy, radiusFrac){
+    var inset = cell * 0.10;
+    var x = cx * cell + inset;
+    var y = cy * cell + inset;
+    var s = cell - inset * 2;
+    var r = s * radiusFrac;
+    ctx.beginPath();
+    ctx.moveTo(x + r, y);
+    ctx.arcTo(x + s, y,     x + s, y + s, r);
+    ctx.arcTo(x + s, y + s, x,     y + s, r);
+    ctx.arcTo(x,     y + s, x,     y,     r);
+    ctx.arcTo(x,     y,     x + s, y,     r);
+    ctx.closePath();
+    ctx.fill();
+  }
+
+  // ---- Overlay helpers ----
+  function showOverlay(msg, sub, btnText){
+    overMsg.textContent = msg;
+    overSub.textContent = sub || '';
+    overBtn.textContent = btnText || 'Play again';
+    overlay.classList.add('show');
+  }
+  function hideOverlay(){ overlay.classList.remove('show'); }
+
+  // ---- Pause / resume ----
+  function setPaused(p){
+    if(over || waiting) return;
+    paused = p;
+    if(paused){ showOverlay('Paused', '', 'Resume'); }
+    else { hideOverlay(); }
+    document.getElementById('pauseBtn').textContent = paused ? 'Resume' : 'Pause';
+  }
+  function togglePause(){ setPaused(!paused); }
+
+  // The overlay button is the restart when the game is over, resume when paused.
+  overBtn.addEventListener('click', function(){
+    if(over){ reset(); }
+    else if(waiting){ beginRun(); }
+    else if(paused){ setPaused(false); }
+  });
+
+  // ---- Keyboard ----
+  window.addEventListener('keydown', function(e){
+    var k = e.key;
+    if(k === 'ArrowUp'   || k === 'w' || k === 'W'){ move('up');    e.preventDefault(); }
+    else if(k === 'ArrowDown' || k === 's' || k === 'S'){ move('down');  e.preventDefault(); }
+    else if(k === 'ArrowLeft' || k === 'a' || k === 'A'){ move('left');  e.preventDefault(); }
+    else if(k === 'ArrowRight'|| k === 'd' || k === 'D'){ move('right'); e.preventDefault(); }
+    else if(k === 'Enter' && over){ reset(); e.preventDefault(); }
+    else if(k === ' ' || k === 'p' || k === 'P'){
+      if(over){ reset(); }
+      else if(waiting){ beginRun(); }
+      else { togglePause(); }
+      e.preventDefault();
+    }
+  });
+
+  // ---- On-screen D-pad ----
+  var dpadButtons = document.querySelectorAll('.dpad button');
+  for(var b=0; b<dpadButtons.length; b++){
+    (function(btn){
+      var dirName = btn.getAttribute('data-dir');
+      // pointerdown, not click: the move lands ~100ms sooner on touch
+      if (window.PointerEvent) btn.addEventListener('pointerdown', function(e){ move(dirName); e.preventDefault(); });
+      else btn.addEventListener('click', function(e){ move(dirName); e.preventDefault(); });
+    })(dpadButtons[b]);
+  }
+
+  // ---- Swipe on the canvas ----
+  var touchStart = null;
+  canvas.addEventListener('touchstart', function(e){
+    var t = e.changedTouches[0];
+    touchStart = {x:t.clientX, y:t.clientY};
+  }, {passive:true});
+  canvas.addEventListener('touchmove', function(e){
+    // Stop the page from scrolling while swiping the board.
+    e.preventDefault();
+  }, {passive:false});
+  canvas.addEventListener('touchend', function(e){
+    if(!touchStart) return;
+    var t = e.changedTouches[0];
+    var dx = t.clientX - touchStart.x;
+    var dy = t.clientY - touchStart.y;
+    var adx = Math.abs(dx), ady = Math.abs(dy);
+    if(Math.max(adx, ady) < 18){ touchStart = null; return; } // too small = tap
+    if(adx > ady){ move(dx > 0 ? 'right' : 'left'); }
+    else         { move(dy > 0 ? 'down'  : 'up'); }
+    touchStart = null;
+  }, {passive:true});
+
+  // ---- Buttons ----
+  document.getElementById('newGame').addEventListener('click', reset);
+  document.getElementById('pauseBtn').addEventListener('click', togglePause);
+
+  // ---- Auto-pause when tab loses focus ----
+  document.addEventListener('visibilitychange', function(){
+    if(document.hidden && !over && !paused){ setPaused(true); }
+  });
+
+  // ---- Resize handling (rotation, browser chrome show/hide) ----
+  window.addEventListener('resize', sizeCanvas);
+  if(window.visualViewport) window.visualViewport.addEventListener('resize', sizeCanvas);
+
+  // ---- Boot ----
+  sizeCanvas();
+  reset();
+  // fonts/theme settle a beat after load; re-measure once
+  setTimeout(sizeCanvas, 150);
+})();
+</script>
+</body>
+</html>

@@ -7,7 +7,13 @@
 (function() {
   try {
     const isDark = localStorage.getItem('nomad_dark_mode') === 'true';
-    if (isDark) document.documentElement.classList.add('dark');
+    if (isDark) {
+      document.documentElement.classList.add('dark');
+      // body.dark is what master.css keys on; tag body the moment it exists
+      new MutationObserver((m, o) => {
+        if (document.body) { document.body.classList.add('dark'); o.disconnect(); }
+      }).observe(document.documentElement, { childList: true });
+    }
 
     const saved = localStorage.getItem('nomad_custom_theme');
     if (saved) {
@@ -300,7 +306,7 @@
         <div class="reader-header">
             <div class="reader-title" id="readerTitle">Loading...</div>
             <div class="reader-controls">
-                <a class="reader-btn" href="/books.html" title="Back to Books">← Back</a>
+                <a class="reader-btn" href="/books" title="Back to Books">← Back</a>
                 <button class="reader-btn" id="zoomOut" title="Zoom Out">-</button>
                 <button class="reader-btn" id="zoomReset" title="Reset Zoom">100%</button>
                 <button class="reader-btn" id="zoomIn" title="Zoom In">+</button>

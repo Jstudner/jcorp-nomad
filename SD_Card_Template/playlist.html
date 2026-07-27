@@ -96,7 +96,12 @@ function prettify(n){
 
 async function fetchIndex(path){
   const url = `${INDEX_ENDPOINT}?path=${encodeURIComponent(normalizePath(path))}`;
-  const res = await fetch(url, { cache: 'no-store' });
+  // a busy card answers 503 briefly right after boot; retry, don't fail
+  let res = await fetch(url, { cache: 'no-store' });
+  for(let i=0;i<3 && res.status===503;i++){
+    await new Promise(r=>setTimeout(r, 700*(i+1)));
+    res = await fetch(url, { cache: 'no-store' });
+  }
   if(!res.ok) throw new Error('index fetch failed '+res.status);
   const text = await res.text();
   const lines = text.split('\n').filter(Boolean);
@@ -507,7 +512,13 @@ function renderPlaylistBody(topPath, bodyEl){
   }
 }
 
-searchEl.addEventListener('input', render);
+// debounced like movies and shows. render() walks playlists recursively, so
+// this did a full rebuild on every keystroke.
+let _searchDebounce = null;
+searchEl.addEventListener('input', () => {
+  clearTimeout(_searchDebounce);
+  _searchDebounce = setTimeout(render, 150);
+});
 
 window.addEventListener('message', (event) => {
   const { type, payload } = event.data;

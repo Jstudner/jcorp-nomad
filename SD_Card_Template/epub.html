@@ -7,7 +7,13 @@
 (async function() {
   try {
     const isDark = localStorage.getItem('nomad_dark_mode') === 'true';
-    if (isDark) document.documentElement.classList.add('dark');
+    if (isDark) {
+      document.documentElement.classList.add('dark');
+      // body.dark is what master.css keys on; tag body the moment it exists
+      new MutationObserver((m, o) => {
+        if (document.body) { document.body.classList.add('dark'); o.disconnect(); }
+      }).observe(document.documentElement, { childList: true });
+    }
 
     async function loadThemeFromServer() {
       try {
@@ -318,7 +324,7 @@
         <div class="reader-header">
             <div class="reader-title" id="readerTitle">Loading...</div>
             <div class="reader-controls">
-                <a class="reader-btn" href="/books.html" title="Back to Books">← Back</a>
+                <a class="reader-btn" href="/books" title="Back to Books">← Back</a>
                 <button class="reader-btn" id="tocBtn" title="Table of Contents">📑 TOC</button>
                 <button class="reader-btn" id="viewModeBtn" title="Toggle view mode">Pages</button>
                 <button class="reader-btn" id="fontSizeDown" title="Decrease font size">A-</button>

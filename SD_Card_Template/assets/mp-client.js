@@ -1,7 +1,7 @@
-// <!-- Version 4 -->
+// <!-- Version 5 -->
 // Nomad multiplayer client: short-polling wrapper over /api/mp/*.
-// Seat 0 is the creator, turn is seq parity, state is an opaque string
-// owned by the game page.
+// Seat 0 is the creator, turn is seq parity, state is an opaque string owned by
+// the game page.
 'use strict';
 
 /* Firmware without /api/mp/* answers with the captive portal page (status 200),
@@ -65,6 +65,28 @@ const MP = {
     return j.seq;
   },
 
+  // Play again: either player may restart the room with a fresh state, no need to
+  // reshare the code. The firmware alternates who moves first unless firstSeat pins it.
+  async reset(stateStr, firstSeat) {
+    const body = {
+      code: this.room.code, token: this.room.token,
+      move: stateStr, seq: this.room.seq, reset: true,
+    };
+    if (firstSeat === 0 || firstSeat === 1) body.first = firstSeat;
+    const r = await fetch('/api/mp/move', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    if (!r.ok) {
+      const j = await r.json().catch(() => ({}));
+      throw new Error(j.error || 'Reset rejected');
+    }
+    const j = await mpJson(r);
+    this.room.seq = j.seq;
+    this._seen = j.seq; // we already hold the fresh state locally
+    return j.seq;
+  },
+
   myTurn() {
     return this.room && this.room.joined !== false && this.room.seat === this.room.seq % 2;
   },
@@ -72,8 +94,12 @@ const MP = {
   // Poll the room; onUpdate(state) fires whenever the server has a newer seq.
   // onInfo(j) fires every poll (join detection etc.). Call stop() to end.
   poll(onUpdate, onInfo, interval) {
+    // a poll already running would keep its own timer chain alive, since
+    // stop() can only clear the most recent one
+    this.stop();
+    this._stopped = false;
     const tick = async () => {
-      if (!this.room) return;
+      if (!this.room || this._stopped) return;
       try {
         const r = await fetch(`/api/mp/state?code=${this.room.code}&since=${this._seen}`,
           { cache: 'no-store' });
@@ -87,10 +113,13 @@ const MP = {
           if (j.state) onUpdate && onUpdate(j.state, j);
         }
       } catch (e) { /* transient network error, keep polling */ }
+      // stop() may have run while the fetch above was in flight, and
+      // rescheduling here would restart the loop for the life of the page
+      if (this._stopped) return;
       this._pollTimer = setTimeout(tick, interval || 1200);
     };
     tick();
   },
 
-  stop() { clearTimeout(this._pollTimer); },
+  stop() { this._stopped = true; clearTimeout(this._pollTimer); },
 };

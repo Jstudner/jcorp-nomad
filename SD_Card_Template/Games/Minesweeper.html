@@ -1,0 +1,526 @@
+<!DOCTYPE html>
+<!-- Version 1, ported from Voyager -->
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no"/>
+<title>Nomad • Minesweeper</title>
+<link rel="icon" href="/favicon.ico" type="image/x-icon">
+<link rel="stylesheet" href="/master.css">
+<script src="/theme-boot.js"></script>
+<script src="/theme-manager.js"></script>
+<style>
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0}
+  body{
+    background:var(--bg,#f4f4f9);
+    color:var(--text,#333);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    min-height:100vh;
+    padding:0 0 24px;
+    display:flex;
+    flex-direction:column;
+    align-items:center;
+    gap:14px;
+  }
+  /* the shared Nomad header spans the page even inside this centered flex body */
+  header{align-self:stretch;width:100%}
+
+  /* ---- Top bar ---- */
+  .topbar{
+    width:min(94vw,520px);
+    display:flex;
+    flex-wrap:wrap;
+    align-items:center;
+    gap:8px;
+  }
+  .topbar h1{
+    font-size:clamp(16px,4vw,22px);
+    margin:0;
+    flex:1 1 auto;
+    white-space:nowrap;
+  }
+  .btn{
+    display:inline-flex;
+    align-items:center;
+    justify-content:center;
+    gap:4px;
+    padding:8px 12px;
+    border:1px solid var(--line,#dcdce3);
+    border-radius:var(--radius,10px);
+    background:var(--card,#fff);
+    color:var(--text,#333);
+    font-size:14px;
+    text-decoration:none;
+    cursor:pointer;
+    user-select:none;
+    -webkit-tap-highlight-color:transparent;
+    transition:background .12s,border-color .12s;
+  }
+  .btn:hover{border-color:var(--primary,#4f46e5)}
+  .btn.primary{
+    background:var(--primary,#4f46e5);
+    border-color:var(--primary,#4f46e5);
+    color:#fff;
+  }
+  .btn.primary:hover{background:var(--primary-dark,#3f37c9)}
+  .btn.active{
+    background:var(--primary,#4f46e5);
+    border-color:var(--primary,#4f46e5);
+    color:#fff;
+  }
+  select.btn{appearance:auto}
+
+  .controls{
+    width:min(94vw,520px);
+    display:flex;
+    flex-wrap:wrap;
+    gap:8px;
+    align-items:center;
+  }
+
+  /* ---- Status bar ---- */
+  .statusbar{
+    width:min(94vw,520px);
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    gap:8px;
+    padding:8px 12px;
+    background:var(--card,#fff);
+    border:1px solid var(--line,#dcdce3);
+    border-radius:var(--radius,10px);
+  }
+  .stat{
+    display:flex;
+    align-items:center;
+    gap:6px;
+    font-variant-numeric:tabular-nums;
+    font-size:clamp(14px,4vw,18px);
+    font-weight:600;
+    min-width:64px;
+  }
+  .stat .lbl{color:var(--muted,#777);font-weight:400}
+  .face{
+    font-size:clamp(22px,7vw,30px);
+    line-height:1;
+    background:none;
+    border:none;
+    cursor:pointer;
+    padding:2px 6px;
+    user-select:none;
+    -webkit-tap-highlight-color:transparent;
+  }
+
+  /* ---- Board ---- */
+  #board{
+    width:min(94vw,520px);
+    display:grid;
+    gap:3px;
+    padding:6px;
+    background:var(--card,#fff);
+    border:1px solid var(--line,#dcdce3);
+    border-radius:var(--radius,10px);
+    touch-action:manipulation;
+  }
+  .cell{
+    aspect-ratio:1;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    font-size:clamp(11px,3.2vw,18px);
+    font-weight:700;
+    line-height:1;
+    border-radius:calc(var(--radius,10px) * .35);
+    background:var(--bg,#f4f4f9);
+    border:1px solid var(--line,#dcdce3);
+    cursor:pointer;
+    user-select:none;
+    -webkit-user-select:none;
+    touch-action:manipulation;
+    -webkit-tap-highlight-color:transparent;
+    overflow:hidden;
+  }
+  .cell.revealed{
+    background:var(--card,#fff);
+    cursor:default;
+    border-color:var(--line,#dcdce3);
+    box-shadow:inset 0 0 0 1px rgba(0,0,0,.03);
+  }
+  .cell.mine{background:var(--danger,#d94b4b);color:#fff}
+  .cell.mine.triggered{background:#8a1f1f;color:#fff}
+  .cell.flag{background:var(--bg,#f4f4f9)}
+
+  /* Classic number colors (with readable dark-mode tweaks) */
+  .n1{color:#1976d2}
+  .n2{color:#388e3c}
+  .n3{color:#d32f2f}
+  .n4{color:#1a237e}
+  .n5{color:#8e2626}
+  .n6{color:#0097a7}
+  .n7{color:var(--text,#333)}
+  .n8{color:#757575}
+
+  body.dark .n1{color:#64b5f6}
+  body.dark .n2{color:#81c784}
+  body.dark .n3{color:#e57373}
+  body.dark .n4{color:#9fa8da}
+  body.dark .n5{color:#ef9a9a}
+  body.dark .n6{color:#4dd0e1}
+  body.dark .n7{color:var(--text,#eee)}
+  body.dark .n8{color:#bdbdbd}
+
+  .hint{
+    width:min(94vw,520px);
+    color:var(--muted,#777);
+    font-size:12px;
+    text-align:center;
+    line-height:1.4;
+  }
+</style>
+</head>
+<body>
+  <header>
+    <h1>Minesweeper</h1>
+    <a class="back-btn" href="/games">← Back to Games</a>
+  </header>
+
+<div class="topbar">
+    </div>
+
+<div class="controls">
+  <select id="difficulty" class="btn" aria-label="Difficulty">
+    <option value="easy">Easy · 9×9 · 10</option>
+    <option value="medium">Medium · 12×12 · 25</option>
+    <option value="hard">Hard · 16×16 · 45</option>
+  </select>
+  <button id="flagToggle" class="btn" aria-pressed="false">🚩 Flag: Off</button>
+  <button id="newGame" class="btn primary">New Game</button>
+</div>
+
+<div class="statusbar">
+  <div class="stat"><span aria-hidden="true">💣</span><span id="mineCount">0</span></div>
+  <button id="face" class="face" aria-label="New game">🙂</button>
+  <div class="stat"><span class="lbl" aria-hidden="true">⏱</span><span id="timer">0</span></div>
+</div>
+
+<div id="board" aria-label="Minesweeper board"></div>
+
+<div class="hint">Tap to reveal · long-press or right-click to flag · toggle 🚩 for flag mode</div>
+
+<script>
+(function(){
+  "use strict";
+
+  // ---- Difficulty presets ----
+  var LEVELS = {
+    easy:   {cols:9,  rows:9,  mines:10},
+    medium: {cols:12, rows:12, mines:25},
+    hard:   {cols:16, rows:16, mines:45}
+  };
+
+  // ---- DOM refs ----
+  var boardEl   = document.getElementById('board');
+  var mineCntEl = document.getElementById('mineCount');
+  var timerEl   = document.getElementById('timer');
+  var faceEl    = document.getElementById('face');
+  var diffEl    = document.getElementById('difficulty');
+  var flagBtn   = document.getElementById('flagToggle');
+  var newBtn    = document.getElementById('newGame');
+
+  // ---- Game state ----
+  var cols, rows, mineTotal;
+  var cells;            // flat array of cell objects
+  var els;             // flat array of DOM elements (parallel to cells)
+  var started;         // has the first reveal happened (mines placed)?
+  var over;            // is the game finished?
+  var flagsPlaced;
+  var revealedCount;
+  var flagMode = false;
+  var timer = 0, timerId = null;
+
+  // ---- Helpers ----
+  function idx(c, r){ return r * cols + c; }
+  function inBounds(c, r){ return c >= 0 && c < cols && r >= 0 && r < rows; }
+
+  // Iterate the 8 neighbors of (c,r)
+  function forNeighbors(c, r, fn){
+    for(var dr=-1; dr<=1; dr++){
+      for(var dc=-1; dc<=1; dc++){
+        if(dc===0 && dr===0) continue;
+        var nc=c+dc, nr=r+dr;
+        if(inBounds(nc, nr)) fn(nc, nr, idx(nc, nr));
+      }
+    }
+  }
+
+  // ---- Timer ----
+  function startTimer(){
+    if(timerId) return;
+    timerId = setInterval(function(){
+      timer++;
+      timerEl.textContent = timer;
+    }, 1000);
+  }
+  function stopTimer(){
+    if(timerId){ clearInterval(timerId); timerId = null; }
+  }
+
+  function updateMineDisplay(){
+    mineCntEl.textContent = mineTotal - flagsPlaced;
+  }
+
+  // ---- Build a fresh board ----
+  function newGame(){
+    var cfg = LEVELS[diffEl.value] || LEVELS.easy;
+    cols = cfg.cols; rows = cfg.rows; mineTotal = cfg.mines;
+
+    cells = new Array(cols * rows);
+    els   = new Array(cols * rows);
+    started = false;
+    over = false;
+    flagsPlaced = 0;
+    revealedCount = 0;
+    timer = 0;
+    stopTimer();
+    timerEl.textContent = '0';
+    faceEl.textContent = '🙂';
+    updateMineDisplay();
+
+    // Render the grid
+    boardEl.style.gridTemplateColumns = 'repeat(' + cols + ', 1fr)';
+    boardEl.innerHTML = '';
+    var frag = document.createDocumentFragment();
+    for(var r=0; r<rows; r++){
+      for(var c=0; c<cols; c++){
+        var i = idx(c, r);
+        cells[i] = {mine:false, adj:0, revealed:false, flagged:false, c:c, r:r};
+        var el = document.createElement('div');
+        el.className = 'cell';
+        el.dataset.i = i;
+        frag.appendChild(el);
+        els[i] = el;
+      }
+    }
+    boardEl.appendChild(frag);
+  }
+
+  // ---- Safe-first-click mine placement ----
+  // Mines are generated AFTER the first reveal. We forbid mines on the
+  // clicked cell AND its neighbors, so the first tap always opens a 0 and
+  // flood-fills a comfortable starting area.
+  function placeMines(safeC, safeR){
+    var forbidden = {};
+    forbidden[idx(safeC, safeR)] = true;
+    forNeighbors(safeC, safeR, function(nc, nr, ni){ forbidden[ni] = true; });
+
+    // If the board is too small to keep the whole neighborhood clear,
+    // fall back to only protecting the clicked cell itself.
+    var freeCells = cols * rows - Object.keys(forbidden).length;
+    if(freeCells < mineTotal){
+      forbidden = {};
+      forbidden[idx(safeC, safeR)] = true;
+    }
+
+    // Shuffle-free random placement: pick random cells until we hit the count.
+    var placed = 0;
+    while(placed < mineTotal){
+      var i = Math.floor(Math.random() * cols * rows);
+      if(forbidden[i] || cells[i].mine) continue;
+      cells[i].mine = true;
+      placed++;
+    }
+
+    // Precompute adjacent-mine counts for every cell.
+    for(var r=0; r<rows; r++){
+      for(var c=0; c<cols; c++){
+        var i = idx(c, r);
+        if(cells[i].mine) continue;
+        var n = 0;
+        forNeighbors(c, r, function(nc, nr, ni){ if(cells[ni].mine) n++; });
+        cells[i].adj = n;
+      }
+    }
+  }
+
+  // ---- Rendering a single cell's current state ----
+  function paint(i){
+    var cell = cells[i], el = els[i];
+    el.className = 'cell';
+    el.textContent = '';
+    if(cell.flagged && !cell.revealed){
+      el.classList.add('flag');
+      el.textContent = '🚩';
+      return;
+    }
+    if(!cell.revealed) return;
+    el.classList.add('revealed');
+    if(cell.mine){
+      el.classList.add('mine');
+      if(cell.triggered) el.classList.add('triggered');
+      el.textContent = '💣';
+    } else if(cell.adj > 0){
+      el.classList.add('n' + cell.adj);
+      el.textContent = cell.adj;
+    }
+  }
+
+  // ---- Flood fill ----
+  // Iterative BFS: revealing a 0 opens all its neighbors; any neighbor that
+  // is also a 0 gets queued so its neighbors open too, until the numbered
+  // border is reached. Flagged cells are never auto-opened.
+  function floodFill(startI){
+    var stack = [startI];
+    while(stack.length){
+      var i = stack.pop();
+      var cell = cells[i];
+      if(cell.revealed || cell.flagged) continue;
+      cell.revealed = true;
+      revealedCount++;
+      paint(i);
+      if(cell.adj === 0){
+        forNeighbors(cell.c, cell.r, function(nc, nr, ni){
+          if(!cells[ni].revealed && !cells[ni].flagged && !cells[ni].mine){
+            stack.push(ni);
+          }
+        });
+      }
+    }
+  }
+
+  // ---- Reveal action ----
+  function reveal(i){
+    if(over) return;
+    var cell = cells[i];
+    if(cell.revealed || cell.flagged) return;
+
+    // First reveal: place mines now (guaranteeing this cell is safe) + start timer.
+    if(!started){
+      placeMines(cell.c, cell.r);
+      started = true;
+      startTimer();
+    }
+
+    if(cell.mine){
+      cell.triggered = true;
+      lose();
+      return;
+    }
+
+    if(cell.adj === 0){
+      floodFill(i);      // open the whole empty region
+    } else {
+      cell.revealed = true;
+      revealedCount++;
+      paint(i);
+    }
+
+    checkWin();
+  }
+
+  // ---- Flag action ----
+  function toggleFlag(i){
+    if(over) return;
+    var cell = cells[i];
+    if(cell.revealed) return;
+    cell.flagged = !cell.flagged;
+    flagsPlaced += cell.flagged ? 1 : -1;
+    paint(i);
+    updateMineDisplay();
+  }
+
+  // ---- End states ----
+  function lose(){
+    over = true;
+    stopTimer();
+    faceEl.textContent = '💥';
+    // Reveal every mine.
+    for(var i=0; i<cells.length; i++){
+      if(cells[i].mine){
+        cells[i].revealed = true;
+        paint(i);
+      }
+    }
+  }
+
+  function checkWin(){
+    // Win = every non-mine cell has been revealed.
+    if(revealedCount === cols * rows - mineTotal && !over){
+      over = true;
+      stopTimer();
+      faceEl.textContent = '😎';
+      // Auto-flag any remaining mines for a tidy finish.
+      for(var i=0; i<cells.length; i++){
+        if(cells[i].mine && !cells[i].flagged){
+          cells[i].flagged = true;
+          flagsPlaced++;
+          paint(i);
+        }
+      }
+      updateMineDisplay();
+    }
+  }
+
+  // ---- Input handling ----
+  var pressTimer = null;
+  var longPressed = false;
+
+  function cellIndexFromEvent(e){
+    var t = e.target;
+    while(t && t !== boardEl && !t.dataset.i) t = t.parentNode;
+    if(!t || !t.dataset) return -1;
+    var i = parseInt(t.dataset.i, 10);
+    return isNaN(i) ? -1 : i;
+  }
+
+  // Primary tap/click: reveal, or flag when flag-mode is on.
+  boardEl.addEventListener('click', function(e){
+    if(longPressed){ longPressed = false; return; } // consumed by long-press
+    var i = cellIndexFromEvent(e);
+    if(i < 0) return;
+    if(flagMode) toggleFlag(i);
+    else reveal(i);
+  });
+
+  // Desktop right-click flags.
+  boardEl.addEventListener('contextmenu', function(e){
+    e.preventDefault();
+    var i = cellIndexFromEvent(e);
+    if(i >= 0) toggleFlag(i);
+  });
+
+  // Long-press (~450ms) flags regardless of flag-mode.
+  boardEl.addEventListener('touchstart', function(e){
+    var i = cellIndexFromEvent(e);
+    if(i < 0) return;
+    longPressed = false;
+    pressTimer = setTimeout(function(){
+      longPressed = true;
+      toggleFlag(i);
+    }, 450);
+  }, {passive:true});
+
+  function cancelPress(){
+    if(pressTimer){ clearTimeout(pressTimer); pressTimer = null; }
+  }
+  boardEl.addEventListener('touchend', cancelPress);
+  boardEl.addEventListener('touchmove', cancelPress);
+  boardEl.addEventListener('touchcancel', function(){ cancelPress(); longPressed = false; });
+
+  // ---- Buttons ----
+  faceEl.addEventListener('click', newGame);
+  newBtn.addEventListener('click', newGame);
+  diffEl.addEventListener('change', newGame);
+  flagBtn.addEventListener('click', function(){
+    flagMode = !flagMode;
+    flagBtn.textContent = '🚩 Flag: ' + (flagMode ? 'On' : 'Off');
+    flagBtn.setAttribute('aria-pressed', flagMode ? 'true' : 'false');
+    flagBtn.classList.toggle('active', flagMode);
+  });
+
+  // ---- Boot ----
+  newGame();
+})();
+</script>
+</body>
+</html>

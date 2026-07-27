@@ -201,10 +201,10 @@ static time_t fatToUnixTime(uint16_t d, uint16_t t) {
 
 // ---------------------------------------------------------------- clock
 
-// SdFat stamps new files through this callback; without one they all share a
-// constant date. The Nomad has no RTC, so this reuses the fixed-epoch-plus-uptime
-// approach already used for OPDS timestamps: not wall time, but files written
-// later in a session sort after earlier ones.
+// SdFat stamps new files through this callback, without one they all share a constant
+// date. The Nomad has no RTC, so this reuses the fixed-epoch-plus-uptime approach
+// already used for OPDS timestamps: not wall time, but files written later in a
+// session sort after earlier ones.
 static const time_t NOMAD_REFERENCE_EPOCH = 1752321600;  // 2025-07-12T12:00:00Z
 
 static void nomadDateTimeCallback(uint16_t *date, uint16_t *time, uint8_t *ms10) {
@@ -290,6 +290,15 @@ size_t NomadFile64::read(uint8_t *buf, size_t len) {
   return n < 0 ? 0 : (size_t)n;
 }
 
+size_t NomadFile64::readAt(uint64_t pos, uint8_t *buf, size_t len) {
+  FsLockGuard lk;
+  if (!_h || !h2f(_h)->isOpen()) return 0;
+  FsFile *f = h2f(_h);
+  if (f->curPosition() != pos && !f->seekSet(pos)) return 0;
+  int n = f->read(buf, len);
+  return n < 0 ? 0 : (size_t)n;
+}
+
 // ---------------------------------------------------------------- FileImpl
 
 class NomadFileImpl : public FileImpl {
@@ -342,9 +351,8 @@ public:
     FsLockGuard lk;
     if (!_f.isOpen() || _f.isDir()) return 0;
     uint64_t sz = _f.fileSize();
-    // Saturate, never wrap: a 5 GB file would otherwise report 0.88 GB, which
-    // callers would act on as the whole file. SIZE_MAX also serves as the
-    // sentinel meaning "ask fileSize64()". Unreachable on FAT32.
+    // Saturate, never wrap: a 5 GB file would otherwise report 0.88 GB and callers would
+    // act on it as the whole file. SIZE_MAX also means "ask fileSize64()".
     return sz > (uint64_t)SIZE_MAX ? SIZE_MAX : (size_t)sz;
   }
 
@@ -582,11 +590,9 @@ uint64_t NomadSDFS::totalBytes() {
 }
 
 // FAT32 FSInfo fast path. SdFat always walks the whole FAT, which costs tens of
-// seconds on a big card inside setup(), so read the FSInfo free-cluster count
-// directly and fall back to the walk only when it is absent or implausible.
-// Known drift: SdFat does not update FSInfo on write, so the count goes stale by
-// whatever the device writes until a PC mounts the card. The admin SD scan
-// corrects the UI totals.
+// seconds on a big card inside setup(), so read the FSInfo free-cluster count directly
+// and fall back to the walk only when it is absent or implausible. Known drift: SdFat
+// does not update FSInfo on write, so the count goes stale until a PC mounts the card.
 static bool looksLikeFat32BootSector(const uint8_t *s) {
   if (s[510] != 0x55 || s[511] != 0xAA) return false;
   if (s[0] != 0xEB && s[0] != 0xE9) return false;
@@ -654,6 +660,16 @@ bool NomadSDFS::readRAW(uint8_t *buffer, uint32_t sector) {
 bool NomadSDFS::writeRAW(uint8_t *buffer, uint32_t sector) {
   FsLockGuard lk;
   return s_dev.writeSector(sector, buffer);
+}
+
+bool NomadSDFS::readRAWMulti(uint8_t *buffer, uint32_t sector, size_t count) {
+  FsLockGuard lk;
+  return s_dev.readSectors(sector, buffer, count);
+}
+
+bool NomadSDFS::writeRAWMulti(const uint8_t *buffer, uint32_t sector, size_t count) {
+  FsLockGuard lk;
+  return s_dev.writeSectors(sector, buffer, count);
 }
 
 const char *NomadSDFS::fsTypeName() {

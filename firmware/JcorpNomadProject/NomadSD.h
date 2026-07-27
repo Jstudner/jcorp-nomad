@@ -24,13 +24,13 @@ typedef enum { CARD_NONE, CARD_MMC, CARD_SD, CARD_SDHC, CARD_UNKNOWN } sdcard_ty
 
 // 64-bit read handle for files larger than 4 GB (exFAT only).
 //
-// fs::File is 32-bit end to end, so a 5 GB file reports its size modulo 4 GB
-// and cannot seek past 4 GB. That API is fixed by the core, so the HTTP range
-// handler uses this handle instead.
+// fs::File is 32-bit end to end, so a 5 GB file reports its size modulo 4 GB and
+// cannot seek past 4 GB. That API is fixed by the core, so the HTTP range handler
+// uses this handle instead.
 //
-// The FsFile sits behind a void* deliberately: including SdFat's headers here
-// would pull in its global `typedef FsFile File`, which collides with fs::File
-// throughout the firmware. Move-only, like the FsFile it wraps.
+// The FsFile sits behind a void* deliberately: including SdFat's headers here would
+// pull in its global `typedef FsFile File`, which collides with fs::File throughout
+// the firmware. Move-only, like the FsFile it wraps.
 class NomadFile64 {
 public:
   NomadFile64();
@@ -47,6 +47,10 @@ public:
   uint64_t position() const;
   bool seek(uint64_t pos);
   size_t read(uint8_t *buf, size_t len);
+  // seek and read in one lock acquisition. The HTTP range handler shares one handle
+  // between everyone reading the same file, so it has to position the handle itself,
+  // and doing that as three separate calls took the SdFat lock three times per chunk.
+  size_t readAt(uint64_t pos, uint8_t *buf, size_t len);
   explicit operator bool() const {
     return isOpen();
   }
@@ -65,10 +69,10 @@ public:
   // must be called before begin(); same signature as SD_MMC.setPins
   bool setPins(int clk, int cmd, int d0, int d1, int d2, int d3);
 
-  // SD_MMC.begin-compatible signature so call sites compile untouched.
-  // mountpoint, format_if_mount_failed and maxOpenFiles are accepted but
-  // ignored: SdFat has no global handle limit, and auto-format on mount
-  // failure risked wiping a card we merely failed to read.
+  // SD_MMC.begin-compatible signature so call sites compile untouched. mountpoint,
+  // format_if_mount_failed and maxOpenFiles are accepted but ignored: SdFat has no
+  // global handle limit, and auto-format on mount failure risked wiping a card we
+  // merely failed to read.
   bool begin(const char *mountpoint = "/sdcard", bool mode1bit = true, bool format_if_mount_failed = false,
              int sdmmc_frequency = SDMMC_FREQ_DEFAULT, uint8_t maxOpenFiles = 5);
 
@@ -86,6 +90,10 @@ public:
   int numSectors();
   bool readRAW(uint8_t *buffer, uint32_t sector);
   bool writeRAW(uint8_t *buffer, uint32_t sector);
+  // burst variants for USB MSC: one SD command per host transfer instead of
+  // one per 512-byte sector - the per-command overhead is what made MSC slow
+  bool readRAWMulti(uint8_t *buffer, uint32_t sector, size_t count);
+  bool writeRAWMulti(const uint8_t *buffer, uint32_t sector, size_t count);
 
   // "exFAT" / "FAT32" / "FAT16" / "none" - for boot logging
   const char *fsTypeName();

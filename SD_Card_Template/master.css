@@ -60,45 +60,6 @@
   --playing-bg: #0b63ff;
   --playing-text: #ffffff;
 
-  /* === ALPHA HELPERS === */
-  /* subtle borders, shadows and hover fills. none were defined before */
-  --black-alpha-4: rgba(0, 0, 0, 0.04);
-  --black-alpha-6: rgba(0, 0, 0, 0.06);
-  --black-alpha-8: rgba(0, 0, 0, 0.08);
-  --black-alpha-10: rgba(0, 0, 0, 0.10);
-  --black-alpha-12: rgba(0, 0, 0, 0.12);
-  --white-alpha-3: rgba(255, 255, 255, 0.03);
-  --white-alpha-4: rgba(255, 255, 255, 0.04);
-  --white-alpha-6: rgba(255, 255, 255, 0.06);
-  --white-alpha-8: rgba(255, 255, 255, 0.08);
-  --white-alpha-12: rgba(255, 255, 255, 0.12);
-  --white-alpha-20: rgba(255, 255, 255, 0.20);
-  --white-alpha-30: rgba(255, 255, 255, 0.30);
-  --white-alpha-80: rgba(255, 255, 255, 0.80);
-  --color-black: #000000;
-
-  /* tint of whatever the active theme's primary is */
-  --primary-alpha-5: color-mix(in srgb, var(--primary) 5%, transparent);
-  --primary-alpha-8: color-mix(in srgb, var(--primary) 8%, transparent);
-  --primary-alpha-10: color-mix(in srgb, var(--primary) 10%, transparent);
-  --primary-alpha-20: color-mix(in srgb, var(--primary) 20%, transparent);
-  --primary-alpha-30: color-mix(in srgb, var(--primary) 30%, transparent);
-
-  /* === OVERLAYS === */
-  /* pages point the plyr tokens at these; match the plyr defaults below */
-  --overlay-modal: rgba(0, 0, 0, 0.6);
-  --overlay-menu: rgba(0, 0, 0, 0.9);
-  --overlay-video: rgba(0, 0, 0, 0.7);
-
-  /* === ALIASES === */
-  /* older page CSS asks for these names, point them at the real tokens */
-  --red: var(--danger);
-  --surface: var(--card);
-  --text-gray: var(--muted);
-  --thumb-bg: var(--bg);
-  --thumb-text: var(--muted);
-  --thumb-title: var(--text);
-
   /* === TYPOGRAPHY === */
   --font-primary: Arial, Helvetica, sans-serif;
   --font-secondary: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
@@ -197,10 +158,6 @@ body.dark {
   /* === DARK STATE COLORS === */
   --playing-bg: #0a84ff;
   --playing-text: #ffffff;
-
-  /* only referenced from page level body.dark rules */
-  --progress-dark: rgba(255, 255, 255, 0.12);
-  --time-dark: var(--muted);
 
   /* === DARK SHADOWS === */
   --shadow: 0 10px 30px rgba(0, 0, 0, 0.6);
@@ -2306,3 +2263,1554 @@ body.dark .plyr {
    /* === INDEX.HTML (Landing Page) === */
 
 /* === RESPONSIVE ADJUSTMENTS === */
+@media (max-width: 600px) {
+  header {
+    flex-direction: row;
+
+
+/* === RESPONSIVE ADJUSTMENTS ===
+@media (max-width: 600px) {
+  header {
+    flex-direction: row;
+    gap: 0.5rem;
+  }
+
+  .toolbar {
+    top: 68px;
+  }
+
+  .media-grid.small {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  .media-grid.medium {
+    grid-template-columns: repeat(3, 1fr);
+  }
+
+
+
+/* === RESPONSIVE ADJUSTMENTS ===
+@media (max-width: 600px) {
+  header {
+    flex-direction: row;
+    gap: 0.5rem;
+  }
+/* ============================================
+   21. PAGE-SPECIFIC STYLES
+   Custom styles for individual pages
+   ============================================ */
+
+/* === INDEX.HTML (Landing Page) === */
+body[data-page="index"] {
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+/* === RESPONSIVE ADJUSTMENTS === */
+@media (max-width: 600px) {
+  header {
+    flex-direction: row;
+    gap: 0.5rem;
+  }
+
+
+/* === RESPONSIVE ADJUSTMENTS ===
+@media (max-width: 600px) {
+  header {
+    flex-direction: row;
+    gap: 0.5rem;
+  }
+
+  .toolbar {
+    top: 68px;
+  }
+
+  .media-grid.small {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  .media-grid.medium {
+    grid-template-columns: repeat(3, 1fr);
+  }
+
+  .media-grid.large {
+    grid-template-columns: repeat(4, 1fr);
+  }
+}
+
+body[data-page="index"] .content {
+  flex-grow: 1;
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+}
+
+body[data-page="index"] .instructions {
+  font-size: 1.1em;
+  background-color: var(--card-bg);
+  border-radius: var(--radius);
+  width: 90%;
+  max-width: 500px;
+  padding: 20px;
+  box-sizing: border-box;
+  box-shadow: var(--shadow);
+}
+
+body[data-page="index"] #copyLink {
+  padding: 8px;
+  font-size: 1em;
+  text-align: center;
+  width: 80%;
+  margin-bottom: 20px;
+  box-sizing: border-box;
+  word-wrap: break-word;
+  background-color: var(--card-bg);
+  border: 1px solid var(--card-border);
+  color: var(--text);
+  border-radius: var(--radius-small);
+}
+
+body[data-page="index"] .buttons {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 15px;
+  margin-top: 20px;
+}
+
+body[data-page="index"] .buttons a {
+  background-color: var(--primary);
+  color: white;
+  text-decoration: none;
+  padding: 15px 25px;
+  border-radius: var(--radius);
+  transition: background-color 0.3s;
+  font-size: 1.2em;
+  text-align: center;
+}
+
+body[data-page="index"] .buttons a:hover {
+  background-color: var(--primary-dark);
+}
+
+@media (max-width: 600px) {
+  body[data-page="index"] .buttons {
+    flex-direction: column;
+    gap: 10px;
+  }
+  body[data-page="index"] .buttons a {
+    width: 90%;
+    padding: 12px;
+    font-size: 1em;
+  }
+}
+
+/* === MENU.HTML === */
+body[data-page="menu"] {
+  display: flex;
+  flex-direction: column;
+}
+  .media-grid.large {
+    grid-template-columns: repeat(4, 1fr);
+  }
+}
+
+/* ============================================
+   21. PAGE-SPECIFIC STYLES
+   Custom styles for individual pages
+   ============================================ */
+
+/* === INDEX.HTML (Landing Page) === */
+body[data-page="index"] {
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+body[data-page="index"] .content {
+  flex-grow: 1;
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  text-align: center;
+}
+
+@media (max-width: 600px) {
+  body[data-page="index"] .tiles {
+    gap: 12px;
+    padding: 12px;
+    font-size: 1em;
+  }
+}
+
+
+
+/* === RESPONSIVE ADJUSTMENTS ===
+@media (max-width: 600px) {
+  header {
+    flex-direction: row;
+    gap: 0.5rem;
+  }
+/* ============================================
+   21. PAGE-SPECIFIC STYLES
+   Custom styles for individual pages
+   ============================================ */
+
+/* === INDEX.HTML (Landing Page) === */
+body[data-page="index"] {
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+/* === RESPONSIVE ADJUSTMENTS === */
+@media (max-width: 600px) {
+  header {
+    flex-direction: row;
+    gap: 0.5rem;
+  }
+
+
+/* === RESPONSIVE ADJUSTMENTS ===
+@media (max-width: 600px) {
+  header {
+    flex-direction: row;
+    gap: 0.5rem;
+  }
+
+  .toolbar {
+    top: 68px;
+  }
+
+  .media-grid.small {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  .media-grid.medium {
+    grid-template-columns: repeat(3, 1fr);
+  }
+
+  .media-grid.large {
+    grid-template-columns: repeat(4, 1fr);
+  }
+}
+=======
+/* === MENU.HTML === */
+body[data-page="menu"] {
+  display: flex;
+  flex-direction: column;
+}
+
+/* ============================================
+   21. PAGE-SPECIFIC STYLES
+   Custom styles for individual pages
+   ============================================ */
+
+/* === INDEX.HTML (Landing Page) === */
+body[data-page="index"] {
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+/* === RESPONSIVE ADJUSTMENTS === */
+@media (max-width: 600px) {
+  header {
+    flex-direction: row;
+    gap: 0.5rem;
+  }
+
+  .toolbar {
+    top: 68px;
+  }
+
+  .media-grid.small {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  .media-grid.medium {
+    grid-template-columns: repeat(3, 1fr);
+  }
+
+  .media-grid.large {
+    grid-template-columns: repeat(4, 1fr);
+  }
+}
+   ============================================ */
+
+
+/* === RESPONSIVE ADJUSTMENTS ===
+@media (max-width: 600px) {
+  header {
+    flex-direction: row;
+    gap: 0.5rem;
+  }
+/* ============================================
+   21. PAGE-SPECIFIC STYLES
+   Custom styles for individual pages
+   ============================================ */
+
+/* === INDEX.HTML (Landing Page) === */
+body[data-page="index"] {
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+/* === RESPONSIVE ADJUSTMENTS === */
+@media (max-width: 600px) {
+  header {
+    flex-direction: row;
+    gap: 0.5rem;
+  }
+
+
+/* === RESPONSIVE ADJUSTMENTS ===
+@media (max-width: 600px) {
+  header {
+    flex-direction: row;
+    gap: 0.5rem;
+  }
+
+  .toolbar {
+    top: 68px;
+  }
+
+  .media-grid.small {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  .media-grid.medium {
+    grid-template-columns: repeat(3, 1fr);
+  }
+
+  .media-grid.large {
+    grid-template-columns: repeat(4, 1fr);
+  }
+}
+
+body[data-page="index"] .content {
+  flex-grow: 1;
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+}
+
+body[data-page="index"] .instructions {
+  font-size: 1.1em;
+  background-color: var(--card-bg);
+  border-radius: var(--radius);
+  width: 90%;
+  max-width: 500px;
+  padding: 20px;
+  box-sizing: border-box;
+  box-shadow: var(--shadow);
+}
+
+body[data-page="index"] #copyLink {
+  padding: 8px;
+  font-size: 1em;
+  text-align: center;
+  width: 80%;
+  margin-bottom: 20px;
+  box-sizing: border-box;
+  word-wrap: break-word;
+  background-color: var(--card-bg);
+  border: 1px solid var(--card-border);
+  color: var(--text);
+  border-radius: var(--radius-small);
+}
+
+body[data-page="index"] .buttons {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 15px;
+  margin-top: 20px;
+}
+
+body[data-page="index"] .buttons a {
+  background-color: var(--primary);
+  color: white;
+  text-decoration: none;
+  padding: 15px 25px;
+  border-radius: var(--radius);
+  transition: background-color 0.3s;
+  font-size: 1.2em;
+  text-align: center;
+}
+
+body[data-page="index"] .buttons a:hover {
+  background-color: var(--primary-dark);
+}
+
+@media (max-width: 600px) {
+  body[data-page="index"] .buttons {
+    flex-direction: column;
+    gap: 10px;
+  }
+  body[data-page="index"] .buttons a {
+    width: 90%;
+    padding: 12px;
+    font-size: 1em;
+  }
+}
+
+/* === MENU.HTML === */
+body[data-page="menu"] {
+  display: flex;
+  flex-direction: column;
+}
+
+body[data-page="menu"] main {
+  max-width: var(--page-max);
+  margin: 18px auto;
+  padding: 12px 20px;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  min-height: calc(100vh - var(--header-height) - 36px);
+  box-sizing: border-box;
+  z-index: 1;
+  align-items: center;
+}
+
+body[data-page="menu"] .welcome-center {
+  text-align: center;
+  margin-bottom: 6px;
+  width: 100%;
+}
+
+body[data-page="menu"] .welcome-center h1 {
+  margin: 0;
+  font-size: 1.4rem;
+  font-weight: 900;
+  letter-spacing: -0.3px;
+  color: var(--text);
+}
+
+body[data-page="menu"] .welcome-center p {
+  margin: 6px 0 0;
+  color: var(--muted);
+  font-size: 1rem;
+}
+
+body[data-page="menu"] .search-row {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  margin: 8px 0 14px;
+  justify-content: center;
+  width: 100%;
+}
+
+body[data-page="menu"] .search-input {
+  width: 100%;
+  max-width: 980px;
+  padding: 14px 16px;
+  border-radius: 12px;
+  border: 1px solid var(--line);
+  background: var(--card);
+  color: var(--text);
+  font-weight: 600;
+  font-size: 1rem;
+  box-shadow: 0 10px 28px rgba(9, 18, 37, 0.05);
+}
+
+body[data-page="menu"] .search-input::placeholder {
+  color: var(--muted);
+}
+
+body[data-page="menu"] .grid-wrap {
+  margin-top: 8px;
+  padding: 14px;
+  border-radius: 14px;
+  border: 1px solid var(--line);
+  background: linear-gradient(180deg, transparent, rgba(0, 0, 0, 0.01));
+  width: 100%;
+  box-sizing: border-box;
+}
+
+body[data-page="menu"] .grid {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 12px;
+  max-width: 760px;
+  margin: 12px auto 0;
+  align-items: stretch;
+}
+
+body[data-page="menu"] .tile {
+  background: var(--card);
+  border-radius: var(--radius);
+  padding: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 700;
+  border: 1px solid var(--line);
+  cursor: pointer;
+  transition: transform 0.12s, box-shadow 0.12s;
+  min-height: 60px;
+  color: var(--text);
+  flex: 0 0 calc(33.333% - 8px);
+  max-width: 260px;
+  box-sizing: border-box;
+}
+
+body[data-page="menu"] .tile:active {
+  transform: translateY(1px);
+}
+
+body[data-page="menu"] .tile .label {
+  font-size: 1rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  padding: 0 6px;
+  text-align: center;
+  width: 100%;
+}
+
+@media (max-width: 900px) {
+  body[data-page="menu"] .tile {
+    flex: 0 0 calc(50% - 8px);
+    max-width: 360px;
+  }
+}
+
+@media (max-width: 480px) {
+  body[data-page="menu"] .tile {
+    flex: 0 0 100%;
+    max-width: none;
+  }
+}
+
+/* === MEDIA LIBRARY PAGES (Movies, Shows, Music, Books, Comics, Gallery, Games) === */
+body[data-page="movies"],
+body[data-page="shows"],
+body[data-page="music"],
+body[data-page="books"],
+body[data-page="comics"],
+body[data-page="gallery"],
+body[data-page="games"] {
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+}
+
+.toolbar {
+  background: var(--bg);
+  padding: 0.65rem 1rem;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+  align-items: center;
+  border-bottom: 1px solid var(--line);
+  position: sticky;
+  top: var(--header-height);
+  z-index: 55;
+}
+
+body.dark .toolbar {
+  background: var(--bg);
+  border-bottom-color: rgba(255, 255, 255, 0.04);
+}
+
+.toolbar input[type="search"] {
+  flex: 1 1 220px;
+  padding: 0.5rem 0.75rem;
+  border: 1px solid var(--card-border);
+  border-radius: var(--radius-medium);
+  font-size: 0.95rem;
+  background: var(--card-bg);
+  color: var(--text);
+}
+
+.toolbar select,
+.toolbar .view-btn {
+  padding: 0.48rem 0.7rem;
+  border: 1px solid var(--card-border);
+  background: var(--card-bg);
+  color: var(--text);
+  border-radius: var(--radius-medium);
+  font-size: 0.9rem;
+  cursor: pointer;
+}
+
+.view-btn.active {
+  background: var(--primary);
+  color: #fff;
+  border-color: var(--primary-dark);
+}
+
+.media-grid {
+  display: grid;
+  gap: var(--card-gap);
+}
+
+.media-grid.small {
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+}
+
+.media-grid.medium {
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+}
+
+.media-grid.large {
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+}
+
+.media-card {
+  background: var(--card-bg);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  transition: transform 0.22s ease, box-shadow 0.22s ease;
+  cursor: pointer;
+  width: 100%;
+  max-width: 220px;
+  margin: 0 auto;
+  will-change: transform, opacity;
+}
+
+.media-grid.small .media-card {
+  max-width: 120px;
+}
+
+.media-grid.medium .media-card {
+  max-width: 160px;
+}
+
+.media-grid.large .media-card {
+  max-width: 220px;
+}
+
+.media-card:hover {
+  transform: translateY(-4px);
+  box-shadow: 0 10px 26px rgba(0, 0, 0, 0.10);
+}
+
+body.dark .media-card {
+  background: var(--card);
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.18);
+}
+
+/* === FILEBROWSER.HTML === */
+body[data-page="filebrowser"] {
+  min-height: 100vh;
+  display: flex;
+}
+
+body[data-page="filebrowser"] .main-container {
+  display: flex;
+  flex: 1;
+  overflow: hidden;
+  height: 100vh;
+}
+
+body[data-page="filebrowser"] .sidebar {
+  width: 250px;
+  background: var(--card-bg);
+  border-right: 1px solid var(--card-border);
+  padding: 1rem;
+  overflow-y: auto;
+  flex-shrink: 0;
+  position: sticky;
+  top: 0;
+  height: 100vh;
+}
+
+body[data-page="filebrowser"] .sidebar h3 {
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin-bottom: 0.5rem;
+}
+
+body[data-page="filebrowser"] .controls-bar {
+  background: var(--card-bg);
+  border-bottom: 1px solid var(--card-border);
+  padding: 1rem 2rem;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 1rem;
+  box-shadow: var(--shadow);
+  flex-shrink: 0;
+  position: sticky;
+  top: 0;
+  z-index: 100;
+}
+
+/* === MUSIC PLAYER SPECIFIC === */
+body[data-page="music"] .player-shell {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  padding: var(--player-padding-desktop);
+  background: var(--card);
+  border-top: 1px solid var(--line);
+  box-shadow: 0 -12px 36px rgba(10, 12, 20, 0.08);
+  z-index: 999;
+}
+
+body[data-page="music"] .player {
+  max-width: 1200px;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 6px 8px;
+}
+
+body[data-page="music"] .player .title {
+  font-weight: 800;
+  color: var(--primary);
+  text-align: center;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: 0.95rem;
+}
+
+body[data-page="music"] .controls {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  column-gap: var(--control-gap);
+  width: 100%;
+  box-sizing: border-box;
+  padding: 0 6px;
+}
+
+body[data-page="music"] .progress {
+  height: 8px;
+  background: var(--line);
+  border-radius: 999px;
+  overflow: hidden;
+  width: 72%;
+  cursor: pointer;
+}
+
+body[data-page="music"] .progress > .bar {
+  height: 100%;
+  background: var(--primary);
+  width: 0%;
+  transition: width 0.06s linear;
+}
+
+/* === BOOKS/READER PAGES === */
+body[data-page="books"] .reader-container,
+body[data-page="comics"] .reader-container,
+body[data-page="epub"] .reader-container {
+  position: fixed;
+  inset: 0;
+  background: var(--bg);
+  display: none;
+  flex-direction: column;
+  z-index: 1000;
+}
+
+body[data-page="books"] .reader-header,
+body[data-page="comics"] .reader-header,
+body[data-page="epub"] .reader-header {
+  background: var(--primary);
+  color: var(--header-text);
+  padding: 14px 18px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  box-shadow: var(--shadow);
+}
+
+body[data-page="books"] .reader-content,
+body[data-page="comics"] .reader-content,
+body[data-page="epub"] .reader-content {
+  flex: 1;
+  overflow: auto;
+  padding: 2rem;
+  background: var(--card-bg);
+}
+
+body.dark .reader-container {
+  background: var(--bg);
+  color: var(--text);
+}
+
+body.dark .reader-header {
+  background: var(--primary);
+}
+
+/* === MODAL STYLES (Shared across pages) === */
+.modal,
+.video-modal {
+  display: none;
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.55);
+  justify-content: center;
+  align-items: center;
+  z-index: 1000;
+  padding: 20px;
+}
+
+.modal-content {
+  background: var(--card-bg);
+  color: var(--text);
+  padding: 20px;
+  border-radius: var(--radius-large);
+  text-align: center;
+  width: 94%;
+  max-width: 480px;
+  box-shadow: var(--shadow-large);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.modal-content h2 {
+  margin: 0;
+  font-size: 1.15rem;
+  font-weight: 700;
+}
+
+.modal button {
+  padding: 10px 14px;
+  font-size: 0.95rem;
+  border: none;
+  border-radius: var(--radius-medium);
+  cursor: pointer;
+  transition: background-color 0.18s ease, color 0.18s ease;
+}
+
+.modal button:not(.cancel):not(.secondary) {
+  background: var(--primary);
+  color: #fff;
+}
+
+.modal button.secondary {
+  background: #f6f9ff;
+  color: var(--primary);
+  border: 1px solid rgba(0, 123, 255, 0.12);
+}
+
+.modal button.cancel {
+  background: #fff;
+  color: #444;
+  border: 1px solid var(--card-border);
+}
+
+body.dark .modal button.secondary {
+  background: rgba(74, 163, 255, 0.1);
+  color: var(--primary);
+}
+
+body.dark .modal button.cancel {
+  background: var(--card);
+  color: var(--text);
+  border: 1px solid var(--card-border);
+}
+
+.video-modal-content {
+  background: var(--card-bg);
+  color: var(--text);
+  padding: 14px;
+  border-radius: var(--radius-large);
+  width: 100%;
+  max-width: 980px;
+  box-shadow: var(--shadow-large);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+}
+
+/* === PLYR.JS VIDEO PLAYER CUSTOMIZATION === */
+.plyr {
+  --plyr-color-main: var(--primary);
+  --plyr-video-controls-background: rgba(0, 0, 0, 0.7);
+  border-radius: var(--radius);
+  width: 100%;
+}
+
+.plyr__video-wrapper {
+  width: 100%;
+}
+
+.plyr--fullscreen {
+  background: #000;
+}
+
+.plyr--fullscreen video {
+  max-height: 100% !important;
+  max-width: 100% !important;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+@media (max-width: 768px) {
+  .plyr__volume {
+    display: none !important;
+  }
+}
+
+body.dark .plyr {
+  --plyr-video-background: #000;
+  --plyr-menu-background: rgba(0, 0, 0, 0.9);
+  --plyr-menu-color: #fff;
+}
+
+/* === RESPONSIVE ADJUSTMENTS === */
+@media (max-width: 600px) {
+  header {
+    flex-direction: row;
+
+
+/* === RESPONSIVE ADJUSTMENTS ===
+@media (max-width: 600px) {
+  header {
+    flex-direction: row;
+    gap: 0.5rem;
+  }
+
+  .toolbar {
+    top: 68px;
+  }
+
+  .media-grid.small {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  .media-grid.medium {
+    grid-template-columns: repeat(3, 1fr);
+  }
+
+  .media-grid.large {
+    grid-template-columns: repeat(4, 1fr);
+  }
+}
+
+
+/* ============================================
+
+.pb-lg {
+  padding-bottom: var(--spacing-lg);
+}
+
+
+/* ============================================
+   21. PAGE-SPECIFIC STYLES
+   Custom styles for individual pages
+
+/* === INDEX.HTML (Landing Page) === */
+body[data-page="index"] {
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+body[data-page="index"] .content {
+  flex-grow: 1;
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+}
+
+body[data-page="index"] .instructions {
+  font-size: 1.1em;
+  background-color: var(--card-bg);
+  border-radius: var(--radius);
+  width: 90%;
+  max-width: 500px;
+  padding: 20px;
+  box-sizing: border-box;
+  box-shadow: var(--shadow);
+}
+
+body[data-page="index"] #copyLink {
+  padding: 8px;
+  font-size: 1em;
+  text-align: center;
+  width: 80%;
+  margin-bottom: 20px;
+  box-sizing: border-box;
+  word-wrap: break-word;
+  background-color: var(--card-bg);
+  border: 1px solid var(--card-border);
+  color: var(--text);
+  border-radius: var(--radius-small);
+}
+
+body[data-page="index"] .buttons {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 15px;
+  margin-top: 20px;
+}
+
+body[data-page="index"] .buttons a {
+  background-color: var(--primary);
+  color: white;
+  text-decoration: none;
+  padding: 15px 25px;
+  border-radius: var(--radius);
+  transition: background-color 0.3s;
+  font-size: 1.2em;
+  text-align: center;
+}
+
+body[data-page="index"] .buttons a:hover {
+  background-color: var(--primary-dark);
+}
+
+@media (max-width: 600px) {
+  body[data-page="index"] .buttons {
+    flex-direction: column;
+    gap: 10px;
+  }
+  body[data-page="index"] .buttons a {
+    width: 90%;
+    padding: 12px;
+    font-size: 1em;
+  }
+}
+
+/* === MENU.HTML === */
+body[data-page="menu"] {
+  display: flex;
+  flex-direction: column;
+}
+
+body[data-page="menu"] main {
+  max-width: var(--page-max);
+  margin: 18px auto;
+  padding: 12px 20px;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  min-height: calc(100vh - var(--header-height) - 36px);
+  box-sizing: border-box;
+  z-index: 1;
+  align-items: center;
+}
+
+body[data-page="menu"] .welcome-center {
+  text-align: center;
+  margin-bottom: 6px;
+  width: 100%;
+}
+
+body[data-page="menu"] .welcome-center h1 {
+  margin: 0;
+  font-size: 1.4rem;
+  font-weight: 900;
+  letter-spacing: -0.3px;
+  color: var(--text);
+}
+
+body[data-page="menu"] .welcome-center p {
+  margin: 6px 0 0;
+  color: var(--muted);
+  font-size: 1rem;
+}
+
+body[data-page="menu"] .search-row {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  margin: 8px 0 14px;
+  justify-content: center;
+  width: 100%;
+}
+
+body[data-page="menu"] .search-input {
+  width: 100%;
+  max-width: 980px;
+  padding: 14px 16px;
+  border-radius: 12px;
+  border: 1px solid var(--line);
+  background: var(--card);
+  color: var(--text);
+  font-weight: 600;
+  font-size: 1rem;
+  box-shadow: 0 10px 28px rgba(9, 18, 37, 0.05);
+}
+
+body[data-page="menu"] .search-input::placeholder {
+  color: var(--muted);
+}
+
+body[data-page="menu"] .grid-wrap {
+  margin-top: 8px;
+  padding: 14px;
+  border-radius: 14px;
+  border: 1px solid var(--line);
+  background: linear-gradient(180deg, transparent, rgba(0, 0, 0, 0.01));
+  width: 100%;
+  box-sizing: border-box;
+}
+
+body[data-page="menu"] .grid {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 12px;
+  max-width: 760px;
+  margin: 12px auto 0;
+  align-items: stretch;
+}
+
+body[data-page="menu"] .tile {
+  background: var(--card);
+  border-radius: var(--radius);
+  padding: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 700;
+  border: 1px solid var(--line);
+  cursor: pointer;
+  transition: transform 0.12s, box-shadow 0.12s;
+  min-height: 60px;
+  color: var(--text);
+  flex: 0 0 calc(33.333% - 8px);
+  max-width: 260px;
+  box-sizing: border-box;
+}
+
+body[data-page="menu"] .tile:active {
+  transform: translateY(1px);
+}
+
+body[data-page="menu"] .tile .label {
+  font-size: 1rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  padding: 0 6px;
+  text-align: center;
+  width: 100%;
+}
+
+@media (max-width: 900px) {
+  body[data-page="menu"] .tile {
+    flex: 0 0 calc(50% - 8px);
+    max-width: 360px;
+  }
+}
+
+@media (max-width: 480px) {
+  body[data-page="menu"] .tile {
+    flex: 0 0 100%;
+    max-width: none;
+  }
+}
+
+/* === MEDIA LIBRARY PAGES (Movies, Shows, Music, Books, Comics, Gallery, Games) === */
+body[data-page="movies"],
+body[data-page="shows"],
+body[data-page="music"],
+body[data-page="books"],
+body[data-page="comics"],
+body[data-page="gallery"],
+body[data-page="games"] {
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+}
+
+.toolbar {
+  background: var(--bg);
+  padding: 0.65rem 1rem;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+  align-items: center;
+  border-bottom: 1px solid var(--line);
+  position: sticky;
+  top: var(--header-height);
+  z-index: 55;
+}
+
+body.dark .toolbar {
+  background: var(--bg);
+  border-bottom-color: rgba(255, 255, 255, 0.04);
+}
+
+.toolbar input[type="search"] {
+  flex: 1 1 220px;
+  padding: 0.5rem 0.75rem;
+  border: 1px solid var(--card-border);
+  border-radius: var(--radius-medium);
+  font-size: 0.95rem;
+  background: var(--card-bg);
+  color: var(--text);
+}
+
+.toolbar select,
+.toolbar .view-btn {
+  padding: 0.48rem 0.7rem;
+  border: 1px solid var(--card-border);
+  background: var(--card-bg);
+  color: var(--text);
+  border-radius: var(--radius-medium);
+  font-size: 0.9rem;
+  cursor: pointer;
+}
+
+.view-btn.active {
+  background: var(--primary);
+  color: #fff;
+  border-color: var(--primary-dark);
+}
+
+.media-grid {
+  display: grid;
+  gap: var(--card-gap);
+}
+
+.media-grid.small {
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+}
+
+.media-grid.medium {
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+}
+
+.media-grid.large {
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+}
+
+.media-card {
+  background: var(--card-bg);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  transition: transform 0.22s ease, box-shadow 0.22s ease;
+  cursor: pointer;
+  width: 100%;
+  max-width: 220px;
+  margin: 0 auto;
+  will-change: transform, opacity;
+}
+
+.media-grid.small .media-card {
+  max-width: 120px;
+}
+
+.media-grid.medium .media-card {
+  max-width: 160px;
+}
+
+.media-grid.large .media-card {
+  max-width: 220px;
+}
+
+.media-card:hover {
+  transform: translateY(-4px);
+  box-shadow: 0 10px 26px rgba(0, 0, 0, 0.10);
+}
+
+body.dark .media-card {
+  background: var(--card);
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.18);
+}
+
+/* === FILEBROWSER.HTML === */
+body[data-page="filebrowser"] {
+  min-height: 100vh;
+  display: flex;
+}
+
+body[data-page="filebrowser"] .main-container {
+  display: flex;
+  flex: 1;
+  overflow: hidden;
+  height: 100vh;
+}
+
+body[data-page="filebrowser"] .sidebar {
+  width: 250px;
+  background: var(--card-bg);
+  border-right: 1px solid var(--card-border);
+  padding: 1rem;
+  overflow-y: auto;
+  flex-shrink: 0;
+  position: sticky;
+  top: 0;
+  height: 100vh;
+}
+
+body[data-page="filebrowser"] .sidebar h3 {
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin-bottom: 0.5rem;
+}
+
+body[data-page="filebrowser"] .controls-bar {
+  background: var(--card-bg);
+  border-bottom: 1px solid var(--card-border);
+  padding: 1rem 2rem;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 1rem;
+  box-shadow: var(--shadow);
+  flex-shrink: 0;
+  position: sticky;
+  top: 0;
+  z-index: 100;
+}
+
+/* === MUSIC PLAYER SPECIFIC === */
+body[data-page="music"] .player-shell {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  padding: var(--player-padding-desktop);
+  background: var(--card);
+  border-top: 1px solid var(--line);
+  box-shadow: 0 -12px 36px rgba(10, 12, 20, 0.08);
+  z-index: 999;
+}
+
+body[data-page="music"] .player {
+  max-width: 1200px;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 6px 8px;
+}
+
+body[data-page="music"] .player .title {
+  font-weight: 800;
+  color: var(--primary);
+  text-align: center;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: 0.95rem;
+}
+
+body[data-page="music"] .controls {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  column-gap: var(--control-gap);
+  width: 100%;
+  box-sizing: border-box;
+  padding: 0 6px;
+}
+
+body[data-page="music"] .progress {
+  height: 8px;
+  background: var(--line);
+  border-radius: 999px;
+  overflow: hidden;
+  width: 72%;
+  cursor: pointer;
+}
+
+body[data-page="music"] .progress > .bar {
+  height: 100%;
+  background: var(--primary);
+  width: 0%;
+  transition: width 0.06s linear;
+}
+
+/* === BOOKS/READER PAGES === */
+body[data-page="books"] .reader-container,
+body[data-page="comics"] .reader-container,
+body[data-page="epub"] .reader-container {
+  position: fixed;
+  inset: 0;
+  background: var(--bg);
+  display: none;
+  flex-direction: column;
+  z-index: 1000;
+}
+
+body[data-page="books"] .reader-header,
+body[data-page="comics"] .reader-header,
+body[data-page="epub"] .reader-header {
+  background: var(--primary);
+  color: var(--header-text);
+  padding: 14px 18px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  box-shadow: var(--shadow);
+}
+
+body[data-page="books"] .reader-content,
+body[data-page="comics"] .reader-content,
+body[data-page="epub"] .reader-content {
+  flex: 1;
+  overflow: auto;
+  padding: 2rem;
+  background: var(--card-bg);
+}
+
+body.dark .reader-container {
+  background: var(--bg);
+  color: var(--text);
+}
+
+body.dark .reader-header {
+  background: var(--primary);
+}
+
+/* === MODAL STYLES (Shared across pages) === */
+.modal,
+.video-modal {
+  display: none;
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.55);
+  justify-content: center;
+  align-items: center;
+  z-index: 1000;
+  padding: 20px;
+}
+
+.modal-content {
+  background: var(--card-bg);
+  color: var(--text);
+  padding: 20px;
+  border-radius: var(--radius-large);
+  text-align: center;
+  width: 94%;
+  max-width: 480px;
+  box-shadow: var(--shadow-large);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.modal-content h2 {
+  margin: 0;
+  font-size: 1.15rem;
+  font-weight: 700;
+}
+
+.modal button {
+  padding: 10px 14px;
+  font-size: 0.95rem;
+  border: none;
+  border-radius: var(--radius-medium);
+  cursor: pointer;
+  transition: background-color 0.18s ease, color 0.18s ease;
+}
+
+.modal button:not(.cancel):not(.secondary) {
+  background: var(--primary);
+  color: #fff;
+}
+
+.modal button.secondary {
+  background: #f6f9ff;
+  color: var(--primary);
+  border: 1px solid rgba(0, 123, 255, 0.12);
+}
+
+.modal button.cancel {
+  background: #fff;
+  color: #444;
+  border: 1px solid var(--card-border);
+}
+
+body.dark .modal button.secondary {
+  background: rgba(74, 163, 255, 0.1);
+  color: var(--primary);
+}
+
+body.dark .modal button.cancel {
+  background: var(--card);
+  color: var(--text);
+  border: 1px solid var(--card-border);
+}
+
+.video-modal-content {
+  background: var(--card-bg);
+  color: var(--text);
+  padding: 14px;
+  border-radius: var(--radius-large);
+  width: 100%;
+  max-width: 980px;
+  box-shadow: var(--shadow-large);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+}
+
+/* === PLYR.JS VIDEO PLAYER CUSTOMIZATION === */
+.plyr {
+  --plyr-color-main: var(--primary);
+  --plyr-video-controls-background: rgba(0, 0, 0, 0.7);
+  border-radius: var(--radius);
+  width: 100%;
+}
+
+.plyr__video-wrapper {
+  width: 100%;
+}
+
+.plyr--fullscreen {
+  background: #000;
+}
+
+.plyr--fullscreen video {
+  max-height: 100% !important;
+  max-width: 100% !important;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+@media (max-width: 768px) {
+  .plyr__volume {
+    display: none !important;
+  }
+}
+
+body.dark .plyr {
+  --plyr-video-background: #000;
+  --plyr-menu-background: rgba(0, 0, 0, 0.9);
+  --plyr-menu-color: #fff;
+}
+
+
+/* ============================================
+   END OF MASTER.CSS
+   ============================================ */
+

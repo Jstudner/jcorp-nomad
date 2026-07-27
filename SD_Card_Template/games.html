@@ -85,10 +85,10 @@
        under the card only labels the type */
     .meta { padding: 6px 4px 0; text-align: center; }
     .meta small { display: block; font-size: .72rem; color: var(--muted); }
-    /* EmulatorJS REPLACES the #emu element with its own container and sizes it
-       to the parent, so the explicit size must live on this wrapper, never on
-       #emu itself (a rule on #emu dies with the replacement and the game area
-       collapses to zero height: invisible start button). */
+    /* EmulatorJS replaces the #emu element with its own container and sizes it to the
+       parent, so the explicit size must live on this wrapper and never on #emu itself.
+       a rule on #emu dies with the replacement and the game area collapses to zero
+       height, which looks like an invisible start button. */
     #emuWrap {
       display: none;
       width: 100%;
@@ -160,9 +160,8 @@
         ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[c]));
     }
 
-    // Sticky offset from the header's real height; a fixed value either floats
-    // the toolbar over the first card row (short header) or lets it slide under
-    // a wrapped two-line header on narrow screens.
+    // sticky offset from the header's real height. a fixed value either floats the
+    // toolbar over the first card row or lets it slide under a wrapped two-line header
     (function fitToolbar() {
       const apply = () => {
         const h = document.querySelector('header');
@@ -188,7 +187,8 @@
 
     // Built-ins pin to the top of the grid in this order; anything else
     // (a user-added .html) follows alphabetically. Keys = lowercase filename minus .html.
-    const BUILTIN_ORDER = ['go', 'connect four', 'chess', 'tic-tac-toe', 'whiteboard'];
+    const BUILTIN_ORDER = ['go', 'connect four', 'chess', 'tic-tac-toe', 'whiteboard',
+                           'dots and boxes', 'crazy eights', '2048', 'minesweeper', 'snake'];
 
     function setViewSize(size) {
       currentSize = size;
@@ -214,6 +214,9 @@
         case 'gen': case 'md': return 'genesis';
         case 'sms':   return 'sms';
         case 'psx': case 'ps1': return 'psx';
+        // real DOOM: the prboom libretro core runs .wad files directly
+        // (prboom.wad is embedded in the core, only the game wad is needed)
+        case 'wad': case 'iwad': return 'prboom';
         default:      return '';
       }
     }
@@ -221,7 +224,12 @@
     async function init(attempt = 0) {
       try {
         // Games bucket NDJSON index (media.json is only a bucket-count summary now)
-        const res  = await fetch('/api/index?path=/Games', { cache: 'no-store' });
+        let res  = await fetch('/api/index?path=/Games', { cache: 'no-store' });
+        // 503 means the SD is busy for a moment, not that the index is missing
+        for (let i = 0; i < 3 && res.status === 503; i++) {
+          await new Promise(r => setTimeout(r, 800 * (i + 1)));
+          res = await fetch('/api/index?path=/Games', { cache: 'no-store' });
+        }
         if (res.status === 202) {
           // firmware is building the index right now, wait and retry
           if (attempt < 8) {
@@ -247,9 +255,8 @@
           if (IMG_RE.test(f.n)) covers.set(f.n.replace(/\.[^/.]+$/, '').toLowerCase(), f.p);
         }
 
-        // Built-in games: any .html in /Games renders as a card and opens like a
-        // page. Cover art uses the same sidecar convention as ROMs (Go.png next
-        // to Go.html), falling back to the placeholder.
+        // built-in games: any .html in /Games renders as a card and opens like a page. cover
+        // art uses the same sidecar convention as ROMs (Go.png next to Go.html)
         builtins = files
           .filter(f => HTML_RE.test(f.n))
           .map(f => {
@@ -352,7 +359,8 @@
         grid.appendChild(makeCard(b, 'Built-in', () => { location.href = encodeURI(b.file); }));
       });
       filtered.forEach((game, idx) => {
-        grid.appendChild(makeCard(game, game.core.toUpperCase(), () => startGame(idx)));
+        const badge = game.core === 'prboom' ? 'DOOM' : game.core.toUpperCase();
+        grid.appendChild(makeCard(game, badge, () => startGame(idx)));
       });
     }
 
@@ -367,9 +375,9 @@
       bar.style.display = 'flex';
       document.getElementById('emuTitle').textContent = game.name;
 
-      // reclaim phone space + fit the player exactly to the viewport below the
-      // exit bar, so EmulatorJS's bottom-anchored Start button is on-screen
-      // (a fixed vh height pushed it below the fold)
+      // reclaim phone space and fit the player exactly to the viewport below the exit bar,
+      // so EmulatorJS's bottom-anchored Start button is on-screen (a fixed vh height
+      // pushed it below the fold)
       document.querySelector('.toolbar').style.display = 'none';
       emuWrap.style.display = 'block';
       emuWrap.innerHTML = '<div id="emu"></div>';
@@ -380,10 +388,9 @@
       fitEmu();
       window.addEventListener('resize', fitEmu);
 
-      // deriveCore's UI values are not all valid EmulatorJS system keys,
-      // EmulatorJS has no 'gbc' (gambatte lives under 'gb') and Sega systems
-      // are 'segaMD'/'segaMS'; an unmapped value makes the loader fetch a
-      // nonexistent cores/<value>-wasm.data and die.
+      // deriveCore's UI values are not all valid EmulatorJS system keys. there is no 'gbc'
+      // (gambatte lives under 'gb') and Sega systems are 'segaMD'/'segaMS'. an unmapped
+      // value makes the loader fetch a nonexistent cores/<value>-wasm.data and die
       const EJS_SYSTEM = { gbc: 'gb', genesis: 'segaMD', sms: 'segaMS' };
 
       window.EJS_player     = '#emu';

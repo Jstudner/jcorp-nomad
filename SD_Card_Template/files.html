@@ -183,7 +183,9 @@
     /* Config */
     const ROOT_PATH = '/Files';
     const INDEX_ENDPOINT = '/api/index';
-    const DOWNLOAD_ENDPOINT = '/download';
+    // /media is the firmware's byte-range file endpoint; the old /download
+    // route never existed on this firmware, every link fell to the portal
+    const DOWNLOAD_ENDPOINT = '/media';
 
     function fileUrl(path) {
       return `${DOWNLOAD_ENDPOINT}?file=${encodeURIComponent(path)}`;
@@ -214,7 +216,13 @@
     async function fetchIndex(path) {
       const INDEX_ENDPOINT = '/api/index';
       const url = `${INDEX_ENDPOINT}?path=${encodeURIComponent(normalizePath(path))}&_=${Date.now()}`;
-      const res = await fetch(url, { cache: 'no-store' });
+      // a busy card answers 503 for a moment right after boot; retry like the
+      // other library pages instead of showing an error
+      let res = await fetch(url, { cache: 'no-store' });
+      for (let i = 0; i < 3 && res.status === 503; i++) {
+        await new Promise(r => setTimeout(r, 700 * (i + 1)));
+        res = await fetch(url, { cache: 'no-store' });
+      }
 
       if (res.status === 202) {
         throw new Error('INDEX_BUILDING');
@@ -254,26 +262,10 @@
             })
           );
         } else {
-          try {
-            const r = await fetch('/media.json', { cache: 'no-store', credentials: 'same-origin' });
-            if (r.ok) {
-              const j = await r.json();
-              const raw = j.files || j.Files || [];
-              files.length = 0;
-              files.push(...raw.map(obj => {
-                const p = (obj.path || obj.file || obj.url || ('/' + (obj.name || ''))).startsWith('/Files/') ? (obj.path || obj.file || obj.url || ('/' + (obj.name || ''))) : `/Files/${((obj.path || obj.file || obj.url || ('/' + (obj.name || ''))).replace(/^\/+/, ''))}`;
-                const name = obj.name || obj.title || p.split('/').pop();
-                const ext = extFromName(name);
-                return { name, path: p, type: ext, size: obj.sz || obj.size || 0 };
-              }).filter(Boolean));
-            } else {
-              throw new Error('no fallback data');
-            }
-          } catch (e) {
-            console.error('No index available to build Files list', e);
-            fileListEl.innerHTML = '<li>No files found. The index may be building.</li>';
-            return;
-          }
+          // media.json is only a bucket-count summary on this firmware, so
+          // there is no fallback list to read - an empty index is the answer
+          fileListEl.innerHTML = '<li>No files found. The index may be building.</li>';
+          return;
         }
 
         applyFilters();

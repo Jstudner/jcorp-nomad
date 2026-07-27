@@ -1,0 +1,537 @@
+<!DOCTYPE html>
+<!-- Version 1, ported from Voyager -->
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no"/>
+<title>Nomad • Crazy Eights</title>
+<link rel="icon" href="/favicon.ico" type="image/x-icon">
+<link rel="stylesheet" href="/master.css">
+<script src="/theme-boot.js"></script>
+<script src="/theme-manager.js"></script>
+<style>
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0}
+  body{
+    background:var(--bg,#f4f4f9);
+    color:var(--text,#333);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    -webkit-text-size-adjust:100%;
+    overflow-x:hidden;            /* PAGE never scrolls sideways */
+  }
+  .wrap{max-width:520px;margin:0 auto;padding:14px 12px 30px}
+
+  /* ---- Top bar ---- */
+  .topbar{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:14px}
+  .topbar h1{font-size:1.4rem;margin:0;flex:1 1 auto;text-align:center}
+  .btn{
+    display:inline-block;padding:9px 14px;font-size:.95rem;line-height:1;
+    border:1px solid var(--line,#dcdce3);border-radius:var(--radius,10px);
+    background:var(--card,#fff);color:var(--text,#333);
+    text-decoration:none;cursor:pointer;font-family:inherit;
+  }
+  .btn:hover{border-color:var(--muted,#777)}
+  .btn-accent{background:var(--primary,#4f46e5);border-color:var(--primary,#4f46e5);color:#fff}
+  .btn-accent:hover{background:var(--primary-dark,#3f37c9);border-color:var(--primary-dark,#3f37c9)}
+  .btn.big{padding:14px 24px;font-size:1.05rem}
+  .plabel{display:inline-flex;align-items:center;gap:6px;font-size:.78rem;color:var(--muted,#777)}
+  .sel{
+    padding:9px 10px;font-size:.9rem;font-family:inherit;
+    border:1px solid var(--line,#dcdce3);border-radius:var(--radius,10px);
+    background:var(--card,#fff);color:var(--text,#333);
+  }
+
+  /* ---- Player count chips ---- */
+  .players{display:flex;flex-wrap:wrap;gap:8px;justify-content:center;margin-bottom:10px}
+  .chip{
+    background:var(--card,#fff);border:1px solid var(--line,#dcdce3);border-radius:999px;
+    padding:6px 12px;font-size:.85rem;color:var(--text,#333);
+  }
+  .chip.cur{border-color:var(--primary,#4f46e5);box-shadow:0 0 0 1px var(--primary,#4f46e5);font-weight:700}
+  .chip .n{color:var(--muted,#777);font-weight:400}
+
+  /* ---- Center table ---- */
+  .table{display:flex;justify-content:center;align-items:flex-start;gap:16px;flex-wrap:wrap;margin:4px 0}
+  .pile{display:flex;flex-direction:column;align-items:center;gap:6px}
+  .pile-card{cursor:default}
+  #stock{cursor:pointer}
+  .pile-label{
+    font-size:.72rem;color:var(--muted,#777);text-transform:uppercase;letter-spacing:.05em;
+  }
+  .suit-ind{
+    display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;
+    background:var(--card,#fff);border:1px solid var(--line,#dcdce3);border-radius:var(--radius,10px);
+    padding:8px 16px;min-height:86px;
+  }
+  .suit-ind .lbl{font-size:.72rem;color:var(--muted,#777);text-transform:uppercase;letter-spacing:.05em}
+  .suit-ind .sym{font-size:36px;line-height:1}
+  /* indicator (not a playing card): keep readable in both themes */
+  .suit-ind.red .sym{color:#e4405f}
+  .suit-ind.black .sym{color:var(--text,#222)}
+
+  .turn-label{text-align:center;font-weight:700;font-size:1.05rem;margin:10px 0 2px}
+  .hand-hint{text-align:center;color:var(--muted,#777);font-size:.85rem;min-height:1.2em;margin-bottom:2px}
+
+  /* ---- Playing cards (always white face so they read in light & dark) ---- */
+  .card{
+    position:relative;flex:0 0 auto;
+    width:54px;height:78px;border-radius:7px;
+    background:#fff;border:1px solid #c9c9d4;
+    box-shadow:0 1px 2px rgba(0,0,0,.14);
+    color:#1c1c26;-webkit-user-select:none;user-select:none;
+  }
+  .card.lg{width:60px;height:86px}
+  .card.red{color:#d81e3f}
+  .card.black{color:#1c1c26}
+  .card .rank{position:absolute;left:4px;top:3px;font-weight:800;line-height:1;font-size:13px;text-align:center}
+  .card.lg .rank{font-size:14px}
+  .card .rank .s{display:block;font-size:12px;margin-top:1px}
+  .card .rank.br{left:auto;right:4px;top:auto;bottom:3px;transform:rotate(180deg)}
+  .card .pip{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-size:30px}
+  .card.lg .pip{font-size:34px}
+  /* Face-down back, CSS pattern, no image files */
+  .card.back{
+    background:repeating-linear-gradient(45deg,var(--primary,#4f46e5) 0 6px,var(--primary-dark,#3f37c9) 6px 12px);
+    border-color:var(--primary-dark,#3f37c9);
+  }
+  .card.back::after{content:"";position:absolute;inset:5px;border:2px solid rgba(255,255,255,.55);border-radius:4px}
+
+  /* ---- Current player's hand: horizontally SCROLLABLE row ---- */
+  .hand-wrap{max-width:100%}
+  .hand{
+    display:flex;gap:8px;overflow-x:auto;overflow-y:hidden;
+    padding:14px 4px 16px;-webkit-overflow-scrolling:touch;
+    scroll-snap-type:x proximity;
+  }
+  .hand .card{scroll-snap-align:center;cursor:pointer;transition:box-shadow .1s,opacity .1s}
+  .hand .card.playable{box-shadow:0 0 0 2px var(--primary,#4f46e5),0 3px 7px rgba(0,0,0,.2)}
+  .hand .card.dim{opacity:.45;cursor:default}
+  .hand .card.shake{animation:shake .25s}
+  @keyframes shake{0%,100%{transform:translateX(0)}25%{transform:translateX(-3px)}75%{transform:translateX(3px)}}
+  .hand-empty{color:var(--muted,#777);text-align:center;padding:20px 0}
+
+  /* ---- Overlays ---- */
+  .overlay{
+    position:fixed;inset:0;z-index:50;display:none;
+    flex-direction:column;align-items:center;justify-content:center;gap:18px;
+    background:var(--bg,#f4f4f9);padding:26px;text-align:center;
+  }
+  .overlay.show{display:flex}
+  .overlay.modal{background:rgba(0,0,0,.5)}
+  .ov-suits{font-size:1.4rem;letter-spacing:.3em}
+  .ov-suits .r{color:#e4405f}
+  .ov-title{font-size:1.5rem;font-weight:800;max-width:360px}
+  .ov-title.win{color:var(--success,#3fa66a)}
+  .ov-sum{display:flex;flex-direction:column;align-items:center;gap:12px}
+  .sum-row{display:flex;align-items:center;gap:14px}
+  .sum-counts{font-size:.9rem;color:var(--muted,#777);max-width:320px}
+  .sum-note{font-size:.9rem;color:var(--text,#333);font-style:italic;max-width:320px}
+
+  .sheet{
+    background:var(--card,#fff);border:1px solid var(--line,#dcdce3);border-radius:var(--radius,10px);
+    padding:20px;max-width:340px;width:100%;display:flex;flex-direction:column;gap:16px;
+  }
+  .sheet-title{font-weight:700;font-size:1.1rem;text-align:center}
+  .suit-picker{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+  .suitbtn{
+    font-size:42px;line-height:1;padding:16px 0;cursor:pointer;
+    background:#fff;border:1px solid var(--line,#dcdce3);border-radius:var(--radius,10px);
+  }
+  .suitbtn:hover{border-color:var(--primary,#4f46e5)}
+  .suitbtn.red{color:#d81e3f}
+  .suitbtn.black{color:#1c1c26}
+</style>
+</head>
+<body>
+  <header>
+    <h1>Crazy Eights</h1>
+    <a class="back-btn" href="/games">← Back to Games</a>
+  </header>
+
+<div class="wrap">
+  <div class="topbar">
+    <label class="plabel">Players
+      <select id="pcount" class="sel">
+        <option value="2">2</option>
+        <option value="3">3</option>
+        <option value="4">4</option>
+      </select>
+    </label>
+    <button class="btn btn-accent" id="newGame">New Game</button>
+  </div>
+
+  <div class="players" id="players"></div>
+
+  <div class="table">
+    <div class="pile">
+      <div class="pile-card" id="stock"></div>
+      <div class="pile-label">Draw · <span id="stockCount">0</span></div>
+    </div>
+    <div class="pile">
+      <div class="pile-card" id="discard"></div>
+      <div class="pile-label">Discard</div>
+    </div>
+    <div class="suit-ind" id="suitInd">
+      <div class="lbl">Suit</div><div class="sym">♠</div>
+    </div>
+  </div>
+
+  <div class="turn-label" id="turnLabel">Player 1's turn</div>
+  <div class="hand-hint" id="handHint"></div>
+
+  <div class="hand-wrap">
+    <div class="hand" id="hand"></div>
+  </div>
+
+  <!-- Handoff / privacy screen (opaque, hides previous player's hand) -->
+  <div class="overlay" id="handoff">
+    <div class="ov-suits">♠ <span class="r">♥</span> <span class="r">♦</span> ♣</div>
+    <div class="ov-title" id="handoffTitle">Pass the device</div>
+    <div class="ov-sum" id="handoffSum"></div>
+    <button class="btn btn-accent big" id="readyBtn">I'm ready</button>
+  </div>
+
+  <!-- Suit picker (shown after playing an 8) -->
+  <div class="overlay modal" id="suitpick">
+    <div class="sheet">
+      <div class="sheet-title">You played an 8 — choose a suit</div>
+      <div class="suit-picker">
+        <button class="suitbtn black" data-s="S">♠</button>
+        <button class="suitbtn red"   data-s="H">♥</button>
+        <button class="suitbtn red"   data-s="D">♦</button>
+        <button class="suitbtn black" data-s="C">♣</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Winner / stalemate banner -->
+  <div class="overlay" id="winner">
+    <div class="ov-suits">♠ <span class="r">♥</span> <span class="r">♦</span> ♣</div>
+    <div class="ov-title win" id="winTitle">Winner</div>
+    <button class="btn btn-accent big" id="winNew">New Game</button>
+  </div>
+</div>
+
+<script>
+(function(){
+  "use strict";
+
+  var SUITS = ['S','H','D','C'];
+  var RANKS = ['A','2','3','4','5','6','7','8','9','10','J','Q','K'];
+
+  // ---- DOM refs -----------------------------------------------------------
+  var playersEl   = document.getElementById('players');
+  var stockEl     = document.getElementById('stock');
+  var stockCountEl= document.getElementById('stockCount');
+  var discardEl   = document.getElementById('discard');
+  var suitIndEl   = document.getElementById('suitInd');
+  var turnLabelEl = document.getElementById('turnLabel');
+  var handHintEl  = document.getElementById('handHint');
+  var handEl      = document.getElementById('hand');
+  var pcountSel   = document.getElementById('pcount');
+
+  var handoffEl   = document.getElementById('handoff');
+  var handoffTitle= document.getElementById('handoffTitle');
+  var handoffSum  = document.getElementById('handoffSum');
+  var suitpickEl  = document.getElementById('suitpick');
+  var winnerEl    = document.getElementById('winner');
+  var winTitleEl  = document.getElementById('winTitle');
+
+  // ---- Game state ---------------------------------------------------------
+  var numPlayers = 2;
+  var hands = [];        // hands[p] = array of {r,s}
+  var stock = [];        // face-down draw pile (top = last)
+  var discard = [];      // discard pile (top = last)
+  var currentSuit = 'S'; // active suit to match (an 8 can change this)
+  var current = 0;       // whose turn (0-based)
+  var phase = 'handoff'; // 'handoff' | 'play' | 'suitpick' | 'won'
+  var passStreak = 0;    // consecutive passes -> detect stalemate
+  var lastNote = '';     // short note shown on the next handoff screen
+  var hintTimer = null;
+
+  // ---- Small helpers ------------------------------------------------------
+  function suitChar(s){ return s==='S'?'♠':s==='H'?'♥':s==='D'?'♦':'♣'; }
+  function isRed(s){ return s==='H' || s==='D'; }
+  function playerName(i){ return 'Player '+(i+1); }
+  function discardTop(){ return discard[discard.length-1]; }
+
+  function shuffle(a){
+    for(var i=a.length-1;i>0;i--){
+      var j=Math.floor(Math.random()*(i+1));
+      var t=a[i];a[i]=a[j];a[j]=t;
+    }
+    return a;
+  }
+
+  // A card is playable if its suit matches the current suit, its rank matches
+  // the discard top's rank, or it is an 8 (8s are wild).
+  function isPlayable(card){
+    var top = discardTop();
+    return card.r==='8' || card.s===currentSuit || card.r===top.r;
+  }
+  function handHasPlayable(p){
+    for(var i=0;i<hands[p].length;i++){ if(isPlayable(hands[p][i])) return true; }
+    return false;
+  }
+  // Can we still draw? (stock has cards, or the discard can be reshuffled)
+  function canDraw(){ return stock.length>0 || discard.length>1; }
+
+  // ---- Card element (CSS + Unicode pips, no images) -----------------------
+  function makeCardEl(card, faceDown, lg){
+    var el = document.createElement('div');
+    el.className = 'card' + (lg?' lg':'');
+    if(faceDown){ el.className += ' back'; return el; }
+    el.className += isRed(card.s) ? ' red' : ' black';
+    var ch = suitChar(card.s);
+    var tl = document.createElement('div'); tl.className='rank';
+    tl.innerHTML = card.r + '<span class="s">'+ch+'</span>';
+    var pip = document.createElement('div'); pip.className='pip'; pip.textContent = ch;
+    var br = document.createElement('div'); br.className='rank br';
+    br.innerHTML = card.r + '<span class="s">'+ch+'</span>';
+    el.appendChild(tl); el.appendChild(pip); el.appendChild(br);
+    return el;
+  }
+
+  // ---- Draw / reshuffle ---------------------------------------------------
+  // returns one card from the stock, or null if none can be produced. when the stock
+  // is empty the discard pile is reshuffled back into it, keeping the current top in
+  // place. if the discard is just that one card there is nothing to reshuffle
+  function drawOne(){
+    if(stock.length===0){
+      if(discard.length<=1) return null;      // nothing to recycle
+      var top = discard[discard.length-1];
+      var rest = discard.slice(0, discard.length-1);
+      discard = [top];
+      shuffle(rest);
+      stock = rest;
+    }
+    return stock.pop();
+  }
+
+  // ---- Overlay show/hide --------------------------------------------------
+  function showOv(el){ el.classList.add('show'); }
+  function hideOv(el){ el.classList.remove('show'); }
+
+  // ---- Rendering (play phase) --------------------------------------------
+  function renderPlayers(){
+    playersEl.innerHTML = '';
+    for(var p=0;p<numPlayers;p++){
+      var c = document.createElement('div');
+      c.className = 'chip' + (p===current?' cur':'');
+      c.innerHTML = playerName(p) + ' <span class="n">· '+hands[p].length+'</span>';
+      playersEl.appendChild(c);
+    }
+  }
+  function renderTable(){
+    stockEl.innerHTML = '';
+    stockEl.appendChild(makeCardEl(null, true, true));
+    stockCountEl.textContent = stock.length;
+
+    discardEl.innerHTML = '';
+    discardEl.appendChild(makeCardEl(discardTop(), false, true));
+
+    suitIndEl.className = 'suit-ind ' + (isRed(currentSuit)?'red':'black');
+    suitIndEl.innerHTML = '<div class="lbl">Suit</div><div class="sym">'+suitChar(currentSuit)+'</div>';
+  }
+  function renderHand(){
+    handEl.innerHTML = '';
+    var hand = hands[current];
+    if(hand.length===0){
+      var e=document.createElement('div'); e.className='hand-empty'; e.textContent='(no cards)';
+      handEl.appendChild(e); return;
+    }
+    hand.forEach(function(card, idx){
+      var el = makeCardEl(card, false, false);
+      if(isPlayable(card)) el.classList.add('playable'); else el.classList.add('dim');
+      el.addEventListener('click', function(){ attemptPlay(idx, el); });
+      handEl.appendChild(el);
+    });
+  }
+  function updateHint(){
+    var hint;
+    if(!handHasPlayable(current)){
+      hint = canDraw() ? 'No playable card — tap the draw pile.' : 'No moves available.';
+    } else {
+      hint = 'Tap a highlighted card to play' + (canDraw()?', or tap the draw pile.':'.');
+    }
+    handHintEl.textContent = hint;
+  }
+  function flashHint(msg){
+    handHintEl.textContent = msg;
+    if(hintTimer) clearTimeout(hintTimer);
+    hintTimer = setTimeout(function(){ if(phase==='play') updateHint(); }, 1600);
+  }
+  function render(){
+    renderPlayers();
+    renderTable();
+    renderHand();
+    turnLabelEl.textContent = playerName(current) + "'s turn";
+    updateHint();
+  }
+
+  // ---- Turn / handoff flow ------------------------------------------------
+  function advanceTurn(){
+    current = (current + 1) % numPlayers;   // wrap 1..N -> 1
+    startHandoff();
+  }
+  function startHandoff(){
+    phase = 'handoff';
+    hideOv(suitpickEl); hideOv(winnerEl);
+    handoffTitle.textContent = 'Pass the device to ' + playerName(current);
+    buildHandoffSummary();
+    showOv(handoffEl);
+  }
+  // Even on the handoff screen we always surface: whose turn, other players'
+  // COUNTS, the current suit, and the discard top.
+  function buildHandoffSummary(){
+    handoffSum.innerHTML = '';
+    var row = document.createElement('div'); row.className='sum-row';
+    row.appendChild(makeCardEl(discardTop(), false, true));
+    var ind = document.createElement('div');
+    ind.className = 'suit-ind ' + (isRed(currentSuit)?'red':'black');
+    ind.innerHTML = '<div class="lbl">Suit</div><div class="sym">'+suitChar(currentSuit)+'</div>';
+    row.appendChild(ind);
+    handoffSum.appendChild(row);
+
+    var counts = document.createElement('div'); counts.className='sum-counts';
+    var parts=[];
+    for(var p=0;p<numPlayers;p++){ parts.push(playerName(p)+': '+hands[p].length); }
+    counts.textContent = parts.join('  ·  ');
+    handoffSum.appendChild(counts);
+
+    if(lastNote){
+      var note=document.createElement('div'); note.className='sum-note'; note.textContent=lastNote;
+      handoffSum.appendChild(note);
+    }
+  }
+  function onReady(){
+    hideOv(handoffEl);
+    phase = 'play';
+    render();
+    // Start-of-turn edge case: no playable card AND nothing left to draw -> pass.
+    if(!handHasPlayable(current) && !canDraw()){
+      passTurn(playerName(current) + ' had no playable card and could not draw — passed.');
+    }
+  }
+  function passTurn(note){
+    passStreak++;
+    if(passStreak >= numPlayers){ showStalemate(); return; }   // nobody can move
+    lastNote = note || '';
+    advanceTurn();
+  }
+
+  // ---- Playing a card -----------------------------------------------------
+  function attemptPlay(idx, el){
+    if(phase!=='play') return;
+    var card = hands[current][idx];
+    if(!isPlayable(card)){
+      el.classList.remove('shake'); void el.offsetWidth; el.classList.add('shake');
+      return;
+    }
+    playCard(idx);
+  }
+  function playCard(idx){
+    var card = hands[current].splice(idx,1)[0];
+    discard.push(card);
+    passStreak = 0;
+    lastNote = playerName(current) + ' played ' + card.r + suitChar(card.s) + '.';
+    render();
+
+    // Win the instant your hand is empty (suit choice is moot on a final 8).
+    if(hands[current].length===0){ return showWinner(playerName(current)+' wins!', true); }
+
+    if(card.r==='8'){
+      // 8 is wild: the player picks the new current suit before play continues.
+      phase = 'suitpick';
+      showOv(suitpickEl);
+      return;
+    }
+    // Any other card sets the current suit to its own suit.
+    currentSuit = card.s;
+    advanceTurn();
+  }
+  function chooseSuit(s){
+    currentSuit = s;                 // apply the 8's chosen suit
+    hideOv(suitpickEl);
+    advanceTurn();
+  }
+
+  // ---- Drawing (turn action) ---------------------------------------------
+  function drawAction(){
+    if(phase!=='play') return;
+    var card = drawOne();
+    if(card===null){
+      // Stock empty and discard can't be recycled.
+      if(handHasPlayable(current)){ flashHint('Stock is empty — you must play a card.'); return; }
+      passTurn(playerName(current) + ' could not play and passed.');
+      return;
+    }
+    hands[current].push(card);
+    render();
+    flashHint('Drew ' + card.r + suitChar(card.s) + (isPlayable(card)?' — playable!':'.'));
+    // Keep drawing one at a time; if the stock is exhausted with nothing to
+    // play, the turn passes.
+    if(!handHasPlayable(current) && !canDraw()){
+      passTurn(playerName(current) + ' drew but still could not play — passed.');
+    }
+  }
+
+  // ---- Winner / stalemate -------------------------------------------------
+  function showWinner(text, isWin){
+    phase = 'won';
+    winTitleEl.textContent = text;
+    winTitleEl.className = 'ov-title' + (isWin?' win':'');
+    hideOv(handoffEl); hideOv(suitpickEl);
+    showOv(winnerEl);
+  }
+  function showStalemate(){ showWinner('No one can play — it’s a draw.', false); }
+
+  // ---- New game -----------------------------------------------------------
+  function newGame(){
+    numPlayers = parseInt(pcountSel.value,10) || 2;
+
+    // Build + shuffle a standard 52-card deck.
+    var deck = [];
+    for(var si=0;si<SUITS.length;si++)
+      for(var ri=0;ri<RANKS.length;ri++)
+        deck.push({ r:RANKS[ri], s:SUITS[si] });
+    shuffle(deck);
+    stock = deck;
+
+    // Deal: 7 each for 2 players, 5 each for 3-4 players.
+    var per = (numPlayers===2) ? 7 : 5;
+    hands = [];
+    for(var p=0;p<numPlayers;p++) hands.push([]);
+    for(var k=0;k<per;k++)
+      for(var q=0;q<numPlayers;q++)
+        hands[q].push(stock.pop());
+
+    // flip one card to start the discard pile. an 8 just takes its own suit as the
+    // current suit, no forced pick at the start
+    var starter = stock.pop();
+    discard = [starter];
+    currentSuit = starter.s;
+
+    current = 0;
+    passStreak = 0;
+    lastNote = '';
+    hideOv(winnerEl); hideOv(suitpickEl);
+    startHandoff();
+  }
+
+  // ---- Wiring -------------------------------------------------------------
+  document.getElementById('newGame').addEventListener('click', newGame);
+  pcountSel.addEventListener('change', newGame);
+  document.getElementById('readyBtn').addEventListener('click', onReady);
+  document.getElementById('winNew').addEventListener('click', newGame);
+  stockEl.addEventListener('click', drawAction);
+  var suitBtns = suitpickEl.querySelectorAll('.suitbtn');
+  for(var b=0;b<suitBtns.length;b++){
+    (function(btn){ btn.addEventListener('click', function(){ chooseSuit(btn.getAttribute('data-s')); }); })(suitBtns[b]);
+  }
+
+  newGame();
+})();
+</script>
+</body>
+</html>

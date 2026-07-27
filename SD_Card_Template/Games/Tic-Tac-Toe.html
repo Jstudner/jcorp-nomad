@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- Version 4 -->
+<!-- Version 5 -->
 <html lang="en">
 <head>
 <meta charset="utf-8"/>
@@ -34,7 +34,7 @@
 <body>
   <header>
     <h1>Tic-Tac-Toe</h1>
-    <a class="back-btn" href="/games.html">← Back to Games</a>
+    <a class="back-btn" href="/games">← Back to Games</a>
   </header>
 
   <main>
@@ -55,6 +55,7 @@
       <div class="status" id="status">Waiting…</div>
       <div id="board"></div>
       <div class="row" style="justify-content:center;margin-top:14px">
+        <button class="btn hidden" id="againBtn" onclick="playAgain()">Play again</button>
         <button class="btn secondary" onclick="location.reload()">Leave / New Room</button>
       </div>
     </div>
@@ -93,13 +94,14 @@ function winnerLine(){
 function updateStatus(){
   const w = winnerLine();
   statusEl.classList.remove('hot');
+  // recompute from the board so a rematch reset clears a finished game
+  over = !!w || !board.includes('-');
+  document.getElementById('againBtn').classList.toggle('hidden', !over || !MP.room.joined);
   if (w){
-    over = true;
     const sym = board[w[0]];
     statusEl.textContent = sym === mySymbol() ? `You win! (${sym})` : `${sym} wins. Better luck next time`;
     statusEl.classList.add('hot');
-  } else if (!board.includes('-')){
-    over = true;
+  } else if (over){
     statusEl.textContent = "It's a draw!";
   } else if (!MP.room.joined){
     statusEl.textContent = `Share the code and wait for a second player… (you are ${mySymbol()})`;
@@ -129,6 +131,18 @@ function onUpdate(stateStr){
     if (s && typeof s.b === 'string' && s.b.length === 9){ board = s.b; }
   } catch(e){}
   render();
+}
+
+/* Rematch in the same room, same code, no resharing. The firmware alternates
+   who goes first; the other player picks the fresh board up from the poll. */
+async function playAgain(){
+  try {
+    await MP.reset(JSON.stringify({ b: '---------' }));
+    board = '---------';
+    render();
+  } catch(e){
+    statusEl.textContent = e.message;
+  }
 }
 
 function onInfo(j){

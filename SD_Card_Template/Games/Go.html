@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- Version 4 -->
+<!-- Version 5 -->
 <html lang="en">
 <head>
 <meta charset="utf-8"/>
@@ -45,7 +45,7 @@
 <body>
   <header>
     <h1>Go</h1>
-    <a class="back-btn" href="/games.html">← Back to Games</a>
+    <a class="back-btn" href="/games">← Back to Games</a>
   </header>
 
   <main>
@@ -72,6 +72,7 @@
       <div id="board"></div>
       <div class="row" style="justify-content:center;margin-top:14px">
         <button class="btn secondary" onclick="doPass()">Pass</button>
+        <button class="btn hidden" id="againBtn" onclick="playAgain()">Play again</button>
         <button class="btn secondary" onclick="location.reload()">Leave / New Room</button>
       </div>
     </div>
@@ -144,6 +145,8 @@ function myTurn(){
 
 function updateStatus(){
   statusEl.classList.remove('hot');
+  document.getElementById('againBtn').classList.toggle('hidden',
+    !(MP.room.joined && game.isOver()));
   const st = game.currentState();
   // tenuki's <color>StonesCaptured counts stones of that color that were LOST,
   // so Black's capture count is whiteStonesCaptured (verified against engine)
@@ -208,6 +211,19 @@ function onUpdate(stateStr){
 function onInfo(j){
   if (j.gone){ statusEl.textContent = 'Room expired.'; MP.stop(); return; }
   updateStatus();
+}
+
+/* Rematch in the same room, same board size. Black is always seat 0 and Go
+   rules have Black move first, so the reset pins seat 0 as first mover. */
+async function playAgain(){
+  try {
+    await MP.reset(JSON.stringify({ s: size, m: '' }), 0);
+    moveStr = '';
+    rebuild();
+    render();
+  } catch(e){
+    statusEl.textContent = e.message;
+  }
 }
 
 function enterGame(){

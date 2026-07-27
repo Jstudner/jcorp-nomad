@@ -1,0 +1,5 @@
+The classic first print. 20 x 20 x 20 mm.
+
+Print at 0.2mm layers, no supports. Measure the sides with calipers
+afterwards: all three should read 20.0mm. If X or Y is off, check belt
+tension; if Z is off, check your first layer squish.

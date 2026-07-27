@@ -12,7 +12,13 @@
 (async function() {
   try {
     const isDark = localStorage.getItem('nomad_dark_mode') === 'true';
-    if (isDark) document.documentElement.classList.add('dark');
+    if (isDark) {
+      document.documentElement.classList.add('dark');
+      // body.dark is what master.css keys on; tag body the moment it exists
+      new MutationObserver((m, o) => {
+        if (document.body) { document.body.classList.add('dark'); o.disconnect(); }
+      }).observe(document.documentElement, { childList: true });
+    }
 
     async function loadThemeFromServer() {
       try {
@@ -793,7 +799,7 @@
     </div>
 
     <div class="search-row" style="position:relative; z-index:210;">
-      <input id="searchInput" class="search-input" placeholder="Search movies, shows, music, books..." aria-label="Search">
+      <input id="searchInput" class="search-input" placeholder="Search everything on this card..." aria-label="Search">
       <div id="searchLoader" class="search-loader" aria-hidden="true"><div class="bar"></div></div>
     </div>
 
@@ -807,9 +813,12 @@
         <a class="tile" href="/books" data-bucket="Books"><div class="label">Books</div></a>
         <a class="tile" href="/gallery" data-bucket="Gallery"><div class="label">Gallery</div></a>
         <a class="tile" href="/files" data-bucket="Files"><div class="label">Files</div></a>
-        <a class="tile" href="/games.html" data-bucket="Games" style="display:none;"><div class="label">Games</div></a>
-        <a class="tile" href="/maps.html" data-bucket="Maps" style="display:none;"><div class="label">Maps</div></a>
-        <a class="tile" href="/archive.html" data-bucket="Archive" style="display:none;"><div class="label">Archive</div></a>
+        <a class="tile" href="/games" data-bucket="Games" style="display:none;"><div class="label">Games</div></a>
+        <a class="tile" href="/maps" data-bucket="Maps" style="display:none;"><div class="label">Maps</div></a>
+        <a class="tile" href="/archive" data-bucket="Archive" style="display:none;"><div class="label">Archive</div></a>
+        <a class="tile" href="/translate" data-bucket="Translate" style="display:none;"><div class="label">Translate</div></a>
+        <a class="tile" href="/cookbook" data-bucket="Cookbook" style="display:none;"><div class="label">Cookbook</div></a>
+        <a class="tile" href="/workshop" data-bucket="Workshop" style="display:none;"><div class="label">Workshop</div></a>
       </div>
     </div>
   </div>
@@ -822,7 +831,11 @@
 <script>
 /* ---------------- CONFIG ---------------- */
 const INDEX_DIR = '/.system-index';
-const BUCKETS = ['Movies','Shows','Music','Books','Gallery','Files'];
+const BUCKETS = ['Movies','Shows','Music','Books','Gallery','Files','Games','Cookbook','Workshop'];
+// buckets the admin turned off stay out of search results too
+function activeBuckets(){
+  return BUCKETS.filter(b => !isPageHidden(b.toLowerCase()));
+}
 const THEME_KEY = 'nomad_dark_mode';
 const RESUME_KEYS = ['nomad:watch:v1', 'nomad_resume', 'nomad_watch_history', 'nomad_resume_history', 'nomad_resume_cache', 'resume', 'watch_resume'];
 const RE_VIDEO = /\.(mp4|mkv|avi|mov|ts|webm|m4v)$/i;
@@ -850,9 +863,9 @@ searchInput.addEventListener('focus', () => {
 });
 
 /* ---------------- Archive (ZIM) search ----------------
-   searches the PC-built sidecar index via NomadArchiveIndex - one small read per
-   query, never binary-searches the multi-GB ZIM. media results render first, archive
-   hits below. a card with no archives shows zero trace of the feature. */
+   searches the PC-built sidecar index via NomadArchiveIndex, one small read per query
+   instead of binary-searching the multi-GB ZIM. media results render first, archive
+   hits below. a card with no archives shows no trace of the feature. */
 
 let __archiveIndex = null;      // NomadArchiveIndex instance
 let __archiveIndexReady = null; // Promise: resolves to it, or null if no usable index
@@ -877,7 +890,7 @@ function getArchiveIndex() {
   if (__archiveIndexReady) return __archiveIndexReady;
   __archiveIndexReady = (async () => {
     try {
-      await loadScriptOnce('/assets/nomad-zim.js?v=idx2');  // ?v defeats a stale cached copy
+      await loadScriptOnce('/assets/nomad-zim.js?v=idx3');  // ?v defeats a stale cached copy
       const idx = new NomadZim.NomadArchiveIndex('/Archive/.nomad-zim');
       await idx.load();
       if (!idx.manifest || !idx.manifest.archives || !idx.manifest.archives.length) {
@@ -897,71 +910,94 @@ function getArchiveIndex() {
   return __archiveIndexReady;
 }
 
-/* pre-warm the index so the first query is instant. deliberately NOT eager at load:
-   an earlier version did that and it correlated with reboots (the old 2GB stdio crash
-   signature) right after the manifest fetch, so keep it on search-focus only. worst
-   case the tile takes one focus to appear, way cheaper than the device rebooting. */
+/* pre-warm the index so the first query is instant. not eager at load: an earlier
+   version did that and it correlated with reboots (the old 2GB stdio crash signature)
+   right after the manifest fetch, so keep it on search-focus only */
 function warmArchives() { getArchiveIndex(); }
 
 /* reveal/hide the Archive tile + the "wiki articles" hint in the search placeholder */
 function applyArchiveUI(present) {
   searchInput.placeholder = present
-    ? 'Search movies, shows, music, books, wiki articles...'
-    : 'Search movies, shows, music, books...';
+    ? 'Search everything on this card, wiki articles...'
+    : 'Search everything on this card...';
   const archiveTile = document.querySelector('.tile[data-bucket="Archive"]');
   if (archiveTile) archiveTile.style.display = (present && !isPageHidden('archive')) ? '' : 'none';
 }
 
-/* boot-time archive check - the "archive flag". instead of loading the heavy sidecar
-   (touches multi-GB files, tied to reboots) we hit /api/archive-list, a cheap directory
-   scan that reads no file content and just answers "does /Archive have anything?".
-   it 503s if the SD is busy at boot, so retry a few times. */
-async function detectArchivesOnBoot(attempt = 0) {
+/* Feature probes. Each answers true (present), false (absent) or null (unknown: SD
+   busy or transient, worth retrying). They only report, bootMenuFeatures() applies
+   everything in one pass so the menu doesnt assemble itself tile by tile. */
+
+/* archive check - instead of loading the heavy sidecar (touches multi-GB
+   files, tied to reboots) hit /api/archive-list, a cheap directory scan. */
+async function probeArchive() {
   try {
     const res = await fetch('/api/archive-list', { cache: 'no-store' });
     if (res.ok) {
       const data = await res.json();
-      __archivesPresent = !!(data && Array.isArray(data.archives) && data.archives.length);
-      applyArchiveUI(__archivesPresent);
-      return;
+      return !!(data && Array.isArray(data.archives) && data.archives.length);
     }
-    // 503 (SD busy) or transient error, retry below
+    return res.status === 503 ? null : false;
   } catch (e) {
     debugLog('archive-list probe failed', String(e));
+    return null;
   }
-  if (attempt < 5) setTimeout(() => detectArchivesOnBoot(attempt + 1), 5000);
 }
 
-/* boot-time games/maps check - same cheap-directory-scan pattern as the archive
-   probe. The Games tile reveals whenever /api/games-list answers at all: the
-   firmware that has it also has the /api/mp/* room store, so "Play Together"
-   works even with zero ROMs on the card. Maps needs at least one region with a
-   manifest. */
-async function detectGamesMapsOnBoot(attempt = 0) {
-  let retry = false;
+/* games/maps checks, same cheap directory scan pattern. The Games tile reveals
+   whenever /api/games-list answers at all: firmware that has it also has the
+   /api/mp/* room store, so Play Together works with zero ROMs on the card.
+   Maps needs at least one region with a manifest. */
+async function probeGames() {
   try {
     const res = await fetch('/api/games-list', { cache: 'no-store' });
     if (res.ok) {
       // must be real JSON: old firmware answers unknown /api/* routes with the
       // captive portal HTML at 200, which would fake the tile into showing
       const data = JSON.parse(await res.text());
-      if (data && Array.isArray(data.games) && !isPageHidden('games')) {
-        const tile = document.querySelector('.tile[data-bucket="Games"]');
-        if (tile) tile.style.display = '';
-      }
-    } else if (res.status === 503) retry = true; // SD busy at boot
-  } catch (e) { retry = true; }
+      return !!(data && Array.isArray(data.games));
+    }
+    return res.status === 503 ? null : false;
+  } catch (e) { return null; }
+}
+async function probeMaps() {
   try {
     const res = await fetch('/api/maps-list', { cache: 'no-store' });
     if (res.ok) {
-      const data = await res.json();
-      if (data && Array.isArray(data.regions) && data.regions.length && !isPageHidden('maps')) {
-        const tile = document.querySelector('.tile[data-bucket="Maps"]');
-        if (tile) tile.style.display = '';
-      }
-    } else if (res.status === 503) retry = true;
-  } catch (e) { retry = true; }
-  if (retry && attempt < 5) setTimeout(() => detectGamesMapsOnBoot(attempt + 1), 5000);
+      const data = JSON.parse(await res.text());
+      return !!(data && Array.isArray(data.regions) && data.regions.length);
+    }
+    return res.status === 503 ? null : false;
+  } catch (e) { return null; }
+}
+
+/* translate check. no /api endpoint, so probe the pack manifest directly, a few
+   hundred bytes. v2 manifests list "packs", v1 listed "pairs". */
+async function probeTranslate() {
+  try {
+    const res = await fetch('/Translate/manifest.json', { cache: 'no-store' });
+    if (res.ok) {
+      const data = JSON.parse(await res.text());
+      const list = (data && (data.packs || data.pairs)) || null;
+      return !!(Array.isArray(list) && list.length);
+    }
+    return res.status === 503 ? null : false;   // 404 = no packs installed
+  } catch (e) {
+    debugLog('translate probe failed', String(e));
+    return null;
+  }
+}
+
+/* cookbook/workshop check: cheap /listfiles look at the folder. */
+async function probeDirBucket(dir) {
+  try {
+    const res = await fetch('/listfiles?dir=' + encodeURIComponent(dir) + '&_=' + Date.now(), { cache: 'no-store' });
+    if (res.ok) {
+      const arr = JSON.parse(await res.text());
+      return !!(Array.isArray(arr) && arr.length);
+    }
+    return res.status === 503 ? null : false;
+  } catch (e) { return null; }
 }
 
 /* Query the index. Returns rows shaped for renderArchiveSection / onResultClick. */
@@ -975,7 +1011,7 @@ async function archiveSearch(term, limit = 12) {
     subtype: 'zim',
     archive: h.archiveId,
     // deep link straight to the article by its known location - no lookup on open
-    path: '/archive.html?a=' + h.archiveIdx + '&c=' + h.cluster + '&b=' + h.blob +
+    path: '/archive?a=' + h.archiveIdx + '&c=' + h.cluster + '&b=' + h.blob +
           '&t=' + encodeURIComponent(h.title),
     preview: null
   }));
@@ -1146,12 +1182,15 @@ function previewPathFromItemPath(itemPath){
   return null;
 }
 
+// bump when the index shape or bucket coverage changes: an old cached file
+// would otherwise pin search to the buckets it was built with
+const SEARCH_INDEX_VERSION = 2;
 async function loadSearchIndexFromSD() {
   try {
     const response = await fetch('/.search-index.json?t=' + Date.now());
     if (response.ok) {
       const data = await response.json();
-      if (data && data.entries && Array.isArray(data.entries)) {
+      if (data && data.v === SEARCH_INDEX_VERSION && data.entries && Array.isArray(data.entries)) {
         console.info('[Search] Loaded cached index from SD card:', data.entries.length, 'entries');
         return data.entries;
       }
@@ -1164,7 +1203,7 @@ async function loadSearchIndexFromSD() {
 
 async function saveSearchIndexToSD(entries) {
   try {
-    const data = { entries, ts: Date.now() };
+    const data = { v: SEARCH_INDEX_VERSION, entries, ts: Date.now() };
     const blob = new Blob([JSON.stringify(data)], { type: 'application/json' });
     const formData = new FormData();
     formData.append('file', blob, '.search-index.json');
@@ -1187,7 +1226,7 @@ async function saveSearchIndexToSD(entries) {
   return false;
 }
 
-/* Builds a robust search index and preview maps (concurrent fetches) */
+/* Builds the search index and preview maps (concurrent fetches) */
 async function buildSearchIndex(forceRebuild = false){
   if(!forceRebuild && searchIndexCache && searchIndexCache.entries) return searchIndexCache.entries;
 
@@ -1208,10 +1247,11 @@ async function buildSearchIndex(forceRebuild = false){
     try {
       previewByPath = new Map();
       previewByBaseDir = new Map();
+      const LIVE_BUCKETS = activeBuckets();
       const byBucket = {};
       for(const b of BUCKETS) byBucket[b] = [];
 
-      const fetchPromises = BUCKETS.map(b => {
+      const fetchPromises = LIVE_BUCKETS.map(b => {
         const idxUrl = `${INDEX_DIR}/${b}.index.ndjson`;
         return tryFetchText(idxUrl).then(txt => ({ bucket: b, txt }));
       });
@@ -1362,6 +1402,30 @@ async function buildSearchIndex(forceRebuild = false){
         }
       })();
 
+      // Games: built-in .html games and ROMs. Sidecar images are cover art,
+      // not results. Cookbook: recipe files. Workshop: printable models.
+      (function(){
+        const RECIPE_RE = /\.(md|cook|json)$/i;
+        const MODEL_RE  = /\.(stl|obj|3mf|gcode|bgcode|gco|amf|ply|step|stp|scad|f3d|sldprt|ipt|blend|3ds|dae|dxf|svg|zip)$/i;
+        for(const g of (byBucket['Games']||[])){
+          if(g.kind !== 'file' || g.subtype === 'image') continue;
+          const isHtml = /\.html?$/i.test(g.name);
+          entries.push({ title: friendlyDisplayName(basenameNoExt(g.name)), bucket:'Games',
+                         subtype: isHtml ? 'game' : 'rom', path: g.path, preview:null, raw:g.raw });
+        }
+        for(const r of (byBucket['Cookbook']||[])){
+          if(r.kind !== 'file' || !RECIPE_RE.test(r.name)) continue;
+          if(/^readme\./i.test(r.name)) continue;
+          entries.push({ title: friendlyDisplayName(basenameNoExt(r.name)), bucket:'Cookbook',
+                         subtype:'recipe', path: r.path, preview:null, raw:r.raw });
+        }
+        for(const w of (byBucket['Workshop']||[])){
+          if(w.kind !== 'file' || !MODEL_RE.test(w.name)) continue;
+          entries.push({ title: friendlyDisplayName(basenameNoExt(w.name)), bucket:'Workshop',
+                         subtype:'model', path: w.path, preview:null, raw:w.raw });
+        }
+      })();
+
       function addMissingFilesFromBucket(bucketName){
         const list = byBucket[bucketName] || [];
         for(const it of list){
@@ -1390,10 +1454,13 @@ async function buildSearchIndex(forceRebuild = false){
         else if(p.includes('/books/')) e.bucket = 'Books';
         else if(p.includes('/gallery/')) e.bucket = 'Gallery';
         else if(p.includes('/music/')) e.bucket = 'Music';
+        else if(p.includes('/games/')) e.bucket = 'Games';
+        else if(p.includes('/cookbook/')) e.bucket = 'Cookbook';
+        else if(p.includes('/workshop/')) e.bucket = 'Workshop';
         else if(!e.bucket) e.bucket = 'Files';
       }
 
-      for(const b of ['Movies','Books']){
+      for(const b of ['Movies','Books','Games','Cookbook','Workshop']){
         for(const it of (byBucket[b]||[])){
           if(it.kind === 'file' && it.subtype === 'image' && it.path){
             const dir = (it.path || '').replace(/\/[^/]+$/,'').toLowerCase();
@@ -1408,7 +1475,8 @@ async function buildSearchIndex(forceRebuild = false){
       for(const e of entries){
         if(!e.path) continue;
         const norm = normalizePath(e.path);
-        if((e.bucket === 'Movies' || e.bucket === 'Books') && RE_IMAGE.test(norm)) continue;
+        if((e.bucket === 'Movies' || e.bucket === 'Books' || e.bucket === 'Games' ||
+            e.bucket === 'Cookbook' || e.bucket === 'Workshop') && RE_IMAGE.test(norm)) continue;
         if(!finalMap.has(norm)){
           if(!e.preview){
             const dir = (e.path || '').replace(/\/[^/]+$/,'').toLowerCase();
@@ -1643,9 +1711,7 @@ function renderResume(items){
     return;
   }
 
-  // Desktop: render two centered rows:
-  // Row 1: Movies (up to 3)
-  // Row 2: Shows  (up to 3)
+  // desktop: two centered rows, Movies (up to 3) then Shows (up to 3)
   if(movies.length){
     const msec = document.createElement('div'); msec.className = 'resume-section';
     movies.forEach(it => msec.appendChild(makeResumeNode(it, false)));
@@ -1786,9 +1852,9 @@ function makeResumeNode(it, compact=false, showMarqueeForShows=false){
     const resumePos = it.position || 0;
 
     if((p||'').toLowerCase().includes('/movies/')) {
-      window.location.href = `/movies.html#play=${encodeURIComponent(p)}`;
+      window.location.href = `/movies#play=${encodeURIComponent(p)}`;
     } else if((p||'').toLowerCase().includes('/shows/')) {
-      window.location.href = `/shows.html#play=${encodeURIComponent(p)}`;
+      window.location.href = `/shows#play=${encodeURIComponent(p)}`;
     } else if((p||'').toLowerCase().includes('/music/')) {
       window.location.href = `/music#play=${encodeURIComponent(p)}`;
     } else if((p||'').toLowerCase().includes('/gallery/')) {
@@ -1912,7 +1978,7 @@ function renderResults(rows, q){
     }
     if(!preview) preview = previewPathFromItemPath(r.path || '');
 
-    if(bucket === 'movies' || bucket === 'shows' || bucket === 'books'){
+    if(bucket === 'movies' || bucket === 'shows' || bucket === 'books' || bucket === 'games'){
       thumb.classList.add('rect');
       const img = document.createElement('img');
       if(preview){
@@ -1924,7 +1990,7 @@ function renderResults(rows, q){
       } else {
         thumb.innerHTML = iconSVG(subtype === 'video' ? 'video' : 'file');
       }
-    } else if(bucket === 'gallery'){
+    } else if(bucket === 'gallery' || bucket === 'cookbook' || bucket === 'workshop'){
       thumb.classList.add('square');
       if(preview){
         const img = document.createElement('img'); img.src = preview; img.alt = r.title || ''; img.loading='lazy';
@@ -1982,7 +2048,7 @@ async function performSearch(q){
     mediaResults.sort((a,b)=>{
       const p = x => ((x.title||'').toLowerCase().startsWith(term.toLowerCase()) ? 0 : 1);
       if(p(a)!==p(b)) return p(a)-p(b);
-      const order = { Movies:0, Shows:1, Music:2, Gallery:3, Books:4, Files:5 };
+      const order = { Movies:0, Shows:1, Music:2, Gallery:3, Books:4, Games:5, Cookbook:6, Workshop:7, Files:8 };
       return (order[a.bucket]||9) - (order[b.bucket]||9);
     });
 
@@ -1997,8 +2063,8 @@ async function performSearch(q){
   }
 
   // ------- Archive (ZIM) results below media -----
-  // media keeps priority (above, never reordered). the archive query is a couple of
-  // tiny reads so its fast. a newer keystroke abandons this run
+  // media keeps priority above and is never reordered. the archive query is a couple
+  // of tiny reads so its fast, and a newer keystroke abandons this run
   const stillCurrent = () => myToken === __searchToken;
   try {
     const idx = await getArchiveIndex();
@@ -2035,6 +2101,14 @@ function onResultClick(item){
   if(item.bucket === 'Shows'){ window.location.href = `/shows#open=${encodeURIComponent(p)}`; return; }
   if(item.bucket === 'Music'){ window.location.href = `/music#play=${encodeURIComponent(p)}`; return; }
   if(item.bucket === 'Gallery'){ window.location.href = `/gallery#open=${encodeURIComponent(p)}`; return; }
+  if(item.bucket === 'Games'){
+    // built-in games are pages, open them straight; ROMs go through the library
+    if(/\.html?$/i.test(p)) window.location.href = p;
+    else window.location.href = '/games';
+    return;
+  }
+  if(item.bucket === 'Cookbook'){ window.location.href = `/cookbook#open=${encodeURIComponent(p)}`; return; }
+  if(item.bucket === 'Workshop'){ window.location.href = `/workshop#open=${encodeURIComponent(p)}`; return; }
 
   
   if(item.bucket === 'Archive') {
@@ -2061,8 +2135,8 @@ document.addEventListener('click', (ev) => {
   console.info('Page loaded - search index will build when needed');
 })();
 /* admin-controlled UI config: hidden pages, chat visibility, message of the day.
-   Applies whenever it loads; the conditional-reveal probes below also honor it
-   via isPageHidden() so a slow config fetch can't lose the race. */
+   The conditional-reveal probes below also honor it via isPageHidden() so a slow
+   config fetch cant lose the race. */
 let __uiCfg = null;
 function isPageHidden(key){
   return !!(__uiCfg && Array.isArray(__uiCfg.hiddenPages) && __uiCfg.hiddenPages.includes(key));
@@ -2087,12 +2161,67 @@ async function applyUiConfig(){
     }
   }
 }
-applyUiConfig();
+/* ---- one clean menu boot ----
+   The active-pages setting loads first, every feature probe runs in parallel, and the
+   tiles are applied together in one pass instead of popping in as answers land. The
+   last known result is cached so a revisit paints the full menu instantly. Probes
+   that answer unknown (SD busy right after boot) keep retrying quietly and apply
+   late, which is the one case where a tile still appears on its own. */
+const TILE_CACHE_KEY = 'nomadMenuTiles.v1';
+const TILE_KEYS = ['archive', 'games', 'maps', 'translate', 'cookbook', 'workshop'];
 
-/* reveal the Archive tile at boot if /Archive has anything (cheap probe, the searchable index still loads on focus) */
-detectArchivesOnBoot();
-/* reveal Games (endpoint exists) / Maps (>=1 region) tiles the same way */
-detectGamesMapsOnBoot();
+function applyTileStates(st){
+  st = st || {};
+  __archivesPresent = !!st.archive;
+  applyArchiveUI(!!st.archive);
+  const set = (bucket, key) => {
+    const t = document.querySelector('.tile[data-bucket="' + bucket + '"]');
+    if (t) t.style.display = (st[key] && !isPageHidden(key)) ? '' : 'none';
+  };
+  set('Games', 'games'); set('Maps', 'maps'); set('Translate', 'translate');
+  set('Cookbook', 'cookbook'); set('Workshop', 'workshop');
+}
+
+async function bootMenuFeatures(){
+  await applyUiConfig();   // hidden-pages setting first, tiles respect it from paint one
+
+  let cached = null;
+  try { cached = JSON.parse(localStorage.getItem(TILE_CACHE_KEY) || 'null'); } catch(e){}
+  if (cached) applyTileStates(cached);
+
+  const withTimeout = (pr, ms) => Promise.race([pr, new Promise(r => setTimeout(() => r(null), ms))]);
+  const run = () => Promise.all([
+    withTimeout(probeArchive(), 4000),
+    withTimeout(probeGames(), 4000),
+    withTimeout(probeMaps(), 4000),
+    withTimeout(probeTranslate(), 4000),
+    withTimeout(probeDirBucket('/Cookbook'), 4000),
+    withTimeout(probeDirBucket('/Workshop'), 4000),
+  ]);
+
+  const st = Object.assign({}, cached || {});
+  let unknown = [];
+  const fold = (results) => {
+    unknown = [];
+    results.forEach((v, i) => {
+      const k = TILE_KEYS[i];
+      if (v === null || v === undefined) { if (!(k in st)) st[k] = false; unknown.push(k); }
+      else st[k] = v;
+    });
+  };
+  fold(await run());
+  applyTileStates(st);
+  try { localStorage.setItem(TILE_CACHE_KEY, JSON.stringify(st)); } catch(e){}
+
+  // SD-busy boots: retry the unanswered probes in the background
+  for (let attempt = 0; attempt < 5 && unknown.length; attempt++){
+    await new Promise(r => setTimeout(r, 5000));
+    fold(await run());
+    applyTileStates(st);
+    try { localStorage.setItem(TILE_CACHE_KEY, JSON.stringify(st)); } catch(e){}
+  }
+}
+bootMenuFeatures();
 /* Initialize resume */
 (async function initResume(){
   try {
@@ -2116,9 +2245,8 @@ detectGamesMapsOnBoot();
 /* ESC to close results */
 document.addEventListener('keydown', (e) => { if(e.key === 'Escape'){ resultsPanel.style.display='none'; } });
 
-/* Chat lives on its own page (chat.html). Full filename so it works without
-   a kPageRoutes reflash */
-document.getElementById('chatBtn').addEventListener('click', () => { location.href = '/chat.html'; });
+/* Chat lives on its own page (chat.html), served at the /chat short route. */
+document.getElementById('chatBtn').addEventListener('click', () => { location.href = '/chat'; });
 
 </script>
 </body>

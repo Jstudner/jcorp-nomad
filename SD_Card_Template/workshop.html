@@ -1,0 +1,821 @@
+<!DOCTYPE html>
+<!-- Version 4 -->
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1.0">
+  <meta name="description" content="Jcorp Nomad Media Server - Workshop">
+  <title>Nomad • Workshop</title>
+  <link rel="icon" href="favicon.ico" type="image/x-icon">
+  <link rel="stylesheet" href="/master.css">
+  <script src="/theme-boot.js"></script>
+  <script src="/theme-manager.js"></script>
+  <script src="/nomad-utils.js"></script>
+  <script src="/assets/nomad-model.js"></script>
+  <style>
+    body { display: flex; flex-direction: column; min-height: 100vh; }
+
+    .toolbar {
+      padding: .6rem 1rem; display: flex; flex-wrap: wrap; gap: .6rem; align-items: center;
+      border-bottom: 1px solid var(--line); position: sticky; top: var(--header-height);
+      z-index: 55; background: var(--bg);
+    }
+    .toolbar input[type="search"] {
+      flex: 1 1 220px; padding: .5rem .75rem; border: 1px solid var(--line);
+      border-radius: var(--radius); font-size: .95rem; background: var(--card); color: var(--text);
+    }
+    .toolbar select, .toolbar .view-btn {
+      padding: .48rem .7rem; border: 1px solid var(--line); background: var(--card);
+      color: var(--text); border-radius: var(--radius); font-size: .9rem; cursor: pointer;
+    }
+    .view-btn.active { background: var(--primary); color: var(--color-white); border-color: var(--primary-dark); }
+
+    main { flex: 1; display: flex; flex-direction: column; max-width: 1200px; width: 100%; margin: 0 auto; padding: 1rem; }
+    .grid-wrapper { flex: 1; padding-bottom: 12px; }
+    .media-grid { display: grid; gap: var(--card-gap, 1rem); }
+    .media-grid.small  { grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); }
+    .media-grid.medium { grid-template-columns: repeat(auto-fit, minmax(165px, 1fr)); }
+    .media-grid.large  { grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); }
+    @media (max-width:600px) {
+      .media-grid.small  { grid-template-columns: repeat(3, 1fr); }
+      .media-grid.medium { grid-template-columns: repeat(2, 1fr); }
+      .media-grid.large  { grid-template-columns: repeat(2, 1fr); }
+    }
+
+    .media-card { width: 100%; cursor: pointer; }
+    .thumb-wrapper {
+      position: relative; display: flex; align-items: center; justify-content: center;
+      background: var(--thumb-bg, var(--card)); width: 100%; aspect-ratio: 1/1;
+      border-radius: var(--radius); overflow: hidden; box-shadow: var(--shadow);
+    }
+    .media-thumb { width: 100%; height: 100%; object-fit: cover; position: absolute; inset: 0; z-index: 2; opacity: 0; transition: opacity .35s ease; }
+    /* No sidecar image? The card shows the file type instead of a broken frame. Rendering
+       a real preview for every card would mean downloading and parsing every model just
+       to draw the library. */
+    .thumb-fallback {
+      position: absolute; inset: 0; display: flex; flex-direction: column; gap: .3rem;
+      align-items: center; justify-content: center; z-index: 1; padding: 8px; text-align: center;
+    }
+    .thumb-fallback .ext {
+      font-size: .72rem; font-weight: 800; letter-spacing: .08em; padding: .18rem .5rem;
+      border-radius: 999px; background: var(--primary); color: var(--color-white);
+    }
+    .thumb-fallback svg { width: 42%; height: auto; opacity: .35; color: var(--text); }
+
+    .meta { padding: 6px 4px 0; text-align: center; }
+    .meta strong { display: block; font-size: .86rem; line-height: 1.25; word-break: break-word; }
+    .meta small { display: block; font-size: .72rem; color: var(--muted); margin-top: 2px; }
+
+    /* ---- model view ---- */
+    #model { display: none; }
+    .model-top { display: flex; gap: .75rem; align-items: center; flex-wrap: wrap; margin-bottom: .75rem; }
+    .model-top h2 { margin: 0; font-size: 1.25rem; flex: 1 1 240px; min-width: 0; word-break: break-word; }
+
+    .stage {
+      position: relative; width: 100%; height: min(62vh, 560px); min-height: 300px;
+      border-radius: var(--radius); overflow: hidden; background: #14161a; box-shadow: var(--shadow);
+    }
+    .stage canvas { display: block; width: 100%; height: 100%; }
+    /* the supplied photo shares the stage with the 3D view; contain rather than
+       cover, because a photo of a part is about the part's shape, not filling a box */
+    .stage img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain;
+      background: #14161a; z-index: 2; }
+    .stage-msg {
+      position: absolute; inset: 0; display: none; flex-direction: column; gap: .6rem;
+      align-items: center; justify-content: center; color: #d8dbe0; text-align: center;
+      padding: 1.5rem; font-size: .95rem; line-height: 1.6; background: #14161a; z-index: 3;
+    }
+    .stage-msg.show { display: flex; }
+    .stage-msg .track { width: min(280px, 70%); height: 6px; border-radius: 999px; background: rgba(255,255,255,.15); overflow: hidden; }
+    .stage-msg .track i { display: block; height: 100%; width: 0; background: var(--primary); transition: width .15s linear; }
+    .stage-hint {
+      position: absolute; left: 10px; bottom: 10px; z-index: 2; font-size: .72rem;
+      color: rgba(255,255,255,.55); background: rgba(0,0,0,.35); padding: .2rem .5rem;
+      border-radius: 999px; pointer-events: none;
+    }
+    .stage-tools { position: absolute; right: 10px; top: 10px; z-index: 2; display: flex; gap: .35rem; }
+    /* the load button lives on the stage itself, on top of the photo, so
+       switching to the 3D view never means scrolling to the bottom panel */
+    #load3dBtn {
+      position: absolute; left: 50%; bottom: 16px; transform: translateX(-50%); z-index: 5;
+      border: 0; border-radius: 999px; padding: .6rem 1.2rem; cursor: pointer;
+      background: var(--primary); color: #fff; font-size: .92rem; font-weight: 600;
+      box-shadow: 0 2px 10px rgba(0,0,0,.45); white-space: nowrap;
+    }
+    #load3dBtn:disabled { opacity: .6; cursor: default; }
+    .stage-tools button {
+      border: none; border-radius: 8px; background: rgba(0,0,0,.45); color: #fff;
+      padding: .35rem .6rem; font-size: .78rem; cursor: pointer;
+    }
+    .stage-tools button:hover { background: rgba(0,0,0,.65); }
+    .swatches { display: flex; gap: .3rem; }
+    .swatches i { width: 20px; height: 20px; border-radius: 50%; cursor: pointer; border: 2px solid rgba(255,255,255,.4); display: block; }
+    .swatches i.on { border-color: #fff; }
+
+    .facts { display: flex; flex-wrap: wrap; gap: .4rem; margin: .85rem 0; }
+    .fact {
+      font-size: .78rem; padding: .22rem .6rem; border-radius: 999px;
+      background: var(--primary-alpha-8, rgba(0,123,255,.08)); color: var(--primary);
+      border: 1px solid var(--primary-alpha-20, rgba(0,123,255,.2));
+    }
+    .fact.warn { background: rgba(217,119,6,.12); color: #b45309; border-color: rgba(217,119,6,.35); }
+    .fact.ok   { background: rgba(16,185,129,.12); color: #047857; border-color: rgba(16,185,129,.35); }
+
+    .panel { background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); padding: 1rem; margin-top: 1rem; }
+    .panel h3 { margin: 0 0 .6rem; font-size: 1.02rem; }
+    .notes { font-size: .93rem; line-height: 1.65; white-space: pre-wrap; color: var(--text); }
+    .model-actions { display: flex; gap: .5rem; flex-wrap: wrap; }
+    .model-actions button, .model-actions a {
+      padding: .45rem .9rem; border: 1px solid var(--line); background: var(--card); color: var(--text);
+      border-radius: var(--radius); cursor: pointer; font-size: .88rem; text-decoration: none; display: inline-block;
+    }
+
+    .printer-row { display: flex; align-items: center; gap: .4rem; flex-wrap: wrap; font-size: .85rem; color: var(--muted); }
+    .printer-row input {
+      width: 4.5rem; padding: .3rem .4rem; border: 1px solid var(--line); border-radius: var(--radius);
+      background: var(--bg); color: var(--text); font-size: .85rem;
+    }
+
+    .empty { text-align: center; color: var(--muted); padding: 2.5rem 1rem; line-height: 1.7; }
+    .empty code { background: var(--card); padding: .12rem .4rem; border-radius: 4px; }
+    footer { text-align: center; padding: 1rem 0; font-size: .9rem; color: var(--muted); }
+  </style>
+</head>
+<body data-page="workshop">
+  <header>
+    <h1>Workshop</h1>
+    <a class="back-btn" href="/menu">← Back to Menu</a>
+  </header>
+
+  <div class="toolbar">
+    <input id="searchInput" type="search" placeholder="Search models…" aria-label="Search models">
+    <select id="catSelect" aria-label="Filter by folder"><option value="">All Folders</option></select>
+    <select id="typeSelect" aria-label="Filter by file type"><option value="">All Types</option></select>
+    <select id="sortSelect" aria-label="Sort models">
+      <option value="nameAsc">A → Z</option>
+      <option value="nameDesc">Z → A</option>
+      <option value="sizeDesc">Largest file</option>
+      <option value="sizeAsc">Smallest file</option>
+    </select>
+    <div style="display:flex;gap:.5rem;">
+      <button class="view-btn" data-size="small" title="Compact view">🔳</button>
+      <button class="view-btn active" data-size="medium" title="Comfort view">🔲</button>
+      <button class="view-btn" data-size="large" title="Gallery view">⬜</button>
+    </div>
+  </div>
+
+  <main>
+    <div class="grid-wrapper" id="library">
+      <div id="grid" class="media-grid medium"></div>
+    </div>
+
+    <div id="model">
+      <div class="model-top">
+        <button id="backToGrid" class="back-btn">← All models</button>
+        <h2 id="mTitle"></h2>
+      </div>
+
+      <div class="stage" id="stage">
+        <canvas id="canvas"></canvas>
+        <img id="stagePhoto" alt="" style="display:none;">
+        <div class="stage-tools">
+          <button id="photoToggle" style="display:none;" title="Switch between the 3D preview and the supplied photo">Photo</button>
+          <div class="swatches" id="swatches"></div>
+          <button id="resetView" title="Back to the starting angle">Reset</button>
+        </div>
+        <div class="stage-hint" id="stageHint">Drag to turn · scroll or pinch to zoom · shift-drag to pan</div>
+        <button id="load3dBtn" style="display:none;">Load 3D preview</button>
+        <div class="stage-msg" id="stageMsg">
+          <div id="stageMsgText">Loading…</div>
+          <div class="track" id="stageTrackWrap"><i id="stageTrack"></i></div>
+        </div>
+      </div>
+
+      <div class="facts" id="mFacts"></div>
+
+      <div class="panel">
+        <h3>Print check</h3>
+        <div class="printer-row">
+          <span>My build volume:</span>
+          <input id="bvX" type="number" min="1" step="1" aria-label="Build volume X"> ×
+          <input id="bvY" type="number" min="1" step="1" aria-label="Build volume Y"> ×
+          <input id="bvZ" type="number" min="1" step="1" aria-label="Build volume Z">
+          <span>mm</span>
+        </div>
+        <div id="fitMsg" style="margin-top:.6rem;font-size:.9rem;"></div>
+      </div>
+
+      <div class="panel" id="notesPanel" style="display:none;">
+        <h3 id="notesTitle">Notes</h3>
+        <div class="notes" id="mNotes"></div>
+      </div>
+
+      <div class="panel">
+        <h3>File</h3>
+        <div id="mFile" style="font-size:.88rem;color:var(--muted);margin-bottom:.7rem;word-break:break-all;"></div>
+        <div class="model-actions">
+          <a id="dlBtn" href="#" download data-dl>⬇ Download</a>
+        </div>
+      </div>
+    </div>
+  </main>
+
+  <footer>© <span id="year"></span> Jcorp Nomad</footer>
+
+<script>
+document.getElementById('year').textContent = new Date().getFullYear();
+NomadUI.applyDownloadPolicy();
+
+const WORKSHOP_DIR = '/Workshop';
+// anything NomadModel can draw, plus the formats a maker keeps beside them. the
+// second group is listed and downloadable but has no preview, and saying so is more
+// useful than pretending the file isnt there
+const VIEWABLE = ['stl', 'obj', '3mf'];
+const OTHER    = ['gcode', 'bgcode', 'gco', 'amf', 'ply', 'step', 'stp', 'scad', 'f3d',
+                  'sldprt', 'ipt', 'blend', '3ds', 'dae', 'dxf', 'svg', 'zip'];
+const MODEL_EXTS = VIEWABLE.concat(OTHER);
+const IMG_RE  = /\.(jpe?g|png|webp|gif|bmp)$/i;
+const NOTE_RE = /\.(md|markdown|txt|nfo)$/i;
+const BV_KEY  = 'nomadWorkshopBuildVolume';
+
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, c => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[c]));
+}
+/* Sidecars match on the name with the extension taken off, so "Bracket.stl" picks up
+   "Bracket.jpg" and "Bracket.txt". The looser key also tolerates the suffixes people
+   naturally write ("Bracket-notes.md", "Bracket print settings.txt") since being
+   strict would silently ignore a file they went to the trouble of adding. Exact
+   matches are still preferred by the caller. */
+function looseKey(name) {
+  return String(name)
+    .replace(/\.[^/.]+$/, '')
+    .replace(/[ _.-]*(description|readme|notes?|info|print[ _-]?settings)$/i, '')
+    .trim().toLowerCase();
+}
+
+function humanSize(b) {
+  if (!b && b !== 0) return '';
+  const u = ['B', 'KB', 'MB', 'GB'];
+  let i = 0, n = b;
+  while (n >= 1024 && i < u.length - 1) { n /= 1024; i++; }
+  return (n >= 10 || i === 0 ? Math.round(n) : n.toFixed(1)) + ' ' + u[i];
+}
+
+/* Millimetres on a card: whole numbers past 100mm, one decimal below that.
+   "182×94.5×31.2 mm" reads; "182.00×94.50×31.20 mm" doesn't. */
+function fmtMM(n) {
+  if (!isFinite(n)) return '?';
+  return n >= 100 ? String(Math.round(n)) : String(+n.toFixed(1));
+}
+
+(function fitToolbar() {
+  const apply = () => {
+    const h = document.querySelector('header'), tb = document.querySelector('.toolbar');
+    if (h && tb) tb.style.top = h.offsetHeight + 'px';
+  };
+  apply();
+  window.addEventListener('resize', apply);
+})();
+
+const grid        = document.getElementById('grid');
+const library     = document.getElementById('library');
+const modelView   = document.getElementById('model');
+const searchInput = document.getElementById('searchInput');
+const catSelect   = document.getElementById('catSelect');
+const typeSelect  = document.getElementById('typeSelect');
+const sortSelect  = document.getElementById('sortSelect');
+const viewButtons = document.querySelectorAll('.view-btn');
+const stageMsg    = document.getElementById('stageMsg');
+const stageMsgTxt = document.getElementById('stageMsgText');
+const stageTrack  = document.getElementById('stageTrack');
+const stageTrackWrap = document.getElementById('stageTrackWrap');
+
+let models   = [];   // { name, path, ext, size, category, cover, note }
+let filtered = [];
+let current  = null;
+let viewer   = null;
+let debounce = null;
+let currentSize = localStorage.getItem('nomadWorkshopSize') || 'medium';
+let meshLoadedFor = null;   // path of the model whose mesh is in the viewer
+
+const COLORS = [
+  ['#6a99db', [0.42, 0.60, 0.86]],
+  ['#e8e9ec', [0.88, 0.89, 0.92]],
+  ['#e0733f', [0.88, 0.45, 0.25]],
+  ['#5fbf8a', [0.37, 0.75, 0.54]],
+  ['#d4b048', [0.83, 0.69, 0.28]]
+];
+
+const CUBE_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round">' +
+  '<path d="M12 2l9 5v10l-9 5-9-5V7z"/><path d="M12 12l9-5M12 12v10M12 12L3 7"/></svg>';
+
+/* ---------------- loading ---------------- */
+
+/* Same two-source listing as the cookbook: the firmware's NDJSON index when the
+   bucket is indexed, a live /listfiles scan when it isnt. /listfiles also carries
+   file sizes, which the index doesnt. */
+// encode a card path for a URL, per segment: encodeURI leaves # and ? alone,
+// so a file named "Cake #2.md" used to truncate at the hash
+function encPath(p) { return String(p || '').split('/').map(encodeURIComponent).join('/'); }
+// a busy card answers 503 for a moment right after boot; retry instead of
+// reporting an empty workshop
+async function fetch503(url, tries = 3) {
+  for (let i = 0; i < tries; i++) {
+    const res = await fetch(url, { cache: 'no-store' });
+    if (res.status !== 503) return res;
+    await new Promise(r => setTimeout(r, 700 * (i + 1)));
+  }
+  return fetch(url, { cache: 'no-store' });
+}
+async function listDir(dir) {
+  let viaIndex = [];
+  try {
+    const res = await fetch503('/api/index?path=' + encodeURIComponent(dir));
+    if (res.ok) {
+      const lines = (await res.text()).split('\n').filter(Boolean);
+      for (let i = 1; i < lines.length; i++) {
+        try {
+          const e = JSON.parse(lines[i]);
+          if (e && e.n) viaIndex.push({ name: e.n, path: e.p, isDir: e.t === 'd', size: e.s || 0 });
+        } catch (e) {}
+      }
+    }
+  } catch (e) {}
+
+  try {
+    const res = await fetch503('/listfiles?dir=' + encodeURIComponent(dir) + '&_=' + Date.now());
+    if (res.ok) {
+      const arr = JSON.parse(await res.text());
+      const out = (Array.isArray(arr) ? arr : []).map(f => {
+        const name = String(f.name || '').replace(/\/$/, '');
+        return { name, path: dir + '/' + name, isDir: !!f.isDir, size: +f.size || 0 };
+      }).filter(f => f.name);
+      if (out.length) return out;
+    }
+  } catch (e) {}
+  return viaIndex;
+}
+
+/* The library is a client-side folder walk. Dimensions are only known once a model is
+   opened, since measuring one means pulling the whole mesh over the wire. Voyager has
+   a server-side /api/workshop that pre-measures, the Nomad does not. */
+async function loadLibrary() {
+  grid.innerHTML = '<p class="empty" style="grid-column:1/-1;">Opening the workshop…</p>';
+  await loadLibraryFallback();
+}
+
+/* Client-side folder walk, the Nomad path, kept for a server without /api/workshop.
+   Dimensions stay unknown until a model is opened. */
+async function loadLibraryFallback() {
+  const top   = await listDir(WORKSHOP_DIR);
+  const dirs  = top.filter(e => e.isDir && !e.name.startsWith('.'));
+  const groups = [{ category: '', entries: top.filter(e => !e.isDir) }];
+  for (const d of dirs.slice(0, 32)) {
+    groups.push({ category: d.name, entries: (await listDir(d.path)).filter(e => !e.isDir) });
+  }
+
+  models = [];
+  for (const g of groups) {
+    const coverExact = new Map(), coverLoose = new Map();
+    const noteExact  = new Map(), noteLoose  = new Map();
+    for (const e of g.entries) {
+      const exact = e.name.replace(/\.[^/.]+$/, '').toLowerCase();
+      const loose = looseKey(e.name);
+      if (IMG_RE.test(e.name)) {
+        coverExact.set(exact, e.path);
+        if (loose && !coverLoose.has(loose)) coverLoose.set(loose, e.path);
+      }
+      if (NOTE_RE.test(e.name)) {
+        noteExact.set(exact, e.path);
+        if (loose && !noteLoose.has(loose)) noteLoose.set(loose, e.path);
+      }
+    }
+    // a lone README/notes/description covers every model in its folder
+    const folderNote = noteExact.get('readme') || noteExact.get('notes') || noteExact.get('description') || null;
+
+    for (const e of g.entries) {
+      if (e.name.startsWith('.')) continue;
+      const ext = (e.name.toLowerCase().match(/\.([a-z0-9]+)$/) || [, ''])[1];
+      if (MODEL_EXTS.indexOf(ext) < 0) continue;
+      const base = e.name.replace(/\.[^/.]+$/, '');
+      const key = base.toLowerCase();
+      const ownNote = noteExact.get(key) || noteLoose.get(key) || null;
+      models.push({
+        name: base.replace(/[_]+/g, ' ').trim() || e.name,
+        file: e.name,
+        path: e.path,
+        ext,
+        size: e.size,
+        category: g.category,
+        cover: coverExact.get(key) || coverLoose.get(key) || null,
+        note: ownNote || folderNote,
+        // recorded here rather than re-derived later: only the matching done
+        // above knows whether the note was this model's or the whole folder's
+        noteIsOwn: !!ownNote
+      });
+    }
+  }
+
+  buildFilters();
+  applyFilters();
+  // menu search deep link: /workshop#open=<path> lands on the model itself
+  const om = location.hash.match(/^#open=(.+)$/);
+  if (om) {
+    const want = decodeURIComponent(om[1]);
+    const hit = models.find(m => m.path === want);
+    if (hit) openModel(hit);
+  }
+}
+
+function buildFilters() {
+  const cats = [...new Set(models.map(m => m.category).filter(Boolean))].sort((a, b) => a.localeCompare(b));
+  const keepCat = catSelect.value;
+  catSelect.innerHTML = '<option value="">All Folders</option>' +
+    cats.map(c => `<option value="${escapeHtml(c)}">${escapeHtml(c)}</option>`).join('');
+  if (cats.includes(keepCat)) catSelect.value = keepCat;
+
+  const types = [...new Set(models.map(m => m.ext))].sort();
+  const keepType = typeSelect.value;
+  typeSelect.innerHTML = '<option value="">All Types</option>' +
+    types.map(t => `<option value="${escapeHtml(t)}">.${escapeHtml(t)}</option>`).join('');
+  if (types.includes(keepType)) typeSelect.value = keepType;
+}
+
+/* ---------------- library view ---------------- */
+
+function setViewSize(size) {
+  currentSize = size;
+  grid.className = `media-grid ${size}`;
+  viewButtons.forEach(b => b.classList.toggle('active', b.dataset.size === size));
+  localStorage.setItem('nomadWorkshopSize', size);
+}
+setViewSize(currentSize);
+viewButtons.forEach(b => b.addEventListener('click', () => setViewSize(b.dataset.size)));
+
+function applyFilters() {
+  const txt = searchInput.value.trim().toLowerCase();
+  const cat = catSelect.value, type = typeSelect.value;
+  filtered = models.filter(m =>
+    (!cat || m.category === cat) &&
+    (!type || m.ext === type) &&
+    (!txt || (m.name + ' ' + m.category + ' ' + m.file).toLowerCase().includes(txt)));
+  applySort(sortSelect.value);
+}
+
+function applySort(mode) {
+  filtered.sort((a, b) => {
+    if (mode === 'sizeDesc') return (b.size - a.size) || a.name.localeCompare(b.name);
+    if (mode === 'sizeAsc')  return (a.size - b.size) || a.name.localeCompare(b.name);
+    return mode === 'nameDesc' ? b.name.localeCompare(a.name) : a.name.localeCompare(b.name);
+  });
+  renderGrid();
+}
+
+function renderGrid() {
+  grid.innerHTML = '';
+  grid.className = `media-grid ${currentSize}`;
+
+  if (!models.length) {
+    grid.innerHTML = '<div class="empty" style="grid-column:1/-1;">' +
+      '<strong>No models on this card yet.</strong><br>' +
+      'Drop <code>.stl</code>, <code>.3mf</code> or <code>.obj</code> files into <code>/Workshop</code>' +
+      ' — subfolders become collections, an image beside a model becomes its thumbnail,' +
+      ' and a matching <code>.md</code> or <code>.txt</code> becomes its print notes.' +
+      '</div>';
+    return;
+  }
+  if (!filtered.length) {
+    grid.innerHTML = '<p class="empty" style="grid-column:1/-1;">No models match that.</p>';
+    return;
+  }
+
+  for (const m of filtered) {
+    const card = document.createElement('div');
+    card.className = 'media-card';
+    // dims come from the server's own parse, so the printed size is on the card
+    // rather than only inside the model view
+    const dimTxt = m.dims ? `${fmtMM(m.dims.x)}×${fmtMM(m.dims.y)}×${fmtMM(m.dims.z)} mm` : '';
+    const bits = [dimTxt, humanSize(m.size), m.category].filter(Boolean);
+    card.innerHTML = `
+      <div class="thumb-wrapper">
+        <div class="thumb-fallback">${CUBE_ICON}<span class="ext">${escapeHtml(m.ext.toUpperCase())}</span></div>
+        ${m.cover ? `<img class="media-thumb" loading="lazy" src="${encPath(m.cover)}" alt="${escapeHtml(m.name)}">` : ''}
+      </div>
+      <div class="meta">
+        <strong>${escapeHtml(m.name)}</strong>
+        <small>${escapeHtml(bits.join(' · ')) || '&nbsp;'}</small>
+      </div>`;
+    const img = card.querySelector('img'), fb = card.querySelector('.thumb-fallback');
+    if (img) {
+      img.onload  = () => { img.style.opacity = '1'; fb.style.display = 'none'; };
+      img.onerror = () => { img.style.display = 'none'; fb.style.display = 'flex'; };
+    }
+    card.onclick = () => openModel(m);
+    grid.appendChild(card);
+  }
+}
+
+/* ---------------- model view ---------------- */
+
+function showStageMsg(text, withBar) {
+  stageMsgTxt.textContent = text;
+  stageTrackWrap.style.display = withBar ? '' : 'none';
+  stageTrack.style.width = '0%';
+  stageMsg.classList.add('show');
+}
+function hideStageMsg() { stageMsg.classList.remove('show'); }
+
+async function openModel(m) {
+  current = m;
+  history.replaceState(null, '', '?m=' + encodeURIComponent(m.path));
+  library.style.display = 'none';
+  modelView.style.display = 'block';
+  document.querySelector('.toolbar').style.display = 'none';
+  window.scrollTo({ top: 0 });
+
+  document.getElementById('mTitle').textContent = m.name;
+  document.getElementById('mFile').textContent = m.path + (m.size ? '  ·  ' + humanSize(m.size) : '');
+  const dl = document.getElementById('dlBtn');
+  dl.href = '/media?file=' + encodeURIComponent(m.path);
+  dl.setAttribute('download', m.file);
+
+  // the server already measured this model, so dimensions and the print check are on
+  // screen before a byte of mesh has been fetched. the real parse still replaces them
+  // once it lands, but nothing here waits on a 40MB download to answer "will it fit"
+  const preMesh = serverMesh(m);
+  renderFacts(preMesh);
+  updateFit(preMesh);
+  loadNotes(m);
+  setupPhoto(m);
+
+  const loadBtn = document.getElementById('load3dBtn');
+  meshLoadedFor = null;
+
+  if (VIEWABLE.indexOf(m.ext) < 0) {
+    teardownViewer();
+    loadBtn.style.display = 'none';
+    // a supplied photo IS the preview for a format that can't be drawn - far
+    // better than telling someone there's nothing to see when they added one
+    if (m.cover) { showPhoto(true); hideStageMsg(); }
+    else showStageMsg('No preview for .' + m.ext + ' files. The file is still here and can be downloaded.', false);
+    updateFit(null);
+    return;
+  }
+
+  // The mesh loads on demand, not on open. Browsing models stays instant and
+  // nothing multi megabyte moves until it is actually asked for.
+  loadBtn.style.display = '';
+  loadBtn.disabled = false;
+  loadBtn.textContent = 'Load 3D preview' + (m.size ? ' (' + humanSize(m.size) + ')' : '');
+  if (m.cover) {
+    showPhoto(true);
+    hideStageMsg();
+  } else {
+    showStageMsg('The 3D preview loads on demand.', false);
+  }
+}
+
+/* the actual mesh download + parse, started by the button or the 3D toggle */
+async function startPreview(m) {
+  const loadBtn = document.getElementById('load3dBtn');
+  loadBtn.disabled = true;
+  showPhoto(false);
+  showStageMsg('Loading model…', true);
+  try {
+    if (!viewer) {
+      viewer = new NomadModel.Viewer(document.getElementById('canvas'));
+      const saved = COLORS[+localStorage.getItem('nomadWorkshopColor') || 0];
+      if (saved) viewer.setColor(saved[1]);
+    }
+  } catch (e) {
+    showStageMsg('This browser cannot show 3D previews (' + e.message + ').', false);
+    updateFit(serverMesh(m));
+    return;
+  }
+
+  try {
+    const mesh = await NomadModel.load('/media?file=' + encodeURIComponent(m.path), (got, total) => {
+      stageTrack.style.width = Math.round(got / total * 100) + '%';
+      stageMsgTxt.textContent = 'Loading model… ' + humanSize(got) + ' of ' + humanSize(total);
+    });
+    // a slow model can still be arriving after the user has moved on
+    if (current !== m) return;
+    stageMsgTxt.textContent = 'Preparing…';
+    viewer.setMesh(mesh);
+    meshLoadedFor = m.path;
+    loadBtn.style.display = 'none';
+    hideStageMsg();
+    renderFacts(mesh);
+    updateFit(mesh);
+  } catch (e) {
+    if (current !== m) return;
+    loadBtn.disabled = false;
+    showStageMsg('Could not show this model: ' + e.message, false);
+    updateFit(serverMesh(m));
+  }
+}
+
+/* The photo layer. A model with both a photo and a drawable mesh gets a toggle, one
+   with only a photo just shows it. The toggle defaults to the 3D view when there is
+   one, thats the thing you can turn around. */
+function setupPhoto(m) {
+  const img = document.getElementById('stagePhoto');
+  const btn = document.getElementById('photoToggle');
+  const has3D = VIEWABLE.indexOf(m.ext) >= 0;
+
+  if (!m.cover) {
+    img.style.display = 'none';
+    img.removeAttribute('src');
+    btn.style.display = 'none';
+    showPhoto(false);
+    return;
+  }
+  img.src = encPath(m.cover);
+  img.alt = m.name;
+  // a photo that won't load must not leave a blank stage over the model
+  img.onerror = () => { img.style.display = 'none'; btn.style.display = 'none'; showPhoto(false); };
+  btn.style.display = has3D ? '' : 'none';
+  btn.textContent = 'Photo';
+  showPhoto(!has3D);
+}
+
+function showPhoto(on) {
+  const img = document.getElementById('stagePhoto');
+  const btn = document.getElementById('photoToggle');
+  img.style.display = on ? '' : 'none';
+  document.getElementById('stageHint').style.display = on ? 'none' : '';
+  document.getElementById('swatches').style.display = on ? 'none' : '';
+  document.getElementById('resetView').style.display = on ? 'none' : '';
+  if (btn.style.display !== 'none') btn.textContent = on ? '3D' : 'Photo';
+}
+
+document.getElementById('photoToggle').onclick = () => {
+  const showing = document.getElementById('stagePhoto').style.display !== 'none';
+  if (showing && current && meshLoadedFor !== current.path) {
+    startPreview(current);   // switching to 3D before it was loaded
+    return;
+  }
+  showPhoto(!showing);
+};
+
+function teardownViewer() {
+  if (viewer) { viewer.destroy(); viewer = null; }
+  // destroy() loses the GL context, so the next model needs a fresh canvas
+  const old = document.getElementById('canvas');
+  const fresh = document.createElement('canvas');
+  fresh.id = 'canvas';
+  old.replaceWith(fresh);
+}
+
+function closeModel() {
+  current = null;
+  history.replaceState(null, '', location.pathname);
+  modelView.style.display = 'none';
+  library.style.display = '';
+  document.querySelector('.toolbar').style.display = '';
+}
+
+/* The server's measurement, shaped like a parsed mesh so renderFacts() and updateFit()
+   can take it without knowing where it came from. Units follow the client parser:
+   .stl is millimetres by definition, .obj carries no unit. .3mf declares its own so
+   it isnt measured server-side and stays null until the real parse. */
+function serverMesh(m) {
+  if (!m || !m.dims) return null;
+  return {
+    size: [m.dims.x, m.dims.y, m.dims.z],
+    units: m.ext === 'stl' ? 'mm' : 'units',
+    triangles: m.dims.triangles || 0,
+    truncated: false,
+    fromServer: true
+  };
+}
+
+function renderFacts(mesh) {
+  const facts = [];
+  facts.push('.' + current.ext.toUpperCase());
+  if (current.size) facts.push(humanSize(current.size));
+  if (current.category) facts.push('📁 ' + current.category);
+  if (mesh) {
+    const [x, y, z] = mesh.size;
+    const u = mesh.units;
+    facts.push('📏 ' + x.toFixed(1) + ' × ' + y.toFixed(1) + ' × ' + z.toFixed(1) + ' ' + u);
+    // the server measures .obj by vertex, so it has no triangle count to report
+    if (mesh.triangles) facts.push('△ ' + mesh.triangles.toLocaleString() + ' triangles');
+    if (mesh.truncated) facts.push('⚠ preview truncated at ' + NomadModel.MAX_TRIANGLES.toLocaleString() + ' triangles');
+  }
+  document.getElementById('mFacts').innerHTML =
+    facts.map(f => `<span class="fact${f.startsWith('⚠') ? ' warn' : ''}">${escapeHtml(f)}</span>`).join('');
+}
+
+async function loadNotes(m) {
+  const panel = document.getElementById('notesPanel');
+  const body  = document.getElementById('mNotes');
+  panel.style.display = 'none';
+  if (!m.note) return;
+  try {
+    const res = await fetch(encPath(m.note), { cache: 'no-store' });
+    if (!res.ok || current !== m) return;
+    const txt = (await res.text()).trim();
+    if (!txt) return;
+    body.textContent = txt;
+    document.getElementById('notesTitle').textContent = m.noteIsOwn ? 'Print notes' : 'Folder notes';
+    panel.style.display = '';
+  } catch (e) {}
+}
+
+/* Build-volume check. Dimensions come from the mesh's own bounding box, so this only
+   means anything for a format that actually got parsed. a .gcode or .step is listed
+   as unknown rather than guessed at. Both orientations of the footprint count as
+   fitting, rotating a part 90 degrees on the plate is free. */
+function getBuildVolume() {
+  try {
+    const v = JSON.parse(localStorage.getItem(BV_KEY));
+    if (v && v.x > 0 && v.y > 0 && v.z > 0) return v;
+  } catch (e) {}
+  return { x: 220, y: 220, z: 250 };
+}
+
+function updateFit(mesh) {
+  const bv = getBuildVolume();
+  document.getElementById('bvX').value = bv.x;
+  document.getElementById('bvY').value = bv.y;
+  document.getElementById('bvZ').value = bv.z;
+
+  const el = document.getElementById('fitMsg');
+  if (!mesh) {
+    el.innerHTML = '<span style="color:var(--muted);">Dimensions are only known for models with a preview' +
+      (current && VIEWABLE.indexOf(current.ext) < 0 ? ' — this file type has none.' : '.') + '</span>';
+    return;
+  }
+  if (mesh.units !== 'mm') {
+    el.innerHTML = '<span style="color:var(--muted);">This file measures in ' + escapeHtml(mesh.units) +
+      ', so it is not compared against a millimetre build volume.</span>';
+    return;
+  }
+
+  const [x, y, z] = mesh.size;
+  const footFits = (x <= bv.x && y <= bv.y) || (y <= bv.x && x <= bv.y);
+  const fits = footFits && z <= bv.z;
+  const over = [];
+  if (!footFits) over.push('footprint');
+  if (z > bv.z) over.push('height');
+
+  el.innerHTML = fits
+    ? `<span class="fact ok">✓ Fits — ${x.toFixed(0)} × ${y.toFixed(0)} × ${z.toFixed(0)} mm` +
+      `${(x > bv.x || y > bv.y) ? ', rotated on the plate' : ''}</span>`
+    : `<span class="fact warn">⚠ Too big — ${escapeHtml(over.join(' and '))} exceeds the plate ` +
+      `(${x.toFixed(0)} × ${y.toFixed(0)} × ${z.toFixed(0)} mm)</span>`;
+}
+
+for (const id of ['bvX', 'bvY', 'bvZ']) {
+  document.getElementById(id).addEventListener('change', () => {
+    const v = {
+      x: +document.getElementById('bvX').value || 220,
+      y: +document.getElementById('bvY').value || 220,
+      z: +document.getElementById('bvZ').value || 250
+    };
+    localStorage.setItem(BV_KEY, JSON.stringify(v));
+    updateFit(viewer && viewer.mesh);
+  });
+}
+
+// colour swatches: the same model in a few filament colours reads very
+// differently, and picking one is the fastest way to judge how a print will look
+(function buildSwatches() {
+  const wrap = document.getElementById('swatches');
+  const saved = +localStorage.getItem('nomadWorkshopColor') || 0;
+  COLORS.forEach(([css, rgb], i) => {
+    const el = document.createElement('i');
+    el.style.background = css;
+    el.title = 'Preview colour';
+    if (i === saved) el.classList.add('on');
+    el.onclick = () => {
+      wrap.querySelectorAll('i').forEach(n => n.classList.remove('on'));
+      el.classList.add('on');
+      localStorage.setItem('nomadWorkshopColor', i);
+      if (viewer) viewer.setColor(rgb);
+    };
+    wrap.appendChild(el);
+  });
+})();
+
+document.getElementById('backToGrid').onclick = closeModel;
+document.getElementById('load3dBtn').onclick = () => { if (current) startPreview(current); };
+document.getElementById('resetView').onclick  = () => { if (viewer) viewer.resetView(); };
+searchInput.addEventListener('input', () => { clearTimeout(debounce); debounce = setTimeout(applyFilters, 150); });
+catSelect.addEventListener('change', applyFilters);
+typeSelect.addEventListener('change', applyFilters);
+sortSelect.addEventListener('change', () => applySort(sortSelect.value));
+document.addEventListener('keydown', e => { if (e.key === 'Escape' && current) closeModel(); });
+
+(async function init() {
+  await loadLibrary();
+  const want = new URLSearchParams(location.search).get('m');
+  if (want) {
+    const hit = models.find(m => m.path === want);
+    if (hit) openModel(hit);
+  }
+})();
+</script>
+</body>
+</html>

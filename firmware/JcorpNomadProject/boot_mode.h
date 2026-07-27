@@ -66,4 +66,35 @@ static inline void clear_needs_reindex_flag() {
   }
 }
 
+// one-shot "join home wifi on next boot" flag from the admin WiFi Mode popup.
+// NVS so it survives soft restarts and crashes, but boot clears it on a
+// power-on reset - unplug/replug is always the way back to hotspot mode.
+static constexpr const char* STA_ONCE_KEY = "sta_once";
+
+static inline void set_sta_once_flag() {
+  Preferences prefs;
+  if (prefs.begin(BOOT_NS, false)) {
+    prefs.putBool(STA_ONCE_KEY, true);
+    prefs.end();
+  }
+}
+
+static inline bool get_sta_once_flag() {
+  Preferences prefs;
+  bool staOnce = false;
+  if (prefs.begin(BOOT_NS, true)) {
+    staOnce = prefs.getBool(STA_ONCE_KEY, false);
+    prefs.end();
+  }
+  return staOnce;
+}
+
+static inline void clear_sta_once_flag() {
+  Preferences prefs;
+  if (prefs.begin(BOOT_NS, false)) {
+    prefs.putBool(STA_ONCE_KEY, false);
+    prefs.end();
+  }
+}
+
 #endif // BOOT_MODE_H

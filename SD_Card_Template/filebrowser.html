@@ -679,24 +679,29 @@
       $btnEdit.prop('disabled', !(has && !selectedIsDir && isTextFile(basename(selectedPath))));
     }
 
+    /* Diagnostics off by default. the per entry logs below fire once per file, which
+       drags badly on folders with thousands of entries */
+    const FB_DEBUG = false;
+    function dbg(){ if (FB_DEBUG) { try { console.log.apply(console, arguments); } catch (_) {} } }
+
     /* Simple cache wrapper */
     function cachePut(key, value){
       indexCache.set(key, { ts: Date.now(), data: value });
-      try { console.log('cachePut:', { key, hasData: !!value }); } catch (_) {}
+      dbg('cachePut:', { key, hasData: !!value });
     }
 
     function cacheGet(key){
       const v = indexCache.get(key);
       if (!v) {
-        try { console.log('cacheGet: miss', { key }); } catch (_) {}
+        dbg('cacheGet: miss', { key });
         return null;
       }
       if ((Date.now() - v.ts) > CACHE_TTL) {
         indexCache.delete(key);
-        try { console.log('cacheGet: expired', { key }); } catch (_) {}
+        dbg('cacheGet: expired', { key });
         return null;
       }
-      try { console.log('cacheGet: hit', { key }); } catch (_) {}
+      dbg('cacheGet: hit', { key });
       return v.data;
     }
 
@@ -910,22 +915,36 @@
       const raw = (idx && idx.entries) ? idx.entries : [];
       const map = new Map();
 
-      // Debug logging: initial call
-      try {
-        console.log('normalizeIndexEntries called with:', { requestedPath, raw });
-      } catch (err) {
-        /* ignore logging errors in constrained environments */
+      dbg('normalizeIndexEntries called with:', { requestedPath, count: raw.length });
+
+      /* One pass precompute so the per entry children checks below are O(1). the old
+         rescans of the whole list for every entry were quadratic and froze the tab */
+      const fulls = new Array(raw.length);
+      const dirAt = new Set();    // paths some entry explicitly marks as a dir
+      const parents = new Set();  // every ancestor path that has something under it
+      for (let i = 0; i < raw.length; i++){
+        const e = raw[i];
+        let f = e.p || e.path || null;
+        if (!f && e.n && String(e.n).startsWith('/')) f = e.n;
+        if (!f && e.n) f = joinPath(requestedPath, e.n);
+        f = f ? norm(f) : null;
+        fulls[i] = f;
+        if (!f) continue;
+        if ((e.t === 'd' || e.type === 'dir' || e.kind === 'dir') || String(e.n || '').endsWith('/')) dirAt.add(f);
+        let p = f;
+        for (;;){
+          const cut = p.lastIndexOf('/');
+          if (cut <= 0) break;
+          p = p.slice(0, cut);
+          if (parents.has(p)) break;   // ancestors above are already recorded
+          parents.add(p);
+        }
       }
 
-      for (const e of raw){
-        let full = e.p || e.path || null;
-        if (!full && e.n && String(e.n).startsWith('/')) full = e.n;
-        if (!full && e.n) {
-          // If e.n looks like an absolute path use it, otherwise join with requestedPath
-          full = (String(e.n).startsWith('/') ? e.n : joinPath(requestedPath, e.n));
-        }
+      for (let ei = 0; ei < raw.length; ei++){
+        const e = raw[ei];
+        const full = fulls[ei];
         if (!full) continue;
-        full = norm(full);
 
         // For root directory, include all top-level items
         if (requestedPath === '/') {
@@ -933,61 +952,29 @@
           const pathParts = full.split('/').filter(Boolean);
           if (pathParts.length >= 1) {
             const name = pathParts[0];
-            // Check if there are other entries with the same name that indicate children
-            const hasChildren = raw.some(other => {
-              if (other === e) return false;
-              const otherFull = norm(other.p || other.path || (other.n && String(other.n).startsWith('/') ? other.n : joinPath(requestedPath, other.n)) || '');
-              if (!otherFull || otherFull === full) return false;
-              const otherParts = otherFull.split('/').filter(Boolean);
-              return otherParts.length > pathParts.length && otherParts[0] === name;
-            });
-            // For root items, they are directories if:
-            // 1. They have nested content (more than one path component)
-            // 2. They are explicitly marked as directories
-            // 3. Other entries indicate they have children
+            // Something else in the index lives under this top-level name
+            const hasChildren = parents.has('/' + name);
+            // root items are directories if they have nested content, are marked as
+            // directories, or other entries show they have children
             const explicitlyDir = (e.t === 'd' || e.type === 'dir' || e.kind === 'dir') || String(e.n || '').endsWith('/');
             const isDir = explicitlyDir || (pathParts.length > 1) || hasChildren;
             // If we've already seen this top-level name, prefer directory over file
             const existing = map.get(name);
             if (!existing) {
               map.set(name, { n: name, t: isDir ? 'd' : 'f' });
-              try { console.log('normalizeIndexEntries added root item:', { name, isDir }); } catch (_) {}
+              dbg('normalizeIndexEntries added root item:', { name, isDir });
             } else if (isDir) {
               existing.t = 'd';
-              try { console.log('normalizeIndexEntries upgraded root item to dir:', { name }); } catch (_) {}
+              dbg('normalizeIndexEntries upgraded root item to dir:', { name });
             }
           }
           continue;
         }
 
-        // Debug logging for each entry
-        try {
-          console.log('normalizeIndexEntries processing entry:', { entry: e, full });
-        } catch (err) {
-          /* ignore logging errors */
-        }
+        dbg('normalizeIndexEntries processing entry:', { entry: e, full });
 
-        // Heuristic: check if any other raw entry indicates this path has children.
-        // This helps detect directories when the entry itself isn't explicitly marked.
-        const hasChildren = (() => {
-          try {
-            const prefix = full === '/' ? '/' : (full.endsWith('/') ? full : full + '/');
-            for (const oe of raw) {
-              if (oe === e) continue;
-              let ofull = oe.p || oe.path || null;
-              if (!ofull && oe.n && String(oe.n).startsWith('/')) ofull = oe.n;
-              if (!ofull && oe.n) ofull = joinPath(requestedPath, oe.n);
-              if (!ofull) continue;
-              ofull = norm(ofull);
-              if (ofull === full) {
-                if (oe.t === 'd' || oe.type === 'dir' || oe.kind === 'dir' || String(oe.n || '').endsWith('/')) return true;
-                continue;
-              }
-              if (ofull.startsWith(prefix)) return true;
-            }
-          } catch (_) {}
-          return false;
-        })();
+        // Another entry sits under this path, or some entry marks it as a dir
+        const hasChildren = parents.has(full) || dirAt.has(full);
 
         // For root directory, include all top-level items
         if (requestedPath === '/' || requestedPath === '') {
@@ -1003,10 +990,10 @@
             const existing = map.get(name);
             if (!existing) {
               map.set(name, { n: name, t: isDir ? 'd' : 'f' });
-              try { console.log('normalizeIndexEntries added root item:', { name, isDir }); } catch (_) {}
+              dbg('normalizeIndexEntries added root item:', { name, isDir });
             } else if (isDir) {
               existing.t = 'd';
-              try { console.log('normalizeIndexEntries upgraded root item to dir:', { name }); } catch (_) {}
+              dbg('normalizeIndexEntries upgraded root item to dir:', { name });
             }
           }
           continue;
@@ -1028,10 +1015,10 @@
           // Mark entries for directories so render/click handlers can
           // optionally deselect items when navigating into directories.
           map.set(first, { n: first, t: isDir ? 'd' : 'f', deselectOnNavigate: !!isDir });
-          try { console.log('normalizeIndexEntries added nested item:', { name: first, isDir, deselectOnNavigate: !!isDir }); } catch (_) {}
+          dbg('normalizeIndexEntries added nested item:', { name: first, isDir, deselectOnNavigate: !!isDir });
         } else if (isDir) {
           existing.t = 'd';
-          try { console.log('normalizeIndexEntries upgraded nested item to dir:', { name: first }); } catch (_) {}
+          dbg('normalizeIndexEntries upgraded nested item to dir:', { name: first });
         }
       }
 
