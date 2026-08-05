@@ -76,11 +76,15 @@
     .recipe-head .info { flex: 1 1 260px; min-width: 0; }
     .recipe-head h2 { margin: 0 0 .4rem; font-size: 1.5rem; }
     .facts { display: flex; flex-wrap: wrap; gap: .4rem; margin: .5rem 0; }
+    /* icons are inline SVG on currentColor, not emoji: an emoji keeps its own
+       colour whatever the theme is set to, and these sit on a themed pill */
     .fact {
+      display: inline-flex; align-items: center; gap: .3rem;
       font-size: .78rem; padding: .22rem .6rem; border-radius: 999px;
       background: var(--primary-alpha-8, rgba(0,123,255,.08)); color: var(--primary);
       border: 1px solid var(--primary-alpha-20, rgba(0,123,255,.2));
     }
+    .fact svg { width: 13px; height: 13px; flex: 0 0 auto; }
     .recipe-cols { display: grid; grid-template-columns: minmax(240px, 1fr) 2fr; gap: 1.5rem; align-items: start; }
     @media (max-width: 780px) { .recipe-cols { grid-template-columns: 1fr; } }
 
@@ -129,13 +133,21 @@
     .notes { margin-top: 1rem; font-size: .92rem; color: var(--muted); line-height: 1.6; white-space: pre-wrap; }
     .recipe-actions { display: flex; gap: .5rem; flex-wrap: wrap; margin: .75rem 0 0; }
     .recipe-actions button {
+      display: inline-flex; align-items: center; gap: .4rem;
       padding: .45rem .9rem; border: 1px solid var(--line); background: var(--card);
       color: var(--text); border-radius: var(--radius); cursor: pointer; font-size: .88rem;
     }
+    .recipe-actions button svg { width: 15px; height: 15px; flex: 0 0 auto; }
     .recipe-actions button.on { background: var(--primary); color: var(--color-white); border-color: var(--primary-dark); }
 
     .empty { text-align: center; color: var(--muted); padding: 2.5rem 1rem; line-height: 1.7; }
     .empty code { background: var(--card); padding: .12rem .4rem; border-radius: 4px; }
+    /* an incomplete listing has to say so, or a missing recipe reads as a lost file */
+    .notice {
+      margin: 0 0 .8rem; padding: .55rem .8rem; border-radius: var(--radius);
+      font-size: .85rem; line-height: 1.5;
+      background: rgba(217,119,6,.12); color: #b45309; border: 1px solid rgba(217,119,6,.35);
+    }
     footer { text-align: center; padding: 1rem 0; font-size: .9rem; color: var(--muted); }
 
     /* ---- editor ---- */
@@ -207,8 +219,9 @@
     }
 
     /* a duration found in a step becomes a one-tap timer */
+    .tchip svg { width: 12px; height: 12px; flex: 0 0 auto; }
     .tchip {
-      display: inline-flex; align-items: center; gap: .2rem; margin-left: .4rem; padding: .1rem .45rem;
+      display: inline-flex; align-items: center; gap: .25rem; margin-left: .4rem; padding: .1rem .45rem;
       font-size: .75rem; font-weight: 700; border-radius: 999px; cursor: pointer; vertical-align: middle;
       background: var(--primary-alpha-8, rgba(0,123,255,.08)); color: var(--primary);
       border: 1px solid var(--primary-alpha-20, rgba(0,123,255,.2));
@@ -257,6 +270,7 @@
 
   <main>
     <div class="grid-wrapper" id="library">
+      <div id="libWarn" class="notice" style="display:none;"></div>
       <div id="grid" class="media-grid medium"></div>
     </div>
 
@@ -267,10 +281,10 @@
         <div class="info">
           <h2 id="rTitle"></h2>
           <div class="facts" id="rFacts"></div>
-          <div id="rDesc" style="color:var(--muted);line-height:1.6;"></div>
+          <div id="rDesc" style="color:var(--muted);line-height:1.6;white-space:pre-line;"></div>
           <div class="recipe-actions">
-            <button id="cookBtn" title="Bigger type and keeps the screen awake">👨‍🍳 Cook mode</button>
-            <button id="printBtn">🖨 Print</button>
+            <button id="cookBtn" title="Bigger type and keeps the screen awake"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 21h12v-4H6z"></path><path d="M6 17c0-1.5-.6-2-1.4-2.8A4.5 4.5 0 0 1 8 6.4a5 5 0 0 1 8 0 4.5 4.5 0 0 1 1.4 7.8C16.6 15 16 15.5 16 17"></path></svg>Cook mode</button>
+            <button id="printBtn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="6 9 6 2 18 2 18 9"></polyline><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"></path><rect x="6" y="14" width="12" height="8"></rect></svg>Print</button>
             <button id="resetChecks">↺ Clear checkmarks</button>
             <button id="editBtn" style="display:none;">✎ Edit</button>
           </div>
@@ -399,6 +413,17 @@ function escapeHtml(s) {
   return String(s).replace(/[&<>"']/g, c => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[c]));
 }
 
+/* Inline icons, stroked with currentColor so they take the theme's primary on a
+   fact pill and the button's text colour elsewhere. Same approach as the music
+   player's transport icons, and for the same reason: a colour emoji ignores CSS
+   colour entirely, so it stayed blue-grey on every custom theme and in dark mode. */
+const svgIcon = (body) => '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" ' +
+  'stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' + body + '</svg>';
+const SVG_CLOCK = svgIcon('<circle cx="12" cy="12" r="9"></circle><polyline points="12 7 12 12 15.5 14"></polyline>');
+const SVG_TAG   = svgIcon('<path d="M20.6 13.4l-7.2 7.2a2 2 0 0 1-2.8 0L2 12V2h10l8.6 8.6a2 2 0 0 1 0 2.8z"></path><line x1="7" y1="7" x2="7.01" y2="7"></line>');
+const SVG_BOOK  = svgIcon('<path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"></path><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"></path>');
+const SVG_TIMER = svgIcon('<line x1="10" y1="2" x2="14" y2="2"></line><circle cx="12" cy="14" r="8"></circle><line x1="12" y1="14" x2="12" y2="10.5"></line>');
+
 // sticky offset from the header's real height, same as games.html. a fixed value
 // either floats the toolbar over the first row or lets it slide under a wrapped header
 (function fitToolbar() {
@@ -488,10 +513,7 @@ function numberToQty(n) {
     const d = Math.abs(rem - num / den);
     if (d < 0.055 && (!best || d < best.d)) best = { num, den, d };
   }
-  if (!best) {
-    const dec = n < 1 ? n.toFixed(2).replace(/0$/, '') : n.toFixed(2).replace(/0$/, '');
-    return dec.replace(/\.$/, '');
-  }
+  if (!best) return n.toFixed(2).replace(/0+$/, '').replace(/\.$/, '');   // 1.30 -> 1.3, 1.00 -> 1
   const key  = best.num + '/' + best.den;
   const frac = VULGAR_OUT[key] || key;
   return whole ? whole + (VULGAR_OUT[key] ? frac : ' ' + frac) : frac;
@@ -519,8 +541,7 @@ function scaleIngredient(line, factor) {
 /* Cooklang (.cook): plain text where @ingredient{qty%unit}, #cookware{} and
    ~timer{5%min} are tagged inline, blank lines separate steps, and ">> key: value"
    lines carry metadata. Amounts are lifted into an ingredients list and clean
-   sentences left behind for the steps. Twin of the Node parser in src/media/library.js,
-   keep the two in step. https://cooklang.org/docs/spec/ */
+   sentences left behind for the steps. https://cooklang.org/docs/spec/ */
 function parseCookRecipe(raw) {
   const out = { ingredients: [], steps: [] };
   const text = String(raw).replace(/\[-[\s\S]*?-\]/g, '');           // block comments
@@ -632,8 +653,11 @@ function parseMarkdownRecipe(raw) {
       if (item) out[section].push(item);
     } else if (section === 'notes') {
       out.notes = (out.notes ? out.notes + '\n' : '') + t;
-    } else if (!out.description && !/^[-*+#]/.test(t) && out.ingredients.length === 0) {
-      out.description = t;
+    } else if (!/^[-*+#]/.test(t) && out.ingredients.length === 0) {
+      // every line before the first section is the description. Taking only the
+      // first one silently ate line two of anything written in the editor, whose
+      // own label invites "one or two lines".
+      out.description = (out.description ? out.description + '\n' : '') + t;
     }
   }
   return out;
@@ -687,66 +711,38 @@ function timeToMinutes(t) {
   return hit ? mins : null;
 }
 
-/* ---------------- loading ---------------- */
+/* ---------------- loading ----------------
+   The library is built in the browser: list each folder through NomadList (which
+   picks between the live scan and the index and tells us when a folder came back
+   short), then read every recipe file a few at a time, capped, because flooding the
+   SD bus is what crashes the device. */
 
-/* One directory listing. Prefers the firmware's NDJSON index and falls back to a live
-   /listfiles scan, so the page works on firmware that indexes /Cookbook and firmware
-   that doesnt yet. A busy card answers 503 right after boot, so retry instead of
-   reporting an empty cookbook. */
-// encode a card path for a URL, per segment: encodeURI leaves # and ? alone,
-// so a file named "Cake #2.md" used to truncate at the hash
-function encPath(p) { return String(p || '').split('/').map(encodeURIComponent).join('/'); }
-async function fetch503(url, tries = 3) {
-  for (let i = 0; i < tries; i++) {
-    const res = await fetch(url, { cache: 'no-store' });
-    if (res.status !== 503) return res;
-    await new Promise(r => setTimeout(r, 700 * (i + 1)));
-  }
-  return fetch(url, { cache: 'no-store' });
-}
-async function listDir(dir) {
-  try {
-    const res = await fetch503('/api/index?path=' + encodeURIComponent(dir));
-    if (res.ok) {
-      const lines = (await res.text()).split('\n').filter(Boolean);
-      const out = [];
-      for (let i = 1; i < lines.length; i++) {   // line 0 is the index header
-        try {
-          const e = JSON.parse(lines[i]);
-          if (e && e.n) out.push({ name: e.n, path: e.p, isDir: e.t === 'd' });
-        } catch (e) {}
-      }
-      if (out.length) return out;
-    }
-  } catch (e) {}
-  try {
-    const res = await fetch503('/listfiles?dir=' + encodeURIComponent(dir) + '&_=' + Date.now());
-    if (!res.ok) return [];
-    const arr = JSON.parse(await res.text());
-    return (Array.isArray(arr) ? arr : []).map(f => {
-      const name = String(f.name || '').replace(/\/$/, '');
-      return { name, path: dir + '/' + name, isDir: !!f.isDir };
-    }).filter(f => f.name);
-  } catch (e) { return []; }
-}
+const encPath = (p) => NomadList.encPath(p);
+const MAX_CATEGORY_DIRS = 24;
+let libraryWarning = '';    // shown above the grid when the listing was incomplete
 
-/* The library is built in the browser: list each folder, then read every recipe file
-   a few at a time, capped, because flooding the SD bus is what crashes the device.
-   Voyager has a server-side /api/cookbook for this, the Nomad does the walk itself. */
 async function loadLibrary() {
   grid.innerHTML = '<p class="empty" style="grid-column:1/-1;">Reading the cookbook…</p>';
-  await loadLibraryFallback();
-}
+  libraryWarning = '';
 
-/* Client-side walk, kept as the fallback path. Same behaviour as the Nomad:
-   filename-only cards appear immediately and fill in as the reads land. */
-async function loadLibraryFallback() {
-  const top  = await listDir(COOKBOOK_DIR);
-  const dirs = top.filter(e => e.isDir && !e.name.startsWith('.'));
-  const all  = [{ dir: COOKBOOK_DIR, category: '', entries: top.filter(e => !e.isDir) }];
+  const top  = await NomadList.dir(COOKBOOK_DIR);
+  if (top.truncated) libraryWarning = 'This folder holds more files than the Nomad can list in one go. ' +
+    'Run Admin → Library Index so the rest show up, or move some recipes into subfolders.';
 
-  for (const d of dirs.slice(0, 24)) {
-    all.push({ dir: d.path, category: d.name, entries: (await listDir(d.path)).filter(e => !e.isDir) });
+  const dirs = top.entries.filter(e => e.isDir && !e.name.startsWith('.'));
+  const all  = [{ dir: COOKBOOK_DIR, category: '', entries: top.entries.filter(e => !e.isDir) }];
+
+  if (dirs.length > MAX_CATEGORY_DIRS) {
+    libraryWarning = 'Showing the first ' + MAX_CATEGORY_DIRS + ' of ' + dirs.length +
+      ' categories in /Cookbook.';
+  }
+  for (const d of dirs.slice(0, MAX_CATEGORY_DIRS)) {
+    const sub = await NomadList.dir(d.path);
+    if (sub.truncated && !libraryWarning) {
+      libraryWarning = '"' + d.name + '" holds more files than the Nomad can list in one go. ' +
+        'Run Admin → Library Index so the rest show up.';
+    }
+    all.push({ dir: d.path, category: d.name, entries: sub.entries.filter(e => !e.isDir) });
   }
 
   recipes = [];
@@ -785,6 +781,13 @@ async function loadLibraryFallback() {
    tags and the cards can show time/servings. Throttled for the same SD bus reason. */
 async function loadAllMeta() {
   const queue = recipes.slice(0, META_LIMIT);
+  // past the cap a recipe still opens and reads fine, it just has no time/servings
+  // on its card and its ingredients are not in the search box. Say so rather than
+  // letting the search quietly cover only part of the shelf.
+  if (recipes.length > META_LIMIT && !libraryWarning) {
+    libraryWarning = 'Search covers the ingredients of the first ' + META_LIMIT + ' of ' +
+      recipes.length + ' recipes. Every recipe still opens normally.';
+  }
   let cursor = 0, dirty = false;
 
   const paint = setInterval(() => { if (dirty) { dirty = false; applyFilters(); } }, 600);
@@ -863,6 +866,10 @@ function applySort(mode) {
 function renderGrid() {
   grid.innerHTML = '';
   grid.className = `media-grid ${currentSize}`;
+
+  const warn = document.getElementById('libWarn');
+  warn.textContent = libraryWarning;
+  warn.style.display = libraryWarning ? '' : 'none';
 
   if (!recipes.length) {
     grid.innerHTML = '<div class="empty" style="grid-column:1/-1;">' +
@@ -944,11 +951,12 @@ function renderRecipe() {
   else img.style.display = 'none';
 
   const facts = [];
-  if (m.time)     facts.push('⏱ ' + m.time);
-  if (current.category) facts.push('🍽 ' + current.category);
-  if (m.source)   facts.push('📖 ' + m.source);
-  for (const t of m.tags) facts.push('#' + t);
-  document.getElementById('rFacts').innerHTML = facts.map(f => `<span class="fact">${escapeHtml(f)}</span>`).join('');
+  if (m.time)           facts.push({ icon: SVG_CLOCK, text: m.time });
+  if (current.category) facts.push({ icon: SVG_TAG,   text: current.category });
+  if (m.source)         facts.push({ icon: SVG_BOOK,  text: m.source });
+  for (const t of m.tags) facts.push({ icon: '', text: '#' + t });
+  document.getElementById('rFacts').innerHTML =
+    facts.map(f => `<span class="fact">${f.icon}${escapeHtml(f.text)}</span>`).join('');
 
   document.getElementById('rNotes').textContent = m.notes || '';
   renderScale();
@@ -1008,7 +1016,7 @@ function renderSteps() {
       const chip = document.createElement('button');
       chip.className = 'tchip';
       chip.type = 'button';
-      chip.textContent = '⏲ ' + d.label;
+      chip.innerHTML = SVG_TIMER + escapeHtml(d.label);
       chip.title = 'Start a ' + d.label + ' timer';
       chip.onclick = (ev) => {
         ev.stopPropagation();                       // don't also tick the step off
@@ -1171,10 +1179,12 @@ const NomadTimers = (() => {
       body().appendChild(el);
     }
 
-    // the tab title is the only thing visible when the phone is on another app
+    // The tab title is the only thing visible when the phone is on another app, and
+    // it is the one spot an emoji earns its keep: a tab strip renders plain text, so
+    // there is no SVG to swap in and nothing to theme it against anyway.
     const first = list.find(t => t.done) || list.find(t => !t.done);
     document.title = !first ? 'Nomad • Cookbook'
-      : (first.done ? '⏰ Timer done — Nomad' : '⏲ ' + fmt(first.endsAt - Date.now()) + ' — Nomad');
+      : (first.done ? '⏰ Timer done • Nomad' : '⏲ ' + fmt(first.endsAt - Date.now()) + ' • Nomad');
   }
 
   function pump() {
@@ -1391,15 +1401,27 @@ async function saveRecipe() {
 
     msg.className = 'ok'; msg.textContent = 'Saved.';
     editingPath = path;
-    // the firmware queues the write; give it a beat before re-listing
-    await new Promise(r => setTimeout(r, 900));
-    await loadLibrary();
+    // the firmware queues the write, so the file is not on the card the instant
+    // /save answers. Re-list until it turns up rather than guessing at one delay.
+    let saved = null;
+    for (let wait = 600; wait <= 2400 && !saved; wait *= 2) {
+      await new Promise(r => setTimeout(r, wait));
+      await loadLibrary();
+      saved = recipes.find(r => r.path === path);
+    }
     // loadLibrary rebuilt the list, so the old `current` object is stale - drop
     // it before closeEditor() decides which view to restore
-    const saved = recipes.find(r => r.path === path);
     current = null;
+    if (!saved) {
+      // written, but not showing up yet. Saying nothing here is what made a
+      // successful save look like it had done nothing at all.
+      msg.className = 'ok';
+      msg.textContent = 'Saved to ' + path + '. It has not appeared in the library yet; ' +
+        'reload the page in a moment, or run Admin → Library Index if it stays missing.';
+      return;
+    }
     closeEditor();
-    if (saved) openRecipe(saved);
+    openRecipe(saved);
   } catch (e) {
     msg.className = 'err';
     msg.textContent = 'Could not save: ' + e.message;

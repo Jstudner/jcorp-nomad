@@ -114,10 +114,12 @@
 
     .facts { display: flex; flex-wrap: wrap; gap: .4rem; margin: .85rem 0; }
     .fact {
+      display: inline-flex; align-items: center; gap: .3rem;
       font-size: .78rem; padding: .22rem .6rem; border-radius: 999px;
       background: var(--primary-alpha-8, rgba(0,123,255,.08)); color: var(--primary);
       border: 1px solid var(--primary-alpha-20, rgba(0,123,255,.2));
     }
+    .fact svg { width: 13px; height: 13px; flex: 0 0 auto; }
     .fact.warn { background: rgba(217,119,6,.12); color: #b45309; border-color: rgba(217,119,6,.35); }
     .fact.ok   { background: rgba(16,185,129,.12); color: #047857; border-color: rgba(16,185,129,.35); }
 
@@ -126,9 +128,11 @@
     .notes { font-size: .93rem; line-height: 1.65; white-space: pre-wrap; color: var(--text); }
     .model-actions { display: flex; gap: .5rem; flex-wrap: wrap; }
     .model-actions button, .model-actions a {
+      display: inline-flex; align-items: center; gap: .4rem;
       padding: .45rem .9rem; border: 1px solid var(--line); background: var(--card); color: var(--text);
-      border-radius: var(--radius); cursor: pointer; font-size: .88rem; text-decoration: none; display: inline-block;
+      border-radius: var(--radius); cursor: pointer; font-size: .88rem; text-decoration: none;
     }
+    .model-actions svg { width: 15px; height: 15px; flex: 0 0 auto; }
 
     .printer-row { display: flex; align-items: center; gap: .4rem; flex-wrap: wrap; font-size: .85rem; color: var(--muted); }
     .printer-row input {
@@ -138,6 +142,12 @@
 
     .empty { text-align: center; color: var(--muted); padding: 2.5rem 1rem; line-height: 1.7; }
     .empty code { background: var(--card); padding: .12rem .4rem; border-radius: 4px; }
+    /* an incomplete listing has to say so, or a missing model reads as a lost file */
+    .notice {
+      margin: 0 0 .8rem; padding: .55rem .8rem; border-radius: var(--radius);
+      font-size: .85rem; line-height: 1.5;
+      background: rgba(217,119,6,.12); color: #b45309; border: 1px solid rgba(217,119,6,.35);
+    }
     footer { text-align: center; padding: 1rem 0; font-size: .9rem; color: var(--muted); }
   </style>
 </head>
@@ -166,6 +176,7 @@
 
   <main>
     <div class="grid-wrapper" id="library">
+      <div id="libWarn" class="notice" style="display:none;"></div>
       <div id="grid" class="media-grid medium"></div>
     </div>
 
@@ -214,7 +225,7 @@
         <h3>File</h3>
         <div id="mFile" style="font-size:.88rem;color:var(--muted);margin-bottom:.7rem;word-break:break-all;"></div>
         <div class="model-actions">
-          <a id="dlBtn" href="#" download data-dl>⬇ Download</a>
+          <a id="dlBtn" href="#" download data-dl><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>Download</a>
         </div>
       </div>
     </div>
@@ -296,7 +307,9 @@ let current  = null;
 let viewer   = null;
 let debounce = null;
 let currentSize = localStorage.getItem('nomadWorkshopSize') || 'medium';
-let meshLoadedFor = null;   // path of the model whose mesh is in the viewer
+let meshLoadedFor = null;   // path of the model the parsed mesh belongs to
+let currentMesh   = null;   // its measurements, kept apart from the viewer so a
+                            // browser that cannot draw still gets the print check
 
 const COLORS = [
   ['#6a99db', [0.42, 0.60, 0.86]],
@@ -311,67 +324,41 @@ const CUBE_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" st
 
 /* ---------------- loading ---------------- */
 
-/* Same two-source listing as the cookbook: the firmware's NDJSON index when the
-   bucket is indexed, a live /listfiles scan when it isnt. /listfiles also carries
-   file sizes, which the index doesnt. */
-// encode a card path for a URL, per segment: encodeURI leaves # and ? alone,
-// so a file named "Cake #2.md" used to truncate at the hash
-function encPath(p) { return String(p || '').split('/').map(encodeURIComponent).join('/'); }
-// a busy card answers 503 for a moment right after boot; retry instead of
-// reporting an empty workshop
-async function fetch503(url, tries = 3) {
-  for (let i = 0; i < tries; i++) {
-    const res = await fetch(url, { cache: 'no-store' });
-    if (res.status !== 503) return res;
-    await new Promise(r => setTimeout(r, 700 * (i + 1)));
-  }
-  return fetch(url, { cache: 'no-store' });
-}
-async function listDir(dir) {
-  let viaIndex = [];
-  try {
-    const res = await fetch503('/api/index?path=' + encodeURIComponent(dir));
-    if (res.ok) {
-      const lines = (await res.text()).split('\n').filter(Boolean);
-      for (let i = 1; i < lines.length; i++) {
-        try {
-          const e = JSON.parse(lines[i]);
-          if (e && e.n) viaIndex.push({ name: e.n, path: e.p, isDir: e.t === 'd', size: e.s || 0 });
-        } catch (e) {}
-      }
-    }
-  } catch (e) {}
+/* Listing goes through NomadList, which picks between the live scan and the NDJSON
+   index and reports when a folder came back short. A model library is exactly the
+   shape of folder that overruns the live scan's buffer: every model tends to bring a
+   thumbnail and a notes file with it, so the entries add up three times faster than
+   the models do.
 
-  try {
-    const res = await fetch503('/listfiles?dir=' + encodeURIComponent(dir) + '&_=' + Date.now());
-    if (res.ok) {
-      const arr = JSON.parse(await res.text());
-      const out = (Array.isArray(arr) ? arr : []).map(f => {
-        const name = String(f.name || '').replace(/\/$/, '');
-        return { name, path: dir + '/' + name, isDir: !!f.isDir, size: +f.size || 0 };
-      }).filter(f => f.name);
-      if (out.length) return out;
-    }
-  } catch (e) {}
-  return viaIndex;
-}
+   Dimensions are only known once a model is opened, since measuring one means pulling
+   the whole mesh over the wire. */
 
-/* The library is a client-side folder walk. Dimensions are only known once a model is
-   opened, since measuring one means pulling the whole mesh over the wire. Voyager has
-   a server-side /api/workshop that pre-measures, the Nomad does not. */
+const encPath = (p) => NomadList.encPath(p);
+const MAX_COLLECTION_DIRS = 32;
+let libraryWarning = '';    // shown above the grid when the listing was incomplete
+
 async function loadLibrary() {
   grid.innerHTML = '<p class="empty" style="grid-column:1/-1;">Opening the workshop…</p>';
-  await loadLibraryFallback();
-}
+  libraryWarning = '';
 
-/* Client-side folder walk, the Nomad path, kept for a server without /api/workshop.
-   Dimensions stay unknown until a model is opened. */
-async function loadLibraryFallback() {
-  const top   = await listDir(WORKSHOP_DIR);
-  const dirs  = top.filter(e => e.isDir && !e.name.startsWith('.'));
-  const groups = [{ category: '', entries: top.filter(e => !e.isDir) }];
-  for (const d of dirs.slice(0, 32)) {
-    groups.push({ category: d.name, entries: (await listDir(d.path)).filter(e => !e.isDir) });
+  const top = await NomadList.dir(WORKSHOP_DIR);
+  if (top.truncated) libraryWarning = 'This folder holds more files than the Nomad can list in one go. ' +
+    'Run Admin → Library Index so the rest show up, or move some models into subfolders.';
+
+  const dirs = top.entries.filter(e => e.isDir && !e.name.startsWith('.'));
+  const groups = [{ category: '', entries: top.entries.filter(e => !e.isDir) }];
+
+  if (dirs.length > MAX_COLLECTION_DIRS) {
+    libraryWarning = 'Showing the first ' + MAX_COLLECTION_DIRS + ' of ' + dirs.length +
+      ' collections in /Workshop.';
+  }
+  for (const d of dirs.slice(0, MAX_COLLECTION_DIRS)) {
+    const sub = await NomadList.dir(d.path);
+    if (sub.truncated && !libraryWarning) {
+      libraryWarning = '"' + d.name + '" holds more files than the Nomad can list in one go. ' +
+        'Run Admin → Library Index so the rest show up.';
+    }
+    groups.push({ category: d.name, entries: sub.entries.filter(e => !e.isDir) });
   }
 
   models = [];
@@ -475,6 +462,10 @@ function renderGrid() {
   grid.innerHTML = '';
   grid.className = `media-grid ${currentSize}`;
 
+  const warn = document.getElementById('libWarn');
+  warn.textContent = libraryWarning;
+  warn.style.display = libraryWarning ? '' : 'none';
+
   if (!models.length) {
     grid.innerHTML = '<div class="empty" style="grid-column:1/-1;">' +
       '<strong>No models on this card yet.</strong><br>' +
@@ -492,10 +483,9 @@ function renderGrid() {
   for (const m of filtered) {
     const card = document.createElement('div');
     card.className = 'media-card';
-    // dims come from the server's own parse, so the printed size is on the card
-    // rather than only inside the model view
-    const dimTxt = m.dims ? `${fmtMM(m.dims.x)}×${fmtMM(m.dims.y)}×${fmtMM(m.dims.z)} mm` : '';
-    const bits = [dimTxt, humanSize(m.size), m.category].filter(Boolean);
+    // no dimensions here: measuring a model means parsing the whole mesh, which
+    // only happens once one is opened and its preview loaded
+    const bits = [humanSize(m.size), m.category].filter(Boolean);
     card.innerHTML = `
       <div class="thumb-wrapper">
         <div class="thumb-fallback">${CUBE_ICON}<span class="ext">${escapeHtml(m.ext.toUpperCase())}</span></div>
@@ -539,20 +529,21 @@ async function openModel(m) {
   dl.href = '/media?file=' + encodeURIComponent(m.path);
   dl.setAttribute('download', m.file);
 
-  // the server already measured this model, so dimensions and the print check are on
-  // screen before a byte of mesh has been fetched. the real parse still replaces them
-  // once it lands, but nothing here waits on a 40MB download to answer "will it fit"
-  const preMesh = serverMesh(m);
-  renderFacts(preMesh);
-  updateFit(preMesh);
+  // Nothing is measured until a mesh is parsed, so the facts row and the print check
+  // both open in their "not yet known" state and get filled in by startPreview().
+  renderFacts(null);
+  updateFit(null);
   loadNotes(m);
   setupPhoto(m);
 
   const loadBtn = document.getElementById('load3dBtn');
+  // the previous model's mesh must not survive into this one: it is still what the
+  // viewer is holding, and the print check reads its bounding box
   meshLoadedFor = null;
+  currentMesh   = null;
+  if (viewer) teardownViewer();
 
   if (VIEWABLE.indexOf(m.ext) < 0) {
-    teardownViewer();
     loadBtn.style.display = 'none';
     // a supplied photo IS the preview for a format that can't be drawn - far
     // better than telling someone there's nothing to see when they added one
@@ -575,44 +566,54 @@ async function openModel(m) {
   }
 }
 
-/* the actual mesh download + parse, started by the button or the 3D toggle */
+/* The mesh download + parse, started by the button or the 3D toggle.
+
+   Parse first, draw second, and deliberately in that order: measuring is pure JS, so
+   the dimensions and the print check land whether or not this browser can run WebGL.
+   Doing it the other way round meant a phone with WebGL off or blocked was told to
+   "load the preview to measure this model" and then had no way to. */
 async function startPreview(m) {
   const loadBtn = document.getElementById('load3dBtn');
   loadBtn.disabled = true;
   showPhoto(false);
   showStageMsg('Loading model…', true);
+
+  let mesh;
+  try {
+    mesh = await NomadModel.load('/media?file=' + encodeURIComponent(m.path), (got, total) => {
+      stageTrack.style.width = Math.round(got / total * 100) + '%';
+      stageMsgTxt.textContent = 'Loading model… ' + humanSize(got) + ' of ' + humanSize(total);
+    });
+  } catch (e) {
+    if (current !== m) return;
+    loadBtn.disabled = false;
+    showStageMsg('Could not read this model: ' + e.message, false);
+    updateFit(null);
+    return;
+  }
+  // a slow model can still be arriving after the user has moved on
+  if (current !== m) return;
+
+  currentMesh   = mesh;
+  meshLoadedFor = m.path;
+  renderFacts(mesh);
+  updateFit(mesh);
+
+  stageMsgTxt.textContent = 'Preparing…';
   try {
     if (!viewer) {
       viewer = new NomadModel.Viewer(document.getElementById('canvas'));
       const saved = COLORS[+localStorage.getItem('nomadWorkshopColor') || 0];
       if (saved) viewer.setColor(saved[1]);
     }
+    viewer.setMesh(mesh);
   } catch (e) {
-    showStageMsg('This browser cannot show 3D previews (' + e.message + ').', false);
-    updateFit(serverMesh(m));
+    loadBtn.style.display = 'none';
+    showStageMsg('Measured, but this browser cannot draw a 3D preview (' + e.message + ').', false);
     return;
   }
-
-  try {
-    const mesh = await NomadModel.load('/media?file=' + encodeURIComponent(m.path), (got, total) => {
-      stageTrack.style.width = Math.round(got / total * 100) + '%';
-      stageMsgTxt.textContent = 'Loading model… ' + humanSize(got) + ' of ' + humanSize(total);
-    });
-    // a slow model can still be arriving after the user has moved on
-    if (current !== m) return;
-    stageMsgTxt.textContent = 'Preparing…';
-    viewer.setMesh(mesh);
-    meshLoadedFor = m.path;
-    loadBtn.style.display = 'none';
-    hideStageMsg();
-    renderFacts(mesh);
-    updateFit(mesh);
-  } catch (e) {
-    if (current !== m) return;
-    loadBtn.disabled = false;
-    showStageMsg('Could not show this model: ' + e.message, false);
-    updateFit(serverMesh(m));
-  }
+  loadBtn.style.display = 'none';
+  hideStageMsg();
 }
 
 /* The photo layer. A model with both a photo and a drawable mesh gets a toggle, one
@@ -675,36 +676,32 @@ function closeModel() {
   document.querySelector('.toolbar').style.display = '';
 }
 
-/* The server's measurement, shaped like a parsed mesh so renderFacts() and updateFit()
-   can take it without knowing where it came from. Units follow the client parser:
-   .stl is millimetres by definition, .obj carries no unit. .3mf declares its own so
-   it isnt measured server-side and stays null until the real parse. */
-function serverMesh(m) {
-  if (!m || !m.dims) return null;
-  return {
-    size: [m.dims.x, m.dims.y, m.dims.z],
-    units: m.ext === 'stl' ? 'mm' : 'units',
-    triangles: m.dims.triangles || 0,
-    truncated: false,
-    fromServer: true
-  };
-}
+/* Icons are inline SVG on currentColor, not emoji: a fact pill is themed, and a
+   colour emoji ignores CSS colour, so it stayed the same hue on every theme. */
+const svgIcon = (body) => '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" ' +
+  'stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' + body + '</svg>';
+const SVG_FOLDER = svgIcon('<path d="M3 7a2 2 0 0 1 2-2h4l2 2.5h8a2 2 0 0 1 2 2V18a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path>');
+const SVG_RULER  = svgIcon('<path d="M3.5 14.5l11-11 5 5-11 11z"></path><line x1="6.5" y1="11.5" x2="8.5" y2="13.5"></line><line x1="9.5" y1="8.5" x2="11.5" y2="10.5"></line><line x1="12.5" y1="5.5" x2="14.5" y2="7.5"></line>');
+const SVG_TRI    = svgIcon('<path d="M12 4l9 16H3z"></path>');
+const SVG_WARN   = svgIcon('<path d="M10.3 3.9L1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"></path><line x1="12" y1="9" x2="12" y2="13"></line><line x1="12" y1="17" x2="12.01" y2="17"></line>');
+const SVG_CHECK  = svgIcon('<polyline points="20 6 9 17 4 12"></polyline>');
 
 function renderFacts(mesh) {
   const facts = [];
-  facts.push('.' + current.ext.toUpperCase());
-  if (current.size) facts.push(humanSize(current.size));
-  if (current.category) facts.push('📁 ' + current.category);
+  facts.push({ text: '.' + current.ext.toUpperCase() });
+  if (current.size) facts.push({ text: humanSize(current.size) });
+  if (current.category) facts.push({ icon: SVG_FOLDER, text: current.category });
   if (mesh) {
     const [x, y, z] = mesh.size;
-    const u = mesh.units;
-    facts.push('📏 ' + x.toFixed(1) + ' × ' + y.toFixed(1) + ' × ' + z.toFixed(1) + ' ' + u);
-    // the server measures .obj by vertex, so it has no triangle count to report
-    if (mesh.triangles) facts.push('△ ' + mesh.triangles.toLocaleString() + ' triangles');
-    if (mesh.truncated) facts.push('⚠ preview truncated at ' + NomadModel.MAX_TRIANGLES.toLocaleString() + ' triangles');
+    facts.push({ icon: SVG_RULER,
+                 text: x.toFixed(1) + ' × ' + y.toFixed(1) + ' × ' + z.toFixed(1) + ' ' + mesh.units });
+    // .obj is parsed by vertex, so it carries no triangle count to report
+    if (mesh.triangles) facts.push({ icon: SVG_TRI, text: mesh.triangles.toLocaleString() + ' triangles' });
+    if (mesh.truncated) facts.push({ icon: SVG_WARN, warn: true,
+      text: 'preview truncated at ' + NomadModel.MAX_TRIANGLES.toLocaleString() + ' triangles' });
   }
-  document.getElementById('mFacts').innerHTML =
-    facts.map(f => `<span class="fact${f.startsWith('⚠') ? ' warn' : ''}">${escapeHtml(f)}</span>`).join('');
+  document.getElementById('mFacts').innerHTML = facts.map(f =>
+    `<span class="fact${f.warn ? ' warn' : ''}">${f.icon || ''}${escapeHtml(f.text)}</span>`).join('');
 }
 
 async function loadNotes(m) {
@@ -743,8 +740,13 @@ function updateFit(mesh) {
 
   const el = document.getElementById('fitMsg');
   if (!mesh) {
-    el.innerHTML = '<span style="color:var(--muted);">Dimensions are only known for models with a preview' +
-      (current && VIEWABLE.indexOf(current.ext) < 0 ? ' — this file type has none.' : '.') + '</span>';
+    // Two different reasons for "no dimensions", and the old copy gave the wrong
+    // one for an STL: it read "only known for models with a preview" on a file that
+    // has a preview, it just hasn't been loaded yet.
+    const noPreview = current && VIEWABLE.indexOf(current.ext) < 0;
+    el.innerHTML = '<span style="color:var(--muted);">' + (noPreview
+      ? 'A .' + escapeHtml(current.ext) + ' is not measured, so it is not checked against your build volume.'
+      : 'Load the 3D preview to measure this model.') + '</span>';
     return;
   }
   if (mesh.units !== 'mm') {
@@ -760,11 +762,12 @@ function updateFit(mesh) {
   if (!footFits) over.push('footprint');
   if (z > bv.z) over.push('height');
 
+  const dims = `${x.toFixed(0)} × ${y.toFixed(0)} × ${z.toFixed(0)} mm`;
   el.innerHTML = fits
-    ? `<span class="fact ok">✓ Fits — ${x.toFixed(0)} × ${y.toFixed(0)} × ${z.toFixed(0)} mm` +
+    ? `<span class="fact ok">${SVG_CHECK}Fits, ${dims}` +
       `${(x > bv.x || y > bv.y) ? ', rotated on the plate' : ''}</span>`
-    : `<span class="fact warn">⚠ Too big — ${escapeHtml(over.join(' and '))} exceeds the plate ` +
-      `(${x.toFixed(0)} × ${y.toFixed(0)} × ${z.toFixed(0)} mm)</span>`;
+    : `<span class="fact warn">${SVG_WARN}Too big: ${escapeHtml(over.join(' and '))} ` +
+      `exceeds the plate (${dims})</span>`;
 }
 
 for (const id of ['bvX', 'bvY', 'bvZ']) {
@@ -775,7 +778,10 @@ for (const id of ['bvX', 'bvY', 'bvZ']) {
       z: +document.getElementById('bvZ').value || 250
     };
     localStorage.setItem(BV_KEY, JSON.stringify(v));
-    updateFit(viewer && viewer.mesh);
+    // only the mesh belonging to the model on screen: this used to read the
+    // viewer, which can still be holding the last model that was loaded and so
+    // answered "will it fit" for the wrong part
+    updateFit(current && meshLoadedFor === current.path ? currentMesh : null);
   });
 }
 

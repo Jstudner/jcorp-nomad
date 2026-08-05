@@ -86,9 +86,17 @@
 let map = null, tileLayer = null, regions = [];
 let probeNote = ''; // last /api/maps-list outcome, shown in the empty state for diagnosis
 
-/* A region that ships its own app (index.html) opens that app instead of a plain
-   tile layer: streetzim maps and the newer routing maps both do this. */
-const isAppRegion = (m) => m.type === 'streetzim' || !!m.app;
+/* Routing is deliberately not offered here.
+
+   A region can ship its own self-contained app (streetzim, and the point-to-point
+   routing builds) which this page used to hand over to. The routing is weak enough
+   that it undersells the rest of the device, so those regions are skipped entirely
+   rather than shown and then disappointing someone. What is left is what a paper map
+   does well: pan, zoom, read a coordinate, drop a pin, find yourself.
+
+   Skipped rather than deleted: drop a routing region on the card and it simply does
+   not appear, and nothing here needs changing to bring it back later. */
+const isRoutingRegion = (m) => m.type === 'streetzim' || !!m.app;
 
 /* Never leave a silently blank page: every failure path ends in showEmpty(reason). */
 function showEmpty(reason){
@@ -147,51 +155,36 @@ async function boot(){
   }
 
   // fetch every region's manifest (tiny file, served straight off the card)
+  let skipped = 0;
   for (const m of list){
     try {
       const r = await fetch(m.manifest, { cache: 'no-store' });
       const man = await r.json();
+      if (isRoutingRegion(man)){ skipped++; continue; }
+      man.id = man.id || m.id;
       man._base = '/Maps/' + encodeURIComponent(m.id) + '/';
       regions.push(man);
     } catch(e){ console.warn('bad manifest', m, e); }
   }
   if (!regions.length){
-    showEmpty('Region list found, but no manifest.json could be read (' +
-      list.map(m => m.manifest).join(', ') + ').');
+    showEmpty(skipped
+      ? skipped + ' region(s) on this card are point-to-point routing builds, which this page does not open. Add a plain tile region.'
+      : 'Region list found, but no manifest.json could be read (' +
+        list.map(m => m.manifest).join(', ') + ').');
     return;
   }
 
   const sel = document.getElementById('regionSel');
-  sel.innerHTML = regions.map((r,i)=>`<option value="${i}">${(r.name || r.id) + (isAppRegion(r) ? ' · ' + (r.kind || 'full map') : '')}</option>`).join('');
+  sel.innerHTML = regions.map((r,i)=>`<option value="${i}">${r.name || r.id}</option>`).join('');
   sel.onchange = () => openRegion(regions[Number(sel.value)]);
-  // initial view: a tile region if there is one, so the chooser stays usable;
-  // a card with only full-map apps skips this page entirely
-  const firstTiles = regions.findIndex(r => !isAppRegion(r));
-  if (firstTiles >= 0){
-    sel.value = String(firstTiles);
-    openRegion(regions[firstTiles]);
-  } else {
-    openRegion(regions[0], true);
-    return;
-  }
+  sel.style.display = regions.length > 1 ? '' : 'none';   // one region needs no chooser
+  openRegion(regions[0]);
   document.getElementById('gpsOrigin').textContent = location.origin;
 }
 
-/* Full-map region: a complete app extracted under /Maps/<id>/. No panel in between,
-   picking one goes straight into the app. replace=true is used for the automatic open
-   at boot so the back button returns to the menu instead of bouncing through here. */
-function openAppRegion(man, replace){
-  // Region files are served with max-age=3600, so a rebuilt region would keep
-  // opening the browser's cached app. Tag the URL with the build stamp.
-  const ver = encodeURIComponent(man.built || man.sizeBytes || '1');
-  const url = man._base + (man.app || 'index.html') + '?v=' + ver;
-  if (replace) location.replace(url); else location.href = url;
-}
-
-function openRegion(man, replace){
-  if (isAppRegion(man)){ openAppRegion(man, replace); return; }
+function openRegion(man){
   document.getElementById('map').style.display = '';
-  if (map) setTimeout(() => map.invalidateSize(), 50); // was display:none while a streetzim region showed
+  if (map) setTimeout(() => map.invalidateSize(), 50);
   const [w,s,e,n] = man.bounds;
   const bounds = L.latLngBounds([s,w],[n,e]);
 
@@ -199,12 +192,10 @@ function openRegion(man, replace){
     map = L.map('map', { zoomControl: true });
     L.control.scale({ imperial: true }).addTo(map);
     addLocateControl();
-    map.on('click', (ev) => {
-      L.popup().setLatLng(ev.latlng)
-        .setContent(`${ev.latlng.lat.toFixed(5)}, ${ev.latlng.lng.toFixed(5)}`)
-        .openOn(map);
-    });
+    map.on('click', (ev) => showCoordPopup(ev.latlng));
   }
+  currentRegion = man;
+  loadPins(man.id);
   if (tileLayer) tileLayer.remove();
 
   tileLayer = L.tileLayer(man._base + (man.tilePath || 'tiles/{z}/{x}/{y}.jpg'), {
@@ -220,8 +211,107 @@ function openRegion(man, replace){
   map.options.maxZoom = man.maxZoom ?? 12;
   map.fitBounds(bounds);
 
+  updateInfo();
+}
+
+function updateInfo(){
+  const man = currentRegion;
+  if (!man) return;
+  const n = pinMarkers.length;
   document.getElementById('regionInfo').textContent =
-    `z${man.minZoom}–${man.maxZoom} · ${(man.sizeBytes/1048576||0).toFixed(0)}MB · ${man.attribution || ''}`;
+    `z${man.minZoom}–${man.maxZoom} · ${(man.sizeBytes/1048576||0).toFixed(0)}MB` +
+    (n ? ` · ${n} pin${n===1?'':'s'}` : '') +
+    (man.attribution ? ` · ${man.attribution}` : '');
+}
+
+/* ---------------- pins ----------------
+   Saved per region in localStorage, not on the card: two people looking at the same
+   Nomad keep their own marks, and nothing here needs write access to the SD. */
+let currentRegion = null, pinMarkers = [];
+const pinKey = (id) => 'nomad:maps:pins:' + (id || 'default');
+
+function readPins(id){
+  try { const v = JSON.parse(localStorage.getItem(pinKey(id)) || '[]'); return Array.isArray(v) ? v : []; }
+  catch(e){ return []; }
+}
+function writePins(id, arr){
+  try { localStorage.setItem(pinKey(id), JSON.stringify(arr)); } catch(e){}
+}
+
+function loadPins(id){
+  pinMarkers.forEach(m => m.remove());
+  pinMarkers = [];
+  readPins(id).forEach(p => addPinMarker(p, false));
+  updateInfo();
+}
+
+function persistPins(){
+  writePins(currentRegion && currentRegion.id,
+    pinMarkers.map(m => ({ lat: m.getLatLng().lat, lng: m.getLatLng().lng, label: m._label || '' })));
+}
+
+function addPinMarker(p, save){
+  const m = L.marker([p.lat, p.lng], { draggable: true }).addTo(map);
+  m._label = p.label || '';
+  m.on('dragend', () => { persistPins(); m.setPopupContent(pinPopup(m)); });
+  m.bindPopup(pinPopup(m));
+  pinMarkers.push(m);
+  if (save){ persistPins(); updateInfo(); }
+  return m;
+}
+
+/* Built as a DOM node rather than an HTML string: the buttons need real handlers,
+   and popup markup is replaced wholesale every time it reopens. */
+function pinPopup(marker){
+  const ll = marker.getLatLng();
+  const box = L.DomUtil.create('div');
+  box.style.cssText = 'min-width:160px;font-size:.9rem';
+  const name = L.DomUtil.create('div', '', box);
+  name.textContent = marker._label || 'Pin';
+  name.style.cssText = 'font-weight:700;margin-bottom:2px';
+  const co = L.DomUtil.create('div', '', box);
+  co.textContent = ll.lat.toFixed(5) + ', ' + ll.lng.toFixed(5);
+  co.style.cssText = 'color:#666;font-size:.82rem;margin-bottom:8px';
+  const row = L.DomUtil.create('div', '', box);
+  row.style.cssText = 'display:flex;gap:6px';
+  const mk = (txt) => {
+    const b = L.DomUtil.create('button', '', row);
+    b.textContent = txt;
+    b.style.cssText = 'flex:1;padding:5px 8px;border:1px solid #bbb;background:#f6f6f6;' +
+      'border-radius:6px;cursor:pointer;font-size:.82rem';
+    return b;
+  };
+  L.DomEvent.on(mk('Rename'), 'click', () => {
+    const v = prompt('Name this pin', marker._label || '');
+    if (v === null) return;
+    marker._label = v.trim().slice(0, 40);
+    persistPins(); marker.setPopupContent(pinPopup(marker)); marker.openPopup();
+  });
+  L.DomEvent.on(mk('Remove'), 'click', () => {
+    marker.remove();
+    pinMarkers = pinMarkers.filter(x => x !== marker);
+    persistPins(); updateInfo();
+  });
+  return box;
+}
+
+/* Tap anywhere: read the coordinate, and offer to keep it. This is the whole
+   interaction model now that there is no routing to drive. */
+function showCoordPopup(latlng){
+  const box = L.DomUtil.create('div');
+  box.style.cssText = 'min-width:150px;font-size:.9rem;text-align:center';
+  const co = L.DomUtil.create('div', '', box);
+  co.textContent = latlng.lat.toFixed(5) + ', ' + latlng.lng.toFixed(5);
+  co.style.cssText = 'margin-bottom:8px';
+  const b = L.DomUtil.create('button', '', box);
+  b.textContent = 'Drop a pin here';
+  b.style.cssText = 'width:100%;padding:6px 10px;border:none;border-radius:6px;' +
+    'background:#2b6cb0;color:#fff;cursor:pointer;font-size:.85rem';
+  const popup = L.popup().setLatLng(latlng).setContent(box).openOn(map);
+  L.DomEvent.on(b, 'click', () => {
+    map.closePopup(popup);
+    addPinMarker({ lat: latlng.lat, lng: latlng.lng, label: '' }, true).openPopup();
+  });
 }
 
 let meMarker = null;
@@ -249,7 +339,25 @@ function locate(){
     (pos) => {
       const ll = [pos.coords.latitude, pos.coords.longitude];
       if (meMarker) meMarker.remove();
-      meMarker = L.marker(ll).addTo(map).bindPopup('You are here').openPopup();
+      // a circle, not a pin: "where I am" has to be tellable at a glance from
+      // the pins the user dropped, which use the default marker
+      meMarker = L.circleMarker(ll, {
+        radius: 7, color: '#fff', weight: 2, fillColor: '#1d72d2', fillOpacity: .95
+      }).addTo(map).bindPopup(
+        'You are here<br><span style="color:#666">' +
+        ll[0].toFixed(5) + ', ' + ll[1].toFixed(5) + '</span>').openPopup();
+
+      // Outside this region there is no imagery, so the map would just go blank
+      // and look broken. Say so instead of panning into an empty grey field.
+      if (currentRegion && !L.latLngBounds(
+            [currentRegion.bounds[1], currentRegion.bounds[0]],
+            [currentRegion.bounds[3], currentRegion.bounds[2]]).contains(L.latLng(ll))){
+        meMarker.setPopupContent(
+          'You are outside <b>' + (currentRegion.name || currentRegion.id) + '</b>,' +
+          ' so there are no tiles here.<br><span style="color:#666">' +
+          ll[0].toFixed(5) + ', ' + ll[1].toFixed(5) + '</span>').openPopup();
+        return;
+      }
       map.setView(ll, Math.min(map.options.maxZoom, 13));
     },
     (err) => {

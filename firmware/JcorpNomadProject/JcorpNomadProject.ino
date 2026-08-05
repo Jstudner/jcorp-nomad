@@ -14,7 +14,7 @@
 #ifndef SD
 #define SD NomadSD
 #endif
-#include <DNSServer.h>
+#include "NomadDNS.h"
 #include <ESPmDNS.h>
 #include <ArduinoJson.h>
 #include <map>
@@ -351,6 +351,9 @@ struct AdminSettings {
   String staSSID = "";
   String staPassword = "";
   bool staPersist = false;
+  // legacy wildcard captive DNS (answer every lookup with Nomad's address).
+  // off = targeted responder, so phones keep using mobile data for the internet
+  bool dnsCatchAll = false;
 };
 
 AdminSettings settings;
@@ -1247,6 +1250,7 @@ bool loadSettings() {
   settings.staSSID = doc["staSSID"] | "";
   settings.staPassword = doc["staPassword"] | "";
   settings.staPersist = doc["staPersist"] | false;
+  settings.dnsCatchAll = doc["dnsCatchAll"] | false;
 
   return true;
 }
@@ -1290,7 +1294,13 @@ void configWriterTask(void *param) {
   ConfigWriteJob *job = NULL;
   for (;;) {
     if (xQueueReceive(cfgWriteQueue, &job, portMAX_DELAY) == pdTRUE && job) {
-      writeFileAtomicBlocking(job->path, job->content);
+      bool ok = writeFileAtomicBlocking(job->path, job->content);
+      // /save writes land here, so a page that writes a file into a content bucket
+      // (the cookbook editor) has to refresh that folder's index or the new file
+      // stays invisible until the next full scan. Enqueued after the write, not in
+      // the request handler, or the rebuild can race the file into existence.
+      // Non-bucket paths (settings, .system-ui.json) are ignored by the callee.
+      if (ok) triggerIndexingIfNeeded(job->path);
       delete job;
       job = NULL;
       vTaskDelay(pdMS_TO_TICKS(20));
@@ -1342,6 +1352,7 @@ bool saveSettings() {
   sdoc["staSSID"] = settings.staSSID;
   sdoc["staPassword"] = settings.staPassword;
   sdoc["staPersist"] = settings.staPersist;
+  sdoc["dnsCatchAll"] = settings.dnsCatchAll;
   String json;
   serializeJson(sdoc, json);
 
@@ -1371,6 +1382,7 @@ bool saveSettings() {
   doc["staSSID"] = settings.staSSID;
   doc["staPassword"] = settings.staPassword;
   doc["staPersist"] = settings.staPersist;
+  doc["dnsCatchAll"] = settings.dnsCatchAll;
 
   bool success = serializeJson(doc, file) > 0;
   file.close();
@@ -1519,9 +1531,7 @@ String rfc3339Now() {
   return String(buf);
 }
 
-// Captive portal DNS setup
-const byte DNS_PORT = 53;
-DNSServer dnsServer;
+// Captive DNS lives in NomadDNS.cpp (targeted responder, not a wildcard hijack)
 AsyncWebServer server(80); // Web server on port 80
 std::map<AsyncWebServerRequest*, File> activeUploads;
 int connectedClients = 0;
@@ -2389,8 +2399,16 @@ void handleListFiles(AsyncWebServerRequest *request) {
         return;
     }
 
-    DynamicJsonDocument doc(8192);
+    // ArduinoJson 7 grows a document from the heap on demand: the number handed to
+    // DynamicJsonDocument is remembered and reported by capacity(), but it does not
+    // bound anything, and overflowed() only goes true on a real allocation failure.
+    // So the ceiling here is the ESP32's heap, and the whole response also has to fit
+    // in one String below. Bound it ourselves, generously, and say when we did.
+    static const size_t LIST_MAX_BYTES = 49152;   // ~800 entries, far past any real folder
+    DynamicJsonDocument doc(LIST_MAX_BYTES);
     JsonArray arr = doc.to<JsonArray>();
+    bool truncated = false;
+    size_t approxBytes = 2;                       // the enclosing []
 
     File file = directory.openNextFile();
     while (file) {
@@ -2415,11 +2433,24 @@ void handleListFiles(AsyncWebServerRequest *request) {
             f["size"] = fsz;
             f["isDir"] = false;
         }
+        // {"name":"...","size":N,"isDir":false} plus the separator, near enough
+        approxBytes += filename.length() + 48;
+
         file = directory.openNextFile();
-        // the 8 KB document silently stops accepting entries once it is full, so
-        // stop walking a huge directory instead of reading it all for nothing
-        if (doc.overflowed()) break;
+        if (approxBytes > LIST_MAX_BYTES) { truncated = true; break; }
+        if (doc.overflowed()) { truncated = true; break; }   // heap actually ran out
         yield();
+    }
+    if (file) file.close();   // breaking out of the loop leaves the handle open
+
+    // A marker entry rather than a header, because the response is a bare array.
+    // Callers that ignore it see the same list they always did; callers that read
+    // it know to go to the (uncapped) NDJSON index for the full listing.
+    if (truncated) {
+        JsonObject t = arr.createNestedObject();
+        t["name"] = "";
+        t["truncated"] = true;
+        Serial.printf("[ListFiles] '%s' truncated at %u entries\n", dir.c_str(), (unsigned)(arr.size() - 1));
     }
 
     // Serialize and send
@@ -3871,7 +3902,8 @@ void startNetwork() {
     WiFi.softAP(settings.wifiSSID.c_str(), settings.wifiPassword.c_str(), 1, 0, MAX_CLIENTS);
     ensureApDhcpServer("boot-initial");  // make sure clients get a lease, not APIPA (issue #126)
     webLogf("success", "WiFi Access Point started successfully - IP: %s", WiFi.softAPIP().toString().c_str());
-    dnsServer.start(DNS_PORT, "*", WiFi.softAPIP());
+    nomadDnsSetCatchAll(settings.dnsCatchAll);
+    nomadDnsStart(WiFi.softAPIP());
     startNomadMDNS();
   }
   webLogf("info", "Device also reachable at http://%s.local/", MDNS_HOSTNAME);
@@ -4859,8 +4891,7 @@ Serial.println("SD Card initialized successfully!");
     createSimpleUploadHandler("Books", "/upload-book");
 
     delay(2000);
-    // Start Captive DNS redirection (hotspot only - never hijack DNS on a home network)
-    if (!g_staMode) dnsServer.start(DNS_PORT, "*", WiFi.softAPIP());
+    // Captive DNS already started by startNetwork() (hotspot only - never on a home network)
     //OPDS Endpoint (still needs fixing)
     server.on("/opds/root.xml", HTTP_GET, handleOPDSRoot);
     server.on("/opds/books.xml", HTTP_GET, handleOPDSBooks);
@@ -5207,6 +5238,30 @@ Serial.println("SD Card initialized successfully!");
         r->addHeader("Cache-Control", "no-cache");
         request->send(r);
     });
+    // the rest of the OS/browser connectivity probe paths. serving the portal page
+    // instead of the expected token is what flips each one into "sign in to network".
+    // extension-less probes (/gen_204, /nm, /mobile/status.php ...) already land on
+    // the portal via onNotFound; these dotted ones would 404 as file lookups.
+    {
+      static const struct { const char *path; bool apple; } kProbePaths[] = {
+        { "/connecttest.txt", false },            // windows NCSI
+        { "/ncsi.txt", false },                   // windows NCSI (legacy)
+        { "/success.txt", false },                // firefox detectportal
+        { "/canonical.html", false },             // ubuntu connectivity-check
+        { "/check_network_status.txt", false },   // gnome + kde
+        { "/static/hotspot.txt", false },         // fedora
+        { "/kindle-wifi/wifistub.html", false },  // kindle
+        { "/library/test/success.html", true },   // old-iOS probe set
+      };
+      for (const auto &p : kProbePaths) {
+        const char *page = p.apple ? "/appleindex.html" : "/index.html";
+        server.on(p.path, HTTP_GET, [page](AsyncWebServerRequest *request) {
+          AsyncWebServerResponse *r = request->beginResponse(SD_MMC, page, "text/html");
+          r->addHeader("Cache-Control", "no-cache");
+          request->send(r);
+        });
+      }
+    }
     server.on("/listfiles", HTTP_GET, handleListFiles);
     // Protected HTML page routes, both as "/name.html" and as a short "/name" alias.
     {
@@ -5654,6 +5709,7 @@ server.on("/settings", HTTP_GET, [](AsyncWebServerRequest *request){
   doc["autoGenerateMedia"] = settings.autoGenerateMedia;
   doc["flipScreen"] = settings.flipScreen;
   doc["dlnaEnabled"] = settings.dlnaEnabled;
+  doc["dnsCatchAll"] = settings.dnsCatchAll;
 
   String json;
   serializeJson(doc, json);
@@ -5691,6 +5747,10 @@ server.on("/settings", HTTP_POST, [](AsyncWebServerRequest *request){
   if (doc.containsKey("dlnaEnabled")) {
     settings.dlnaEnabled = doc["dlnaEnabled"].as<bool>();
     dlnaSetEnabled(settings.dlnaEnabled);
+  }
+  if (doc.containsKey("dnsCatchAll")) {
+    settings.dnsCatchAll = doc["dnsCatchAll"].as<bool>();
+    nomadDnsSetCatchAll(settings.dnsCatchAll);  // applies live, no restart
   }
   if (doc.containsKey("flipScreen")) {
     bool newFlip = doc["flipScreen"].as<bool>();
@@ -6598,8 +6658,6 @@ attachInterrupt(BOOT_BUTTON_PIN, [](){
     t = xTaskCreatePinnedToCore(+[](void *param){
       (void)param;
       for (;;) {
-        if (!g_staMode) dnsServer.processNextRequest();
-
         if (lcdRotatePending) {
           lcdRotatePending = false;
           LCD_SetRotation180(settings.flipScreen);
@@ -6747,7 +6805,6 @@ void loop() {
       Serial.println("[WiFiMode] Applying WiFi mode change -> restart");
       ESP.restart();
     }
-    if (!g_staMode) dnsServer.processNextRequest();
     Timer_Loop();
 
     if (currentLEDMode == 1) {

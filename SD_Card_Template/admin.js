@@ -385,6 +385,10 @@ async function loadSettings() {
     const dlnaEl = document.getElementById('dlna-enabled');
     if (dlnaEl) dlnaEl.checked = (s.dlnaEnabled !== undefined) ? !!s.dlnaEnabled : true;
 
+    // captive DNS mode (WiFi Mode popup checkbox), default targeted
+    const dnsEl = document.getElementById('wifi-dns-catchall');
+    if (dnsEl) dnsEl.checked = !!s.dnsCatchAll;
+
     // Check authentication
     if (typeof requireAdminAuth === 'function') {
       await requireAdminAuth(s);
@@ -1260,6 +1264,20 @@ document.addEventListener('DOMContentLoaded', async () => {
   const wifiOverlay = document.getElementById('wifi-overlay');
   if (wifiOverlay) wifiOverlay.addEventListener('click', (e) => {
     if (e.target === wifiOverlay) closeWifiModal();
+  });
+  // captive DNS mode saves immediately and applies live, no restart
+  const dnsCatchEl = document.getElementById('wifi-dns-catchall');
+  if (dnsCatchEl) dnsCatchEl.addEventListener('change', async () => {
+    try {
+      await adminFetch('/settings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: new URLSearchParams({ body: JSON.stringify({ dnsCatchAll: dnsCatchEl.checked }) })
+      });
+      addConsoleLog('Captive DNS: ' + (dnsCatchEl.checked ? 'catch-all (legacy)' : 'targeted'), 'info');
+    } catch (e) {
+      addConsoleLog('Failed to save DNS mode', 'error');
+    }
   });
 
   // Temperature click to toggle units

@@ -65,6 +65,77 @@ async function releaseWakeLock(){
   }
 }
 
+/* One directory listing, from whichever of the device's two sources can actually
+   answer for this folder.
+
+   /listfiles walks the card live, so it sees writes and deletions immediately, but
+   it builds its response in a fixed JSON buffer and marks itself truncated once a
+   folder overflows it. The NDJSON index has no such cap, but it is only as fresh as
+   the last index pass. So: take /listfiles when it came back whole, fall back to the
+   index when it didn't, and hand back the partial list (flagged) if there is no
+   index to fall back on.
+
+   Entries are { name, path, isDir, size }. */
+const NomadList = {
+  async _fetch503(url, tries = 3) {
+    for (let i = 0; i < tries; i++) {
+      const res = await fetch(url, { cache: 'no-store' });
+      if (res.status !== 503) return res;          // a busy card 503s right after boot
+      await new Promise(r => setTimeout(r, 700 * (i + 1)));
+    }
+    return fetch(url, { cache: 'no-store' });
+  },
+
+  /* encode a card path for a URL, per segment: encodeURI leaves # and ? alone,
+     so a file named "Cake #2.md" used to truncate at the hash */
+  encPath(p) { return String(p || '').split('/').map(encodeURIComponent).join('/'); },
+
+  async _viaListFiles(dir) {
+    const res = await this._fetch503('/listfiles?dir=' + encodeURIComponent(dir) + '&_=' + Date.now());
+    if (!res.ok) return null;
+    const arr = JSON.parse(await res.text());
+    if (!Array.isArray(arr)) return null;
+    return {
+      truncated: arr.some(f => f && f.truncated),
+      entries: arr.filter(f => f && f.name).map(f => {
+        const name = String(f.name).replace(/\/$/, '');
+        return { name, path: dir + '/' + name, isDir: !!f.isDir, size: +f.size || 0 };
+      }).filter(f => f.name)
+    };
+  },
+
+  async _viaIndex(dir) {
+    const res = await this._fetch503('/api/index?path=' + encodeURIComponent(dir));
+    // 202 is "no index yet, building one" and its body is a status object, not a listing
+    if (!res.ok || res.status === 202) return null;
+    const lines = (await res.text()).split('\n').filter(Boolean);
+    const out = [];
+    for (let i = 1; i < lines.length; i++) {       // line 0 is the index header
+      try {
+        const e = JSON.parse(lines[i]);
+        // the index writes the size as "sz"; every other reader in the app agrees
+        if (e && e.n) out.push({ name: e.n, path: e.p, isDir: e.t === 'd', size: +e.sz || 0 });
+      } catch (e) {}
+    }
+    return out.length ? out : null;
+  },
+
+  /* -> { entries, truncated, source }. entries is always an array, [] for an empty
+     or unreadable folder, so a caller can render its empty state either way. */
+  async dir(path) {
+    let lf = null;
+    try { lf = await this._viaListFiles(path); } catch (e) {}
+    if (lf && !lf.truncated) return { entries: lf.entries, truncated: false, source: 'listfiles' };
+
+    let idx = null;
+    try { idx = await this._viaIndex(path); } catch (e) {}
+    if (idx) return { entries: idx, truncated: false, source: 'index' };
+
+    if (lf) return { entries: lf.entries, truncated: lf.truncated, source: 'listfiles' };
+    return { entries: [], truncated: false, source: 'none' };
+  }
+};
+
 /* Subtitle support. Browsers only render WebVTT in <track> elements, so
    buildTracks() converts .srt to VTT client-side and passes .vtt through. */
 const NomadSubs = {

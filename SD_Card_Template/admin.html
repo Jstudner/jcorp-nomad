@@ -739,6 +739,11 @@
         <span>Reconnect automatically on every boot</span>
       </label>
 
+      <label class="wifi-persist-row">
+        <input type="checkbox" id="wifi-dns-catchall">
+        <span>Legacy catch-all DNS &mdash; hotspot answers every address. Leave off so phones keep using mobile data for messages and internet.</span>
+      </label>
+
       <p class="wifi-help">
         Nomad restarts, joins your network, and serves its library (plus DLNA and OPDS)
         to every device on it — no captive portal. The Nomad screen shows the address it
@@ -1053,7 +1058,7 @@
   </div>
 
   <!-- version query busts the firmware's max-age file caching (bump when admin.js changes) -->
-  <script src="admin.js?v=46"></script>
+  <script src="admin.js?v=47"></script>
 </body>
 </html>
 
