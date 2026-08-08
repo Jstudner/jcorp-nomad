@@ -44,7 +44,10 @@ tools\nomad-setup.bat               # same thing on Windows
   support, so an exFAT card will not mount on the device.
 * Copies the web interface and creates `Movies`, `Shows`, `Books`, `Music`,
   `Gallery`, `Files` and `config`
-* Size-verifies every file afterwards, then unmounts
+* Size-verifies every copied file, then checks the finished card against a
+  manifest of the 17 files the firmware serves by name plus the folders the
+  indexer expects — a card that is missing one of them boots into a web UI that
+  half works, which is miserable to diagnose from the device
 
 ---
 
@@ -146,12 +149,37 @@ sudo usermod -aG dialout $USER      # log out and back in
 
 ---
 
+## What actually goes on the card
+
+Everything in `SD_Card_Template/` except the four `img.py` scripts, which are
+repo-side placeholder-image generators and have no business on the card — 74
+files of 78, about 18 MB. That covers the web interface (`index.html`,
+`menu.html`, the per-section pages, `admin.html`/`admin.js`, `Logo.png`,
+`favicon.ico`) and the whole `assets/` tree, plus the demo media unless you
+pass `--no-placeholders`.
+
+The tool then creates the seven directories the firmware's indexer expects:
+`Movies`, `Shows`, `Books`, `Music`, `Gallery`, `Files`, `config`.
+
+Three things are deliberately *not* written, because the firmware makes them
+itself on first boot: `config/settings.json`, the `.system-index/` index files,
+and the `*.flag` marker files.
+
+Two routes exist in the firmware with nothing behind them in the template —
+`/maps.html` (a planned feature) and `/assets/kiwix/…` (ZIM reader assets you
+would supply yourself). Nothing in the web UI links to either, so their absence
+is normal; `--verbose` lists them.
+
+`nomad-setup selftest` cross-checks the manifest against the template in the
+repo, so the two cannot drift apart without a test failing.
+
 ## What has and has not been tested
 
-The FAT32 formatter is covered by `nomad-setup selftest`, which builds volumes
-at 64 MB through 128 GB, checks the boot sector against the geometry it planned,
-runs `fsck.vfat` over each one, and round-trips a file through `mtools`. The
-pre-flash partition checks are covered by the same command. Both pass.
+`nomad-setup selftest` covers three things, all offline: the FAT32 formatter
+(volumes from 64 MB to 128 GB, boot sector checked against the planned
+geometry, `fsck.vfat` over each one, and a file round-tripped through
+`mtools`), the pre-flash partition checks, and the card manifest against the
+shipped template. All pass.
 
 The disk enumeration and format paths were developed and exercised on Linux.
 The macOS (`diskutil`) and Windows (`diskpart`, plus the >32 GB raw-volume

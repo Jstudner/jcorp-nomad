@@ -126,6 +126,17 @@ def cmd_sdcard(args) -> int:
     c.ok(f"Wrote {c.human_bytes(written)} in {plan.count} files")
     c.info("Created: " + ", ".join(sdcard.MEDIA_DIRS))
 
+    # Confirm the card now holds everything the firmware serves by name, rather
+    # than trusting that the copy loop covered it.
+    if not args.dry_run:
+        missing, optional = sdcard.check_card_contents(mount_path)
+        if missing:
+            problems += [f"missing from the finished card: {m}" for m in missing]
+        else:
+            c.ok(f"All {len(sdcard.REQUIRED_FILES)} files the firmware serves are present")
+        for note in optional:
+            c.debug(f"not shipped: {note}")
+
     if problems:
         c.heading("Problems")
         for p in problems[:20]:

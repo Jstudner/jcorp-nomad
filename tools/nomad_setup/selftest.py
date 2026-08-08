@@ -17,7 +17,7 @@ from pathlib import Path
 from typing import List, Tuple
 
 from . import console as c
-from . import esp, fat32
+from . import esp, fat32, sdcard
 
 # Card sizes worth covering: each one lands in a different cluster-size band,
 # and the >32 GB ones are exactly what Windows refuses to format.
@@ -203,11 +203,59 @@ def run_preflight_tests() -> int:
     return failures
 
 
+def run_template_tests() -> int:
+    """The required-files manifest is only useful if it matches the template
+    actually shipped in the repo, so check the two against each other."""
+    c.heading("SD card template")
+    try:
+        template = sdcard.find_template()
+    except sdcard.SdCardError as exc:
+        c.warn(str(exc).splitlines()[0])
+        c.info("Skipped (run this from inside the repository to include it)")
+        return 0
+
+    plan = sdcard.plan_copy(template, include_placeholders=True)
+    copied = {item.relative for item in plan.items}
+
+    failures = 0
+    rows = []
+
+    for name in sdcard.REQUIRED_FILES:
+        present = name in copied
+        failures += 0 if present else 1
+        rows.append([name, "PASS" if present else "FAIL",
+                     "in template and copied" if present else "MISSING from the template"])
+
+    for name in sdcard.REQUIRED_DIRS:
+        has_content = any(rel.startswith(f"{name}/") for rel in copied)
+        failures += 0 if has_content else 1
+        rows.append([f"{name}/", "PASS" if has_content else "FAIL",
+                     f"{sum(1 for r in copied if r.startswith(name + '/'))} files"])
+
+    on_disk = {str(p.relative_to(template)).replace("\\", "/")
+               for p in template.rglob("*") if p.is_file()}
+    skipped = sorted(on_disk - copied)
+    unexpected = [s for s in skipped if Path(s).name not in sdcard.SKIP_NAMES]
+    failures += len(unexpected)
+    rows.append([
+        "template coverage",
+        "PASS" if not unexpected else "FAIL",
+        f"{len(copied)}/{len(on_disk)} copied, skipped: "
+        + (", ".join(Path(s).name for s in skipped) or "nothing"),
+    ])
+
+    c.table(["item", "result", "notes"], rows)
+    if unexpected:
+        for name in unexpected:
+            c.error(f"template file not covered by the copy plan: {name}")
+    return failures
+
+
 def cmd_selftest(args) -> int:
     c.heading("nomad-setup self-test")
     c.info("Nothing here touches a disk or a board.")
 
-    failures = run_fat32_tests() + run_preflight_tests()
+    failures = run_fat32_tests() + run_preflight_tests() + run_template_tests()
 
     c.heading("Result")
     if failures:

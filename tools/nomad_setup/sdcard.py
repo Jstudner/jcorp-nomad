@@ -21,6 +21,41 @@ PLACEHOLDER_DIRS = {"Movies", "Shows", "Books", "Music", "Gallery", "Files"}
 # Never copied onto the card: helper scripts that only matter in the repo.
 SKIP_NAMES = {"img.py", ".DS_Store", "Thumbs.db", "desktop.ini"}
 
+# Everything the firmware serves off the card by name. The catch-all handler in
+# JcorpNomadProject.ino reads these straight from the SD card, so a card that is
+# missing one of them boots into a web UI that half works - which is miserable
+# to diagnose from the device itself. Checked after every copy.
+REQUIRED_FILES = [
+    "index.html",        # captive-portal landing page
+    "appleindex.html",   # the iOS/macOS variant of the same
+    "menu.html",
+    "movies.html",
+    "shows.html",
+    "books.html",
+    "music.html",
+    "gallery.html",
+    "files.html",
+    "games.html",
+    "comics.html",
+    "playlist.html",
+    "filebrowser.html",
+    "admin.html",
+    "admin.js",
+    "Logo.png",
+    "favicon.ico",
+]
+
+# Directories that must exist and contain something.
+REQUIRED_DIRS = ["assets"]
+
+# The firmware registers routes for these, but the feature is not shipped in
+# the template. Nothing in the web UI links to them, so their absence is
+# expected rather than a fault - reported as information only.
+OPTIONAL_PATHS = [
+    ("maps.html", "offline maps page (planned feature, no file yet)"),
+    ("assets/kiwix", "Kiwix/ZIM reader assets (add your own if you want them)"),
+]
+
 
 class SdCardError(RuntimeError):
     pass
@@ -177,6 +212,35 @@ def _verify(plan: CopyPlan, dest_root: Path) -> List[str]:
                 f"{item.relative}: {actual} bytes on card, expected {item.size}"
             )
     return problems
+
+
+def check_card_contents(mount_path: str) -> Tuple[List[str], List[str]]:
+    """Confirm the card carries everything the firmware will ask it for.
+
+    Returns (missing_required, missing_optional)."""
+    root = Path(mount_path)
+    missing: List[str] = []
+
+    for name in REQUIRED_FILES:
+        if not (root / name).is_file():
+            missing.append(name)
+
+    for name in REQUIRED_DIRS:
+        target = root / name
+        if not target.is_dir():
+            missing.append(f"{name}/")
+        elif not any(target.iterdir()):
+            missing.append(f"{name}/ (empty)")
+
+    for name in MEDIA_DIRS:
+        if not (root / name).is_dir():
+            missing.append(f"{name}/")
+
+    absent_optional = [
+        f"{name} - {why}" for name, why in OPTIONAL_PATHS
+        if not (root / name).exists()
+    ]
+    return missing, absent_optional
 
 
 def looks_like_nomad_card(mount_path: str) -> bool:
