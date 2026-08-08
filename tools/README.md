@@ -67,7 +67,8 @@ Start with `doctor`. It tells you what is missing before anything is at stake.
 ### Useful flags
 
 ```
---board pocket-dongle|waveshare-1.47   which board (default: pocket-dongle)
+--board <profile>                      pocket-dongle (GNPE stick, default),
+                                       t-dongle (LilyGO), waveshare-1.47
 --dry-run                              print every step, touch nothing
 --install-deps                         fetch the ESP32 core and libraries
 --firmware <dir>                       flash prebuilt binaries, skip the build
