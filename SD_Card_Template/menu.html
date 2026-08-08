@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- Version 2.3 -->
+<!-- Version 4 -->
 <html lang="en">
 <head>
 <meta charset="utf-8" />
@@ -7,36 +7,90 @@
 <meta name="description" content="Jcorp Nomad — Menu" />
 <title>Jcorp Nomad</title>
 <link rel="icon" href="/favicon.ico" />
+<link rel="stylesheet" href="/master.css">
+<script>
+(async function() {
+  try {
+    const isDark = localStorage.getItem('nomad_dark_mode') === 'true';
+    if (isDark) document.documentElement.classList.add('dark');
+
+    async function loadThemeFromServer() {
+      try {
+        const response = await fetch('/.system-theme.json?t=' + Date.now());
+        if (response.ok) {
+          const theme = await response.json();
+          localStorage.setItem('nomad_custom_theme', JSON.stringify(theme));
+          return theme;
+        }
+      } catch (e) {
+        console.log('[Menu] No theme on SD card, using localStorage');
+      }
+      return null;
+    }
+
+    const serverTheme = await loadThemeFromServer();
+    const colors = serverTheme || (function() {
+      const saved = localStorage.getItem('nomad_custom_theme');
+      return saved ? JSON.parse(saved) : null;
+    })();
+
+    if (colors) {
+      const style = document.createElement('style');
+      style.id = 'custom-theme-style';
+      style.textContent = `
+        :root {
+          --primary: ${colors.primary} !important;
+          --primary-dark: ${colors.primaryDark} !important;
+          --bg: ${colors.bgLight} !important;
+          --card: ${colors.cardLight} !important;
+          --card-bg: ${colors.cardLight} !important;
+          --text: ${colors.textLight} !important;
+          --muted: ${colors.mutedLight} !important;
+        }
+        body.dark {
+          --bg: ${colors.bgDark} !important;
+          --card: ${colors.cardDark} !important;
+          --card-bg: ${colors.cardDark} !important;
+          --text: ${colors.textDark} !important;
+          --muted: ${colors.mutedDark} !important;
+          --primary: ${colors.primaryDarkTheme} !important;
+        }
+      `;
+      document.head.appendChild(style);
+    }
+  } catch(e) {
+    console.error('[Menu] Theme loading error:', e);
+  }
+})();
+</script>
+<script src="/theme-manager.js"></script>
+<script src="/nomad-utils.js"></script>
 <style>
-  :root{
-    --primary:#007bff;
-    --primary-dark:#0056b3;
-    --bg:#f4f4f9;
-    --card:#ffffff;
-    --muted:#6b7280;
-    --text:#0b1220;
-    --line:rgba(11,18,32,0.06);
-    --radius:10px;
+  /* Menu-specific functional CSS layout and search functionality */
+  :root {
     --header-height:64px;
     --page-max:1400px;
   }
 
-  body.dark{
-    --bg:#071226;
-    --card:#071722;
-    --muted:#93a9c6;
-    --text:#eaf6ff;
-    --line:rgba(255,255,255,0.04);
-    --primary:#4aa3ff;
-    --primary-dark:#2f84ff;
+  html,body {
+    height:100%;
+    margin:0;
+    -webkit-font-smoothing:antialiased;
+  }
+  body {
+    display:flex;
+    flex-direction:column;
   }
 
-  html,body{height:100%;margin:0;font-family:Arial,Helvetica,sans-serif;background:var(--bg);color:var(--text);-webkit-font-smoothing:antialiased}
-  body { display:flex; flex-direction:column; }
-  a{color:inherit;text-decoration:none}
-
-  /* full-page background layer to avoid mobile variable bleed / white gaps, its still a bit broken (WIP) */
-  .page-bg { position:fixed; inset:0; background:var(--bg); z-index:0; pointer-events:none; transition:background .18s linear; }
+  /* full-page background layer to avoid mobile variable bleed / white gaps */
+  .page-bg {
+    position:fixed;
+    inset:0;
+    background:var(--bg);
+    z-index:0;
+    pointer-events:none;
+    transition:background .18s linear;
+  }
 
   /* Header */
   header {
@@ -46,84 +100,234 @@
     justify-content:space-between;
     padding:10px 14px;
     border-bottom:1px solid var(--line);
-    position:sticky; top:0;
+    position:sticky;
+    top:0;
     background:var(--primary);
     color:#fff;
     z-index:80;
-    backdrop-filter: blur(6px);
+    backdrop-filter:blur(6px);
     height:var(--header-height);
     box-sizing:border-box;
   }
-  .brand { display:flex;align-items:center;gap:12px; min-width:0; }
-  .logo { display:flex;align-items:center;justify-content:center;padding:4px;height:48px;min-width:48px;border-radius:10px;overflow:hidden;background:rgba(255,255,255,0.06);box-shadow:0 6px 18px rgba(0,0,0,0.06);flex-shrink:0; }
-  .logo img{ display:block; max-height:40px; max-width:180px; object-fit:contain; pointer-events:none; user-select:none; }
-  .title { font-weight:800; font-size:1.06rem; line-height:1; color:#fff; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-  .header-space { display:flex; align-items:center; gap:8px; margin-left:auto; }
 
-  .icon-btn { width:44px;height:44px;border-radius:11px;border:1px solid rgba(255,255,255,0.08);background:rgba(255,255,255,0.06);display:inline-grid;place-items:center;cursor:pointer;color:#fff; transition:transform .12s, box-shadow .12s, opacity .12s; font-size:16px; }
-  .icon-btn:active{ transform:translateY(1px); }
-  .admin-btn { width:38px;height:38px;border-radius:10px;border:1px solid rgba(255,255,255,0.08); background:rgba(255,255,255,0.06); color:#fff; display:inline-grid; place-items:center; cursor:pointer; }
+  .brand {
+    display:flex;
+    align-items:center;
+    gap:12px;
+    min-width:0;
+  }
+
+  .logo {
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    padding:4px;
+    height:48px;
+    min-width:48px;
+    border-radius:var(--radius);
+    overflow:hidden;
+    background:rgba(255,255,255,0.06);
+    box-shadow:var(--shadow);
+    flex-shrink:0;
+  }
+
+  .logo img {
+    display:block;
+    max-height:40px;
+    max-width:180px;
+    object-fit:contain;
+    pointer-events:none;
+    user-select:none;
+  }
+
+  .title {
+    font-weight:800;
+    font-size:1.06rem;
+    line-height:1;
+    color:#fff;
+    white-space:nowrap;
+    overflow:hidden;
+    text-overflow:ellipsis;
+  }
+
+  .header-space {
+    display:flex;
+    align-items:center;
+    gap:8px;
+    margin-left:auto;
+  }
+
+  .icon-btn {
+    width:44px;
+    height:44px;
+    border-radius:11px;
+    border:1px solid rgba(255,255,255,0.08);
+    background:rgba(255,255,255,0.06);
+    display:inline-grid;
+    place-items:center;
+    cursor:pointer;
+    color:#fff;
+    transition:transform .12s, box-shadow .12s, opacity .12s;
+    font-size:16px;
+  }
+
+  .icon-btn:active {
+    transform:translateY(1px);
+  }
+
+  .admin-btn {
+    width:38px;
+    height:38px;
+    border-radius:var(--radius);
+    border:1px solid rgba(255,255,255,0.08);
+    background:rgba(255,255,255,0.06);
+    color:#fff;
+    display:inline-grid;
+    place-items:center;
+    cursor:pointer;
+  }
 
   /* Main layout */
-  main{
+  main {
     max-width:var(--page-max);
     margin:18px auto;
     padding:12px 20px;
     position:relative;
     display:flex;
     flex-direction:column;
-    min-height: calc(100vh - var(--header-height) - 36px);
+    min-height:calc(100vh - var(--header-height) - 36px);
     box-sizing:border-box;
     z-index:1;
     align-items:center;
   }
-  .content-area { flex: 1 1 auto; display:flex; flex-direction:column; gap:12px; width:100%; align-items:center; }
-  .welcome-center { text-align:center; margin-bottom:6px; width:100%; }
-  .welcome-center h1 { margin:0; font-size:1.4rem; font-weight:900; letter-spacing:-0.3px; color:var(--text); }
-  .welcome-center p { margin:6px 0 0; color:var(--muted); font-size:1rem; }
+
+  .content-area {
+    flex:1 1 auto;
+    display:flex;
+    flex-direction:column;
+    gap:12px;
+    width:100%;
+    align-items:center;
+  }
+
+  .welcome-center {
+    text-align:center;
+    margin-bottom:6px;
+    width:100%;
+  }
+
+  .welcome-center h1 {
+    margin:0;
+    font-size:1.4rem;
+    font-weight:900;
+    letter-spacing:-0.3px;
+    color:var(--text);
+  }
+
+  .welcome-center p {
+    margin:6px 0 0;
+    color:var(--muted);
+    font-size:1rem;
+  }
 
   /* Search row */
-  .search-row { display:flex; flex-direction:column; align-items:center; gap:8px; margin:8px 0 14px; justify-content:center; width:100%; }
-  .search-input {
-    width:100%; max-width:980px; padding:14px 16px; border-radius:12px; border:1px solid var(--line);
-    background:var(--card); color:var(--text); font-weight:600; font-size:1rem;
-    box-shadow:0 10px 28px rgba(9,18,37,0.05);
+  .search-row {
+    display:flex;
+    flex-direction:column;
+    align-items:center;
+    gap:8px;
+    margin:8px 0 14px;
+    justify-content:center;
+    width:100%;
   }
-  .search-input::placeholder{ color: var(--muted); }
+
+  .search-input {
+    width:100%;
+    max-width:980px;
+    padding:14px 16px;
+    border-radius:var(--radius);
+    border:1px solid var(--line);
+    background:var(--card-bg);
+    color:var(--text);
+    font-weight:600;
+    font-size:1rem;
+    box-shadow:var(--shadow);
+  }
+
+  .search-input::placeholder {
+    color:var(--muted);
+  }
 
   /* loader under input for feedback */
-  .search-loader { width:100%; max-width:980px; height:8px; border-radius:6px; overflow:hidden; background:linear-gradient(90deg, rgba(15,111,255,0.06), rgba(11,87,208,0.03)); display:none; }
-  .search-loader .bar { position:relative; left:-40%; width:36%; height:100%; background:linear-gradient(90deg,var(--primary),var(--primary-dark)); animation: slide 1100ms linear infinite; }
-  @keyframes slide { to { left:140%; } }
+  .search-loader {
+    width:100%;
+    max-width:980px;
+    height:8px;
+    border-radius:6px;
+    overflow:hidden;
+    background:linear-gradient(90deg, color-mix(in srgb, var(--primary) 10%, transparent), color-mix(in srgb, var(--primary) 5%, transparent));
+    display:none;
+  }
 
-  /* tiles - use auto-fit grid so partial bottom rows are centered */
-  .grid-wrap { margin-top:8px; padding:14px; border-radius:14px; border:1px solid var(--line); background:linear-gradient(180deg,transparent, rgba(0,0,0,0.01)); width:100%; box-sizing:border-box; }
+  .search-loader .bar {
+    position:relative;
+    left:-40%;
+    width:36%;
+    height:100%;
+    background:linear-gradient(90deg, var(--primary), var(--primary-dark));
+    animation:slide 1100ms linear infinite;
+  }
 
+  @keyframes slide {
+    to {
+      left:140%;
+    }
+  }
+
+  /* tiles - use flex grid so partial bottom rows are centered */
+  .grid-wrap {
+    margin-top:8px;
+    padding:14px;
+    border-radius:14px;
+    border:1px solid var(--line);
+    background:linear-gradient(180deg, transparent, rgba(0,0,0,0.01));
+    width:100%;
+    box-sizing:border-box;
+  }
+
+  .grid {
+    display:flex;
+    flex-wrap:wrap;
+    justify-content:center;
+    gap:12px;
+    max-width:760px;
+    margin:12px auto 0;
+    align-items:stretch;
+  }
+
+  @media (min-width:1100px) {
     .grid {
-      display:flex;
-      flex-wrap:wrap;
-      justify-content:center; /* center incomplete last row */
-      gap:12px;
-      max-width:760px;
-      margin:12px auto 0;
-      align-items:stretch;
+      max-width:1200px;
     }
+  }
 
-    @media (min-width:1100px){
-      .grid { grid-template-columns: repeat(auto-fit, minmax(200px, 240px)); max-width:1200px; }
+  @media (max-width:900px) {
+    .tile {
+      flex:0 0 calc(50% - 8px);
+      max-width:360px;
     }
+  }
 
-    /* keep 2-up layout for medium screens, but make mobile use full width */
-    @media (max-width:900px){
-      .tile { flex: 0 0 calc(50% - 8px); max-width:360px; }
+  @media (max-width:480px) {
+    .tile {
+      flex:0 0 100%;
+      max-width:none;
     }
-    @media (max-width:480px){
-      .tile { flex: 0 0 100%; max-width:none; }
-    }
+  }
+
   .tile {
-    /* keep visual style but allow flex sizing */
-    background:var(--card);
-    border-radius:10px;
+    background:var(--card-bg);
+    border-radius:var(--radius);
     padding:14px;
     display:flex;
     align-items:center;
@@ -134,53 +338,146 @@
     transition:transform .12s, box-shadow .12s;
     min-height:60px;
     color:var(--text);
-
-    /* sizing for desktop: three across ideally */
-    flex: 0 0 calc(33.333% - 8px); /* 3 columns with gap compensation */
-    max-width:260px;
+    flex:0 0 calc(33.333% - 8px);
+    max-width:none;
     box-sizing:border-box;
   }
-  .tile:active{ transform:translateY(1px); }
-  .tile .label { font-size:1rem; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; padding:0 6px; text-align:center; width:100%; }
 
-  
+  .tile:active {
+    transform:translateY(1px);
+  }
+
+  .tile .label {
+    font-size:1rem;
+    white-space:nowrap;
+    overflow:hidden;
+    text-overflow:ellipsis;
+    padding:0 6px;
+    text-align:center;
+    width:100%;
+  }
+
   /* search results panel */
   #resultsPanel {
-    position:absolute; left:50%; transform:translateX(-50%); top:150px; width: min(1200px, calc(100% - 36px)); z-index:220; display:none;
-    background:var(--card); border-radius:12px; box-shadow:0 28px 70px rgba(2,6,23,0.16); border:1px solid var(--line); max-height:62vh; overflow:auto;
+    position:absolute;
+    left:50%;
+    transform:translateX(-50%);
+    top:150px;
+    width:min(1200px, calc(100% - 36px));
+    z-index:220;
+    display:none;
+    background:var(--card-bg);
+    border-radius:var(--radius);
+    box-shadow:var(--shadow-large);
+    border:1px solid var(--line);
+    max-height:62vh;
+    overflow:auto;
   }
-  .result-row { display:flex; align-items:center; gap:14px; padding:12px 14px; border-bottom:1px solid var(--line); cursor:pointer; color:var(--text); }
-  .result-row:last-child{ border-bottom:0; }
-  .thumb { border-radius:8px; background:linear-gradient(180deg, rgba(0,0,0,0.03), transparent); display:grid; place-items:center; color:var(--muted); font-weight:700; overflow:hidden; flex:0 0 auto; }
-  .thumb img{ display:block; width:100%; height:100%; object-fit:cover; }
 
-  .thumb.rect { width:72px; height:108px; border-radius:8px; }
-  .thumb.square { width:56px; height:56px; border-radius:8px; }
+  .result-row {
+    display:flex;
+    align-items:center;
+    gap:14px;
+    padding:12px 14px;
+    border-bottom:1px solid var(--line);
+    cursor:pointer;
+    color:var(--text);
+    transition: background 0.15s ease;
+  }
 
-  .meta { display:flex; flex-direction:column; gap:6px; min-width:0; margin-right:8px; }
-  .title { font-weight:800; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:48ch; color:var(--text); }
-  .sub { color:var(--muted); font-size:0.95rem; }
+  .result-row:hover {
+    background: color-mix(in srgb, var(--primary) 5%, transparent);
+  }
 
-  .result-path { margin-left:auto; font-weight:700; color:var(--muted); font-size:0.95rem; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:40ch; }
+  .result-row:last-child {
+    border-bottom:0;
+  }
 
-  /* Resume panel - fixed sizing and centered rows; never scroll */
+  .thumb {
+    border-radius:8px;
+    background:linear-gradient(180deg, rgba(0,0,0,0.03), transparent);
+    display:grid;
+    place-items:center;
+    color:var(--muted);
+    font-weight:700;
+    overflow:hidden;
+    flex:0 0 auto;
+  }
+
+  .thumb img {
+    display:block;
+    width:100%;
+    height:100%;
+    object-fit:cover;
+  }
+
+  .thumb.rect {
+    width:72px;
+    height:108px;
+    border-radius:8px;
+  }
+
+  .thumb.square {
+    width:56px;
+    height:56px;
+    border-radius:8px;
+  }
+
+  .meta {
+    display:flex;
+    flex-direction:column;
+    gap:6px;
+    min-width:0;
+    margin-right:8px;
+  }
+
+  /* scoped to .meta so it doesnt clobber the header .brand .title (unscoped it made the brand title low-contrast) */
+  .meta .title {
+    font-weight:800;
+    white-space:nowrap;
+    overflow:hidden;
+    text-overflow:ellipsis;
+    max-width:48ch;
+    color:var(--text);
+  }
+
+  .sub {
+    color:var(--muted);
+    font-size:0.95rem;
+  }
+
+  .result-path {
+    margin-left:auto;
+    font-weight:700;
+    color:var(--muted);
+    font-size:0.95rem;
+    white-space:nowrap;
+    overflow:hidden;
+    text-overflow:ellipsis;
+    max-width:40ch;
+  }
+
+  /* Resume panel - fixed sizing and centered rows */
   #resumePanel {
     margin-top:16px;
     max-width:760px;
     margin-left:auto;
     margin-right:auto;
-    background:var(--card);
-    border-radius:12px;
+    background:var(--card-bg);
+    border-radius:var(--radius);
     border:1px solid var(--line);
     padding:12px;
-    box-shadow:0 12px 30px rgba(2,6,23,0.06);
+    box-shadow:var(--shadow-medium);
     text-align:center;
-    overflow:visible; /* avoid internal scrollbars */
+    overflow:visible;
   }
-  #resumePanel h3 { margin:0 0 8px; font-size:1rem; color:var(--text); }
 
-  /* layout as two stacked rows (Movies, Shows). Center each row.
-     Each row will contain up to 3 fixed-size items to avoid overflow/scroll.(WIP > Need to make this just a row not stacked) */
+  #resumePanel h3 {
+    margin:0 0 8px;
+    font-size:1rem;
+    color:var(--text);
+  }
+
   .resume-list {
     display:flex;
     flex-direction:column;
@@ -196,7 +493,7 @@
     gap:12px;
     align-items:center;
     justify-content:center;
-    flex-wrap:nowrap; /* fixed number of items, we slice in JS */
+    flex-wrap:nowrap;
   }
 
   /* Fixed-size resume cards (desktop) */
@@ -215,147 +512,253 @@
     justify-content:center;
     box-sizing:border-box;
   }
+
   /* Resume episode title styling */
-.resume-episode-title {
-  position: absolute;
-  left: 50%;
-  transform: translateX(-50%);
-  bottom: 28px; /* Above the time overlay */
-  background: rgba(0,0,0,0.75);
-  color: #fff;
-  padding: 4px 8px;
-  border-radius: 12px;
-  font-weight: 600;
-  font-size: 10px;
-  z-index: 3;
-  max-width: 90%;
-  overflow: hidden;
-  white-space: nowrap;
-}
+  .resume-episode-title {
+    position:absolute;
+    left:50%;
+    transform:translateX(-50%);
+    bottom:28px;
+    background:rgba(0,0,0,0.75);
+    color:#fff;
+    padding:4px 8px;
+    border-radius:12px;
+    font-weight:600;
+    font-size:10px;
+    z-index:3;
+    max-width:90%;
+    overflow:hidden;
+    white-space:nowrap;
+  }
 
-.resume-episode-title .marquee {
-  display: block;
-  white-space: nowrap;
-  overflow: hidden;
-  position: relative;
-  height: 14px;
-  width: 100%;
-}
+  .resume-episode-title .marquee {
+    display:block;
+    white-space:nowrap;
+    overflow:hidden;
+    position:relative;
+    height:14px;
+    width:100%;
+  }
 
-.resume-episode-title .m-inner {
-  display: inline-block;
-  white-space: nowrap;
-  will-change: transform;
-}
+  .resume-episode-title .m-inner {
+    display:inline-block;
+    white-space:nowrap;
+    will-change:transform;
+  }
 
-.resume-episode-title .m-inner span {
-  display: inline-block;
-  white-space: nowrap;
-}
-  .resume-thumb { width:100%; height:100%; display:block; position:relative; }
-  .resume-thumb img{ width:100%; height:100%; object-fit:cover; display:block; }
-  .fallback-text { position:absolute; inset:0; display:flex; align-items:center; justify-content:center; z-index:2; text-align:center; font-weight:700; color:var(--text); padding:8px; background:linear-gradient(180deg, rgba(255,255,255,0.02), transparent); }
-  .resume-overlay { position:absolute; left:50%; transform:translateX(-50%); bottom:8px; background:rgba(0,0,0,0.6); color:#fff; padding:6px 10px; border-radius:999px; font-weight:700; font-size:12px; z-index:4; min-width:40px; text-align:center; overflow:hidden; }
-  .resume-overlay.small{ font-size:11px; padding:4px 8px; background:rgba(0,0,0,0.55); }
-@media (max-width:640px){
-  /* header tweaks */
-  header { padding:8px 10px; }
-  .logo { height:36px; min-width:36px; }
-  .logo img{ max-height:28px; }
+  .resume-episode-title .m-inner span {
+    display:inline-block;
+    white-space:nowrap;
+  }
 
-  /* Hide the textual title on small screens so buttons don't overlap it */
-  .brand .title { display:none !important; }
+  .resume-thumb {
+    width:100%;
+    height:100%;
+    display:block;
+    position:relative;
+  }
 
-  /* header buttons keep the larger touch size */
-  .icon-btn {
-    width:88px;      
-    height:48px;
-    border-radius:10px;
-    font-size:18px;
-    padding:0 10px;
-    justify-content:center;
+  .resume-thumb img {
+    width:100%;
+    height:100%;
+    object-fit:cover;
+    display:block;
+  }
+
+  .fallback-text {
+    position:absolute;
+    inset:0;
+    display:flex;
     align-items:center;
-    display:inline-flex;
-    gap:6px;
-  }
-  .admin-btn {
-    width:76px;
-    height:44px;
-    border-radius:10px;
-    display:inline-flex;
     justify-content:center;
-    align-items:center;
-    padding:0 8px;
-  }
-  .header-space { gap:10px; }
-
-  /* Make the tile container use more of the screen and stretch tiles full width */
-  .grid { 
-    max-width: calc(100% - 28px); /* allow the grid to span the viewport with small side margin */
-    margin:12px 14px 0;
-    justify-content:stretch;      /* let tiles fill the row */
-    gap:12px;
+    z-index:2;
+    text-align:center;
+    font-weight:700;
+    color:var(--text);
+    padding:8px;
+    background:linear-gradient(180deg, rgba(255,255,255,0.02), transparent);
   }
 
-  /* Make tiles full-width on mobile so buttons are big and easy to tap */
-  .tile {
-    flex: 0 0 100%;
-    max-width: none;
-    min-height:70px;   /* slightly taller for touch */
-    padding:16px;      /* more internal padding for the larger area */
-    font-size:1.05rem; /* slightly larger label text */
-    box-sizing:border-box;
+  .resume-overlay {
+    position:absolute;
+    left:50%;
+    transform:translateX(-50%);
+    bottom:8px;
+    background:rgba(0,0,0,0.6);
+    color:#fff;
+    padding:6px 10px;
+    border-radius:999px;
+    font-weight:700;
+    font-size:12px;
+    z-index:4;
+    min-width:40px;
+    text-align:center;
+    overflow:hidden;
   }
 
-  /* Results/resume adjustments */
-  .welcome-center h1 { font-size:1.06rem; }
-  #resultsPanel { top:190px; left: 8px; transform:none; width: calc(100% - 16px); }
-  .resume-list { flex-direction:row; gap:8px; align-items:center; justify-content:center; }
-  .resume-section { flex-wrap:nowrap; }
-  .resume-item { width:48%; height:auto; aspect-ratio:2/3; min-width:0; }
-  .resume-overlay { font-size:11px; }
-}
+  .resume-overlay.small {
+    font-size:11px;
+    padding:4px 8px;
+    background:rgba(0,0,0,0.55);
+  }
+
+  @media (max-width:640px) {
+    /* header tweaks */
+    header {
+      padding:8px 10px;
+    }
+
+    .logo {
+      height:36px;
+      min-width:36px;
+    }
+
+    .logo img {
+      max-height:28px;
+    }
+
+    /* Hide the textual title on small screens */
+    .brand .title {
+      display:none !important;
+    }
+
+    /* header buttons keep the larger touch size */
+    .icon-btn {
+      width:88px;
+      height:48px;
+      border-radius:10px;
+      font-size:18px;
+      padding:0 10px;
+      justify-content:center;
+      align-items:center;
+      display:inline-flex;
+      gap:6px;
+    }
+
+    .admin-btn {
+      width:76px;
+      height:44px;
+      border-radius:10px;
+      display:inline-flex;
+      justify-content:center;
+      align-items:center;
+      padding:0 8px;
+    }
+
+    .header-space {
+      gap:10px;
+    }
+
+    /* Make the tile container use more of the screen */
+    .grid {
+      max-width:calc(100% - 28px);
+      margin:12px 14px 0;
+      justify-content:stretch;
+      gap:12px;
+    }
+
+    /* Make tiles full-width on mobile */
+    .tile {
+      flex:0 0 100%;
+      max-width:none;
+      min-height:70px;
+      padding:16px;
+      font-size:1.05rem;
+      box-sizing:border-box;
+    }
+
+    /* Results/resume adjustments */
+    .welcome-center h1 {
+      font-size:1.06rem;
+    }
+
+    #resultsPanel {
+      top:190px;
+      left:8px;
+      transform:none;
+      width:calc(100% - 16px);
+    }
+
+    .resume-list {
+      flex-direction:row;
+      gap:8px;
+      align-items:center;
+      justify-content:center;
+    }
+
+    .resume-section {
+      flex-wrap:nowrap;
+    }
+
+    .resume-item {
+      width:48%;
+      height:auto;
+      aspect-ratio:2/3;
+      min-width:0;
+    }
+
+    .resume-overlay {
+      font-size:11px;
+    }
+  }
 
   /* marquee helper (used for scrolling episode names) */
-  .marquee{display:block;white-space:nowrap;overflow:hidden;position:relative;height:20px; max-width:100%;}
-  .m-inner{display:inline-block;white-space:nowrap; will-change:transform}
-  .m-inner span{display:inline-block; white-space:nowrap;}
+  .marquee {
+    display:block;
+    white-space:nowrap;
+    overflow:hidden;
+    position:relative;
+    height:20px;
+    max-width:100%;
+  }
+
+  .m-inner {
+    display:inline-block;
+    white-space:nowrap;
+    will-change:transform;
+  }
+
+  .m-inner span {
+    display:inline-block;
+    white-space:nowrap;
+  }
+
   /* Remove button for resume items */
-.resume-remove {
-  position: absolute;
-  top: 4px;
-  right: 4px;
-  width: 20px;
-  height: 20px;
-  background: rgba(255, 0, 0, 0.8);
-  color: white;
-  border: none;
-  border-radius: 50%;
-  font-size: 12px;
-  font-weight: bold;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 10;
-  opacity: 0;
-  transition: opacity 0.2s, transform 0.2s;
-  transform: scale(0.8);
-}
+  .resume-remove {
+    position:absolute;
+    top:4px;
+    right:4px;
+    width:20px;
+    height:20px;
+    background:rgba(255, 0, 0, 0.8);
+    color:#fff;
+    border:none;
+    border-radius:50%;
+    font-size:12px;
+    font-weight:bold;
+    cursor:pointer;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    z-index:10;
+    opacity:0;
+    transition:opacity 0.2s, transform 0.2s;
+    transform:scale(0.8);
+  }
 
-.resume-item:hover .resume-remove {
-  opacity: 1;
-  transform: scale(1);
-}
+  .resume-item:hover .resume-remove {
+    opacity:1;
+    transform:scale(1);
+  }
 
-.resume-remove:hover {
-  background: rgba(255, 0, 0, 1);
-  transform: scale(1.1);
-}
+  .resume-remove:hover {
+    background:rgba(255, 0, 0, 1);
+    transform:scale(1.1);
+  }
 
-.resume-remove:active {
-  transform: scale(0.95);
-}
+  .resume-remove:active {
+    transform:scale(0.95);
+  }
 </style>
 </head>
 <body>
@@ -373,7 +776,7 @@
 
   <div class="header-space">
     <button id="themeBtn" class="icon-btn" title="Toggle theme" aria-pressed="false" aria-label="Toggle theme">☼</button>
-    <a class="admin-btn" href="http://192.168.4.1/admin" title="Admin panel" aria-label="Admin">
+    <a class="admin-btn" href="/admin" title="Admin panel" aria-label="Admin">
       <svg viewBox="0 0 24 24" fill="none" width="18" height="18"><path d="M12 15.5a3.5 3.5 0 100-7 3.5 3.5 0 000 7z" stroke="currentColor" stroke-width="1.4"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 01-2.83 2.83l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09a1.65 1.65 0 00-1-1.51 1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06a1.65 1.65 0 00.33-1.82 1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09a1.65 1.65 0 001.51-1 1.65 1.65 0 00-.33-1.82L4.31 4.9A2 2 0 017.14 2.07l.06.06c.5.5 1.16.76 1.82.76H9a1.65 1.65 0 001.51-1V1a2 2 0 014 0v.09c.14.6.62 1.09 1.22 1.33l.06.02a2 2 0 012.35-.34l.06.03a2 2 0 01.34 3.14l-.06.06c-.46.46-.66 1.15-.53 1.82h.09a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z" stroke="currentColor" stroke-width="1.2"/></svg>
     </a>
   </div>
@@ -387,7 +790,7 @@
     </div>
 
     <div class="search-row" style="position:relative; z-index:210;">
-      <input id="searchInput" class="search-input" placeholder="Search movies, shows, music, gallery, books, files..." aria-label="Search">
+      <input id="searchInput" class="search-input" placeholder="Search movies, shows, music, books..." aria-label="Search">
       <div id="searchLoader" class="search-loader" aria-hidden="true"><div class="bar"></div></div>
     </div>
 
@@ -401,6 +804,7 @@
         <a class="tile" href="/books" data-bucket="Books"><div class="label">Books</div></a>
         <a class="tile" href="/gallery" data-bucket="Gallery"><div class="label">Gallery</div></a>
         <a class="tile" href="/files" data-bucket="Files"><div class="label">Files</div></a>
+        <a class="tile" href="/archive.html" data-bucket="Archive" style="display:none;"><div class="label">Archive</div></a>
       </div>
     </div>
   </div>
@@ -420,26 +824,10 @@ const RE_VIDEO = /\.(mp4|mkv|avi|mov|ts|webm|m4v)$/i;
 const RE_AUDIO = /\.(mp3|flac|wav|m4a|aac|ogg)$/i;
 const RE_IMAGE = /\.(jpe?g|png|webp|gif|heic|avif)$/i;
 const RE_BOOK  = /\.(pdf|epub|mobi|azw3|txt)$/i;
-const DISABLE_ZIM = true; // Set to true to disable ZIM functionality (doesnt work rn so leave it off)
 
-// debug logger 
-const __debugEl = null;
+// debug logger
 function debugLog(...args){
   try { console.debug('[NOMAD]', ...args); } catch(e){ }
-}
-
-
-function debugLog(...args){
-  try {
-    console.debug('[NOMAD]', ...args);
-    if(__debugEl) {
-      __debugEl.style.display = 'block';
-      const line = document.createElement('div');
-      line.textContent = (new Date()).toISOString().split('T')[1].slice(0,12) + ' ' + args.map(a => (typeof a === 'string' ? a : JSON.stringify(a))).join(' ');
-      __debugEl.appendChild(line);
-      while(__debugEl.childNodes.length > 200) __debugEl.removeChild(__debugEl.firstChild);
-    }
-  } catch(e){}
 }
 
 /* ---------------- UI refs ---------------- */
@@ -451,289 +839,150 @@ const resumePanel = document.getElementById('resumePanel');
 const resumeList = document.getElementById('resumeList');
 const pageBg = document.querySelector('.page-bg');
 
-/* ---------------- ZIM / javascript-libzim integration ---------------- */
-/* libzim files are in /assets/kiwix/www/js/ 
-   We prefer the wasm loader but add locateFile so Emscripten finds the .wasm.
-   This is far from working, I left this bit in, but much will need to be changed. Proof of concept did work though)
-*/
-const LIBZIM_BASE = '/assets/kiwix/www/js/';
-const LIBZIM_WASM_SCRIPT = LIBZIM_BASE + 'libzim-wasm.js';
-const LIBZIM_ASM_SCRIPT  = LIBZIM_BASE + 'libzim-asm.js'; 
+// warm archives on first focus so theyre open by the time the user stops typing
+searchInput.addEventListener('focus', () => {
+  warmArchives();
+});
 
-let libzimReady = null;        // Promise resolved when Module runtime is ready
+/* ---------------- Archive (ZIM) search ----------------
+   searches the PC-built sidecar index via NomadArchiveIndex - one small read per
+   query, never binary-searches the multi-GB ZIM. media results render first, archive
+   hits below. a card with no archives shows zero trace of the feature. */
 
-function loadLibZimScript(preferWasm = true) {
-  if (libzimReady) return libzimReady;
-  libzimReady = new Promise((resolve, reject) => {
-    window.Module = window.Module || {};
-    window.Module.locateFile = function(path) {
-      const full = LIBZIM_BASE + path;
-      debugLog('libzim locateFile mapped:', path, '->', full);
-      return full;
-    };
-    window.Module.onRuntimeInitialized = function () {
-      libzimModule = window.Module;
-      debugLog('libzim runtime initialized', !!libzimModule);
-      console.info('libzim runtime initialized');
-      resolve(libzimModule);
-    };
+let __archiveIndex = null;      // NomadArchiveIndex instance
+let __archiveIndexReady = null; // Promise: resolves to it, or null if no usable index
+let __archivesPresent = false;  // "does the Archive folder have anything?" - set at boot
 
-    const scriptUrl = preferWasm ? LIBZIM_WASM_SCRIPT : LIBZIM_ASM_SCRIPT;
-    debugLog('loading libzim script:', scriptUrl);
-    const script = document.createElement('script');
-    script.src = scriptUrl;
-    script.async = true;
-    script.onerror = async (ev) => {
-      debugLog('libzim script load error for', scriptUrl, ev);
-      console.warn('libzim wasm loader failed — trying asm fallback if available');
-      if (preferWasm && LIBZIM_ASM_SCRIPT) {
-        try {
-          await loadLibZimScript(false);
-          resolve(libzimModule);
-        } catch (e) {
-          debugLog('libzim fallback also failed', String(e));
-          reject(new Error('Failed to load libzim (wasm + asm)'));
-        }
-      } else {
-        reject(new Error('Failed to load libzim script: ' + scriptUrl));
-      }
-    };
-    document.head.appendChild(script);
-  });
-  return libzimReady;
+function loadScriptOnce(src) {
+  loadScriptOnce._p = loadScriptOnce._p || {};
+  if (!loadScriptOnce._p[src]) {
+    loadScriptOnce._p[src] = new Promise((res, rej) => {
+      const s = document.createElement('script');
+      s.src = src; s.async = true;
+      s.onload = res;
+      s.onerror = () => { delete loadScriptOnce._p[src]; rej(new Error('failed to load ' + src)); };
+      document.head.appendChild(s);
+    });
+  }
+  return loadScriptOnce._p[src];
 }
 
-
-async function loadAndOpenArchive(zimPath) {
-  if (!zimPath) throw new Error('zimPath required');
-  debugLog('loadAndOpenArchive start', zimPath);
-  try {
-    await loadLibZimScript();
-    if (!libzimModule) throw new Error('libzim module not found after loading script');
-
+/* load nomad-zim.js + the sidecar index once. null if no index or zero archives */
+function getArchiveIndex() {
+  if (__archiveIndexReady) return __archiveIndexReady;
+  __archiveIndexReady = (async () => {
     try {
-      // Try a HEAD first
-      const head = await fetch(zimPath, { method: 'HEAD', cache: 'no-store' });
-      debugLog('HEAD', zimPath, head.status, { ok: head.ok, headers: { 'accept-ranges': head.headers.get('accept-ranges'), 'content-length': head.headers.get('content-length') } });
-      if (!head.ok) {
-        debugLog('HEAD not OK, trying small GET Range');
-        const r = await fetch(zimPath, { method: 'GET', headers: { 'Range': 'bytes=0-1023' }, cache: 'no-store' });
-        debugLog('Range GET status:', r.status, 'headers:', { 'content-range': r.headers.get('content-range'), 'accept-ranges': r.headers.get('accept-ranges') });
-        if (r.status !== 206 && r.status !== 200) {
-          throw new Error('Range GET failed status=' + r.status);
-        }
+      await loadScriptOnce('/assets/nomad-zim.js?v=idx2');  // ?v defeats a stale cached copy
+      const idx = new NomadZim.NomadArchiveIndex('/Archive/.nomad-zim');
+      await idx.load();
+      if (!idx.manifest || !idx.manifest.archives || !idx.manifest.archives.length) {
+        debugLog('archive index has zero archives, treating as absent');
+        return null;
       }
-    } catch (reachErr) {
-      debugLog('ZIM reachability test failed for', zimPath, String(reachErr));
-    }
-
-    try {
-      debugLog('calling libzimModule.loadArchive with', zimPath);
-      if (typeof libzimModule.loadArchive !== 'function') {
-        throw new Error('libzimModule.loadArchive is not a function');
-      }
-      libzimModule.loadArchive(zimPath);
-      activeZimPath = zimPath;
-      archiveLoaded = true;
-      debugLog('libzim archive loaded (assumed):', zimPath);
-      console.info('libzim archive loaded:', zimPath);
+      __archiveIndex = idx;
+      return idx;
     } catch (e) {
-      debugLog('libzim.loadArchive failed', String(e));
-      console.warn('libzim.loadArchive failed', e);
-      archiveLoaded = false;
-      throw e;
-    }
-  } catch (e) {
-    debugLog('loadAndOpenArchive failed overall', String(e));
-    archiveLoaded = false;
-    throw e;
-  }
-}
-
-let zimListCache = null;
-let zimListPromise = null;
-
-async function tryFetchZimList() {
-  // Return cached result if available and recent (5 minutes)
-  if (zimListCache && (Date.now() - zimListCache.timestamp < 300000)) {
-    debugLog('tryFetchZimList: returning cached result');
-    return zimListCache.data;
-  }
-  
-  // Return existing promise if one is in flight
-  if (zimListPromise) {
-    debugLog('tryFetchZimList: returning existing promise');
-    return zimListPromise;
-  }
-  
-  debugLog('tryFetchZimList: fetching /zim-list');
-  zimListPromise = (async () => {
-    try {
-      const j = await tryFetchJSON('/zim-list');
-      debugLog('/zim-list response (raw):', j);
-      if (!j || !Array.isArray(j)) {
-        debugLog('/zim-list: unexpected response (not an array)');
-        return [];
-      }
-     
-      for(const z of j) {
-        if(!z.path) debugLog('zim entry missing path:', z);
-      }
-      
-      // Cache the result
-      zimListCache = {
-        data: j,
-        timestamp: Date.now()
-      };
-      
-      return j;
-    } catch (e) {
-      console.warn('tryFetchZimList failed', e);
-      debugLog('tryFetchZimList failed', String(e));
-      return [];
-    } finally {
-      zimListPromise = null;
+      debugLog('no archive index on card', String(e));
+      return null;
     }
   })();
-  
-  return zimListPromise;
+  // if the sidecar has archives, reveal the UI too (usually the boot probe already did).
+  // never hides here - the boot probe owns tile visibility
+  __archiveIndexReady.then(idx => { if (idx) applyArchiveUI(true); });
+  return __archiveIndexReady;
 }
 
-/*
-  Run a title suggestion/search against the first available ZIM.
-  Returns an array of lightweight result objects compatible with renderResults:
-  { title, path, bucket:'ZIM', subtype:'zim' }
-*/
-// Replace the tryZimSuggest function (around line 503-553)
-let lastZimSuggestTime = 0;
-let zimSuggestCache = new Map();
+/* pre-warm the index so the first query is instant. deliberately NOT eager at load:
+   an earlier version did that and it correlated with reboots (the old 2GB stdio crash
+   signature) right after the manifest fetch, so keep it on search-focus only. worst
+   case the tile takes one focus to appear, way cheaper than the device rebooting. */
+function warmArchives() { getArchiveIndex(); }
 
-async function tryZimSuggest(term, maxResults = 20) {
-  if (!term || !term.trim()) return [];
-  
-  const now = Date.now();
-  const cacheKey = `${term.toLowerCase()}_${maxResults}`;
-  
-  // Check cache first (30 seconds)
-  if (zimSuggestCache.has(cacheKey)) {
-    const cached = zimSuggestCache.get(cacheKey);
-    if (now - cached.timestamp < 30000) {
-      debugLog('tryZimSuggest: returning cached result for', term);
-      return cached.data;
-    }
-  }
-  
-  // Rate limit: max one request per 500ms
-  if (now - lastZimSuggestTime < 500) {
-    debugLog('tryZimSuggest: rate limited, skipping', term);
-    return [];
-  }
-  
-  lastZimSuggestTime = now;
-  
+/* reveal/hide the Archive tile + the "wiki articles" hint in the search placeholder */
+function applyArchiveUI(present) {
+  searchInput.placeholder = present
+    ? 'Search movies, shows, music, books, wiki articles...'
+    : 'Search movies, shows, music, books...';
+  const archiveTile = document.querySelector('.tile[data-bucket="Archive"]');
+  if (archiveTile) archiveTile.style.display = present ? '' : 'none';
+}
+
+/* boot-time archive check - the "archive flag". instead of loading the heavy sidecar
+   (touches multi-GB files, tied to reboots) we hit /api/archive-list, a cheap directory
+   scan that reads no file content and just answers "does /Archive have anything?".
+   it 503s if the SD is busy at boot, so retry a few times. */
+async function detectArchivesOnBoot(attempt = 0) {
   try {
-    // ensure lib runtime is loaded
-    await loadLibZimScript();
-
-    // ensure there's an opened archive, if not, discover ZIMs and open the first one
-    if (!archiveLoaded) {
-      const zims = await tryFetchZimList();
-      if (!zims || zims.length === 0) {
-        console.info('No zim files found on device');
-        return [];
-      }
-      const first = zims[0];
-      await loadAndOpenArchive(first.path);
-      if (!archiveLoaded) return [];
+    const res = await fetch('/api/archive-list', { cache: 'no-store' });
+    if (res.ok) {
+      const data = await res.json();
+      __archivesPresent = !!(data && Array.isArray(data.archives) && data.archives.length);
+      applyArchiveUI(__archivesPresent);
+      return;
     }
-
-    // Use Module.suggest (title-based suggestions). API returns an Emscripten vector
-    if (typeof libzimModule.suggest !== 'function') {
-      console.warn('libzim suggest API not available');
-      debugLog('libzim suggest API not available on module', libzimModule);
-      return [];
-    }
-
-    debugLog('calling libzim.suggest with term=', term);
-    const vec = libzimModule.suggest(term, maxResults);
-    debugLog('libzim.suggest returned vector', typeof vec, vec && vec.size ? vec.size() : 'no-size');
-    const out = [];
-    for (let i = 0; i < (vec && vec.size ? vec.size() : 0); i++) {
-      const entry = vec.get(i);
-      let title = '', path = '';
-      try { title = entry.getTitle ? entry.getTitle() : ''; } catch(e){ debugLog('entry.getTitle error', String(e)); }
-      try { path = entry.getPath ? entry.getPath() : ''; } catch(e){ debugLog('entry.getPath error', String(e)); }
-      debugLog('zim-suggest entry', i, title, path);
-      out.push({
-        title: title || '(untitled)',
-        path: `/zimreader.html?zim=${encodeURIComponent(activeZimPath||'')}&entry=${encodeURIComponent(path||'')}`,
-        bucket: 'ZIM',
-        subtype: 'zim',
-        preview: null,
-        raw: null
-      });
-    }
-    
-    // Cache the result
-    zimSuggestCache.set(cacheKey, {
-      data: out,
-      timestamp: now
-    });
-    
-    // Clean old cache entries (keep only last 10)
-    if (zimSuggestCache.size > 10) {
-      const entries = Array.from(zimSuggestCache.entries());
-      entries.sort((a, b) => b[1].timestamp - a[1].timestamp);
-      zimSuggestCache.clear();
-      entries.slice(0, 10).forEach(([k, v]) => zimSuggestCache.set(k, v));
-    }
-    
-    debugLog('tryZimSuggest: out.length', out.length);
-    return out;
+    // 503 (SD busy) or transient error, retry below
   } catch (e) {
-    console.warn('tryZimSuggest failed', e);
-    return [];
+    debugLog('archive-list probe failed', String(e));
   }
+  if (attempt < 5) setTimeout(() => detectArchivesOnBoot(attempt + 1), 5000);
 }
 
-function renderZimResults(zrows, q) {
-  if (!zrows || !zrows.length) return;
+/* Query the index. Returns rows shaped for renderArchiveSection / onResultClick. */
+async function archiveSearch(term, limit = 12) {
+  const idx = await getArchiveIndex();
+  if (!idx) return [];
+  const hits = await idx.search(term, limit);
+  return hits.map(h => ({
+    title: h.title,
+    bucket: 'Archive',
+    subtype: 'zim',
+    archive: h.archiveId,
+    // deep link straight to the article by its known location - no lookup on open
+    path: '/archive.html?a=' + h.archiveIdx + '&c=' + h.cluster + '&b=' + h.blob +
+          '&t=' + encodeURIComponent(h.title),
+    preview: null
+  }));
+}
 
-  // create header
+/* appends archive hits as a "From Archive" section below media. data-zim-section
+   lets performSearch swap it without touching the media results */
+function renderArchiveSection(zrows, status) {
+  resultsPanel.querySelectorAll('[data-zim-section]').forEach(n => n.remove());
+  if ((!zrows || !zrows.length) && !status) return;
+
+  const section = document.createElement('div');
+  section.setAttribute('data-zim-section', '1');
+
   const hdr = document.createElement('div');
   hdr.style.padding = '10px 14px';
   hdr.style.borderBottom = '1px solid var(--line)';
   hdr.style.fontWeight = '800';
   hdr.style.color = 'var(--muted)';
-  hdr.textContent = `ZIM results (${zrows.length}) — ${q}`;
+  hdr.style.display = 'flex';
+  hdr.style.justifyContent = 'space-between';
+  hdr.innerHTML = '<span>From Archive</span>' +
+    (status ? `<span style="font-weight:600;opacity:.75;">${status}</span>` : '');
+  section.appendChild(hdr);
 
-  const frag = document.createDocumentFragment();
-  frag.appendChild(hdr);
-
-  // Reuse the same row structure as renderResults
-  for (const r of zrows.slice(0, 100)) {
+  for (const r of (zrows || [])) {
     const row = document.createElement('div'); row.className = 'result-row';
     const thumb = document.createElement('div'); thumb.className = 'thumb square';
     thumb.innerHTML = iconSVG('file');
 
     const meta = document.createElement('div'); meta.className = 'meta';
-    const title = document.createElement('div'); title.className = 'title'; title.textContent = r.title || r.path || '(untitled)';
+    const title = document.createElement('div'); title.className = 'title'; title.textContent = r.title || '(untitled)';
     const sub = document.createElement('div'); sub.className = 'sub';
-    sub.textContent = 'Offline ZIM';
+    sub.textContent = friendlyDisplayName(r.archive || 'archive');
     meta.appendChild(title); meta.appendChild(sub);
 
-    const pathDiv = document.createElement('div'); pathDiv.className = 'result-path'; pathDiv.textContent = shortenPath(r.path || '');
-    row.appendChild(thumb); row.appendChild(meta); row.appendChild(pathDiv);
-
+    row.appendChild(thumb); row.appendChild(meta);
     row.addEventListener('click', ()=> onResultClick(r));
-    frag.appendChild(row);
+    section.appendChild(row);
   }
 
-  // append ZIM section to panel (do not clear existing content)
-  resultsPanel.appendChild(frag);
+  resultsPanel.appendChild(section);
   resultsPanel.style.display = 'block';
 }
-
 
 /* ---------------- THEME ---------------- */
 function applyTheme(dark){
@@ -802,7 +1051,6 @@ themeBtn.addEventListener('click', ()=> applyTheme(!document.body.classList.cont
         __fetchInFlight.set(url, promise);
         return promise;
     }
-function normalizePath(p){ if(!p) return '/'; if(!p.startsWith('/')) p = '/' + p; while(p.length>1 && p.endsWith('/')) p = p.slice(0,-1); return p; }
 function basenameNoExt(n){ return (n||'').replace(/\.[^/.]+$/,''); }
 function friendlyDisplayName(n){ return basenameNoExt((n||'').toString()).replace(/[_\.]+/g,' ').trim(); }
 function parseNdjson(text){ if(!text) return []; return text.split(/\r?\n/).map(l=>l.trim()).filter(Boolean).map(l=>{ try{ return JSON.parse(l); }catch(e){ return null; } }).filter(Boolean); }
@@ -861,15 +1109,64 @@ function previewPathFromItemPath(itemPath){
   return null;
 }
 
+async function loadSearchIndexFromSD() {
+  try {
+    const response = await fetch('/.search-index.json?t=' + Date.now());
+    if (response.ok) {
+      const data = await response.json();
+      if (data && data.entries && Array.isArray(data.entries)) {
+        console.info('[Search] Loaded cached index from SD card:', data.entries.length, 'entries');
+        return data.entries;
+      }
+    }
+  } catch (e) {
+    console.log('[Search] No cached index on SD card, will build from scratch');
+  }
+  return null;
+}
+
+async function saveSearchIndexToSD(entries) {
+  try {
+    const data = { entries, ts: Date.now() };
+    const blob = new Blob([JSON.stringify(data)], { type: 'application/json' });
+    const formData = new FormData();
+    formData.append('file', blob, '.search-index.json');
+    formData.append('path', '/');
+
+    const response = await fetch('/upload', {
+      method: 'POST',
+      body: formData
+    });
+
+    if (response.ok) {
+      console.info('[Search] Saved index to SD card:', entries.length, 'entries');
+      return true;
+    } else {
+      console.warn('[Search] Failed to save index to SD card:', response.status);
+    }
+  } catch (e) {
+    console.error('[Search] Error saving index to SD card:', e);
+  }
+  return false;
+}
+
 /* Builds a robust search index and preview maps (concurrent fetches) */
-async function buildSearchIndex(){
-  if(searchIndexCache && searchIndexCache.entries) return searchIndexCache.entries;
-  
+async function buildSearchIndex(forceRebuild = false){
+  if(!forceRebuild && searchIndexCache && searchIndexCache.entries) return searchIndexCache.entries;
+
+  if (!forceRebuild) {
+    const cachedEntries = await loadSearchIndexFromSD();
+    if (cachedEntries) {
+      searchIndexCache = { entries: cachedEntries, ts: Date.now() };
+      return cachedEntries;
+    }
+  }
+
   // Prevent multiple simultaneous builds
   if (buildSearchIndex._building) {
     return buildSearchIndex._building;
   }
-  
+
   buildSearchIndex._building = (async () => {
     try {
       previewByPath = new Map();
@@ -1108,6 +1405,10 @@ async function buildSearchIndex(){
 
       searchIndexCache = { entries: finalEntries, ts: Date.now() };
       console.info('Search index built:', finalEntries.length);
+
+      // Save to SD card for future visits
+      saveSearchIndexToSD(finalEntries).catch(e => console.warn('[Search] Failed to save to SD:', e));
+
       return finalEntries;
     } finally {
       delete buildSearchIndex._building;
@@ -1123,57 +1424,6 @@ function iconSVG(kind){
   if(kind === 'file') return '<svg viewBox="0 0 24 24" fill="none" width="18" height="18"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" stroke="currentColor" stroke-width="1.6"/><path d="M14 2v6h6" stroke="currentColor" stroke-width="1.6"/></svg>';
   if(kind === 'video') return '<svg viewBox="0 0 24 24" fill="none" width="18" height="18"><path d="M23 7l-7 5 7 5V7z" fill="currentColor"/><rect x="1" y="5" width="14" height="14" rx="2" stroke="currentColor" stroke-width="1.4"/></svg>';
   return '';
-}
-
-let __marqueeCounter = 0;
-function createScrollingMarquee(text){
-  const id = ++__marqueeCounter;
-  const wrapper = document.createElement('div');
-  wrapper.className = 'marquee';
-  wrapper.style.display = 'block';
-  wrapper.style.overflow = 'hidden';
-  wrapper.style.width = '100%';
-  const inner = document.createElement('div'); inner.className = 'm-inner';
-  const s1 = document.createElement('span'); s1.textContent = text;
-  const s2 = document.createElement('span'); s2.textContent = text;
-  inner.appendChild(s1); inner.appendChild(s2);
-  wrapper.appendChild(inner);
-
-  requestAnimationFrame(() => {
-    try {
-      // measure first copy
-      const copyWidth = Math.max(12, Math.ceil(s1.getBoundingClientRect().width || (text.length * 8)));
-      const gap = 48; // px gap between end-of-copy and start-of-next copy (visible breathing space)
-      // padding-right provides the visible space between repeats
-      s1.style.paddingRight = `${gap}px`;
-      s2.style.paddingRight = '0px';
-      // set total width of inner: two copies + gap each
-      inner.style.width = `${(copyWidth + gap) * 2}px`;
-      // slower duration baseline so the scroll feels smooth on wide displays
-      const dur = Math.max(12, Math.min(70, (copyWidth + gap) / 24)); // slower, smoother
-      // unique keyframes for this marquee so it scrolls exactly by copyWidth+gap
-      const keyName = `__marquee_scroll_${id}`;
-      const rule = `@keyframes ${keyName} { from { transform: translateX(0); } to { transform: translateX(-${copyWidth + gap}px); } }`;
-      const styleEl = document.createElement('style');
-      styleEl.setAttribute('data-marquee', keyName);
-      styleEl.textContent = rule;
-      document.head.appendChild(styleEl);
-      inner.style.animation = `${keyName} ${dur}s linear infinite`;
-      inner.style.willChange = 'transform';
-      inner.style.transform = 'translateX(0)';
-      // constrain each span so it never forces overlay wider than parent
-      s1.style.display = 'inline-block';
-      s2.style.display = 'inline-block';
-      s1.style.maxWidth = `${copyWidth}px`;
-      s2.style.maxWidth = `${copyWidth}px`;
-      // ensure wrapper hides overflow and centers visually
-      wrapper.style.textAlign = 'left';
-    } catch(e) {
-      inner.style.animation = `none`;
-    }
-  });
-
-  return wrapper;
 }
 
 /* simple time formatter (mm:ss or h:mm:ss) */
@@ -1310,6 +1560,8 @@ function findPreviewForResumeItem(item){
 */
 function renderResume(items){
   resumeList.innerHTML = '';
+  // each render used to inject a <style> per scrolling title and never remove it, leaking one per render
+  document.querySelectorAll('style[data-resume-marquee]').forEach(el => el.remove());
   if(!items || !items.length){ resumePanel.style.display = 'none'; return; }
 
   const normalized = (items||[]).map(it => ({
@@ -1442,6 +1694,7 @@ function makeResumeNode(it, compact=false, showMarqueeForShows=false){
         const keyName = `episode-scroll-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`;
         const rule = `@keyframes ${keyName} { 0% { transform: translateX(0); } 100% { transform: translateX(-${totalWidth}px); } }`;
         const style = document.createElement('style');
+        style.setAttribute('data-resume-marquee', '1');
         style.textContent = rule;
         document.head.appendChild(style);
         
@@ -1493,14 +1746,22 @@ function makeResumeNode(it, compact=false, showMarqueeForShows=false){
   // Resume item click handler
   node.addEventListener('click', ()=> {
     const p = it.path || '';
-    if((p||'').toLowerCase().includes('/movies/')) window.location.href = `/movies#open=${encodeURIComponent(p)}`;
-    else if((p||'').toLowerCase().includes('/shows/')) window.location.href = `/shows#open=${encodeURIComponent(p)}`;
-    else if((p||'').toLowerCase().includes('/music/')) window.location.href = `/music#play=${encodeURIComponent(p)}`;
-    else if((p||'').toLowerCase().includes('/gallery/')) window.location.href = `/gallery#open=${encodeURIComponent(p)}`;
-    else if((p||'').toLowerCase().includes('/books/')) {
+    const resumePos = it.position || 0;
+
+    if((p||'').toLowerCase().includes('/movies/')) {
+      window.location.href = `/movies.html#play=${encodeURIComponent(p)}`;
+    } else if((p||'').toLowerCase().includes('/shows/')) {
+      window.location.href = `/shows.html#play=${encodeURIComponent(p)}`;
+    } else if((p||'').toLowerCase().includes('/music/')) {
+      window.location.href = `/music#play=${encodeURIComponent(p)}`;
+    } else if((p||'').toLowerCase().includes('/gallery/')) {
+      window.location.href = `/gallery#open=${encodeURIComponent(p)}`;
+    } else if((p||'').toLowerCase().includes('/books/')) {
       const url = p.startsWith('/') ? p : '/' + p;
       window.location.href = url;
-    } else window.location.href = (p.startsWith('/') ? p : '/' + p);
+    } else {
+      window.location.href = (p.startsWith('/') ? p : '/' + p);
+    }
   });
 
   return node;
@@ -1661,29 +1922,13 @@ function renderResults(rows, q){
   resultsPanel.style.display = 'block';
 }
 
-// ---------- performSearch (media-first, ZIM parallel + merge) ----------
+// ---------- performSearch (media first, archive section appended after) ----------
 let buildPromise = null;
+let __searchToken = 0;
 async function performSearch(q){
   const term = (q||'').trim();
   if(!term){ resultsPanel.style.display = 'none'; resultsPanel.innerHTML=''; return []; }
-
-  // Helper: scoring/ranking function to merge media + ZIM results naturally
-  function scoreFor(item){
-    const title = (item.title||'').toString().toLowerCase();
-    const t = term.toLowerCase();
-    let s = 0;
-    // big boost if title starts with term
-    if(title.startsWith(t)) s += 10000;
-    // smaller boost for earlier occurrence
-    const idx = title.indexOf(t);
-    if(idx >= 0) s += Math.max(0, 500 - idx);
-    // bucket baseline weights (favor Movies/Shows slightly, but give ZIM decent weight)
-    const order = { Movies:800, Shows:700, Music:600, Gallery:450, ZIM:500, Books:400, Files:200 };
-    s += (order[item.bucket] || 100);
-    // slight preference to shorter title on tie
-    s += Math.max(0, 200 - (title.length||0));
-    return s;
-  }
+  const myToken = ++__searchToken;
 
   // Build media index and search
   let mediaResults = [];
@@ -1714,67 +1959,26 @@ async function performSearch(q){
     searchLoader.style.display = 'none';
   }
 
-  // ----------------- Kick off ZIM suggestions in parallel -----------------
-  if (!DISABLE_ZIM) {
-    try {
-      const existingZimSections = resultsPanel.querySelectorAll('[data-zim-section]');
-      existingZimSections.forEach(n=>n.remove());
-
-      // Suggest titles from ZIM (fast title-only search)
-      const zimMatches = await tryZimSuggest(term, 100);
-      //zimLoadingMarker.remove();
-
-      if (zimMatches && zimMatches.length) {
-        debugLog('ZIM matches received:', zimMatches.length);
-
-        // Convert ZIM matches to the same object shape as media results so renderResults can handle them
-        const zimItems = zimMatches.map(z => ({
-          title: z.title || '(untitled)',
-          path: z.path || `/zimreader.html?zim=${encodeURIComponent(activeZimPath||'')}&entry=${encodeURIComponent(z.path||'')}`,
-          bucket: 'ZIM',
-          subtype: 'zim',
-          preview: z.preview || null,
-          raw: z.raw || z
-        }));
-
-        const seen = new Map();
-        function keyFor(it){
-          const t = (it.title||it.path||'').toString().toLowerCase().trim();
-          return t;
-        }
-        for(const m of mediaResults){
-          seen.set(keyFor(m), m);
-        }
-        for(const z of zimItems){
-          const k = keyFor(z);
-          if(!seen.has(k)) seen.set(k, z);
-        }
-
-        // Create combined array and sort by our score function (descending)
-        const combined = Array.from(seen.values());
-        combined.sort((a,b) => {
-          const sa = scoreFor(a), sb = scoreFor(b);
-          if(sa !== sb) return sb - sa; // higher score first
-          // fallback: prefer items whose title starts with term
-          const ta = (a.title||'').toLowerCase().startsWith(term.toLowerCase()) ? 1 : 0;
-          const tb = (b.title||'').toLowerCase().startsWith(term.toLowerCase()) ? 1 : 0;
-          if(ta !== tb) return tb - ta;
-          // fallback bucket order
-          const order = { Movies:0, Shows:1, Music:2, Gallery:3, ZIM:4, Books:5, Files:6 };
-          return (order[a.bucket]||9) - (order[b.bucket]||9);
-        });
-
-        // Re-render combined results (keeps the same row look as other items)
-        renderResults(combined, q);
-      } else {
-        debugLog('No ZIM matches for', term);
+  // ------- Archive (ZIM) results below media -----
+  // media keeps priority (above, never reordered). the archive query is a couple of
+  // tiny reads so its fast. a newer keystroke abandons this run
+  const stillCurrent = () => myToken === __searchToken;
+  try {
+    const idx = await getArchiveIndex();
+    if (idx && stillCurrent()) {
+      renderArchiveSection([], 'Searching…');
+      const zrows = await archiveSearch(term, 12);
+      if (stillCurrent()) {
+        renderArchiveSection(zrows, zrows.length ? null : 'No matches');
       }
-    } catch (e) {
-      console.warn('ZIM search failed', e);
     }
+  } catch (e) {
+    console.warn('archive search failed', e);
+    // show the failure instead of hanging on "Searching…"
+    const msg = /abort/i.test(String(e && e.name) + String(e && e.message)) ? 'Timed out' : 'Search error';
+    if (stillCurrent()) renderArchiveSection([], msg);
   }
 
-  // return mediaResults immediately
   return mediaResults;
 }
 
@@ -1796,8 +2000,8 @@ function onResultClick(item){
   if(item.bucket === 'Gallery'){ window.location.href = `/gallery#open=${encodeURIComponent(p)}`; return; }
 
   
-  if(item.bucket === 'ZIM') {
-    window.location.href = item.path;
+  if(item.bucket === 'Archive') {
+    window.location.href = item.path; // /archive.html?a=<idx>&c=<cluster>&b=<blob> deep link
     return;
   }
 
@@ -1816,9 +2020,11 @@ document.addEventListener('click', (ev) => {
 });
 
 /* warm index and load resume on boot */
-(function warm(){ 
+(function warm(){
   console.info('Page loaded - search index will build when needed');
 })();
+/* reveal the Archive tile at boot if /Archive has anything (cheap probe, the searchable index still loads on focus) */
+detectArchivesOnBoot();
 /* Initialize resume */
 (async function initResume(){
   try {
@@ -1842,24 +2048,8 @@ document.addEventListener('click', (ev) => {
 /* ESC to close results */
 document.addEventListener('keydown', (e) => { if(e.key === 'Escape'){ resultsPanel.style.display='none'; } });
 
-/* Load ZIM bridge only if ZIM files exist */
-if (!DISABLE_ZIM) {
-  (async function conditionalZimLoad(){
-    try{
-      const list = await tryFetchJSON('/zim-list', 1500);
-      if(Array.isArray(list) && list.length){
-        await new Promise((res, rej)=>{
-          const s = document.createElement('script');
-          s.src = '/assets/zim-bridge.js';
-          s.async = true;
-          s.onload = res; 
-          s.onerror = ()=>{ debugLog('zim-bridge.js not found'); res(); };
-          document.head.appendChild(s);
-        });
-      }
-    }catch(e){ debugLog('ZIM check skipped', String(e)); }
-  })();
-}
 </script>
 </body>
 </html>
+
+

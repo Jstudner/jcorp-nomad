@@ -1,0 +1,239 @@
+<!DOCTYPE html>
+<!-- Version 4 -->
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Queue</title>
+<link rel="stylesheet" href="master.css">
+<script src="/theme-boot.js"></script>
+<script src="/nomad-utils.js"></script>
+<script src="theme-manager.js"></script>
+<style>
+body{margin:0;padding:0;background:var(--bg);font-family:Inter,Arial,sans-serif;}
+.toolbar{background:var(--card);padding:.6rem 14px;display:flex;gap:.6rem;align-items:center;justify-content:space-between;border-bottom:1px solid var(--black-alpha-4);position:sticky;top:0;z-index:55;}
+.queue-count{color:var(--muted);font-weight:700;font-size:0.95rem;}
+.btn{padding:.45rem .65rem;border-radius:8px;border:0;background:var(--card);box-shadow:0 2px 8px var(--black-alpha-4);cursor:pointer;font-weight:700;color:var(--text);display:inline-flex;align-items:center;gap:6px;}
+.btn.danger{background:var(--danger);color:var(--color-white);}
+main{padding:14px;max-width:1200px;margin:0 auto;padding-bottom:20px;}
+.section{background:var(--card);border-radius:12px;padding:16px;box-shadow:var(--shadow);margin-bottom:12px;}
+.section h2{font-size:1.1rem;margin:0 0 12px 0;color:var(--primary);font-weight:800;}
+.empty-state{padding:48px 20px;text-align:center;color:var(--muted);font-weight:600;}
+.empty-state-icon{font-size:3rem;margin-bottom:12px;opacity:0.3;}
+.queue-list{display:flex;flex-direction:column;gap:8px;}
+.queue-item{display:flex;align-items:center;gap:12px;padding:12px;border-radius:10px;background:var(--black-alpha-4);border:1px solid var(--black-alpha-4);transition:all 0.2s;cursor:pointer;}
+.queue-item:hover{background:var(--primary-alpha-8);border-color:var(--primary-alpha-20);transform:translateY(-2px);}
+.queue-item.current{background:var(--primary-alpha-10);border-color:var(--primary);border-width:2px;}
+.queue-num{font-weight:800;color:var(--primary);font-size:1rem;min-width:32px;text-align:center;}
+.queue-item.current .queue-num{color:var(--primary);}
+.queue-info{flex:1;min-width:0;}
+.queue-title{font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;margin-bottom:2px;}
+.queue-context{font-size:0.85rem;color:var(--muted);font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.queue-actions{display:flex;gap:6px;flex-shrink:0;}
+.queue-action-btn{width:36px;height:36px;border-radius:8px;border:1px solid var(--black-alpha-8);background:var(--card);color:var(--primary);font-size:16px;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:all 0.15s;font-weight:700;}
+.queue-action-btn:hover{background:var(--primary);color:var(--color-white);transform:scale(1.08);}
+.queue-action-btn.danger:hover{background:var(--danger);color:var(--color-white);}
+.queue-action-btn:disabled{opacity:0.3;cursor:not-allowed;pointer-events:none;}
+</style>
+</head>
+<body>
+
+<div class="toolbar">
+  <div id="queueCount" class="queue-count">0 in queue</div>
+  <button id="clearQueueBtn" class="btn danger" style="display:none;">Clear Queue</button>
+</div>
+
+<main>
+  <section class="section">
+    <h2>Queue</h2>
+    <div id="queueList" class="queue-list"></div>
+    <div id="emptyState" class="empty-state" style="display:none;">
+      <div class="empty-state-icon">🎵</div>
+      <div>Queue is empty. Add songs from other tabs!</div>
+    </div>
+  </section>
+</main>
+
+<script>
+let queue = [];
+let queueIndex = 0;
+let currentMode = 'playlist';
+let originalQueue = [];
+let queueSortMode = 'added';
+let isQueueShuffled = false;
+
+const queueListEl = document.getElementById('queueList');
+const queueCountEl = document.getElementById('queueCount');
+const clearQueueBtn = document.getElementById('clearQueueBtn');
+const emptyStateEl = document.getElementById('emptyState');
+
+function moveItem(fromIdx, toIdx){
+  if(fromIdx < 0 || fromIdx >= queue.length || toIdx < 0 || toIdx >= queue.length) return;
+  if(fromIdx === toIdx) return;
+
+  window.parent.postMessage({
+    type: 'MOVE_QUEUE',
+    payload: { fromIdx, toIdx }
+  }, '*');
+}
+
+
+function render(){
+  queueListEl.innerHTML = '';
+  queueCountEl.textContent = `${queue.length} in queue`;
+  
+  if(queue.length === 0){
+    emptyStateEl.style.display = 'block';
+    clearQueueBtn.style.display = 'none';
+    return;
+  }
+  
+  emptyStateEl.style.display = 'none';
+  clearQueueBtn.style.display = 'block';
+  
+  queue.forEach((track, idx) => {
+    const item = document.createElement('div');
+    item.className = 'queue-item';
+    if(currentMode === 'queue' && idx === queueIndex) item.classList.add('current');
+    
+    const num = document.createElement('div');
+    num.className = 'queue-num';
+    num.textContent = idx + 1;
+    
+    const info = document.createElement('div');
+    info.className = 'queue-info';
+    
+    const title = document.createElement('div');
+    title.className = 'queue-title';
+    title.textContent = track.name || 'Unknown';
+    
+    const context = document.createElement('div');
+    context.className = 'queue-context';
+    context.textContent = track.display || '';
+    
+    info.appendChild(title);
+    info.appendChild(context);
+    
+    const actions = document.createElement('div');
+    actions.className = 'queue-actions';
+    
+    const upBtn = document.createElement('button');
+    upBtn.className = 'queue-action-btn';
+    upBtn.textContent = '▲';
+    upBtn.title = 'Move up';
+    if(idx === 0) upBtn.disabled = true;
+    upBtn.onclick = (e) => {
+      e.stopPropagation();
+      if(idx > 0) moveItem(idx, idx - 1);
+    };
+    
+    const downBtn = document.createElement('button');
+    downBtn.className = 'queue-action-btn';
+    downBtn.textContent = '▼';
+    downBtn.title = 'Move down';
+    if(idx === queue.length - 1) downBtn.disabled = true;
+    downBtn.onclick = (e) => {
+      e.stopPropagation();
+      if(idx < queue.length - 1) moveItem(idx, idx + 1);
+    };
+    
+    const removeBtn = document.createElement('button');
+    removeBtn.className = 'queue-action-btn danger';
+    removeBtn.textContent = '✕';
+    removeBtn.title = 'Remove';
+    removeBtn.onclick = (e) => {
+      e.stopPropagation();
+      window.parent.postMessage({
+        type: 'REMOVE_FROM_QUEUE',
+        payload: { index: idx }
+      }, '*');
+    };
+    
+    actions.appendChild(upBtn);
+    actions.appendChild(downBtn);
+    actions.appendChild(removeBtn);
+    
+    item.appendChild(num);
+    item.appendChild(info);
+    item.appendChild(actions);
+    
+    item.onclick = () => {
+      window.parent.postMessage({
+        type: 'PLAY_QUEUE',
+        payload: { startIndex: idx }
+      }, '*');
+    };
+    
+    queueListEl.appendChild(item);
+  });
+}
+
+clearQueueBtn.addEventListener('click', () => {
+  window.parent.postMessage({
+    type: 'CLEAR_QUEUE',
+    payload: {}
+  }, '*');
+});
+
+window.addEventListener('message', (event) => {
+  const { type, payload } = event.data;
+
+  if(type === 'QUEUE_UPDATE'){
+    originalQueue = payload.queue || [];
+    queueIndex = payload.queueIndex || 0;
+    currentMode = payload.mode || 'playlist';
+
+    // Apply current sort mode to new queue data
+    if(queueSortMode === 'added'){
+      queue = originalQueue.slice();
+    } else if(queueSortMode === 'asc'){
+      queue = originalQueue.slice().sort((a,b) => a.name.localeCompare(b.name, undefined, {numeric: true}));
+    } else if(queueSortMode === 'desc'){
+      queue = originalQueue.slice().sort((a,b) => b.name.localeCompare(a.name, undefined, {numeric: true}));
+    } else if(queueSortMode === 'shuffled'){
+      queue = originalQueue.slice();
+      fisherYates(queue);
+    }
+
+    render();
+  }
+
+  if(type === 'SHUFFLE'){
+    if(queueSortMode === 'shuffled'){
+      queue = originalQueue.slice();
+      queueSortMode = 'added';
+    } else {
+      queue = originalQueue.slice();
+      fisherYates(queue);
+      queueSortMode = 'shuffled';
+    }
+    render();
+  }
+
+  if(type === 'SORT'){
+    if(payload.mode === 'added'){
+      queue = originalQueue.slice();
+      queueSortMode = 'added';
+    } else {
+      const sortAsc = payload.ascending;
+      if(sortAsc){
+        queue = originalQueue.slice().sort((a,b) => a.name.localeCompare(b.name, undefined, {numeric: true}));
+        queueSortMode = 'asc';
+      } else {
+        queue = originalQueue.slice().sort((a,b) => b.name.localeCompare(a.name, undefined, {numeric: true}));
+        queueSortMode = 'desc';
+      }
+    }
+    render();
+  }
+});
+
+window.parent.postMessage({
+  type: 'REQUEST_QUEUE_UPDATE',
+  payload: {}
+}, '*');
+
+render();
+</script>
+</body>
+</html>

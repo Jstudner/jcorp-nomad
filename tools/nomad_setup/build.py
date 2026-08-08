@@ -27,11 +27,14 @@ ESP32_INDEX_URL = "https://espressif.github.io/arduino-esp32/package_esp32_index
 # Pinned to the versions this firmware is known to build against. The
 # ESPAsyncWebServer/AsyncTCP forks are the ESP32Async ones - the older
 # me-no-dev releases do not compile on core 3.x.
+# These are the exact versions upstream pins in the README. ArduinoJson in
+# particular must be 7.x - the firmware uses the v7 JsonDocument API, which is
+# not source compatible with v6.
 REQUIRED_LIBRARIES = [
-    ("lvgl", "8.3.11"),
-    ("ArduinoJson", "6.21.5"),
-    ("Async TCP", "3.4.9"),
-    ("ESP Async WebServer", "3.9.2"),
+    ("lvgl", "8.3.10"),
+    ("ArduinoJson", "7.3.0"),
+    ("Async TCP", "3.4.7"),
+    ("ESP Async WebServer", "3.7.1"),
     ("SdFat", "2.3.0"),
 ]
 

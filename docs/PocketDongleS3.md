@@ -75,13 +75,20 @@ Install **esp32 by Espressif Systems, version 3.x** (the firmware uses the 3.x
 > PSRAM also permanently occupies GPIO 33–37, which is why nothing in the pin
 > map uses those.
 
-Required libraries (same as the original board):
+Required libraries — **exact versions**, as pinned upstream. ArduinoJson in
+particular must be 7.x; the firmware uses the v7 `JsonDocument` API, which is
+not source compatible with v6.
 
-* `lvgl` 8.3.x — copy `firmware/JcorpNomadProject/lv_conf.h` next to the
-  library folder as usual
-* `ESPAsyncWebServer` + `AsyncTCP`
-* `ArduinoJson`
-* `SdFat`
+| Library | Version |
+| --- | --- |
+| `LVGL` by kisvegabor | 8.3.10 |
+| `ArduinoJson` by Benoit Blanchon | 7.3.0 |
+| `Async TCP` by ESP32Async | 3.4.7 |
+| `ESP Async WebServer` by ESP32Async | 3.7.1 |
+| `SdFat` by Bill Greiman | 2.3.0 |
+
+Copy `firmware/JcorpNomadProject/lv_conf.h` next to the `lvgl` library folder,
+or let `tools/nomad-setup` do it.
 
 ### Getting into the bootloader
 

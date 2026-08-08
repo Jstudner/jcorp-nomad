@@ -1,0 +1,735 @@
+<!DOCTYPE html>
+<!-- Version 4 -->
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="Jcorp Nomad — Theme Customization">
+  <title>Nomad • Theme Customization</title>
+  <link rel="icon" href="/favicon.ico" />
+  <link rel="stylesheet" href="/master.css">
+  <script>
+(async function() {
+  try {
+    const isDark = localStorage.getItem('nomad_dark_mode') === 'true';
+    if (isDark) {
+      document.documentElement.classList.add('dark');
+      document.documentElement.classList.add('dark-mode');
+    }
+
+    async function loadThemeFromServer() {
+      try {
+        const response = await fetch('/.system-theme.json?t=' + Date.now());
+        if (response.ok) {
+          const theme = await response.json();
+          localStorage.setItem('nomad_custom_theme', JSON.stringify(theme));
+          return theme;
+        }
+      } catch (e) {
+        console.log('[Theme UI] No theme on SD card, using localStorage');
+      }
+      return null;
+    }
+
+    const serverTheme = await loadThemeFromServer();
+    const colors = serverTheme || (function() {
+      const saved = localStorage.getItem('nomad_custom_theme');
+      return saved ? JSON.parse(saved) : null;
+    })();
+
+    if (colors) {
+      const style = document.createElement('style');
+      style.id = 'custom-theme-style';
+      style.textContent = `
+        :root {
+          --primary: ${colors.primary} !important;
+          --primary-dark: ${colors.primaryDark} !important;
+          --bg: ${colors.bgLight} !important;
+          --card: ${colors.cardLight} !important;
+          --text: ${colors.textLight} !important;
+          --muted: ${colors.mutedLight} !important;
+        }
+        body.dark, body.dark-mode {
+          --bg: ${colors.bgDark} !important;
+          --card: ${colors.cardDark} !important;
+          --text: ${colors.textDark} !important;
+          --muted: ${colors.mutedDark} !important;
+          --primary: ${colors.primaryDarkTheme} !important;
+        }
+      `;
+      document.head.appendChild(style);
+    }
+
+    document.addEventListener('DOMContentLoaded', function() {
+      if (isDark) {
+        document.body.classList.add('dark-mode');
+        document.body.classList.add('dark');
+      }
+    });
+  } catch(e) {
+    console.error('[Theme UI] Theme loading error:', e);
+  }
+})();
+</script>
+  <script src="/theme-manager.js"></script>
+  <script src="/assets/jquery.min.js"></script>
+  <style>
+    :root {
+      --primary: #007bff;
+      --primary-dark: #0056b3;
+      --bg: #f4f4f9;
+      --card: #ffffff;
+      --text: #333333;
+      --muted: #6b7280;
+      --primary-dark-theme: #4aa3ff;
+      --success-bg: rgba(16, 185, 129, 0.1);
+      --success-text: #10b981;
+      --success-border: rgba(16, 185, 129, 0.3);
+      --danger-bg: rgba(239, 68, 68, 0.1);
+      --danger-text: #ef4444;
+      --danger-border: rgba(239, 68, 68, 0.3);
+    }
+
+    body.dark-mode, body.dark {
+      --bg: #071226;
+      --card: #071722;
+      --text: #eaf6ff;
+      --muted: #93a9c6;
+      --primary: #4aa3ff;
+    }
+
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.4;
+      font-size: 14px;
+      overflow-x: hidden;
+    }
+
+    .page-bg {
+      position: fixed;
+      inset: 0;
+      background: linear-gradient(135deg, var(--bg) 0%, var(--card) 100%);
+      z-index: -1;
+      pointer-events: none;
+    }
+
+    main {
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 0.75rem;
+    }
+
+    .section {
+      background: var(--card);
+      border-radius: 8px;
+      padding: 1rem;
+      margin-bottom: 1rem;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+    }
+
+    body.dark-mode .section, body.dark .section {
+      box-shadow: 0 1px 3px rgba(0,0,0,0.3);
+    }
+
+    .section-title {
+      font-size: 1.25rem;
+      font-weight: 600;
+      margin-bottom: 0.5rem;
+      color: var(--primary);
+    }
+
+    .section-description {
+      font-size: 0.85rem;
+      color: var(--muted);
+      margin-bottom: 1rem;
+      line-height: 1.4;
+    }
+
+    .theme-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+      gap: 0.75rem;
+    }
+
+    .theme-card {
+      background: var(--card);
+      border: 2px solid transparent;
+      border-radius: 6px;
+      padding: 0.75rem;
+      cursor: pointer;
+      transition: all 0.2s ease;
+      box-shadow: 0 1px 2px rgba(0,0,0,0.1);
+    }
+
+    body.dark-mode .theme-card, body.dark .theme-card {
+      background: rgba(255, 255, 255, 0.03);
+      box-shadow: 0 1px 2px rgba(0,0,0,0.3);
+    }
+
+    .theme-card:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 3px 8px rgba(0,0,0,0.15);
+      border-color: var(--primary);
+    }
+
+    body.dark-mode .theme-card:hover, body.dark .theme-card:hover {
+      box-shadow: 0 3px 8px rgba(0,0,0,0.5);
+    }
+
+    .theme-card.active {
+      border-color: var(--primary);
+      background: rgba(0, 123, 255, 0.05);
+    }
+
+    body.dark-mode .theme-card.active, body.dark .theme-card.active {
+      background: rgba(74, 163, 255, 0.1);
+    }
+
+    .theme-preview {
+      display: flex;
+      gap: 2px;
+      height: 40px;
+      margin-bottom: 0.5rem;
+      border-radius: 4px;
+      overflow: hidden;
+    }
+
+    .color-bar {
+      flex: 1;
+    }
+
+    .theme-name {
+      font-weight: 600;
+      font-size: 0.875rem;
+      margin-bottom: 0.25rem;
+      color: var(--text);
+    }
+
+    .theme-desc {
+      font-size: 0.75rem;
+      color: var(--muted);
+      line-height: 1.3;
+    }
+
+    .color-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+      gap: 1rem;
+    }
+
+    .color-input-group {
+      display: flex;
+      flex-direction: column;
+      gap: 0.25rem;
+    }
+
+    .color-label {
+      font-weight: 500;
+      font-size: 0.875rem;
+      color: var(--text);
+    }
+
+    .color-help {
+      font-size: 0.7rem;
+      color: var(--muted);
+      margin-bottom: 0.25rem;
+    }
+
+    .color-input-wrapper {
+      display: flex;
+      gap: 0.5rem;
+      align-items: center;
+    }
+
+    .color-input {
+      width: 50px;
+      height: 36px;
+      border: 2px solid var(--muted);
+      border-radius: 4px;
+      cursor: pointer;
+      transition: border-color 0.2s ease;
+    }
+
+    .color-input:hover {
+      border-color: var(--primary);
+    }
+
+    .color-text-input {
+      flex: 1;
+      padding: 0.5rem 0.75rem;
+      border: 1px solid #d1d5db;
+      border-radius: 4px;
+      font-family: monospace;
+      font-size: 0.8rem;
+      background: var(--card);
+      color: var(--text);
+      transition: border-color 0.2s ease;
+    }
+
+    body.dark-mode .color-text-input, body.dark .color-text-input {
+      background: rgba(255, 255, 255, 0.05);
+      border-color: var(--muted);
+    }
+
+    .color-text-input:focus {
+      outline: none;
+      border-color: var(--primary);
+    }
+
+    .actions {
+      display: flex;
+      gap: 0.75rem;
+      flex-wrap: wrap;
+    }
+
+    .btn {
+      padding: 0.625rem 1.25rem;
+      border: none;
+      border-radius: 6px;
+      font-weight: 500;
+      font-size: 0.875rem;
+      cursor: pointer;
+      transition: all 0.2s ease;
+      flex: 1;
+      min-width: 120px;
+    }
+
+    .btn-primary {
+      background: var(--primary);
+      color: white;
+    }
+
+    .btn-primary:hover:not(:disabled) {
+      background: var(--primary-dark);
+      transform: translateY(-1px);
+      box-shadow: 0 2px 6px rgba(0, 123, 255, 0.3);
+    }
+
+    .btn-secondary {
+      background: #6b7280;
+      color: white;
+    }
+
+    .btn-secondary:hover:not(:disabled) {
+      background: #4b5563;
+      transform: translateY(-1px);
+      box-shadow: 0 2px 6px rgba(107, 114, 128, 0.3);
+    }
+
+    .btn:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+      transform: none !important;
+    }
+
+    .status-message {
+      padding: 0.625rem 0.875rem;
+      border-radius: 6px;
+      margin-top: 0.75rem;
+      font-size: 0.8rem;
+      display: none;
+      font-weight: 500;
+    }
+
+    .status-success {
+      background: var(--success-bg);
+      color: var(--success-text);
+      border: 1px solid var(--success-border);
+    }
+
+    .status-error {
+      background: var(--danger-bg);
+      color: var(--danger-text);
+      border: 1px solid var(--danger-border);
+    }
+
+    @media (max-width: 768px) {
+      body {
+        font-size: 13px;
+      }
+
+      main {
+        padding: 0.5rem;
+      }
+
+      .section {
+        padding: 0.75rem;
+        margin-bottom: 0.75rem;
+        border-radius: 6px;
+      }
+
+      .section-title {
+        font-size: 1.1rem;
+        margin-bottom: 0.375rem;
+      }
+
+      .section-description {
+        font-size: 0.8rem;
+        margin-bottom: 0.75rem;
+      }
+
+      .theme-grid {
+        grid-template-columns: repeat(auto-fill, minmax(100px, 1fr));
+        gap: 0.5rem;
+      }
+
+      .theme-card {
+        padding: 0.5rem;
+      }
+
+      .theme-preview {
+        height: 32px;
+        margin-bottom: 0.375rem;
+      }
+
+      .theme-name {
+        font-size: 0.8rem;
+      }
+
+      .theme-desc {
+        font-size: 0.7rem;
+      }
+
+      .color-grid {
+        grid-template-columns: 1fr;
+        gap: 0.75rem;
+      }
+
+      .color-input {
+        width: 44px;
+        height: 32px;
+      }
+
+      .color-text-input {
+        font-size: 0.75rem;
+        padding: 0.4rem 0.6rem;
+      }
+
+      .btn {
+        padding: 0.5rem 1rem;
+        font-size: 0.8rem;
+        min-width: 100px;
+      }
+
+      .status-message {
+        font-size: 0.75rem;
+        padding: 0.5rem 0.75rem;
+      }
+    }
+
+    @media (max-width: 480px) {
+      .theme-grid {
+        grid-template-columns: repeat(auto-fill, minmax(90px, 1fr));
+        gap: 0.4rem;
+      }
+
+      .color-grid {
+        gap: 0.5rem;
+      }
+
+      .actions {
+        gap: 0.5rem;
+      }
+
+      .btn {
+        flex: 1 1 100%;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="page-bg"></div>
+
+  <main>
+    <div class="section">
+      <h2 class="section-title">Theme Presets</h2>
+      <p class="section-description">Choose from these presets or make your own.</p>
+      <div id="theme-grid" class="theme-grid"></div>
+    </div>
+
+    <div class="section">
+      <h2 class="section-title">Custom Colors</h2>
+      <p class="section-description">Fine-tune individual colors to create a theme. Click the color squares to pick visually.</p>
+      <div class="color-grid">
+        <div class="color-input-group">
+          <label class="color-label">Primary Color</label>
+          <div class="color-help">Headers, buttons, active states</div>
+          <div class="color-input-wrapper">
+            <input type="color" id="color-primary" class="color-input" value="#007bff">
+            <input type="text" id="text-primary" class="color-text-input" value="#007bff">
+          </div>
+        </div>
+        <div class="color-input-group">
+          <label class="color-label">Primary Hover</label>
+          <div class="color-help">Button hover states</div>
+          <div class="color-input-wrapper">
+            <input type="color" id="color-primary-dark" class="color-input" value="#0056b3">
+            <input type="text" id="text-primary-dark" class="color-text-input" value="#0056b3">
+          </div>
+        </div>
+        <div class="color-input-group">
+          <label class="color-label">Light Background</label>
+          <div class="color-help">Page background in light mode</div>
+          <div class="color-input-wrapper">
+            <input type="color" id="color-bg-light" class="color-input" value="#f4f4f9">
+            <input type="text" id="text-bg-light" class="color-text-input" value="#f4f4f9">
+          </div>
+        </div>
+        <div class="color-input-group">
+          <label class="color-label">Light Card Background</label>
+          <div class="color-help">Cards, panels in light mode</div>
+          <div class="color-input-wrapper">
+            <input type="color" id="color-card-light" class="color-input" value="#ffffff">
+            <input type="text" id="text-card-light" class="color-text-input" value="#ffffff">
+          </div>
+        </div>
+        <div class="color-input-group">
+          <label class="color-label">Light Text</label>
+          <div class="color-help">Main text in light mode</div>
+          <div class="color-input-wrapper">
+            <input type="color" id="color-text-light" class="color-input" value="#333333">
+            <input type="text" id="text-text-light" class="color-text-input" value="#333333">
+          </div>
+        </div>
+        <div class="color-input-group">
+          <label class="color-label">Light Muted Text</label>
+          <div class="color-help">Secondary text in light mode</div>
+          <div class="color-input-wrapper">
+            <input type="color" id="color-muted-light" class="color-input" value="#6b7280">
+            <input type="text" id="text-muted-light" class="color-text-input" value="#6b7280">
+          </div>
+        </div>
+        <div class="color-input-group">
+          <label class="color-label">Dark Background</label>
+          <div class="color-help">Page background in dark mode</div>
+          <div class="color-input-wrapper">
+            <input type="color" id="color-bg-dark" class="color-input" value="#071226">
+            <input type="text" id="text-bg-dark" class="color-text-input" value="#071226">
+          </div>
+        </div>
+        <div class="color-input-group">
+          <label class="color-label">Dark Card Background</label>
+          <div class="color-help">Cards, panels in dark mode</div>
+          <div class="color-input-wrapper">
+            <input type="color" id="color-card-dark" class="color-input" value="#071722">
+            <input type="text" id="text-card-dark" class="color-text-input" value="#071722">
+          </div>
+        </div>
+        <div class="color-input-group">
+          <label class="color-label">Dark Text</label>
+          <div class="color-help">Main text in dark mode</div>
+          <div class="color-input-wrapper">
+            <input type="color" id="color-text-dark" class="color-input" value="#eaf6ff">
+            <input type="text" id="text-text-dark" class="color-text-input" value="#eaf6ff">
+          </div>
+        </div>
+        <div class="color-input-group">
+          <label class="color-label">Dark Muted Text</label>
+          <div class="color-help">Secondary text in dark mode</div>
+          <div class="color-input-wrapper">
+            <input type="color" id="color-muted-dark" class="color-input" value="#93a9c6">
+            <input type="text" id="text-muted-dark" class="color-text-input" value="#93a9c6">
+          </div>
+        </div>
+        <div class="color-input-group">
+          <label class="color-label">Dark Primary Color</label>
+          <div class="color-help">Primary color in dark mode</div>
+          <div class="color-input-wrapper">
+            <input type="color" id="color-primary-dark-theme" class="color-input" value="#4aa3ff">
+            <input type="text" id="text-primary-dark-theme" class="color-text-input" value="#4aa3ff">
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="section">
+      <h2 class="section-title">Save Changes</h2>
+      <p class="section-description">Save your theme to SD card. Theme will persist across all devices and reboots.</p>
+      <div class="actions">
+        <button id="btn-reset" class="btn btn-secondary">Reset to Default</button>
+        <button id="btn-save" class="btn btn-primary">Save Theme</button>
+      </div>
+      <div id="status-message" class="status-message"></div>
+    </div>
+  </main>
+
+  <script>
+    let currentColors = {};
+    let themes = [];
+
+    async function init() {
+      console.log('[Theme UI] Starting initialization...');
+      try {
+        console.log('[Theme UI] Loading themes from ThemeManager...');
+        themes = await ThemeManager.loadThemes();
+        console.log('[Theme UI] Themes loaded:', themes);
+
+        if (!themes || themes.length === 0) {
+          console.warn('[Theme UI] No themes loaded, using fallback');
+          showStatus('Failed to load themes. Using defaults.', 'error');
+          themes = [{ id: 'default-blue', name: 'Default Blue', description: 'Default theme', colors: { primary: '#007bff', primaryDark: '#0056b3', bgLight: '#f4f4f9', cardLight: '#ffffff', textLight: '#333333', mutedLight: '#6b7280', bgDark: '#071226', cardDark: '#071722', textDark: '#eaf6ff', mutedDark: '#93a9c6', primaryDarkTheme: '#4aa3ff' } }];
+        }
+
+        console.log('[Theme UI] Rendering themes...');
+        renderThemes();
+        console.log('[Theme UI] Loading current colors...');
+        loadCurrentColors();
+        console.log('[Theme UI] Setting up color inputs...');
+        setupColorInputs();
+        console.log('[Theme UI] Setting up buttons...');
+        setupButtons();
+        console.log('[Theme UI] Initialization complete!');
+      } catch (e) {
+        console.error('[Theme UI] Init error:', e);
+        showStatus('Initialization error: ' + e.message, 'error');
+      }
+    }
+
+    function renderThemes() {
+      const grid = document.getElementById('theme-grid');
+      grid.innerHTML = themes.map(theme => `
+        <div class="theme-card" data-id="${theme.id}">
+          <div class="theme-preview">
+            <div class="color-bar" style="background: ${theme.colors.primary}"></div>
+            <div class="color-bar" style="background: ${theme.colors.bgLight}"></div>
+            <div class="color-bar" style="background: ${theme.colors.cardDark}"></div>
+            <div class="color-bar" style="background: ${theme.colors.primaryDarkTheme}"></div>
+          </div>
+          <div class="theme-name">${theme.name}</div>
+          <div class="theme-desc">${theme.description}</div>
+        </div>
+      `).join('');
+      document.querySelectorAll('.theme-card').forEach(card => {
+        card.addEventListener('click', () => selectTheme(card.dataset.id));
+      });
+    }
+
+    function selectTheme(themeId) {
+      const theme = themes.find(t => t.id === themeId);
+      if (!theme) return;
+
+      document.querySelectorAll('.theme-card').forEach(c => c.classList.remove('active'));
+      document.querySelector(`[data-id="${themeId}"]`).classList.add('active');
+
+      currentColors = { ...theme.colors };
+      applyColorsToInputs(theme.colors);
+      showStatus('Theme selected! Click "Save Theme" to apply permanently.', 'success');
+    }
+
+    function loadCurrentColors() {
+      const defaultTheme = themes.find(t => t.id === 'default-blue');
+      if (defaultTheme) {
+        currentColors = { ...defaultTheme.colors };
+        applyColorsToInputs(defaultTheme.colors);
+      }
+    }
+
+    function applyColorsToInputs(colors) {
+      document.getElementById('color-primary').value = colors.primary;
+      document.getElementById('text-primary').value = colors.primary;
+      document.getElementById('color-primary-dark').value = colors.primaryDark;
+      document.getElementById('text-primary-dark').value = colors.primaryDark;
+      document.getElementById('color-bg-light').value = colors.bgLight;
+      document.getElementById('text-bg-light').value = colors.bgLight;
+      document.getElementById('color-card-light').value = colors.cardLight;
+      document.getElementById('text-card-light').value = colors.cardLight;
+      document.getElementById('color-text-light').value = colors.textLight;
+      document.getElementById('text-text-light').value = colors.textLight;
+      document.getElementById('color-muted-light').value = colors.mutedLight;
+      document.getElementById('text-muted-light').value = colors.mutedLight;
+      document.getElementById('color-bg-dark').value = colors.bgDark;
+      document.getElementById('text-bg-dark').value = colors.bgDark;
+      document.getElementById('color-card-dark').value = colors.cardDark;
+      document.getElementById('text-card-dark').value = colors.cardDark;
+      document.getElementById('color-text-dark').value = colors.textDark;
+      document.getElementById('text-text-dark').value = colors.textDark;
+      document.getElementById('color-muted-dark').value = colors.mutedDark;
+      document.getElementById('text-muted-dark').value = colors.mutedDark;
+      document.getElementById('color-primary-dark-theme').value = colors.primaryDarkTheme;
+      document.getElementById('text-primary-dark-theme').value = colors.primaryDarkTheme;
+    }
+
+    function setupColorInputs() {
+      const colorFields = ['primary', 'primary-dark', 'bg-light', 'card-light', 'text-light', 'muted-light', 'bg-dark', 'card-dark', 'text-dark', 'muted-dark', 'primary-dark-theme'];
+      colorFields.forEach(field => {
+        const colorInput = document.getElementById(`color-${field}`);
+        const textInput = document.getElementById(`text-${field}`);
+        colorInput.addEventListener('input', (e) => { textInput.value = e.target.value; updateCurrentColors(); });
+        textInput.addEventListener('input', (e) => { const value = e.target.value; if (/^#[0-9A-F]{6}$/i.test(value)) { colorInput.value = value; updateCurrentColors(); } });
+      });
+    }
+
+    function updateCurrentColors() {
+      currentColors = {
+        primary: document.getElementById('text-primary').value,
+        primaryDark: document.getElementById('text-primary-dark').value,
+        bgLight: document.getElementById('text-bg-light').value,
+        cardLight: document.getElementById('text-card-light').value,
+        textLight: document.getElementById('text-text-light').value,
+        mutedLight: document.getElementById('text-muted-light').value,
+        bgDark: document.getElementById('text-bg-dark').value,
+        cardDark: document.getElementById('text-card-dark').value,
+        textDark: document.getElementById('text-text-dark').value,
+        mutedDark: document.getElementById('text-muted-dark').value,
+        primaryDarkTheme: document.getElementById('text-primary-dark-theme').value
+      };
+
+      document.querySelectorAll('.theme-card').forEach(c => c.classList.remove('active'));
+    }
+
+    function setupButtons() {
+      document.getElementById('btn-reset').addEventListener('click', async () => {
+        const result = await ThemeManager.resetTheme();
+        if (result.success) {
+          const defaultTheme = themes.find(t => t.id === 'default-blue');
+          if (defaultTheme) {
+            selectTheme('default-blue');
+          }
+          showStatus(result.message + ' Refresh to see changes across all pages.', 'success');
+          setTimeout(() => location.reload(), 1000);
+        } else {
+          showStatus('Error: ' + result.message, 'error');
+        }
+      });
+      document.getElementById('btn-save').addEventListener('click', async () => {
+        const saveBtn = document.getElementById('btn-save');
+        saveBtn.disabled = true;
+        saveBtn.textContent = 'Saving to SD Card...';
+
+        try {
+          const result = await ThemeManager.saveThemeToStorage(currentColors);
+          saveBtn.disabled = false;
+          saveBtn.textContent = 'Save Theme';
+          if (result.success) {
+            showStatus(result.message, 'success');
+          } else {
+            showStatus('Error: ' + result.message, 'error');
+          }
+        } catch (err) {
+          saveBtn.disabled = false;
+          saveBtn.textContent = 'Save Theme';
+          showStatus('Error: ' + err.message, 'error');
+        }
+      });
+    }
+
+    function showStatus(message, type) {
+      const statusEl = document.getElementById('status-message');
+      statusEl.textContent = message;
+      statusEl.className = `status-message status-${type}`;
+      statusEl.style.display = 'block';
+      setTimeout(() => { statusEl.style.display = 'none'; }, 5000);
+    }
+
+    init();
+  </script>
+</body>
+</html>

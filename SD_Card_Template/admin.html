@@ -1,7 +1,9 @@
 <!DOCTYPE html>
-<!-- Version 2.3 -->
+<!-- Version 4 -->
 <html lang="en">
 <head>
+    <link rel="stylesheet" href="/master.css">
+    <script src="/theme-boot.js"></script>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Admin Panel</title>
@@ -23,7 +25,7 @@
       --card-border: #dee2e6;
       --header-text: #ffffff;
       --shadow: 0 0.125rem 0.25rem rgba(0, 0, 0, 0.075);
-      --shadow-lg: 0 0.5rem 1rem rgba(0, 0, 0, 0.15);
+      --shadow-large: 0 0.5rem 1rem rgba(0, 0, 0, 0.15);
     }
 
     /* Dark theme */
@@ -35,7 +37,7 @@
       --card-border: #343a40;
       --header-text: #ffffff;
       --shadow: 0 0.125rem 0.25rem rgba(0, 0, 0, 0.3);
-      --shadow-lg: 0 0.5rem 1rem rgba(0, 0, 0, 0.4);
+      --shadow-large: 0 0.5rem 1rem rgba(0, 0, 0, 0.4);
     }
 
     * {
@@ -60,7 +62,7 @@
       display: flex;
       justify-content: space-between;
       align-items: center;
-      box-shadow: var(--shadow-lg);
+      box-shadow: var(--shadow-large);
       position: sticky;
       top: 0;
       z-index: 1000;
@@ -151,7 +153,7 @@
 
     .btn:hover {
       transform: translateY(-1px);
-      box-shadow: var(--shadow-lg);
+      box-shadow: var(--shadow-large);
     }
 
     .btn-primary {
@@ -205,6 +207,15 @@
       gap: 1.5rem;
     }
 
+    .grid-full .card {
+      width: 100%;
+      max-width: none;
+    }
+
+    .console-section,
+    .file-browser-section {
+      grid-column: 1 / -1;
+    }
     /* Cards */
     .card {
       background: var(--card-bg);
@@ -217,7 +228,7 @@
 
     .card:hover {
       transform: translateY(-2px);
-      box-shadow: var(--shadow-lg);
+      box-shadow: var(--shadow-large);
     }
 
     .card h2 {
@@ -257,6 +268,46 @@
       outline: none;
       border-color: var(--primary);
       box-shadow: 0 0 0 0.2rem rgba(0, 123, 255, 0.25);
+    }
+
+    /* brightness slider - the blue fill is a gradient JS sets on the background directly
+       (a CSS var doesnt reliably repaint the WebKit track) so it fills edge-to-edge at 100% */
+    input[type="range"]#brightness {
+      -webkit-appearance: none;
+      appearance: none;
+      width: 100%;
+      height: 8px;
+      padding: 0;
+      border: none;
+      border-radius: 4px;
+      background: var(--card-border);   /* base; JS overwrites with the blue fill */
+      cursor: pointer;
+    }
+    #brightness:focus { outline: none; box-shadow: none; }
+    /* Track is transparent so the element's own gradient background shows through. */
+    #brightness::-webkit-slider-runnable-track {
+      -webkit-appearance: none;
+      height: 8px;
+      border-radius: 4px;
+      background: transparent;
+    }
+    #brightness::-webkit-slider-thumb {
+      -webkit-appearance: none;
+      appearance: none;
+      margin-top: -5px;              /* centre the 18px thumb on the 8px track */
+      width: 18px; height: 18px;
+      border-radius: 50%;
+      background: var(--primary);
+      border: 2px solid #fff;
+      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+    }
+    /* Firefox: transparent track lets the element's gradient background show. */
+    #brightness::-moz-range-track {
+      height: 8px; border-radius: 4px; background: transparent;
+    }
+    #brightness::-moz-range-thumb {
+      width: 18px; height: 18px; border-radius: 50%;
+      background: var(--primary); border: 2px solid #fff;
     }
 
     /* Progress Bar */
@@ -415,7 +466,7 @@
       background: var(--card-bg);
       padding: 2rem;
       border-radius: 0.75rem;
-      box-shadow: var(--shadow-lg);
+      box-shadow: var(--shadow-large);
       width: 100%;
       max-width: 400px;
       margin: 1rem;
@@ -464,6 +515,10 @@
 
       .grid {
         grid-template-columns: 1fr;
+      }
+
+      .console-section .console {
+        min-height: 150px;
       }
 
       .card {
@@ -558,6 +613,7 @@
       transform: translateX(26px);
     }
   </style>
+  <script src="theme-manager.js"></script>
 </head>
 <body>
   <!-- Authentication Overlay -->
@@ -575,7 +631,7 @@
   <!-- Header -->
   <header class="header">
     <h1>Admin Panel</h1>
-    <a href="http://192.168.4.1/menu" class="menu-button">← Back</a>
+    <a href="/menu" class="menu-button">← Back</a>
   </header>
 
   <!-- Action Bar -->
@@ -611,18 +667,38 @@
       <!-- SD Card Usage -->
       <div class="card">
         <h2>SD Card Usage</h2>
-        <div class="alert alert-warning" style="background: var(--warning); color: #212529; padding: 0.75rem; border-radius: 0.375rem; margin-bottom: 1rem; font-size: 0.875rem;">
-          ⚠️ <strong>Warning:</strong> Do not use the device during SD scans (indexing or storage usage). These are heavy processes and may cause the device to crash if interrupted.
-        </div>
         <div class="form-group">
           <div id="sd-used">Used: -- GB</div>
           <div id="sd-total">Total: -- GB</div>
           <div class="progress">
             <div id="sd-bar" class="progress-bar" style="width: 0%"></div>
           </div>
-          <div id="sd-percent" style="text-align: center; font-weight: 600; font-size: 1.5rem; margin-top: 0.5rem;">--%</div>
+          <div style="display: flex; align-items: center; justify-content: center; gap: 0.5rem; margin-top: 0.5rem;">
+            <div id="sd-percent" style="font-weight: 600; font-size: 1.5rem;">--%</div>
+            <span id="sd-trust-badge" style="display: none; font-size: 0.7rem; font-weight: 600; padding: 0.15rem 0.5rem; border-radius: 1rem;"></span>
+          </div>
         </div>
-        <button onclick="triggerSDScan()" class="btn btn-info" style="width: 100%; margin-top: 1rem;">Scan SD Usage</button>
+        <div style="margin-top: 1rem;">
+          <button onclick="triggerSDScan()" class="btn btn-secondary" style="width: 100%;">Scan SD Card</button>
+        </div>
+        <div id="sd-scan-msg" style="font-size: 0.8rem; color: var(--muted); margin-top: 0.5rem;"></div>
+
+        <!-- Breakdown by folder (populated by the most recent full system scan) -->
+        <details style="margin-top: 1.25rem;">
+          <summary style="cursor: pointer; font-weight: 600; color: var(--muted);">Breakdown by Folder</summary>
+          <div style="margin-top: 0.75rem;">
+            <table id="sd-breakdown-table" style="display: none; width: 100%; font-size: 0.85rem; border-collapse: collapse;">
+              <thead>
+                <tr style="text-align: left; border-bottom: 1px solid var(--card-border);">
+                  <th style="padding: 0.35rem 0.25rem;">Folder</th>
+                  <th style="padding: 0.35rem 0.25rem; text-align: right;">Size</th>
+                  <th style="padding: 0.35rem 0.25rem; text-align: right;">Files</th>
+                </tr>
+              </thead>
+              <tbody id="sd-breakdown-body"></tbody>
+            </table>
+          </div>
+        </details>
       </div>
 
       <!-- RGB Settings -->
@@ -655,15 +731,22 @@
         </div>
       </div>
 
-      <!-- LCD Brightness -->
+      <!-- LCD Display -->
       <div class="card">
-        <h2>LCD Brightness</h2>
+        <h2>LCD Display</h2>
         <div class="form-group">
           <label class="form-label">Brightness Level</label>
           <input type="range" id="brightness" class="form-control" min="1" max="100"
                  oninput="updateBrightnessLabel(this.value)"
                  onchange="setBrightness(this.value)">
           <div id="brightness-percent" style="text-align: center; font-weight: 600; margin-top: 0.5rem;">--%</div>
+        </div>
+        <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 1rem;">
+          <label class="form-label" style="margin: 0;">Flip screen 180&deg; (upside-down mount):</label>
+          <label class="toggle-switch">
+            <input type="checkbox" id="flip-screen">
+            <span class="slider"></span>
+          </label>
         </div>
         <button id="lcd-toggle" class="btn btn-secondary" style="width: 100%;">Off</button>
       </div>
@@ -685,25 +768,45 @@
       <!-- Library Index -->
       <div class="card">
         <h2>Library Index</h2>
-        <div class="alert alert-warning" style="background: var(--warning); color: #212529; padding: 0.75rem; border-radius: 0.375rem; margin-bottom: 1rem; font-size: 0.875rem;">
-          ⚠️ <strong>Warning:</strong> Do not use the device during SD scans (indexing or storage usage). These are heavy processes and may cause the device to crash if interrupted.
-        </div>
         <div style="display: flex; flex-direction: column; gap: 1rem;">
-          <button onclick="generateMediaJson()" class="btn btn-primary">Full Scan Now</button>
+          <div class="form-group" style="margin: 0;">
+            <label class="form-label">Scan scope</label>
+            <select id="index-scan-scope" class="form-control" onchange="onIndexScanScopeChange()">
+              <option value="all">All main folders (recommended)</option>
+              <option value="folder">Specific folder&hellip;</option>
+            </select>
+          </div>
+          <div class="form-group" id="index-scan-dir-wrap" style="display: none; margin: 0;">
+            <label class="form-label">Folder</label>
+            <select id="index-scan-dir" class="form-control"></select>
+          </div>
+          <label style="display: flex; align-items: center; gap: 0.5rem; font-size: 0.85rem; color: var(--muted);">
+            <input type="checkbox" id="index-scan-with-sd">
+            Also scan SD card when finished
+          </label>
+          <button onclick="triggerIndexScan()" class="btn btn-primary">Start Scan</button>
           <div style="display: flex; align-items: center; justify-content: space-between;">
-            <label class="form-label" style="margin: 0;">Auto-index on boot:</label>
+            <label class="form-label" style="margin: 0;">Check for new files on boot:</label>
             <label class="toggle-switch">
               <input type="checkbox" id="auto-generate">
               <span class="slider"></span>
             </label>
           </div>
+          <div id="index-progress-wrap" style="display: none;">
+            <div id="index-progress-text" style="font-size: 0.875rem; font-weight: 600; margin-bottom: 0.25rem;">Indexing...</div>
+            <div class="progress">
+              <div id="index-progress-bar" class="progress-bar" style="width: 0%"></div>
+            </div>
+          </div>
           <div id="generate-msg" style="font-size: 0.875rem; color: var(--muted);"></div>
         </div>
       </div>
+    </div>
 
     <!-- Full Width Sections -->
     <div class="grid-full">
       <!-- Console -->
+      <div class="card console-section">
       <div class="card">
         <h2>System Console</h2>
         <div class="status-grid" style="margin-bottom: 1rem;">
@@ -728,6 +831,17 @@
         </div>
       </div>
 
+      <!-- Theme Customization -->
+      <div class="card theme-customization-section">
+        <h2>Theme Customization</h2>
+        <p style="color: var(--muted); font-size: 0.875rem; margin-bottom: 1rem;">
+          Customize your media server's appearance with pre-designed themes or create your own color scheme.
+        </p>
+        <div style="border: 1px solid var(--card-border); border-radius: 0.5rem; overflow: hidden;">
+          <iframe src="/theme-customization-ui.html" style="width: 100%; height: 800px; border: none; display: block;"></iframe>
+        </div>
+      </div>
+
       <!-- File Browser -->
       <div class="card file-browser-section">
         <h2>File Browser</h2>
@@ -748,3 +862,4 @@
   <script src="admin.js"></script>
 </body>
 </html>
+

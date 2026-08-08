@@ -1,0 +1,993 @@
+<!DOCTYPE html>
+<!-- Version 4 -->
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0" />
+<title>Nomad • Archive</title>
+<link rel="stylesheet" href="/master.css">
+<script src="/theme-boot.js"></script>
+<script src="/assets/xzwasm.min.js"></script>
+<script src="/assets/fzstd.min.js"></script>
+<script src="/assets/nomad-zim.js"></script>
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { height: 100%; }
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+}
+body.dark { background: var(--bg); color: var(--text); }
+
+/* Header uses master.css's shared header/.back-btn components (same as
+   movies.html, gallery.html, games.html, etc.) rather than a page-local
+   reimplementation, so colors/height/hover states stay in sync with the
+   rest of the app automatically. */
+
+.toolbar {
+  background: var(--bg);
+  padding: .65rem 1rem;
+  display: flex;
+  flex-wrap: nowrap;
+  gap: .6rem;
+  align-items: center;
+  border-bottom: 1px solid var(--line);
+  position: sticky;
+  top: var(--header-height);
+  z-index: 55;
+}
+body.dark .toolbar { background: var(--bg); border-bottom-color: rgba(255,255,255,0.04); }
+
+.toolbar input[type="search"] {
+  flex: 1;
+  padding: .5rem .75rem;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  font-size: 0.95rem;
+  background: var(--card);
+  color: var(--text);
+}
+
+.toolbar select, .toolbar button.tb-btn {
+  padding: .48rem .7rem;
+  border: 1px solid var(--line);
+  background: var(--card);
+  color: var(--text);
+  border-radius: var(--radius);
+  font-size: 0.9rem;
+  cursor: pointer;
+}
+
+main {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  max-width: 1200px;
+  width: 100%;
+  margin: 0 auto;
+  padding: 1rem;
+}
+
+#library-view { display: block; }
+#reader-view {
+  display: none;
+  flex-direction: column;
+  position: fixed;
+  top: var(--header-height);
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 10;
+  background: var(--bg);
+}
+
+/* Clean list of archives (no thumbnails/emoji), matching the Files page look. */
+.zim-list { list-style: none; padding: 0; margin: 0; padding-bottom: 20px; }
+.zim-row {
+  background: var(--card-bg);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  border: 1px solid var(--line);
+  padding: 0.75rem 1rem;
+  margin-bottom: 0.75rem;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 1rem;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+}
+.zim-row:hover { border-color: var(--primary); }
+.zim-row .name {
+  color: var(--primary);
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 60%;
+}
+.zim-row .meta {
+  font-size: 0.85rem;
+  color: var(--muted);
+  white-space: nowrap;
+  flex-shrink: 0;
+  text-align: right;
+  display: flex;
+  gap: 12px;
+  align-items: center;
+}
+.zim-row .meta .tag {
+  background: var(--primary);
+  color: #fff;
+  padding: 2px 8px;
+  border-radius: 10px;
+  font-size: 0.72rem;
+  font-weight: 600;
+}
+@media (max-width: 600px) {
+  .zim-row { flex-direction: column; align-items: flex-start; gap: 0.5rem; }
+  .zim-row .name { max-width: 100%; white-space: normal; word-break: break-word; }
+  .zim-row .meta { width: 100%; text-align: left; }
+}
+
+.empty-state {
+  text-align: center;
+  padding: 60px 20px;
+  color: var(--muted);
+}
+.empty-state .icon { font-size: 3rem; margin-bottom: 12px; }
+.empty-state h2 { font-size: 1.2rem; margin-bottom: 8px; color: var(--text); }
+.empty-state p { font-size: 0.95rem; max-width: 400px; margin: 0 auto; }
+
+#reader-topbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  background: var(--card);
+  border-bottom: 1px solid var(--line);
+  min-height: 48px;
+}
+
+#reader-back-btn {
+  background: var(--card);
+  color: var(--text);
+  text-decoration: none;
+  padding: 6px 12px;
+  border-radius: var(--radius);
+  border: 1px solid var(--line);
+  font-size: 13px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.2s, color 0.2s;
+}
+#reader-back-btn:hover { background: var(--primary) !important; color: white !important; }
+
+#article-title {
+  flex: 1;
+  font-size: 14px;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+#reader-search-input {
+  width: 200px;
+  padding: 6px 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  font-size: 13px;
+  background: var(--bg);
+  color: var(--text);
+}
+
+#article-frame {
+  flex: 1;
+  width: 100%;
+  border: none;
+  background: #fff;
+  min-height: 0;
+  display: block;
+}
+
+#media-view {
+  flex: 1;
+  width: 100%;
+  min-height: 0;
+  overflow: auto;
+  background: #000;
+}
+#media-view.epub { background: var(--bg); }
+#media-view video { width: 100%; height: 100%; max-height: 100%; background: #000; display: block; }
+#media-view .epub-wrap { display: flex; flex-direction: column; height: 100%; background: var(--bg); }
+#media-view .epub-area { flex: 1; min-height: 0; background: var(--card); }
+#media-view .epub-bar { display: flex; gap: 10px; align-items: center; padding: 8px 12px; border-top: 1px solid var(--line); background: var(--card); }
+#media-view .epub-bar button { padding: 6px 14px; border-radius: var(--radius); border: 1px solid var(--line); background: var(--bg); color: var(--text); cursor: pointer; font-size: 14px; }
+#media-view .media-msg { color: #ccc; padding: 24px; text-align: center; font-size: 14px; }
+#media-view.browse { background: var(--bg); }
+.browse-wrap { display: flex; flex-direction: column; height: 100%; background: var(--bg); }
+.browse-filter { margin: 12px 14px 6px; padding: 10px 12px; border-radius: var(--radius); border: 1px solid var(--line); background: var(--card); color: var(--text); font-size: 15px; }
+.browse-count { padding: 2px 16px 8px; color: var(--muted); font-size: 12px; }
+.browse-list { flex: 1; min-height: 0; overflow-y: auto; -webkit-overflow-scrolling: touch; }
+.browse-row { padding: 12px 16px; border-bottom: 1px solid var(--line); cursor: pointer; color: var(--text); font-size: 15px; }
+.browse-row:hover { background: var(--card); }
+
+.search-results-panel {
+  position: absolute;
+  top: 48px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: min(800px, calc(100% - 32px));
+  max-height: 60vh;
+  overflow-y: auto;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-large, 0 8px 30px rgba(0,0,0,0.15));
+  z-index: 200;
+  display: none;
+}
+
+.search-result-item {
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--line);
+  cursor: pointer;
+  transition: background 0.12s;
+  color: var(--text);
+}
+.search-result-item:hover { background: rgba(var(--primary-rgb, 59,130,246), 0.08); }
+.search-result-item:last-child { border-bottom: 0; }
+.search-result-item .sr-title { font-weight: 600; font-size: 0.95rem; }
+.search-result-item .sr-url { font-size: 0.8rem; color: var(--muted); margin-top: 2px; }
+
+#overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 500;
+  background: rgba(0,0,0,0.85);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+}
+#overlay.hidden { display: none; }
+
+.spinner {
+  width: 44px; height: 44px;
+  border: 4px solid var(--line);
+  border-top-color: var(--primary);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+#overlay-status {
+  max-width: 320px;
+  line-height: 1.5;
+  color: rgba(255,255,255,0.85);
+  text-align: center;
+}
+
+#progress-bar {
+  width: 200px;
+  height: 6px;
+  background: rgba(255,255,255,0.1);
+  border-radius: 3px;
+  overflow: hidden;
+}
+#progress-fill {
+  height: 100%;
+  background: var(--primary);
+  width: 0%;
+  transition: width 0.3s;
+  border-radius: 3px;
+}
+
+.sidebar {
+  position: fixed;
+  top: 0; bottom: 0; left: 0;
+  width: 320px;
+  background: var(--card);
+  border-right: 1px solid var(--line);
+  z-index: 300;
+  display: none;
+  flex-direction: column;
+  box-shadow: 4px 0 20px rgba(0,0,0,0.15);
+}
+.sidebar.open { display: flex; }
+.sidebar-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--line);
+  font-weight: 700;
+}
+.sidebar-close {
+  background: none;
+  border: none;
+  font-size: 1.2rem;
+  cursor: pointer;
+  color: var(--text);
+  padding: 4px 8px;
+}
+.sidebar-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 8px 0;
+}
+.sidebar-item {
+  padding: 10px 16px;
+  cursor: pointer;
+  font-size: 0.9rem;
+  border-bottom: 1px solid var(--line);
+  transition: background 0.12s;
+  color: var(--text);
+}
+.sidebar-item:hover { background: rgba(var(--primary-rgb, 59,130,246), 0.08); }
+
+.nav-history {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+}
+.nav-btn {
+  background: var(--card);
+  color: var(--text);
+  border: 1px solid var(--line);
+  padding: 4px 10px;
+  border-radius: var(--radius);
+  font-size: 14px;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.nav-btn:hover { background: var(--primary); color: #fff; }
+.nav-btn:disabled { opacity: 0.3; cursor: not-allowed; }
+
+@media (max-width: 600px) {
+  #reader-search-input { width: 120px; }
+  .sidebar { width: 100%; }
+  .toolbar { flex-wrap: wrap; }
+}
+</style>
+</head>
+<body>
+
+<header>
+  <h1 id="page-title">Archive</h1>
+  <a class="back-btn" href="/menu">← Back to Menu</a>
+</header>
+
+<div id="library-view">
+  <div class="toolbar">
+    <input type="search" id="lib-search" placeholder="Search archives..." oninput="filterLibrary()">
+    <button class="tb-btn" onclick="loadZimList()">↻ Refresh</button>
+  </div>
+  <main>
+    <ul id="zim-grid" class="zim-list"></ul>
+    <div id="empty-state" class="empty-state" style="display:none;">
+      <div class="icon">📚</div>
+      <h2>No Archives Found</h2>
+      <p>Place .zim files in the /Archive/ folder on the SD card, then refresh.</p>
+    </div>
+  </main>
+</div>
+
+<div id="reader-view">
+  <div id="reader-topbar">
+    <button id="reader-back-btn" onclick="closeReader()">← Library</button>
+    <div class="nav-history">
+      <button class="nav-btn" id="btn-hist-back" onclick="historyBack()" disabled>◀</button>
+      <button class="nav-btn" id="btn-hist-fwd" onclick="historyForward()" disabled>▶</button>
+    </div>
+    <span id="article-title">Loading...</span>
+    <input type="search" id="reader-search-input" placeholder="Search articles..." onkeydown="if(event.key==='Enter')searchArticles()">
+    <button class="nav-btn" onclick="searchArticles()">🔍</button>
+    <button class="nav-btn" id="btn-toc" onclick="toggleSidebar()">☰</button>
+  </div>
+  <div id="search-results" class="search-results-panel"></div>
+  <iframe id="article-frame" sandbox="allow-same-origin"></iframe>
+  <div id="media-view" style="display:none;"></div>
+</div>
+
+<div class="sidebar" id="sidebar">
+  <div class="sidebar-header">
+    <span>Table of Contents</span>
+    <button class="sidebar-close" onclick="toggleSidebar()">✕</button>
+  </div>
+  <div class="sidebar-body" id="sidebar-body"></div>
+</div>
+
+<div id="overlay" class="hidden">
+  <div class="spinner"></div>
+  <div id="overlay-status">Loading...</div>
+  <div id="progress-bar"><div id="progress-fill"></div></div>
+</div>
+
+<script>
+/* Nomad Archive reader (preindexed).
+ * search + article location come from the PC-built sidecar index, the device never
+ * binary-searches the multi-GB ZIM - a search is a couple of tiny reads, opening an
+ * article reads only its cluster.
+ * deep link: /archive.html?a=<archiveIdx>&c=<cluster>&b=<blob>&t=<title> */
+
+const decompressors = {
+  zstd: async (data) => fzstd.decompress(data),
+  xz: async (data) => {
+    const stream = new ReadableStream({ start(c){ c.enqueue(data); c.close(); } });
+    return new Uint8Array(await new Response(new xzwasm.XzReadableStream(stream)).arrayBuffer());
+  }
+};
+
+let archiveIndex = null;
+let history = [];          // [{archiveIdx, cluster, blob, title}]
+let historyIndex = -1;
+let searchHits = [];       // last reader-search results
+// with exactly one archive theres no point in a selection screen - auto-open it and
+// have "Library" re-open its landing. -1 = multiple/none, else the archive idx
+let SINGLE_ARCHIVE_IDX = -1;
+
+function showOverlay(msg){ const o=document.getElementById('overlay'); o.classList.remove('hidden'); document.getElementById('overlay-status').textContent=msg; const pf=document.getElementById('progress-fill'); if(pf)pf.style.width='0%'; }
+function updateOverlay(msg,pct){ document.getElementById('overlay-status').textContent=msg; const pf=document.getElementById('progress-fill'); if(pf&&pct!=null)pf.style.width=pct+'%'; }
+function hideOverlay(){ document.getElementById('overlay').classList.add('hidden'); }
+function formatSize(b){ if(b>=1e9)return (b/1073741824).toFixed(1)+' GB'; if(b>=1e6)return (b/1048576).toFixed(1)+' MB'; if(b>=1e3)return (b/1024).toFixed(1)+' KB'; return b+' B'; }
+function escapeHtml(s){ const d=document.createElement('div'); d.textContent=s==null?'':s; return d.innerHTML; }
+
+async function getIndex(){
+  if (archiveIndex) return archiveIndex;
+  const idx = new NomadZim.NomadArchiveIndex('/Archive/.nomad-zim');
+  await idx.load();
+  archiveIndex = idx;
+  return idx;
+}
+
+/* ---------------- library view ---------------- */
+async function loadZimList(){
+  showOverlay('Loading archives...');
+  const grid = document.getElementById('zim-grid');
+  const empty = document.getElementById('empty-state');
+  try {
+    const idx = await getIndex();
+    const archives = (idx.manifest && idx.manifest.archives) || [];
+    if (!archives.length){ grid.innerHTML=''; empty.style.display='block'; hideOverlay(); return; }
+    empty.style.display='none';
+    renderLibrary(archives);
+    SINGLE_ARCHIVE_IDX = (archives.length === 1) ? 0 : -1;
+  } catch (e) {
+    grid.innerHTML = '';
+    empty.style.display='block';
+    empty.querySelector('p') && (empty.querySelector('p').textContent =
+      'No search index found. Build it in Nomad Manager (Archives → Build search index), then refresh.');
+  }
+  hideOverlay();
+}
+
+function renderLibrary(archives){
+  const grid = document.getElementById('zim-grid');
+  const q = (document.getElementById('lib-search').value||'').toLowerCase();
+  window.__archives = archives;
+  const list = archives.filter(a => (a.name||a.id).toLowerCase().includes(q));
+  grid.innerHTML = list.map(a => {
+    const idx = archives.indexOf(a);
+    return `<li class="zim-row" onclick="openArchive(${idx})">
+      <span class="name" title="${escapeHtml(a.name||a.id)}">${escapeHtml(a.name||a.id)}</span>
+      <span class="meta">
+        <span>${(a.articleCount||0).toLocaleString()} articles</span>
+        <span>${formatSize(a.totalSize||0)}</span>
+        ${a.split?'<span class="tag">SPLIT</span>':''}
+      </span>
+    </li>`;
+  }).join('') || '<li class="media-msg" style="color:var(--muted);list-style:none;">No matches</li>';
+}
+function filterLibrary(){ if(window.__archives) renderLibrary(window.__archives); }
+
+/* Open an archive. Browsable-sized archives (TED, Gutenberg, php.net) get our
+   OWN book/talk list from the index - their built-in browse pages (bookshelves,
+   author lists, language pickers) are JS-driven and dead in the sandboxed
+   reader. Wikipedia (no list; huge) opens its main page, which IS its A-Z index. */
+async function openArchive(i){
+  const a = (window.__archives||[])[i];
+  if(!a) return;
+  if(a.hasList) return browseArchive(a);
+  if(a.mainCluster==null || a.mainCluster<0){
+    enterReader(a.name||a.id);
+    document.getElementById('article-title').textContent = a.name||a.id;
+    showArticleFrame();
+    setFrame('<h2>'+escapeHtml(a.name||a.id)+'</h2><p>Use the search bar above to find articles.</p>');
+    return;
+  }
+  openArticle({archiveIdx:a.idx, cluster:a.mainCluster, blob:a.mainBlob, title:a.name||a.id}, true);
+}
+
+/* Browse view: the archive's whole title list (from the index) rendered in the
+   PARENT (so row clicks work - the article iframe is script-sandboxed), with a
+   filter box. Each row opens the article/video/book. */
+let _browseRows=null, _browseArchive=null;
+async function browseArchive(a){
+  enterReader(a.name||a.id);
+  document.getElementById('article-title').textContent = a.name||a.id;
+  const mv = showMediaView('browse');
+  const renderShell = () => {
+    mv.innerHTML =
+      '<div class="browse-wrap">'+
+        '<input id="browse-filter" class="browse-filter" placeholder="Filter '+escapeHtml(a.name||a.id)+'…" oninput="renderBrowse(this.value)">'+
+        '<div class="browse-count" id="browse-count"></div>'+
+        '<div class="browse-list" id="browse-list"></div>'+
+      '</div>';
+    renderBrowse('');
+  };
+  // reuse the already-fetched list when re-entering the same archive
+  if (_browseArchive === a && _browseRows){ renderShell(); return; }
+  mv.innerHTML = '<div class="media-msg" style="color:var(--muted)">Loading list…</div>';
+  try {
+    const idx = await getIndex();
+    _browseRows = await idx.listArchive(a.idx);
+    _browseArchive = a;
+    renderShell();
+  } catch(e){
+    mv.innerHTML = '<div class="media-msg" style="color:var(--red)">Could not load list: '+escapeHtml(e.message||String(e))+'</div>';
+  }
+}
+function renderBrowse(filter){
+  if(!_browseRows) return;
+  const f=(filter||'').trim().toLowerCase();
+  const rows = f ? _browseRows.filter(r=>r.title.toLowerCase().includes(f)) : _browseRows;
+  const shown = rows.slice(0, 500);
+  document.getElementById('browse-count').textContent =
+    rows.length+' items'+(rows.length>500?' (showing first 500)':'');
+  const list=document.getElementById('browse-list');
+  list.innerHTML = shown.map((r,i)=>`<div class="browse-row" data-i="${i}">${escapeHtml(r.title)}</div>`).join('')
+    || '<div class="media-msg" style="color:var(--muted)">No matches</div>';
+  list.onclick = (e)=>{ const row=e.target.closest('.browse-row'); if(!row) return; const r=shown[+row.dataset.i]; if(r) openArticle(r, true); };
+}
+
+/* ---------------- reader ---------------- */
+function enterReader(title){
+  document.getElementById('library-view').style.display='none';
+  document.getElementById('reader-view').style.display='flex';
+  document.body.style.overflow='hidden';
+  if(title) document.getElementById('page-title').textContent = title;
+}
+function closeReader(){
+  document.getElementById('search-results').style.display='none';
+  document.getElementById('sidebar').classList.remove('open');
+  // tear down any media player
+  releaseArticleImages(); _articleHit = null;
+  if (_epubRendition){ try{_epubRendition.destroy();}catch(e){} _epubRendition=null; }
+  const mv=document.getElementById('media-view'); if(mv){ mv.innerHTML=''; mv.style.display='none'; }
+  document.getElementById('article-frame').style.display='block';
+  if (window.location.search) history_replace();
+
+  // single archive has no selection screen to return to, re-open its landing instead
+  if (SINGLE_ARCHIVE_IDX >= 0){ openArchive(SINGLE_ARCHIVE_IDX); return; }
+
+  document.getElementById('library-view').style.display='block';
+  document.getElementById('reader-view').style.display='none';
+  document.body.style.overflow='';
+  document.getElementById('page-title').textContent='Archive';
+}
+function history_replace(){ try{ window.history.replaceState(null,'',window.location.pathname); }catch(e){} }
+
+// Show the article iframe (hide the media player) or vice versa.
+function showArticleFrame(){ document.getElementById('article-frame').style.display='block'; const mv=document.getElementById('media-view'); mv.style.display='none'; mv.innerHTML=''; }
+function showMediaView(cls){ document.getElementById('article-frame').style.display='none'; const mv=document.getElementById('media-view'); mv.className=cls||''; mv.style.display='block'; return mv; }
+
+// Detect a playable/readable resource embedded in an article's HTML.
+function detectMedia(html){
+  const v = html.match(/<source[^>]*src=["']([^"']+\.(?:webm|mp4|m4v|ogv))["']/i) ||
+            html.match(/<video[^>]*src=["']([^"']+\.(?:webm|mp4|m4v|ogv))["']/i);
+  if (v) return { type:'video', url:v[1] };
+  const e = html.match(/href=["']([^"']+\.epub)["']/i);
+  if (e) return { type:'epub', url:e[1] };
+  return null;
+}
+
+// Open by location; push onto history unless we're navigating history.
+let navigatingHistory=false;
+async function openArticle(hit, resetHistory){
+  showOverlay('Loading '+(hit.title||'article')+'…');
+  try {
+    const idx = await getIndex();
+    const content = await idx.openArticle(hit, decompressors);
+    enterReader();
+    document.getElementById('article-title').textContent = hit.title||'';
+    document.title = (hit.title||'Article')+' · Nomad Archive';
+    if (resetHistory){ history=[]; historyIndex=-1; }
+    if (!navigatingHistory){
+      if (historyIndex < history.length-1) history = history.slice(0, historyIndex+1);
+      history.push(hit); historyIndex = history.length-1;
+    }
+    navigatingHistory=false;
+    updateHistoryButtons();
+    document.getElementById('search-results').style.display='none';
+
+    const html = new TextDecoder('utf-8').decode(content.data);
+    const media = detectMedia(html);
+    if (media && media.type === 'video') { hideOverlay(); return playVideo(hit, media.url, html); }
+    if (media && media.type === 'epub')  { hideOverlay(); return openEpub(hit, media.url, html); }
+    showArticleFrame();
+    _articleHit = hit;
+    setFrame(sanitizeArticle(html));
+  } catch (e) {
+    console.error('[ZIM] open failed', e);
+    enterReader();
+    showArticleFrame();
+    setFrame('<h2>Could not open article</h2><p>'+escapeHtml(e.message||String(e))+'</p>');
+  }
+  hideOverlay();
+}
+
+function loadScriptOnce(src){
+  loadScriptOnce._p = loadScriptOnce._p || {};
+  if (!loadScriptOnce._p[src]) loadScriptOnce._p[src] = new Promise((res,rej)=>{
+    const s=document.createElement('script'); s.src=src; s.onload=res; s.onerror=()=>{delete loadScriptOnce._p[src]; rej(new Error('load '+src));}; document.head.appendChild(s);
+  });
+  return loadScriptOnce._p[src];
+}
+// load a big lib by fetching its exact bytes through /media and injecting inline.
+// plain /assets serving mangles files with raw high bytes (JSZip/epub.js) so they
+// fail to parse - /media is byte-exact and an inline <script> runs regardless of type
+function loadScriptViaMedia(path){
+  loadScriptViaMedia._p = loadScriptViaMedia._p || {};
+  if (!loadScriptViaMedia._p[path]) loadScriptViaMedia._p[path] = (async()=>{
+    const r = await fetch('/media?file='+encodeURIComponent(path), { cache:'no-store' });
+    if (!(r.ok || r.status===200 || r.status===206)) throw new Error('fetch '+path+' HTTP '+r.status);
+    const code = await r.text();
+    if (/^\s*</.test(code)) throw new Error(path+' served as HTML (not found?)');
+    const s=document.createElement('script'); s.textContent=code; document.head.appendChild(s);
+  })().catch(e=>{ delete loadScriptViaMedia._p[path]; throw e; });
+  return loadScriptViaMedia._p[path];
+}
+function loadCssOnce(href){
+  if (document.querySelector('link[href="'+href+'"]')) return;
+  const l=document.createElement('link'); l.rel='stylesheet'; l.href=href; document.head.appendChild(l);
+}
+
+/* ---- video: same Plyr player the media pages use ---- */
+async function playVideo(hit, src){
+  const mv = showMediaView('');
+  mv.innerHTML = '<div class="media-msg">Loading video…</div>';
+  try {
+    const idx = await getIndex();
+    showOverlay('Loading video…');
+    const res = await idx.openResource(hit.archiveIdx, articleSlug(hit.title), src, decompressors);
+    const url = URL.createObjectURL(new Blob([res.data], { type: res.mimeType || 'video/webm' }));
+    mv.innerHTML = '';
+    const video = document.createElement('video');
+    video.setAttribute('playsinline',''); video.controls = true; video.src = url;
+    mv.appendChild(video);
+    // Plyr fetches its sprite + blank video from cdn.plyr.io by default, useless offline.
+    // point at the local sprite and kill the blank-video fetch
+    try {
+      loadCssOnce('/assets/plyr.css');
+      await loadScriptOnce('/assets/plyr.min.js');
+      if (window.Plyr) new Plyr(video, { iconUrl: '/assets/plyr.svg', blankVideo: '', loadSprite: true });
+    } catch(e) {}
+    video.play().catch(()=>{});
+  } catch (e) {
+    mv.innerHTML = '<div class="media-msg">Could not load video: '+escapeHtml(e.message||String(e))+'</div>';
+  }
+  hideOverlay();
+}
+
+/* ---- epub: same epub.js reader the Books pages use ---- */
+let _epubBook=null, _epubRendition=null;
+async function openEpub(hit, href){
+  const mv = showMediaView('epub');
+  mv.innerHTML = '<div class="media-msg" style="color:var(--muted)">Loading book…</div>';
+  try {
+    const idx = await getIndex();
+    showOverlay('Loading book…');
+    const res = await idx.openResource(hit.archiveIdx, articleSlug(hit.title), href, decompressors);
+    // epub.js needs JSZip as a global before it loads. both via /media, /assets corrupts them
+    if (!window.JSZip) await loadScriptViaMedia('/assets/jszip.min.js');
+    if (!window.ePub)  await loadScriptViaMedia('/assets/epub.min.js');
+    if (!window.ePub) throw new Error('epub reader unavailable');
+    mv.innerHTML = '<div class="epub-wrap"><div class="epub-area" id="epub-area"></div>'+
+      '<div class="epub-bar"><button id="epub-prev">‹ Prev</button><button id="epub-next">Next ›</button>'+
+      '<span class="muted" style="font-size:12px;flex:1;text-align:right">'+escapeHtml(hit.title||'')+'</span></div></div>';
+    if (_epubRendition){ try{_epubRendition.destroy();}catch(e){} }
+    _epubBook = ePub(res.data.buffer.slice(res.data.byteOffset, res.data.byteOffset+res.data.byteLength));
+    _epubRendition = _epubBook.renderTo('epub-area', { width:'100%', height:'100%', flow:'paginated', spread:'none' });
+    await _epubRendition.display();
+    document.getElementById('epub-prev').onclick = ()=> _epubRendition.prev();
+    document.getElementById('epub-next').onclick = ()=> _epubRendition.next();
+  } catch (e) {
+    mv.innerHTML = '<div class="media-msg" style="color:var(--red)">Could not open book: '+escapeHtml(e.message||String(e))+'</div>';
+  }
+  hideOverlay();
+}
+
+// best-effort article path from its title (TED/Gutenberg sit at the ZIM root so any slug works)
+function articleSlug(title){ return (title||'').toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-+|-+$/g,''); }
+
+/* ---- alphabetical range listing (ZIM index pages: "A – Aeolic Greek") ---- */
+async function showRange(from, to){
+  const panel = document.getElementById('search-results');
+  panel.innerHTML = '<div class="search-result-item"><span class="sr-title">Listing '+escapeHtml(from)+' – '+escapeHtml(to)+'…</span></div>';
+  panel.style.display='block';
+  try {
+    const idx = await getIndex();
+    const arc = (historyIndex>=0 && history[historyIndex]) ? history[historyIndex].archiveIdx : undefined;
+    const rows = await idx.listRange(from, to, { archiveIdx: arc, limit: 300 });
+    searchHits = rows;
+    if (!rows.length){ panel.innerHTML='<div class="search-result-item"><span class="sr-title">No articles in this range</span></div>'; return; }
+    const cap = rows.length>=300 ? ' (first 300)' : '';
+    panel.innerHTML = '<div class="search-result-item" style="pointer-events:none;background:var(--card)"><span class="sr-title" style="color:var(--muted)">'+
+      escapeHtml(from)+' – '+escapeHtml(to)+' · '+rows.length+' articles'+cap+'</span></div>' +
+      rows.map((h,i)=>`<div class="search-result-item" onclick="selectSearchResult(${i})"><div class="sr-title">${escapeHtml(h.title)}</div></div>`).join('');
+  } catch (e) {
+    panel.innerHTML='<div class="search-result-item"><span class="sr-title">Error: '+escapeHtml(e.message)+'</span></div>';
+  }
+}
+// Range-link text looks like "A – Aeolic Greek" (dash with surrounding spaces).
+function parseRangeLink(text){
+  const m = (text||'').match(/^(.{1,70}?)\s+[–—-]\s+(.{1,70})$/);
+  if (!m) return null;
+  const a = m[1].trim(), b = m[2].trim();
+  if (a.length < 1 || b.length < 1) return null;
+  return { from:a, to:b };
+}
+
+function setFrame(bodyHtml){
+  const frame = document.getElementById('article-frame');
+  const dark = document.documentElement.classList.contains('dark') || document.body.classList.contains('dark');
+  const bg = dark?'#12131a':'#fff', fg = dark?'#e4e6ee':'#1a1a1a', link = dark?'#6db3f2':'#1a56db';
+  const doc = `<!DOCTYPE html><html><head>
+    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; img-src data: blob:;">
+    <meta name="viewport" content="width=device-width,initial-scale=1">
+    <style>
+      body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;max-width:820px;margin:0 auto;padding:16px 18px 60px;line-height:1.65;background:${bg};color:${fg};word-wrap:break-word;}
+      a{color:${link};text-decoration:none;} a:hover{text-decoration:underline;}
+      h1,h2,h3,h4{line-height:1.25;margin:1.1em 0 .4em;} h1{font-size:1.7em;}
+      pre,code{background:${dark?'#1e202b':'#f3f4f6'};border-radius:4px;} code{padding:1px 5px;} pre{padding:12px;overflow-x:auto;}
+      table{border-collapse:collapse;max-width:100%;display:block;overflow-x:auto;} th,td{border:1px solid ${dark?'#333':'#ddd'};padding:6px 9px;}
+      img{max-width:100%;height:auto;} blockquote{border-left:3px solid ${dark?'#3a3f52':'#ddd'};margin:1em 0;padding-left:14px;color:${dark?'#aab':'#555'};}
+      .nomad-note{font-size:.85em;color:${dark?'#8890a6':'#888'};border-top:1px solid ${dark?'#2a2d3a':'#eee'};margin-top:24px;padding-top:10px;}
+    </style></head><body>${bodyHtml}
+    <div class="nomad-note">Offline article · Nomad Archive</div>
+    </body></html>`;
+  // iframe is sandbox="allow-same-origin" (no scripts), so wire link clicks from the
+  // PARENT via contentDocument instead of injecting a script the sandbox would block
+  frame.onload = function () {
+    try {
+      const cdoc = frame.contentDocument;
+      if (!cdoc) return;
+      cdoc.addEventListener('click', function (e) {
+        const a = e.target.closest && e.target.closest('a');
+        if (!a) return;
+        e.preventDefault();
+        const text = (a.textContent || a.getAttribute('title') || '').trim();
+        // ZIM index pages link alphabetical ranges ("A – Aeolic Greek"); list them.
+        const range = parseRangeLink(text);
+        if (range) { showRange(range.from, range.to); return; }
+        const q = linkToQuery(a.getAttribute('href') || '', text);
+        if (q) { document.getElementById('reader-search-input').value = q; searchArticles(); }
+      });
+      cdoc.defaultView && cdoc.defaultView.scrollTo(0, 0);
+      inlineImages(cdoc, _articleHit);
+    } catch (err) {}
+  };
+  frame.srcdoc = doc;
+}
+
+/* Lazily inline an article's images. The sanitizer left each <img> with a
+   data-zim-src (its relative ZIM ref) and no src, so nothing loaded. Here the
+   PARENT (same-origin with the sandboxed iframe) fetches each image's blob from
+   the ZIM via openResource - a bounded findByUrl + cluster read - and sets a
+   blob: URL. Modern Wikipedia stores every image as WebP regardless of the .jpg/
+   .png filename, so we trust the ZIM's mimeType, not the extension.
+
+   DEVICE SAFETY (this is why it's so conservative): the firmware serves ZIM
+   byte-ranges from a single reused file handle, and each image is ~dozens of
+   range reads. Firing images in parallel crashes it (ERR_CONNECTION_RESET ->
+   reboot loop). So we (1) load STRICTLY ONE IMAGE AT A TIME - one openResource,
+   which is itself many serialized reads (sharedQueue is concurrency 1) - only
+   as images scroll into view; (2) pause briefly between images so the device can
+   breathe / serve navigation; and (3) trip a circuit breaker after a few
+   consecutive failures (a struggling or rebooting device) instead of retrying
+   into the ground. */
+const IMG_MAX_PER_ARTICLE = 120;   // hard ceiling per page
+const IMG_THROTTLE_MS = 80;        // breather between images (ms)
+const IMG_FAIL_LIMIT = 3;          // consecutive device-pressure failures -> stop
+const IMG_EAGER_FALLBACK = 8;      // if no IntersectionObserver: load only this many
+let _articleHit = null;
+let _imgObserver = null;
+let _imgStop = false;              // teardown / circuit-breaker flag for the loader
+const _imgBlobUrls = [];           // blob: URLs to revoke on close / next article
+
+function releaseArticleImages() {
+  _imgStop = true;                  // signal any in-progress loader loop to quit
+  if (_imgObserver) { try { _imgObserver.disconnect(); } catch (e) {} _imgObserver = null; }
+  while (_imgBlobUrls.length) { try { URL.revokeObjectURL(_imgBlobUrls.pop()); } catch (e) {} }
+}
+
+function inlineImages(cdoc, hit) {
+  releaseArticleImages();
+  if (!hit || !cdoc) return;
+  _imgStop = false;
+  const imgs = Array.prototype.slice.call(cdoc.querySelectorAll('img[data-zim-src]'), 0, IMG_MAX_PER_ARTICLE);
+  if (!imgs.length) return;
+
+  const queue = [];
+  let running = false, fails = 0;
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+  // Strictly serial: one image (one ZIM read chain) in flight at a time.
+  async function drain() {
+    if (running) return; running = true;
+    while (queue.length && !_imgStop) {
+      const ok = await loadOne(queue.shift());
+      if (ok) { fails = 0; }
+      else if (++fails >= IMG_FAIL_LIMIT) { _imgStop = true; break; }  // device likely down - stop hammering
+      if (queue.length && !_imgStop) await sleep(IMG_THROTTLE_MS);
+    }
+    running = false;
+  }
+
+  // returns false only on a device-pressure failure (feeds the circuit breaker),
+  // a benign "not found" or a success returns true
+  async function loadOne(im) {
+    const ref = im.getAttribute('data-zim-src'); im.removeAttribute('data-zim-src');
+    if (!ref || /^(https?:|\/\/|data:)/i.test(ref)) { im.remove(); return true; }
+    try {
+      const idx = await getIndex();
+      const res = await idx.openResource(hit.archiveIdx, articleSlug(hit.title), ref, decompressors);
+      if (_imgStop) return true;
+      const url = URL.createObjectURL(new Blob([res.data], { type: res.mimeType || 'image/webp' }));
+      _imgBlobUrls.push(url); im.src = url;
+      return true;
+    } catch (e) {
+      im.remove();
+      const msg = (e && e.message || '').toLowerCase();
+      // reset/abort/timeout/fetch fail = device under strain, "not found" is harmless
+      return !/reset|network|failed to fetch|abort|timeout|load /.test(msg);
+    }
+  }
+
+  let observed = false;
+  try {
+    const IO = cdoc.defaultView && cdoc.defaultView.IntersectionObserver;
+    if (IO) {
+      _imgObserver = new IO((entries) => {
+        for (const en of entries) if (en.isIntersecting) { _imgObserver.unobserve(en.target); queue.push(en.target); drain(); }
+      }, { root: null, rootMargin: '300px 0px' });
+      imgs.forEach((im) => _imgObserver.observe(im));
+      observed = true;
+    }
+  } catch (e) { observed = false; }
+  if (!observed) { imgs.slice(0, IMG_EAGER_FALLBACK).forEach((im) => queue.push(im)); drain(); }
+}
+
+/* Turn a clicked link into a search query, handling the different ZIM linking
+   styles. We can't resolve a raw ZIM URL to an article on the device (that needs
+   a live binary search), so instead we search for the target's name. Returns a
+   query string, or null when the link isn't worth searching (external site,
+   downloadable resource, page anchor, generic nav). Prefers the article-name
+   embedded in the href (wiki style: "Eurasian_otter"), else the link text. */
+function linkToQuery(href, text) {
+  href = (href || '').trim();
+  text = (text || '').trim();
+  if (href.startsWith('#')) return null;                                  // same-page anchor
+  if (/^(https?:|mailto:|tel:|\/\/)/i.test(href)) return null;            // external (offline = dead)
+  if (/\.(epub|pdf|mp4|webm|mp3|ogg|zip|png|jpe?g|gif|svg|css|js|woff2?)($|\?)/i.test(href)) return null; // resource
+  // derive an article name from the href: drop query/anchor, path, namespace, extension
+  let cand = href.split('#')[0].split('?')[0];
+  cand = cand.substring(cand.lastIndexOf('/') + 1);                       // basename
+  try { cand = decodeURIComponent(cand); } catch (e) {}
+  cand = cand.replace(/\.(html?|php)$/i, '').replace(/_/g, ' ').trim();
+  const generic = /^(home|index|main ?page|top|contents?|next|previous|prev|back|edit)$/i;
+  // prefer readable link text; fall back to the href-derived name
+  let q = (text.length > 1 && !generic.test(text)) ? text : cand;
+  if (!q || q.length < 2 || generic.test(q)) return null;
+  return q.slice(0, 80);
+}
+
+/* Sanitize ZIM article HTML for offline display: keep text/structure, drop
+   scripts and external refs. Images are kept but disarmed to data-zim-src for
+   lazy inlining (see inlineImages). Internal links stay as <a> so a click can
+   trigger a search for the link text. */
+function sanitizeArticle(html){
+  // take <body> if present
+  const bodyM = html.match(/<body[^>]*>([\s\S]*?)<\/body>/i);
+  let s = bodyM ? bodyM[1] : html;
+  s = s.replace(/<script\b[\s\S]*?<\/script>/gi,'');
+  s = s.replace(/<style\b[\s\S]*?<\/style>/gi,'');
+  s = s.replace(/<link\b[^>]*>/gi,'');
+  s = s.replace(/<noscript\b[\s\S]*?<\/noscript>/gi,'');
+  s = s.replace(/\son\w+\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/gi,'');
+  s = s.replace(/\ssrcset\s*=\s*("[^"]*"|'[^']*')/gi,'');
+  // disarm images: src -> data-zim-src so the sandboxed iframe makes no request,
+  // inlineImages() then lazily fetches each blob from the ZIM. external/sourceless imgs are dropped
+  s = s.replace(/<img\b([^>]*)>/gi, (m, attrs) => {
+    const mm = attrs.match(/\b(?:data-)?src\s*=\s*("([^"]*)"|'([^']*)')/i);
+    const ref = mm ? (mm[2] != null ? mm[2] : mm[3]) : '';
+    if (!ref) return '';                                        // no source -> drop
+    if (/^(https?:|\/\/)/i.test(ref)) return '';                // external -> dead offline
+    if (/^data:/i.test(ref)) return m;                          // already inline -> keep
+    const rest = attrs
+      .replace(/\b(?:data-)?src\s*=\s*("[^"]*"|'[^']*')/gi, '')
+      .replace(/\bsrcset\s*=\s*("[^"]*"|'[^']*')/gi, '');
+    return '<img data-zim-src="' + ref.replace(/"/g, '&quot;') + '"' + rest + '>';
+  });
+  s = s.replace(/<source\b[^>]*>/gi,'');
+  // neutralize external links; keep internal ones clickable (handled via postMessage)
+  s = s.replace(/<a\b([^>]*)>/gi, (m,attrs) => {
+    const href=(attrs.match(/href\s*=\s*("([^"]*)"|'([^']*)')/i)||[])[0]||'';
+    if(/https?:|mailto:|\/\//i.test(href)) return '<a>';
+    return '<a'+attrs+'>';
+  });
+  return s;
+}
+
+/* (Article link clicks are wired from setFrame's frame.onload - the sandboxed
+   iframe can't run scripts, so the parent attaches the handler directly.) */
+
+/* ---------------- reader search ---------------- */
+async function searchArticles(){
+  const q = document.getElementById('reader-search-input').value.trim();
+  const panel = document.getElementById('search-results');
+  if(!q){ panel.style.display='none'; return; }
+  panel.innerHTML = '<div class="search-result-item"><span class="sr-title">Searching…</span></div>';
+  panel.style.display='block';
+  try {
+    const idx = await getIndex();
+    searchHits = await idx.search(q, 30);
+    if(!searchHits.length){ panel.innerHTML='<div class="search-result-item"><span class="sr-title">No results</span></div>'; return; }
+    panel.innerHTML = searchHits.map((h,i)=>`<div class="search-result-item" onclick="selectSearchResult(${i})">
+      <div class="sr-title">${escapeHtml(h.title)}</div>
+      <div class="sr-url">${escapeHtml(h.archiveId||'')}</div>
+    </div>`).join('');
+  } catch (e) {
+    panel.innerHTML='<div class="search-result-item"><span class="sr-title">Error: '+escapeHtml(e.message)+'</span></div>';
+  }
+}
+function selectSearchResult(i){
+  const h = searchHits[i]; if(!h) return;
+  document.getElementById('search-results').style.display='none';
+  openArticle(h);
+}
+
+/* ---------------- history / ui ---------------- */
+function historyBack(){ if(historyIndex>0){ historyIndex--; navigatingHistory=true; openArticle(history[historyIndex]); } }
+function historyForward(){ if(historyIndex<history.length-1){ historyIndex++; navigatingHistory=true; openArticle(history[historyIndex]); } }
+function updateHistoryButtons(){ const b=document.getElementById('btn-hist-back'),f=document.getElementById('btn-hist-fwd'); if(b)b.disabled=historyIndex<=0; if(f)f.disabled=historyIndex>=history.length-1; }
+
+function toggleSidebar(){ const sb=document.getElementById('sidebar'); sb.classList.toggle('open'); if(sb.classList.contains('open')) buildToc(); }
+function buildToc(){
+  const body=document.getElementById('sidebar-body');
+  try{
+    const doc=document.getElementById('article-frame').contentDocument;
+    const hs=doc.querySelectorAll('h1,h2,h3,h4');
+    if(!hs.length){ body.innerHTML='<div class="sidebar-item" style="color:var(--muted)">No headings</div>'; return; }
+    body.innerHTML=Array.from(hs).map((h,i)=>{const lv=parseInt(h.tagName[1]);return `<div class="sidebar-item" style="padding-left:${16+(lv-1)*14}px" onclick="scrollToHeading(${i})">${escapeHtml(h.textContent)}</div>`;}).join('');
+  }catch(e){ body.innerHTML='<div class="sidebar-item" style="color:var(--muted)">Unavailable</div>'; }
+}
+function scrollToHeading(i){ try{ const doc=document.getElementById('article-frame').contentDocument; const h=doc.querySelectorAll('h1,h2,h3,h4')[i]; if(h)h.scrollIntoView({behavior:'smooth'}); document.getElementById('sidebar').classList.remove('open'); }catch(e){} }
+
+// close search dropdown on outside click
+document.addEventListener('click',(e)=>{ const p=document.getElementById('search-results'),i=document.getElementById('reader-search-input'); if(p&&!p.contains(e.target)&&e.target!==i) p.style.display='none'; });
+
+if (localStorage.getItem('nomad_dark_mode')==='true'){ document.documentElement.classList.add('dark'); document.body.classList.add('dark'); }
+
+/* ---------------- boot ---------------- */
+(async function boot(){
+  await loadZimList();
+  const p = new URLSearchParams(window.location.search);
+  if (p.has('a') && p.has('c') && p.has('b')){
+    openArticle({ archiveIdx:+p.get('a'), cluster:+p.get('c'), blob:+p.get('b'), title:p.get('t')||'' }, true);
+  } else if (SINGLE_ARCHIVE_IDX >= 0){
+    // Only one archive on the card - go straight into it, no selection screen.
+    document.getElementById('library-view').style.display='none';
+    openArchive(SINGLE_ARCHIVE_IDX);
+  }
+})();
+</script>
+</body>
+</html>

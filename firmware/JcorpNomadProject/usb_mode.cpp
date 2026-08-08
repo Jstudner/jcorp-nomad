@@ -18,6 +18,10 @@ USBMSC msc;
 
 static bool s_mscReady = false;
 
+// true once the host writes a sector this session. on exit it tells us the card
+// changed and needs a rescan (read-only browsing doesnt)
+static volatile bool s_usbWroteData = false;
+
 // --------------------- Callbacks ---------------------
 
 static int32_t onWrite(uint32_t lba, uint32_t offset, uint8_t *buffer, uint32_t bufsize) {
@@ -25,6 +29,7 @@ static int32_t onWrite(uint32_t lba, uint32_t offset, uint8_t *buffer, uint32_t 
   if (!secSize) {
     return -1;  // disk error
   }
+  s_usbWroteData = true;
   for (uint32_t x = 0; x < bufsize / secSize; x++) {
     if (!SD_MMC.writeRAW(buffer + secSize * x, lba + x)) {
       return -1;
@@ -58,6 +63,9 @@ static void usbEventCallback(void*, esp_event_base_t event_base,
     switch (event_id) {
       case ARDUINO_USB_STOPPED_EVENT:
         // Host ejected the drive > switch back to Media on next boot
+        if (s_usbWroteData) {
+          set_needs_reindex_flag();
+        }
         set_boot_mode(MEDIA_MODE);
         esp_restart();
         break;
@@ -76,9 +84,9 @@ void usb_setup() {
 
   NomadButton_Init();
 
-  // Same tiered mount as the media server, and equally never formats on
-  // failure. (The previous revision passed format_if_mount_failed = true here,
-  // which could silently erase the user's card if the mount hiccupped.)
+  // Tiered mount, and never formats on failure. Upstream fixed the same
+  // format-on-failure bug in #122; this path additionally walks the bus speed
+  // down instead of giving up at one setting.
   NomadSdMountResult sd = NomadSD_Mount(5);
   if (!sd.mounted) {
     Serial.println("ERROR: SD card mount failed - staying idle, hold the button to go back.");
@@ -112,6 +120,9 @@ void usb_loop() {
   if (ev == NOMAD_BTN_SHORT || ev == NOMAD_BTN_LONG) {
     Serial.println(">>> Button pressed, leaving USB mode");
     Set_Color(0, 0, 0);
+    if (s_usbWroteData) {
+      set_needs_reindex_flag();
+    }
     set_boot_mode(MEDIA_MODE);
     esp_restart();
   }

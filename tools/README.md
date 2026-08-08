@@ -45,7 +45,7 @@ tools\nomad-setup.bat               # same thing on Windows
 * Copies the web interface and creates `Movies`, `Shows`, `Books`, `Music`,
   `Gallery`, `Files` and `config`
 * Size-verifies every copied file, then checks the finished card against a
-  manifest of the 17 files the firmware serves by name plus the folders the
+  manifest of the 28 files the firmware serves by name plus the folders the
   indexer expects — a card that is missing one of them boots into a web UI that
   half works, which is miserable to diagnose from the device
 
@@ -152,11 +152,12 @@ sudo usermod -aG dialout $USER      # log out and back in
 ## What actually goes on the card
 
 Everything in `SD_Card_Template/` except the four `img.py` scripts, which are
-repo-side placeholder-image generators and have no business on the card — 74
-files of 78, about 18 MB. That covers the web interface (`index.html`,
-`menu.html`, the per-section pages, `admin.html`/`admin.js`, `Logo.png`,
-`favicon.ico`) and the whole `assets/` tree, plus the demo media unless you
-pass `--no-placeholders`.
+repo-side placeholder-image generators and have no business on the card — 70
+files of 74. That covers the web interface (`index.html`, `menu.html`, the
+per-section and reader pages, `admin.html`/`admin.js`), the Mk4 shared
+front-end (`master.css`, `theme-manager.js`, `theme-boot.js`,
+`nomad-utils.js`, `default-themes.json`) and the whole `assets/` tree, plus the
+demo media unless you pass `--no-placeholders`.
 
 The tool then creates the seven directories the firmware's indexer expects:
 `Movies`, `Shows`, `Books`, `Music`, `Gallery`, `Files`, `config`.
@@ -165,10 +166,10 @@ Three things are deliberately *not* written, because the firmware makes them
 itself on first boot: `config/settings.json`, the `.system-index/` index files,
 and the `*.flag` marker files.
 
-Two routes exist in the firmware with nothing behind them in the template —
-`/maps.html` (a planned feature) and `/assets/kiwix/…` (ZIM reader assets you
-would supply yourself). Nothing in the web UI links to either, so their absence
-is normal; `--verbose` lists them.
+Three paths are routed or present without being required: `/maps.html` (the
+firmware routes it, no file is shipped), `/assets/kiwix/…` (ZIM reader assets
+you supply yourself) and `zimtest.html` (a development page nothing links to).
+`--verbose` lists them.
 
 `nomad-setup selftest` cross-checks the manifest against the template in the
 repo, so the two cannot drift apart without a test failing.

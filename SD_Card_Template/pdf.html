@@ -1,0 +1,661 @@
+<!DOCTYPE html>
+<!-- Version 4 -->
+<html lang="en">
+<head>
+    <link rel="stylesheet" href="/master.css">
+    <script>
+(function() {
+  try {
+    const isDark = localStorage.getItem('nomad_dark_mode') === 'true';
+    if (isDark) document.documentElement.classList.add('dark');
+
+    const saved = localStorage.getItem('nomad_custom_theme');
+    if (saved) {
+      const colors = JSON.parse(saved);
+      const style = document.createElement('style');
+      style.id = 'custom-theme-style';
+      style.textContent = `
+        :root {
+          --primary: ${colors.primary} !important;
+          --primary-dark: ${colors.primaryDark} !important;
+          --bg: ${colors.bgLight} !important;
+          --card: ${colors.cardLight} !important;
+          --card-bg: ${colors.cardLight} !important;
+          --text: ${colors.textLight} !important;
+          --muted: ${colors.mutedLight} !important;
+        }
+        body.dark {
+          --bg: ${colors.bgDark} !important;
+          --card: ${colors.cardDark} !important;
+          --card-bg: ${colors.cardDark} !important;
+          --text: ${colors.textDark} !important;
+          --muted: ${colors.mutedDark} !important;
+          --primary: ${colors.primaryDarkTheme} !important;
+        }
+      `;
+      document.head.appendChild(style);
+    }
+  } catch(e) {}
+})();
+</script>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Nomad • PDF Reader</title>
+    <script src="/assets/pdf.min.js"></script>
+    <style>
+        *, *::before, *::after {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        html, body {
+            height: 100%;
+        }
+
+        body {
+            font-family: Arial, Helvetica, sans-serif;
+            background: var(--bg);
+            color: var(--text);
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+
+        body.dark .reader-navigation {
+            background: var(--card);
+            border-top-color: var(--line);
+        }
+
+        .reader-container {
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+            width: 100%;
+        }
+
+        .reader-header {
+            background: var(--primary);
+            color: var(--header-text);
+            padding: 12px 16px;
+            display: flex;
+            gap: 10px;
+            align-items: center;
+            flex-wrap: wrap;
+            box-shadow: var(--shadow);
+            z-index: 100;
+        }
+
+        .reader-title {
+            font-size: 1rem;
+            font-weight: 700;
+            margin-right: auto;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .reader-controls {
+            display: flex;
+            gap: 6px;
+            align-items: center;
+            flex-wrap: wrap;
+        }
+
+        .reader-btn {
+            background: rgba(255,255,255,0.2);
+            border: none;
+            color: var(--header-text);
+            padding: 8px 12px;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 0.9rem;
+            transition: background 0.2s ease;
+            white-space: nowrap;
+        }
+
+        .reader-btn:hover {
+            background: rgba(255,255,255,0.3);
+        }
+
+        .reader-btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        .reader-main {
+            flex: 1;
+            display: flex;
+            min-height: 0;
+            position: relative;
+            overflow: auto;
+        }
+
+        #pdf-container {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            overflow-y: auto;
+            background: #f5f5f5;
+            padding: 20px 0;
+            gap: 10px;
+        }
+
+        body.dark #pdf-container {
+            background: #1a1a1a;
+        }
+
+        .pdf-page {
+            display: block;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+            margin: 0 auto;
+        }
+
+        .loading-overlay {
+            position: absolute;
+            inset: 0;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            gap: 16px;
+            background: rgba(250, 250, 250, 0.95);
+            z-index: 50;
+        }
+
+        body.dark .loading-overlay {
+            background: rgba(11, 18, 32, 0.95);
+        }
+
+        .loading-overlay.hidden {
+            display: none;
+        }
+
+        .spinner {
+            width: 50px;
+            height: 50px;
+            border: 4px solid rgba(0, 123, 255, 0.2);
+            border-top-color: var(--primary);
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+        }
+
+        .loading-text {
+            color: var(--text);
+            font-size: 0.95rem;
+            font-weight: 600;
+            font-variant-numeric: tabular-nums;
+        }
+
+        .loading-bar {
+            width: min(240px, 70%);
+            height: 6px;
+            border-radius: 3px;
+            background: var(--line);
+            overflow: hidden;
+        }
+
+        .loading-bar-fill {
+            height: 100%;
+            width: 0%;
+            background: var(--primary);
+            border-radius: 3px;
+            transition: width 0.15s ease;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        .reader-navigation {
+            background: #f5f5f5;
+            padding: 12px;
+            display: flex;
+            gap: 10px;
+            justify-content: center;
+            align-items: center;
+            border-top: 1px solid #ddd;
+            flex-wrap: wrap;
+        }
+
+        .nav-btn {
+            background: var(--primary);
+            color: #fff;
+            border: none;
+            padding: 8px 14px;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 0.95em;
+            transition: background 0.2s ease;
+        }
+
+        .nav-btn:hover {
+            background: var(--primary-dark);
+        }
+
+        .nav-btn:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+        }
+
+        .page-info {
+            color: #333;
+            font-weight: 600;
+            min-width: 100px;
+            text-align: center;
+        }
+
+        body.dark .page-info {
+            color: #e6eef8;
+        }
+
+        .page-jump {
+            display: flex;
+            gap: 5px;
+            align-items: center;
+        }
+
+        .page-jump input {
+            width: 60px;
+            padding: 6px 8px;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            text-align: center;
+        }
+
+        .error-message {
+            padding: 20px;
+            text-align: center;
+            color: #d32f2f;
+            font-size: 1rem;
+        }
+
+        @media (max-width: 768px) {
+            .reader-header {
+                padding: 10px 12px;
+            }
+
+            .reader-title {
+                flex: 1 1 100%;
+                margin-bottom: 4px;
+            }
+
+            .reader-controls {
+                width: 100%;
+                justify-content: flex-start;
+            }
+
+            .reader-btn {
+                font-size: 0.85rem;
+                padding: 6px 10px;
+            }
+        }
+    </style>
+    <script src="theme-manager.js"></script>
+    <script src="/nomad-utils.js"></script>
+</head>
+<body>
+    <div class="reader-container">
+        <div class="reader-header">
+            <div class="reader-title" id="readerTitle">Loading...</div>
+            <div class="reader-controls">
+                <a class="reader-btn" href="/books.html" title="Back to Books">← Back</a>
+                <button class="reader-btn" id="zoomOut" title="Zoom Out">-</button>
+                <button class="reader-btn" id="zoomReset" title="Reset Zoom">100%</button>
+                <button class="reader-btn" id="zoomIn" title="Zoom In">+</button>
+            </div>
+        </div>
+        <div class="reader-main">
+            <div id="pdf-container">
+                <div class="loading-overlay" id="loadingOverlay">
+                    <div class="spinner"></div>
+                    <div class="loading-bar"><div class="loading-bar-fill" id="loadingBarFill"></div></div>
+                    <div class="loading-text" id="loadingText">Loading…</div>
+                </div>
+            </div>
+        </div>
+        <div class="reader-navigation">
+            <button class="nav-btn" id="prevBtn">← Previous</button>
+            <span class="page-info" id="pageInfo">Page 0 / 0</span>
+            <button class="nav-btn" id="nextBtn">Next →</button>
+            <div class="page-jump">
+                <input type="number" id="pageInput" min="1" placeholder="Go to...">
+                <button class="nav-btn" id="jumpBtn">Go</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        /* theme via shared ThemeManager instead of a local reimplementation */
+        (function () { try { ThemeManager.applyDarkMode(ThemeManager.getDarkMode()); } catch (e) { } })();
+        window.addEventListener('storage', (ev) => { if (ev.key === ThemeManager.STORAGE_KEY) ThemeManager.applyDarkMode(ev.newValue === 'true'); });
+
+        function fileUrlDirect(path) { if (!path) return ''; return `/media?file=${encodeURIComponent(normalizePath(path))}`; }
+        
+        const urlParams = new URLSearchParams(window.location.search);
+        const pdfPath = urlParams.get('path');
+        
+        if (!pdfPath) {
+            document.getElementById('pdf-container').innerHTML = '<p class="error-message">No PDF path provided. Please go back and select a PDF.</p>';
+            document.getElementById('loadingOverlay').classList.add('hidden');
+        }
+
+        const readerTitle = document.getElementById('readerTitle');
+        const pdfContainer = document.getElementById('pdf-container');
+        const loadingOverlay = document.getElementById('loadingOverlay');
+        const loadingText = document.getElementById('loadingText');
+        const loadingBarFill = document.getElementById('loadingBarFill');
+        const prevBtn = document.getElementById('prevBtn');
+        const nextBtn = document.getElementById('nextBtn');
+        const pageInfo = document.getElementById('pageInfo');
+        const pageInput = document.getElementById('pageInput');
+        const jumpBtn = document.getElementById('jumpBtn');
+        const zoomInBtn = document.getElementById('zoomIn');
+        const zoomOutBtn = document.getElementById('zoomOut');
+        const zoomResetBtn = document.getElementById('zoomReset');
+
+        let pdfDoc = null;
+        let currentPage = 1;
+        let totalPages = 0;
+        let scale = 1.5;
+        let renderQueue = new Set();
+        let renderedPages = new Set();
+        let observer = null;
+        const UNLOAD_MARGIN = 12; // pages this far from the current one get their canvas freed
+
+        const RESUME_KEY = 'nomad_pdf_progress';
+        
+        function getResumeKey(path) {
+            return `${RESUME_KEY}_${encodeURIComponent(normalizePath(path))}`;
+        }
+
+        function saveProgress(path, page) {
+            try {
+                const key = getResumeKey(path);
+                localStorage.setItem(key, JSON.stringify({ page, time: Date.now() }));
+            } catch (e) {
+                console.warn('Failed to save progress', e);
+            }
+        }
+
+        function loadProgress(path) {
+            try {
+                const key = getResumeKey(path);
+                const data = localStorage.getItem(key);
+                return data ? JSON.parse(data) : null;
+            } catch (e) {
+                return null;
+            }
+        }
+
+        function updatePageInfo() {
+            pageInfo.textContent = `Page ${currentPage} / ${totalPages}`;
+            pageInput.max = totalPages;
+            prevBtn.disabled = currentPage <= 1;
+            nextBtn.disabled = currentPage >= totalPages;
+            unloadFarPages(currentPage);
+        }
+
+        function updateZoomInfo() {
+            const percent = Math.round(scale * 100);
+            zoomResetBtn.textContent = `${percent}%`;
+        }
+
+        async function renderPage(pageNum) {
+            if (renderedPages.has(pageNum) || renderQueue.has(pageNum)) return;
+            renderQueue.add(pageNum);
+
+            try {
+                const page = await pdfDoc.getPage(pageNum);
+                const viewport = page.getViewport({ scale });
+                
+                const canvas = document.createElement('canvas');
+                canvas.className = 'pdf-page';
+                canvas.id = `page-${pageNum}`;
+                const context = canvas.getContext('2d');
+                canvas.height = viewport.height;
+                canvas.width = viewport.width;
+                
+                await page.render({
+                    canvasContext: context,
+                    viewport: viewport
+                }).promise;
+                
+                const existingCanvas = pdfContainer.querySelector(`#page-${pageNum}`);
+                if (existingCanvas) {
+                    existingCanvas.replaceWith(canvas);
+                } else {
+                    const canvases = Array.from(pdfContainer.querySelectorAll('.pdf-page'));
+                    const insertIndex = canvases.findIndex(c => {
+                        const id = parseInt(c.id.replace('page-', ''));
+                        return id > pageNum;
+                    });
+                    
+                    if (insertIndex >= 0) {
+                        canvases[insertIndex].before(canvas);
+                    } else {
+                        pdfContainer.appendChild(canvas);
+                    }
+                }
+
+                if (observer) observer.observe(canvas);
+                renderedPages.add(pageNum);
+            } catch (err) {
+                console.error(`Failed to render page ${pageNum}:`, err);
+            } finally {
+                renderQueue.delete(pageNum);
+            }
+        }
+
+        function scrollToPage(pageNum) {
+            const canvas = pdfContainer.querySelector(`#page-${pageNum}`);
+            if (canvas) {
+                canvas.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            }
+        }
+
+        // each page is a full-res canvas, keeping them all in the DOM eventually runs
+        // out of memory. drop any page more than UNLOAD_MARGIN away, cheap to re-render
+        function unloadFarPages(centerPage) {
+            for (const pageNum of Array.from(renderedPages)) {
+                if (Math.abs(pageNum - centerPage) <= UNLOAD_MARGIN) continue;
+                const canvas = pdfContainer.querySelector(`#page-${pageNum}`);
+                if (canvas) {
+                    if (observer) observer.unobserve(canvas);
+                    canvas.width = 0;
+                    canvas.height = 0;
+                    canvas.remove();
+                }
+                renderedPages.delete(pageNum);
+            }
+        }
+
+        function preloadPages(centerPage) {
+            const pagesToLoad = [
+                centerPage,
+                centerPage - 1,
+                centerPage + 1,
+                centerPage + 2,
+                centerPage - 2,
+                centerPage + 3,
+                centerPage + 4,
+                centerPage + 5,
+                centerPage - 3,
+                centerPage - 4
+            ].filter(p => p >= 1 && p <= totalPages);
+
+            pagesToLoad.forEach(p => renderPage(p));
+        }
+
+        function goToPage(pageNum) {
+            if (pageNum < 1 || pageNum > totalPages) return;
+            currentPage = pageNum;
+            updatePageInfo();
+            saveProgress(pdfPath, currentPage);
+
+            if (!renderedPages.has(currentPage)) {
+                renderPage(currentPage).then(() => scrollToPage(currentPage));
+            } else {
+                scrollToPage(currentPage);
+            }
+
+            preloadPages(currentPage);
+        }
+
+        function changeZoom(newScale) {
+            scale = Math.max(0.5, Math.min(3.0, newScale));
+            updateZoomInfo();
+
+            renderedPages.clear();
+            renderQueue.clear();
+            pdfContainer.querySelectorAll('.pdf-page').forEach(c => {
+                if (observer) observer.unobserve(c);
+                c.width = 0;
+                c.height = 0;
+                c.remove();
+            });
+
+            goToPage(currentPage);
+        }
+
+        function setLoadingProgress(pct, label) {
+            if (loadingText) loadingText.textContent = label;
+            if (loadingBarFill) loadingBarFill.style.width = (pct == null ? 0 : Math.max(0, Math.min(100, pct))) + '%';
+        }
+        function fmtMB(bytes) { return (bytes / 1048576).toFixed(1) + ' MB'; }
+
+        async function loadPDF(path) {
+            try {
+                loadingOverlay.classList.remove('hidden');
+                setLoadingProgress(0, 'Loading…');
+
+                const fileName = path.split('/').pop();
+                readerTitle.textContent = fileName.replace(/\.[^/.]+$/, '').replace(/[_\.]+/g, ' ').trim();
+
+                const url = fileUrlDirect(path);
+                console.log('PDF: Loading from', url);
+
+                if (typeof pdfjsLib === 'undefined') {
+                    throw new Error('PDF.js library not loaded');
+                }
+
+                pdfjsLib.GlobalWorkerOptions.workerSrc = '/assets/pdf.worker.min.js';
+
+                const loadingTask = pdfjsLib.getDocument(url);
+
+                loadingTask.onProgress = (progress) => {
+                    // no Content-Length? show bytes downloaded instead of a %
+                    if (progress.total > 0) {
+                        const percent = Math.round((progress.loaded / progress.total) * 100);
+                        setLoadingProgress(percent, `Loading ${percent}%`);
+                    } else if (progress.loaded > 0) {
+                        setLoadingProgress(null, `Loading ${fmtMB(progress.loaded)}…`);
+                    }
+                };
+
+                pdfDoc = await loadingTask.promise;
+                totalPages = pdfDoc.numPages;
+                setLoadingProgress(100, 'Rendering…');
+
+                console.log(`PDF: Loaded ${totalPages} pages`);
+
+                const progress = loadProgress(path);
+                const startPage = (progress && progress.page > 0 && progress.page <= totalPages) ? progress.page : 1;
+                currentPage = startPage;
+
+                observer = new IntersectionObserver((entries) => {
+                    entries.forEach(entry => {
+                        if (entry.isIntersecting) {
+                            const pageNum = parseInt(entry.target.id.replace('page-', ''));
+                            if (pageNum !== currentPage) {
+                                currentPage = pageNum;
+                                updatePageInfo();
+                                saveProgress(path, currentPage);
+                                preloadPages(currentPage);
+                            }
+                        }
+                    });
+                }, { threshold: 0.5 });
+
+                updatePageInfo();
+                updateZoomInfo();
+
+                await renderPage(startPage);
+                loadingOverlay.classList.add('hidden');
+
+                scrollToPage(startPage);
+                preloadPages(startPage);
+
+                let lastScrollCheck = 0;
+                pdfContainer.addEventListener('scroll', () => {
+                    const now = Date.now();
+                    if (now - lastScrollCheck < 200) return;
+                    lastScrollCheck = now;
+
+                    const scrollTop = pdfContainer.scrollTop;
+                    const scrollHeight = pdfContainer.scrollHeight;
+                    const clientHeight = pdfContainer.clientHeight;
+                    const scrollPercent = (scrollTop + clientHeight) / scrollHeight;
+
+                    if (scrollPercent > 0.8) {
+                        const maxRendered = Math.max(...Array.from(renderedPages));
+                        if (maxRendered < totalPages) {
+                            const pagesToRender = Math.min(5, totalPages - maxRendered);
+                            for (let i = 1; i <= pagesToRender; i++) {
+                                renderPage(maxRendered + i);
+                            }
+                        }
+                    }
+                });
+                
+            } catch (err) {
+                console.error('PDF load error', err);
+                loadingOverlay.classList.add('hidden');
+                pdfContainer.innerHTML = '<p class="error-message">Failed to load PDF. The file may be corrupted or PDF.js is not properly configured.</p>';
+            }
+        }
+
+        prevBtn.addEventListener('click', () => goToPage(currentPage - 1));
+        nextBtn.addEventListener('click', () => goToPage(currentPage + 1));
+        
+        jumpBtn.addEventListener('click', () => {
+            const pageNum = parseInt(pageInput.value);
+            if (pageNum) goToPage(pageNum);
+        });
+        
+        pageInput.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') {
+                const pageNum = parseInt(pageInput.value);
+                if (pageNum) goToPage(pageNum);
+            }
+        });
+
+        zoomInBtn.addEventListener('click', () => changeZoom(scale + 0.25));
+        zoomOutBtn.addEventListener('click', () => changeZoom(scale - 0.25));
+        zoomResetBtn.addEventListener('click', () => changeZoom(1.5));
+
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'ArrowRight' || e.key === ' ') {
+                e.preventDefault();
+                goToPage(currentPage + 1);
+            } else if (e.key === 'ArrowLeft') {
+                e.preventDefault();
+                goToPage(currentPage - 1);
+            } else if (e.key === '+' || e.key === '=') {
+                e.preventDefault();
+                changeZoom(scale + 0.25);
+            } else if (e.key === '-' || e.key === '_') {
+                e.preventDefault();
+                changeZoom(scale - 0.25);
+            }
+        });
+
+        if (pdfPath) {
+            loadPDF(pdfPath);
+        }
+    </script>
+</body>
+</html>
+
+

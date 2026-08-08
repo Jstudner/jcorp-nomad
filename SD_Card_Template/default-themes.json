@@ -1,0 +1,509 @@
+{
+  "version": "1.0",
+  "themes": [
+    {
+      "id": "default-blue",
+      "name": "Default Blue",
+      "description": "Classic Jcorp Nomad blue theme",
+      "colors": {
+        "primary": "#007bff",
+        "primaryDark": "#0056b3",
+        "bgLight": "#f4f4f9",
+        "cardLight": "#ffffff",
+        "textLight": "#333333",
+        "mutedLight": "#6b7280",
+        "bgDark": "#071226",
+        "cardDark": "#071722",
+        "textDark": "#eaf6ff",
+        "mutedDark": "#93a9c6",
+        "primaryDarkTheme": "#4aa3ff"
+      }
+    },
+    {
+      "id": "forest-night",
+      "name": "Forest Night",
+      "description": "Deep green like a moonlit forest",
+      "colors": {
+        "primary": "#16a34a",
+        "primaryDark": "#15803d",
+        "bgLight": "#f7fee7",
+        "cardLight": "#ffffff",
+        "textLight": "#14532d",
+        "mutedLight": "#6b7280",
+        "bgDark": "#0a1f0f",
+        "cardDark": "#14532d",
+        "textDark": "#dcfce7",
+        "mutedDark": "#86efac",
+        "primaryDarkTheme": "#4ade80"
+      }
+    },
+    {
+      "id": "cherry-blossom",
+      "name": "Cherry Blossom",
+      "description": "Soft pink with delicate charm",
+      "colors": {
+        "primary": "#ec4899",
+        "primaryDark": "#db2777",
+        "bgLight": "#fdf2f8",
+        "cardLight": "#ffffff",
+        "textLight": "#831843",
+        "mutedLight": "#9ca3af",
+        "bgDark": "#1a0a14",
+        "cardDark": "#2d1420",
+        "textDark": "#fce7f3",
+        "mutedDark": "#f9a8d4",
+        "primaryDarkTheme": "#f472b6"
+      }
+    },
+    {
+      "id": "mocha-latte",
+      "name": "Mocha Latte",
+      "description": "Warm brown like coffee and cream",
+      "colors": {
+        "primary": "#92400e",
+        "primaryDark": "#78350f",
+        "bgLight": "#fef3c7",
+        "cardLight": "#fefce8",
+        "textLight": "#451a03",
+        "mutedLight": "#78716c",
+        "bgDark": "#1c1410",
+        "cardDark": "#292520",
+        "textDark": "#fef3c7",
+        "mutedDark": "#d97706",
+        "primaryDarkTheme": "#f59e0b"
+      }
+    },
+    {
+      "id": "ocean-depths",
+      "name": "Ocean Depths",
+      "description": "Deep blue like the ocean floor",
+      "colors": {
+        "primary": "#0284c7",
+        "primaryDark": "#0369a1",
+        "bgLight": "#f0f9ff",
+        "cardLight": "#ffffff",
+        "textLight": "#0c4a6e",
+        "mutedLight": "#64748b",
+        "bgDark": "#082f49",
+        "cardDark": "#0c4a6e",
+        "textDark": "#e0f2fe",
+        "mutedDark": "#7dd3fc",
+        "primaryDarkTheme": "#38bdf8"
+      }
+    },
+    {
+      "id": "autumn-leaves",
+      "name": "Autumn Leaves",
+      "description": "Warm orange like fall foliage",
+      "colors": {
+        "primary": "#ea580c",
+        "primaryDark": "#c2410c",
+        "bgLight": "#fff7ed",
+        "cardLight": "#ffffff",
+        "textLight": "#7c2d12",
+        "mutedLight": "#78716c",
+        "bgDark": "#1c1410",
+        "cardDark": "#431407",
+        "textDark": "#fed7aa",
+        "mutedDark": "#fdba74",
+        "primaryDarkTheme": "#fb923c"
+      }
+    },
+    {
+      "id": "lavender-fields",
+      "name": "Lavender Fields",
+      "description": "Soft purple like blooming lavender",
+      "colors": {
+        "primary": "#9333ea",
+        "primaryDark": "#7e22ce",
+        "bgLight": "#faf5ff",
+        "cardLight": "#ffffff",
+        "textLight": "#581c87",
+        "mutedLight": "#9ca3af",
+        "bgDark": "#1a0f2e",
+        "cardDark": "#2e1a47",
+        "textDark": "#f3e8ff",
+        "mutedDark": "#c4b5fd",
+        "primaryDarkTheme": "#a78bfa"
+      }
+    },
+    {
+      "id": "sunset-horizon",
+      "name": "Sunset Horizon",
+      "description": "Golden amber like the setting sun",
+      "colors": {
+        "primary": "#f59e0b",
+        "primaryDark": "#d97706",
+        "bgLight": "#fffbeb",
+        "cardLight": "#ffffff",
+        "textLight": "#78350f",
+        "mutedLight": "#78716c",
+        "bgDark": "#1c1410",
+        "cardDark": "#292520",
+        "textDark": "#fef3c7",
+        "mutedDark": "#fcd34d",
+        "primaryDarkTheme": "#fbbf24"
+      }
+    },
+    {
+      "id": "coral-reef",
+      "name": "Coral Reef",
+      "description": "Vibrant coral from tropical waters",
+      "colors": {
+        "primary": "#f43f5e",
+        "primaryDark": "#e11d48",
+        "bgLight": "#fff1f2",
+        "cardLight": "#ffffff",
+        "textLight": "#881337",
+        "mutedLight": "#9ca3af",
+        "bgDark": "#1a0a0e",
+        "cardDark": "#4c0519",
+        "textDark": "#ffe4e6",
+        "mutedDark": "#fda4af",
+        "primaryDarkTheme": "#fb7185"
+      }
+    },
+    {
+      "id": "mountain-mist",
+      "name": "Mountain Mist",
+      "description": "Cool grey like misty mountain peaks",
+      "colors": {
+        "primary": "#64748b",
+        "primaryDark": "#475569",
+        "bgLight": "#f8fafc",
+        "cardLight": "#ffffff",
+        "textLight": "#1e293b",
+        "mutedLight": "#64748b",
+        "bgDark": "#0f172a",
+        "cardDark": "#1e293b",
+        "textDark": "#f1f5f9",
+        "mutedDark": "#94a3b8",
+        "primaryDarkTheme": "#94a3b8"
+      }
+    },
+    {
+      "id": "jade-garden",
+      "name": "Jade Garden",
+      "description": "Rich jade green from ancient gardens",
+      "colors": {
+        "primary": "#059669",
+        "primaryDark": "#047857",
+        "bgLight": "#f0fdf4",
+        "cardLight": "#ffffff",
+        "textLight": "#064e3b",
+        "mutedLight": "#6b7280",
+        "bgDark": "#022c22",
+        "cardDark": "#064e3b",
+        "textDark": "#d1fae5",
+        "mutedDark": "#6ee7b7",
+        "primaryDarkTheme": "#34d399"
+      }
+    },
+    {
+      "id": "desert-sand",
+      "name": "Desert Sand",
+      "description": "Warm beige like desert dunes",
+      "colors": {
+        "primary": "#ca8a04",
+        "primaryDark": "#a16207",
+        "bgLight": "#fefce8",
+        "cardLight": "#fffef5",
+        "textLight": "#713f12",
+        "mutedLight": "#78716c",
+        "bgDark": "#1c1917",
+        "cardDark": "#292524",
+        "textDark": "#fef9c3",
+        "mutedDark": "#fde047",
+        "primaryDarkTheme": "#facc15"
+      }
+    },
+    {
+      "id": "arctic-aurora",
+      "name": "Arctic Aurora",
+      "description": "Cool cyan like northern lights",
+      "colors": {
+        "primary": "#06b6d4",
+        "primaryDark": "#0891b2",
+        "bgLight": "#ecfeff",
+        "cardLight": "#ffffff",
+        "textLight": "#164e63",
+        "mutedLight": "#64748b",
+        "bgDark": "#083344",
+        "cardDark": "#164e63",
+        "textDark": "#cffafe",
+        "mutedDark": "#67e8f9",
+        "primaryDarkTheme": "#22d3ee"
+      }
+    },
+    {
+      "id": "delorean",
+      "name": "DeLorean",
+      "description": "Sleek metallic grey like the time machine",
+      "colors": {
+        "primary": "#71717a",
+        "primaryDark": "#52525b",
+        "bgLight": "#fafafa",
+        "cardLight": "#ffffff",
+        "textLight": "#18181b",
+        "mutedLight": "#71717a",
+        "bgDark": "#18181b",
+        "cardDark": "#27272a",
+        "textDark": "#fafafa",
+        "mutedDark": "#a1a1aa",
+        "primaryDarkTheme": "#a1a1aa"
+      }
+    },
+    {
+      "id": "midnight-code",
+      "name": "Midnight Code",
+      "description": "Deep indigo for late night coding",
+      "colors": {
+        "primary": "#6366f1",
+        "primaryDark": "#4f46e5",
+        "bgLight": "#eef2ff",
+        "cardLight": "#ffffff",
+        "textLight": "#312e81",
+        "mutedLight": "#6b7280",
+        "bgDark": "#1e1b4b",
+        "cardDark": "#312e81",
+        "textDark": "#e0e7ff",
+        "mutedDark": "#a5b4fc",
+        "primaryDarkTheme": "#818cf8"
+      }
+    },
+    {
+      "id": "retro-90s",
+      "name": "90s Retro",
+      "description": "Radical purple & yellow vibes",
+      "colors": {
+        "primary": "#a855f7",
+        "primaryDark": "#9333ea",
+        "bgLight": "#fef3c7",
+        "cardLight": "#fffbeb",
+        "textLight": "#581c87",
+        "mutedLight": "#78716c",
+        "bgDark": "#1a0f2e",
+        "cardDark": "#2d1b4e",
+        "textDark": "#fde68a",
+        "mutedDark": "#fcd34d",
+        "primaryDarkTheme": "#e879f9"
+      }
+    },
+    {
+      "id": "mint-breeze",
+      "name": "Mint Breeze",
+      "description": "Cool mint green like a fresh breeze",
+      "colors": {
+        "primary": "#10b981",
+        "primaryDark": "#059669",
+        "bgLight": "#ecfdf5",
+        "cardLight": "#ffffff",
+        "textLight": "#065f46",
+        "mutedLight": "#6b7280",
+        "bgDark": "#064e3b",
+        "cardDark": "#065f46",
+        "textDark": "#d1fae5",
+        "mutedDark": "#6ee7b7",
+        "primaryDarkTheme": "#34d399"
+      }
+    },
+    {
+      "id": "rose-gold",
+      "name": "Rose Gold",
+      "description": "Elegant pink gold shimmer",
+      "colors": {
+        "primary": "#f472b6",
+        "primaryDark": "#ec4899",
+        "bgLight": "#fef2f2",
+        "cardLight": "#fff5f5",
+        "textLight": "#881337",
+        "mutedLight": "#9ca3af",
+        "bgDark": "#3f1728",
+        "cardDark": "#4c1d33",
+        "textDark": "#fecdd3",
+        "mutedDark": "#fda4af",
+        "primaryDarkTheme": "#fb7185"
+      }
+    },
+    {
+      "id": "crimson-night",
+      "name": "Crimson Night",
+      "description": "Deep crimson red like velvet",
+      "colors": {
+        "primary": "#dc2626",
+        "primaryDark": "#b91c1c",
+        "bgLight": "#fef2f2",
+        "cardLight": "#ffffff",
+        "textLight": "#7f1d1d",
+        "mutedLight": "#78716c",
+        "bgDark": "#1a0606",
+        "cardDark": "#3f0f0f",
+        "textDark": "#fecaca",
+        "mutedDark": "#fca5a5",
+        "primaryDarkTheme": "#ef4444"
+      }
+    },
+    {
+      "id": "emerald-dream",
+      "name": "Emerald Dream",
+      "description": "Rich emerald like precious stone",
+      "colors": {
+        "primary": "#10b981",
+        "primaryDark": "#059669",
+        "bgLight": "#f0fdf4",
+        "cardLight": "#ffffff",
+        "textLight": "#14532d",
+        "mutedLight": "#6b7280",
+        "bgDark": "#052e16",
+        "cardDark": "#14532d",
+        "textDark": "#bbf7d0",
+        "mutedDark": "#86efac",
+        "primaryDarkTheme": "#22c55e"
+      }
+    },
+    {
+      "id": "royal-purple",
+      "name": "Royal Purple",
+      "description": "Majestic purple fit for royalty",
+      "colors": {
+        "primary": "#7c3aed",
+        "primaryDark": "#6d28d9",
+        "bgLight": "#f5f3ff",
+        "cardLight": "#ffffff",
+        "textLight": "#4c1d95",
+        "mutedLight": "#9ca3af",
+        "bgDark": "#1e1141",
+        "cardDark": "#2e1f54",
+        "textDark": "#ddd6fe",
+        "mutedDark": "#c4b5fd",
+        "primaryDarkTheme": "#8b5cf6"
+      }
+    },
+    {
+      "id": "copper-sunset",
+      "name": "Copper Sunset",
+      "description": "Warm copper glow at dusk",
+      "colors": {
+        "primary": "#d97706",
+        "primaryDark": "#b45309",
+        "bgLight": "#fffbeb",
+        "cardLight": "#fefce8",
+        "textLight": "#78350f",
+        "mutedLight": "#78716c",
+        "bgDark": "#1c1410",
+        "cardDark": "#292520",
+        "textDark": "#fde68a",
+        "mutedDark": "#fcd34d",
+        "primaryDarkTheme": "#fbbf24"
+      }
+    },
+    {
+      "id": "sapphire-sea",
+      "name": "Sapphire Sea",
+      "description": "Deep sapphire blue waters",
+      "colors": {
+        "primary": "#2563eb",
+        "primaryDark": "#1d4ed8",
+        "bgLight": "#eff6ff",
+        "cardLight": "#ffffff",
+        "textLight": "#1e3a8a",
+        "mutedLight": "#64748b",
+        "bgDark": "#0a1628",
+        "cardDark": "#1e3a8a",
+        "textDark": "#dbeafe",
+        "mutedDark": "#93c5fd",
+        "primaryDarkTheme": "#3b82f6"
+      }
+    },
+    {
+      "id": "peach-cream",
+      "name": "Peach Cream",
+      "description": "Soft peach with creamy warmth",
+      "colors": {
+        "primary": "#fb923c",
+        "primaryDark": "#f97316",
+        "bgLight": "#fff7ed",
+        "cardLight": "#fffaf5",
+        "textLight": "#7c2d12",
+        "mutedLight": "#78716c",
+        "bgDark": "#1c1410",
+        "cardDark": "#2d1a0f",
+        "textDark": "#fed7aa",
+        "mutedDark": "#fdba74",
+        "primaryDarkTheme": "#fb923c"
+      }
+    },
+    {
+      "id": "slate-storm",
+      "name": "Slate Storm",
+      "description": "Dark slate grey like storm clouds",
+      "colors": {
+        "primary": "#475569",
+        "primaryDark": "#334155",
+        "bgLight": "#f8fafc",
+        "cardLight": "#ffffff",
+        "textLight": "#0f172a",
+        "mutedLight": "#64748b",
+        "bgDark": "#020617",
+        "cardDark": "#0f172a",
+        "textDark": "#e2e8f0",
+        "mutedDark": "#94a3b8",
+        "primaryDarkTheme": "#64748b"
+      }
+    },
+    {
+      "id": "lime-zest",
+      "name": "Lime Zest",
+      "description": "Bright lime green with zesty energy",
+      "colors": {
+        "primary": "#84cc16",
+        "primaryDark": "#65a30d",
+        "bgLight": "#f7fee7",
+        "cardLight": "#fefce8",
+        "textLight": "#3f6212",
+        "mutedLight": "#6b7280",
+        "bgDark": "#1a2e05",
+        "cardDark": "#3f6212",
+        "textDark": "#d9f99d",
+        "mutedDark": "#bef264",
+        "primaryDarkTheme": "#a3e635"
+      }
+    },
+    {
+      "id": "burgundy-wine",
+      "name": "Burgundy Wine",
+      "description": "Rich burgundy like aged wine",
+      "colors": {
+        "primary": "#be123c",
+        "primaryDark": "#9f1239",
+        "bgLight": "#fff1f2",
+        "cardLight": "#ffffff",
+        "textLight": "#4c0519",
+        "mutedLight": "#78716c",
+        "bgDark": "#1f0510",
+        "cardDark": "#4c0519",
+        "textDark": "#fecdd3",
+        "mutedDark": "#fb7185",
+        "primaryDarkTheme": "#f43f5e"
+      }
+    },
+    {
+      "id": "teal-oasis",
+      "name": "Teal Oasis",
+      "description": "Refreshing teal like an oasis",
+      "colors": {
+        "primary": "#14b8a6",
+        "primaryDark": "#0d9488",
+        "bgLight": "#f0fdfa",
+        "cardLight": "#ffffff",
+        "textLight": "#115e59",
+        "mutedLight": "#64748b",
+        "bgDark": "#042f2e",
+        "cardDark": "#134e4a",
+        "textDark": "#ccfbf1",
+        "mutedDark": "#5eead4",
+        "primaryDarkTheme": "#2dd4bf"
+      }
+    }
+  ]
+}

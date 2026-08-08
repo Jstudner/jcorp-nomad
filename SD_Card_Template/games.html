@@ -1,4 +1,5 @@
 <!DOCTYPE html>
+<!-- Version 4 -->
 <html lang="en">
 <head>
   <meta charset="UTF-8">
@@ -6,153 +7,128 @@
   <meta name="description" content="Jcorp Nomad Media Server – Games">
   <title>Nomad • Games</title>
   <link rel="icon" href="favicon.ico" type="image/x-icon">
+  <link rel="stylesheet" href="/master.css">
+  <script src="/theme-boot.js"></script>
+  <script src="/theme-manager.js"></script>
   <style>
-    :root {
-      --primary: #007bff;
-      --primary-dark: #0056b3;
-      --bg: #f4f4f9;
-      --text: #333;
-      --radius: 8px;
-      --shadow: 0 4px 12px rgba(0,0,0,0.08);
-    }
-    *,*::before,*::after { box-sizing:border-box; margin:0; padding:0; }
+    /* Functional CSS: Games-specific layout */
     body {
-      font-family: Arial, sans-serif;
-      background: var(--bg);
-      color: var(--text);
-      display:flex;
-      flex-direction:column;
-      min-height:100vh;
+      display: flex;
+      flex-direction: column;
+      min-height: 100vh;
     }
     header {
-      background: var(--primary);
-      color:#fff;
-      padding:1.25rem 1rem;
-      display:flex;
-      align-items:center;
-      justify-content:space-between;
-      box-shadow: var(--shadow);
-      position:sticky;
-      top:0;
-      z-index:50;
-      flex-wrap:wrap;
-    }
-    header h1 {
-      font-size:clamp(1.25rem,5vw,1.75rem);
-      font-weight:600;
-    }
-    .back-btn {
-      text-decoration:none;
-      color:#fff;
-      background:var(--primary-dark);
-      padding:.5rem .75rem;
-      border-radius:var(--radius);
-      font-size:.9rem;
+      position: sticky;
+      top: 0;
+      z-index: 50;
+      flex-wrap: wrap;
     }
     .toolbar {
-      background:var(--bg);
-      padding:.75rem 1rem;
-      display:flex;
-      flex-wrap:wrap;
-      gap:.75rem;
-      align-items:center;
-      border-bottom:1px solid #ddd;
-      position:sticky;
-      top:64px;
-      z-index:45;
+      padding: .75rem 1rem;
+      display: flex;
+      flex-wrap: wrap;
+      gap: .75rem;
+      align-items: center;
+      border-bottom: 1px solid var(--line);
+      position: sticky;
+      top: 64px;
+      z-index: 45;
+      background: var(--bg);
     }
     .toolbar input[type="search"] {
-      flex:1 1 200px;
-      padding:.5rem .75rem;
-      border:1px solid #ccc;
-      border-radius:var(--radius);
-      font-size:.95rem;
-      line-height:1.25;
-      max-height:2.5rem;
+      flex: 1 1 200px;
+      padding: .5rem .75rem;
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: var(--card);
+      color: var(--text);
+      font-size: .95rem;
+      line-height: 1.25;
+      max-height: 2.5rem;
     }
-    .toolbar select,
-    .toolbar .view-btn {
-      padding:.5rem .75rem;
-      border:1px solid #ccc;
-      background:#fff;
-      border-radius:var(--radius);
-      font-size:.9rem;
-      cursor:pointer;
+    .toolbar select, .toolbar .view-btn {
+      padding: .5rem .75rem;
+      border: 1px solid var(--line);
+      background: var(--card);
+      color: var(--text);
+      border-radius: var(--radius);
+      font-size: .9rem;
+      cursor: pointer;
     }
     .view-btn.active {
-      background:var(--primary);
-      color:#fff;
-      border-color:var(--primary-dark);
+      background: var(--primary);
+      color: #fff;
+      border-color: var(--primary-dark);
     }
     main {
-      flex:1;
-      display:flex;
-      flex-direction:column;
-      max-width:1200px;
-      width:100%;
-      margin:0 auto;
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      max-width: 1200px;
+      width: 100%;
+      margin: 0 auto;
     }
     .grid-wrapper {
-      flex:1;
-      overflow-y:auto;
-      padding:1rem;
+      flex: 1;
+      overflow-y: auto;
+      padding: 1rem;
     }
-    .media-grid { display:grid; gap:1rem; }
-    .media-grid.small  { grid-template-columns:repeat(auto-fit,minmax(120px,1fr)); }
-    .media-grid.medium { grid-template-columns:repeat(auto-fit,minmax(160px,1fr)); }
-    .media-grid.large  { grid-template-columns:repeat(auto-fit,minmax(220px,1fr)); }
+    .media-grid { display: grid; gap: 1rem; }
+    .media-grid.small  { grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); }
+    .media-grid.medium { grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); }
+    .media-grid.large  { grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); }
     @media(max-width:600px) {
-      header { flex-direction:column; align-items:stretch; }
-      .back-btn { width:100%; text-align:center; }
-      .toolbar { top:112px; flex-direction:column; align-items:stretch; }
+      header { flex-direction: column; align-items: stretch; }
+      .back-btn { width: 100%; text-align: center; }
+      .toolbar { top: 112px; flex-direction: column; align-items: stretch; }
       .media-grid.small,
       .media-grid.medium,
-      .media-grid.large { grid-template-columns:repeat(2,1fr); }
+      .media-grid.large { grid-template-columns: repeat(2, 1fr); }
     }
     .media-card {
-      background:#fff;
-      border-radius:var(--radius);
-      box-shadow:var(--shadow);
-      overflow:hidden;
-      display:flex;
-      flex-direction:column;
-      transition:transform .25s ease;
-      cursor:pointer;
-      width:100%;
-      max-width:220px;
-      margin:0 auto;
+      background: var(--card-bg);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+      transition: transform .25s ease;
+      cursor: pointer;
+      width: 100%;
+      max-width: 220px;
+      margin: 0 auto;
     }
-    .media-card:hover { transform:translateY(-3px); }
+    .media-card:hover { transform: translateY(-3px); }
     .media-thumb {
-      width:100%;
-      aspect-ratio:2/3;
-      object-fit:cover;
+      width: 100%;
+      aspect-ratio: 2/3;
+      object-fit: cover;
     }
     .media-caption {
-      padding:.5rem;
-      text-align:center;
+      padding: .5rem;
+      text-align: center;
     }
     .media-caption small {
-      display:block;
-      font-size:.75rem;
-      color:#666;
+      display: block;
+      font-size: .75rem;
+      color: var(--muted);
     }
     #emu {
-      display:none;
-      width:100%;
-      height:calc(100vh - 60px);
-      background:#000;
-      position:relative;
+      display: none;
+      width: 100%;
+      height: calc(100vh - 60px);
+      background: #000;
+      position: relative;
     }
     footer {
-      text-align:center;
-      padding:1rem 0;
-      font-size:0.9rem;
-      color:#666;
+      text-align: center;
+      padding: 1rem 0;
+      font-size: 0.9rem;
+      color: var(--muted);
     }
   </style>
 </head>
-<body>
+<body data-page="games">
   <header>
     <h1>Games</h1>
     <a class="back-btn" href="/menu">← Back to Menu</a>
@@ -338,3 +314,4 @@
   </script>
 </body>
 </html>
+

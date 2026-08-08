@@ -1,27 +1,13 @@
 <!DOCTYPE html>
-<!-- Version 2.2 -->
+<!-- Version 4 -->
 <html lang="en">
 <head>
+    <link rel="stylesheet" href="/master.css">
+    <script src="/theme-boot.js"></script>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Nomad — File Manager</title>
-  <script>
-  try {
-    // Theme management
-    try {
-      const saved = localStorage.getItem('nomad_dark_mode');
-      const isDark = saved === 'true';
-      if (typeof applyThemeFlag === 'function') {
-        applyThemeFlag(isDark);
-      } else {
-        // Fallback: toggle class directly to avoid flash of incorrect theme
-        try {
-          document.body.classList.toggle('dark', isDark);
-        } catch (e) { /* ignore */ }
-      }
-    } catch (e) { /* ignore */ }
-  } catch (e) { /* ignore */ }
-  </script>
+  <script src="theme-manager.js"></script>
   <style>
     :root {
       --primary: #007bff;
@@ -40,7 +26,7 @@
       --card-border: #dee2e6;
       --header-text: #ffffff;
       --shadow: 0 0.125rem 0.25rem rgba(0, 0, 0, 0.075);
-      --shadow-lg: 0 0.5rem 1rem rgba(0, 0, 0, 0.15);
+      --shadow-large: 0 0.5rem 1rem rgba(0, 0, 0, 0.15);
       --radius: 0.375rem;
       --mono: ui-monospace, SFMono-Regular, Menlo, Monaco, "Roboto Mono", "Courier New", monospace;
     }
@@ -54,7 +40,7 @@
       --card-border: #343a40;
       --header-text: #ffffff;
       --shadow: 0 0.125rem 0.25rem rgba(0, 0, 0, 0.3);
-      --shadow-lg: 0 0.5rem 1rem rgba(0, 0, 0, 0.4);
+      --shadow-large: 0 0.5rem 1rem rgba(0, 0, 0, 0.4);
     }
 
     * {
@@ -408,6 +394,10 @@
       z-index: 2000;
     }
 
+    .modal-backdrop[style*="display: flex"] {
+      display: flex !important;
+    }
+
     .modal {
       background: var(--card-bg);
       border-radius: var(--radius);
@@ -415,12 +405,16 @@
       max-width: 90vw;
       max-height: 90vh;
       width: 800px;
-      box-shadow: var(--shadow-lg);
+      box-shadow: var(--shadow-large);
+      display: flex;
+      flex-direction: column;
+      position: relative;
+      overflow: hidden;
     }
-
     .editor {
       width: 100%;
-      height: 400px;
+      min-height: 400px;
+      flex: 1;
       font-family: var(--mono);
       font-size: 0.875rem;
       background: var(--bg);
@@ -1439,7 +1433,19 @@
       setBusy('Saving...');
 
       try {
-        await ajaxPost(saveEndpoint, { filename: rel, content: content }, 120000);
+        const formData = new FormData();
+        formData.append('filename', rel);
+        formData.append('content', content);
+
+        const response = await fetch(saveEndpoint, {
+          method: 'POST',
+          body: formData
+        });
+
+        if (!response.ok) {
+          const errorText = await response.text();
+          throw new Error(`HTTP ${response.status}: ${errorText}`);
+        }
 
         triggerReindex(parent);
         clearBusy('Saved');
@@ -1449,7 +1455,6 @@
           deselectItem();
         }
 
-        // FIX: Proper conditional check
         if (parent === currentPath) {
           await sleep(1000);
           renderDirectory(currentPath);
@@ -1673,3 +1678,5 @@
   </script>
   </body>
   </html>
+
+

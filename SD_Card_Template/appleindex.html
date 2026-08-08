@@ -1,4 +1,5 @@
 <!DOCTYPE html>
+<!-- Version 4 -->
 <html lang="en">
 <head>
     <meta charset="UTF-8">
@@ -6,28 +7,24 @@
     <meta name="description" content="Jcorp Nomad Media Server - Instructions for Apple Devices">
     <title>Jcorp Nomad - Instructions (Apple)</title>
     <link rel="icon" href="favicon.ico" type="image/x-icon">
+    <link rel="stylesheet" href="/master.css">
+    <script src="/theme-boot.js"></script>
+    <script src="/theme-manager.js"></script>
     <style>
+        /* layout only, colors come from master.css tokens so it follows dark/custom themes */
+        html, body { height: 100%; }
         body {
-            font-family: Arial, sans-serif;
             margin: 0;
-            padding: 0;
-            background-color: #f4f4f9;
-            color: #333;
+            font-family: var(--font-primary);
+            background: var(--bg);
+            color: var(--text);
             text-align: center;
-            height: 100vh;
             display: flex;
             flex-direction: column;
         }
-        header {
-            background-color: #007bff;
-            color: white;
-            padding: 20px;
-            font-size: 2em;
-            width: 100%;
-            box-sizing: border-box;
-        }
+        /* uses master.css's shared header components (like menu.html) so it looks like part of the app */
         .content {
-            flex-grow: 1;
+            flex: 1;
             padding: 20px;
             display: flex;
             flex-direction: column;
@@ -36,64 +33,64 @@
         }
         .instructions {
             font-size: 1.1em;
-            color: #555;
-            background-color: #e9ecef;
-            border-radius: 10px;
+            background: var(--card);
+            color: var(--text);
+            border-radius: var(--radius);
+            box-shadow: var(--shadow);
             width: 90%;
             max-width: 500px;
-            padding: 20px;
+            padding: 28px 24px;
             box-sizing: border-box;
+            text-align: center;
         }
-        .instructions button,
-        #copyLinkButton {
-            padding: 10px;
-            font-size: 1em;
-            color: white;
-            border: none;
-            border-radius: 5px;
-            cursor: pointer;
-            transition: background-color 0.3s;
+        .instructions h3 {
+            margin: 0 0 10px;
         }
-        .instructions button {
-            background-color: #28a745;
+        .instructions > p {
+            margin: 0 0 18px;
         }
-        .instructions button:hover {
-            background-color: #218838;
+        .instructions ol {
+            list-style-position: inside;
+            margin: 0 0 18px;
+            padding: 0;
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
         }
-        #copyLinkButton {
-            background-color: #007bff;
-        }
-        #copyLinkButton:hover {
-            background-color: #0056b3;
+        /* mobile steps show by default, PC steps + "Go to Menu" appear once adjustForDevice() sees a wide screen */
+        .step-pc { display: none; }
+        body.is-pc .step-pc { display: list-item; }
+        body.is-pc .step-mobile { display: none; }
+        .copy-row {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 8px;
         }
         #copyLink {
+            flex: 1 1 200px;
+            max-width: 240px;
             padding: 8px;
             font-size: 1em;
             text-align: center;
-            width: 80%;
-            margin-bottom: 20px;
             box-sizing: border-box;
             word-wrap: break-word;
+            border: 1px solid var(--card-border);
+            border-radius: var(--radius-small);
+            background: var(--bg);
+            color: var(--text);
         }
         .buttons {
-            display: flex;
+            display: none;
             flex-wrap: wrap;
             justify-content: center;
             gap: 15px;
             margin-top: 20px;
         }
         .buttons a {
-            background-color: #007bff;
-            color: white;
-            text-decoration: none;
-            padding: 15px 25px;
-            border-radius: 5px;
-            transition: background-color 0.3s;
             font-size: 1.2em;
-            text-align: center;
-        }
-        .buttons a:hover {
-            background-color: #0056b3;
+            padding: 15px 25px;
         }
         @media (max-width: 600px) {
             .buttons {
@@ -109,64 +106,83 @@
     </style>
 </head>
 <body>
-    <header>Jcorp Nomad</header>
-    
-    <div class="content">
+    <header>
+        <div class="brand">
+            <div class="logo" aria-hidden="false">
+                <img src="/logo.png" alt="Jcorp Nomad logo" onerror="this.style.display='none'">
+            </div>
+            <div style="min-width:0">
+                <div class="title" aria-label="Application title">Jcorp Nomad</div>
+            </div>
+        </div>
+    </header>
 
+    <div class="content">
+        <!-- Instructions Section -->
         <div class="instructions" id="instructions">
             <h3 id="instructionHeader">Instructions for Connecting (Apple Devices):</h3>
             <p id="instructionText">Follow the steps below to access the media server:</p>
             <ol id="instructionList">
                 <li>Copy the link below:</li>
                 <li>
-                    <input type="text" value="192.168.4.1/menu" id="copyLink" readonly>
-                    <button id="copyLinkButton" onclick="copyLink()">Copy Link</button>
+                    <div class="copy-row">
+                        <input type="text" value="nomad.local/menu" id="copyLink" readonly>
+                        <button id="copyLinkButton" type="button" class="btn btn-success">Copy Link</button>
+                    </div>
                 </li>
-                <li>Tap the "Cancel" button in the top-right corner of your screen.</li>
-                <li>Then, select "Use Without Wi-Fi" to continue accessing the media server.</li>
-                <li>Paste the link into your browser to access the server.</li>
+                <li>If that address doesn't load, use <strong>192.168.4.1/menu</strong> instead.</li>
+                <li class="step-mobile">Tap the "Cancel" button in the top-right corner of your screen.</li>
+                <li class="step-mobile">Then select "Use Without Internet" to continue accessing the media server.</li>
+                <li class="step-mobile">Paste the link into your browser to continue.</li>
+                <li class="step-pc">Open the link in a new browser tab.</li>
+                <li class="step-pc">Or click the "Go to Menu" button below.</li>
             </ol>
             <p><strong>Important:</strong> Follow these steps before trying to access the media server.</p>
         </div>
 
-
+        <!-- Direct Access Button (Visible on Larger Screens) -->
         <div class="buttons" id="goToMenuButton">
-            <a href="menu">Go to Menu</a>
+            <a class="btn btn-primary" href="menu">Go to Menu</a>
         </div>
     </div>
 
     <script>
-  
-        function copyLink() {
-            var copyText = document.getElementById("copyLink");
-            copyText.select();
-            document.execCommand("copy");
-            alert("Link copied to clipboard!");
-        }
+    (function() {
+        const copyLink = document.getElementById('copyLink');
+        const copyLinkButton = document.getElementById('copyLinkButton');
+        const instructionHeader = document.getElementById('instructionHeader');
+        const instructionText = document.getElementById('instructionText');
+        const goToMenuButton = document.getElementById('goToMenuButton');
 
-
-        function adjustForDevice() {
-            if (window.innerWidth > 600) {
-                document.getElementById('instructionHeader').textContent = "You're on a PC!";
-                document.getElementById('instructionText').innerHTML = 
-                    "Use the button below to go directly to the menu, or copy and paste the link in a new tab.";
-                document.getElementById('instructionList').innerHTML = ` 
-                    <li>Copy the link below:</li>
-                    <li>
-                        <input type="text" value="192.168.4.1/menu" id="copyLink" readonly>
-                        <button id="copyLinkButton" onclick="copyLink()">Copy Link</button>
-                    </li>
-                    <li>Open the link in a new browser tab.</li>
-                    <li>Or click the "Go to Menu" button below.</li>
-                `;
-                document.getElementById('goToMenuButton').style.display = 'block'; 
-            } else {
-                document.getElementById('goToMenuButton').style.display = 'none';
+        copyLinkButton.addEventListener('click', () => {
+            copyLink.select();
+            copyLink.setSelectionRange(0, 99999); // iOS Safari needs an explicit range to select
+            try {
+                // navigator.clipboard needs HTTPS and we're plain HTTP, so use execCommand
+                document.execCommand('copy');
+                alert('Link copied to clipboard!');
+            } catch (e) {
+                alert('Could not copy automatically — please copy the selected text.');
             }
-        }
+        });
 
+        // PCs get a "Go to Menu" button + different steps, phones get the captive-portal steps.
+        // just toggles pre-rendered steps, doesnt rebuild markup
+        function adjustForDevice() {
+            const isPC = window.innerWidth > 600;
+            document.body.classList.toggle('is-pc', isPC);
+            if (isPC) {
+                instructionHeader.textContent = "You're on a PC!";
+                instructionText.textContent = 'Use the button below to go directly to the menu, or copy and paste the link in a new tab.';
+            } else {
+                instructionHeader.textContent = 'Instructions for Connecting (Apple Devices):';
+                instructionText.textContent = 'Follow the steps below to access the media server:';
+            }
+            goToMenuButton.style.display = isPC ? 'flex' : 'none';
+        }
 
         adjustForDevice();
+    })();
     </script>
 </body>
 </html>

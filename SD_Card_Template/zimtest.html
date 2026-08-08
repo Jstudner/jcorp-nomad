@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<!-- Version 4 -->
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1.0" />
+<title>Nomad • Archive Index Diagnostics</title>
+<script src="/assets/fzstd.min.js"></script>
+<script src="/assets/nomad-zim.js?v=idx2"></script>
+<style>
+  body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',monospace;margin:0;background:#0f1117;color:#d7dbe4;}
+  header{padding:12px 14px;background:#1b2130;position:sticky;top:0;display:flex;gap:8px;flex-wrap:wrap;align-items:center;}
+  input,button{font-size:15px;padding:8px 10px;border-radius:6px;border:1px solid #33405a;background:#0f1117;color:#d7dbe4;}
+  button{background:#2d6cdf;border-color:#2d6cdf;color:#fff;font-weight:700;}
+  #log{padding:12px 14px;white-space:pre-wrap;word-break:break-word;font-size:13px;line-height:1.5;}
+  .ok{color:#66d19e;}.err{color:#ff6b6b;font-weight:700;}.warn{color:#f7c948;}.dim{color:#7a86a1;}.hdr{color:#8fb8ff;font-weight:700;margin-top:10px;}
+</style>
+</head>
+<body>
+<header>
+  <input id="term" value="einstein" />
+  <button onclick="runAll()">Run</button>
+  <button onclick="document.getElementById('log').textContent=''">Clear</button>
+</header>
+<div id="log"></div>
+<script>
+const logEl=document.getElementById('log');
+function log(m,cls){const s=document.createElement('span');if(cls)s.className=cls;s.textContent=m+'\n';logEl.appendChild(s);}
+function hdr(m){log('\n'+m,'hdr');}
+
+const IDX='/Archive/.nomad-zim';
+const media = (path) => '/media?file=' + encodeURIComponent(path);   // routes to the range handler
+
+// fetch with timeout that covers the BODY too (not just headers)
+async function timedFetch(url, range, ms){
+  const ctl=new AbortController(); const t=setTimeout(()=>ctl.abort('timeout'), ms||15000);
+  const opts={cache:'no-store',signal:ctl.signal}; if(range)opts.headers={'Range':range};
+  const t0=Date.now();
+  try{
+    const r=await fetch(url,opts);
+    const buf=await r.arrayBuffer();  // body read is INSIDE the timeout
+    clearTimeout(t);
+    return {ms:Date.now()-t0, status:r.status, len:buf.byteLength, cr:r.headers.get('content-range'), ct:r.headers.get('content-type'), buf};
+  }catch(e){ clearTimeout(t); return {ms:Date.now()-t0, err:String(e && (e.message||e))}; }
+}
+
+async function runAll(){
+  logEl.textContent='';
+  const term=(document.getElementById('term').value||'einstein').trim().toLowerCase();
+  log('Archive INDEX diagnostics @ '+new Date().toLocaleTimeString());
+  log('NomadZim.NomadArchiveIndex present: '+(typeof NomadZim!=='undefined' && !!NomadZim.NomadArchiveIndex),
+      (typeof NomadZim!=='undefined' && NomadZim.NomadArchiveIndex)?'ok':'err');
+
+  hdr('1. manifest.json (via /media)');
+  let man=await timedFetch(media(IDX+'/manifest.json'), null, 15000);
+  if(man.err){ log('  FAILED '+man.ms+'ms: '+man.err,'err'); return; }
+  log('  HTTP '+man.status+'  '+man.len+' bytes  '+man.ms+'ms  ct='+man.ct, man.status===200?'ok':'err');
+  let manifest=null; try{ manifest=JSON.parse(new TextDecoder().decode(man.buf)); }catch(e){ log('  JSON parse FAILED: '+e.message+' (first 120 chars: '+new TextDecoder().decode(man.buf).slice(0,120)+')','err'); return; }
+  log('  version='+manifest.version+' articles='+manifest.articleCount+' words='+manifest.wordCount+' wordsBytes='+manifest.wordsBytes+' archives='+(manifest.archives||[]).length,'ok');
+
+  hdr('2. words.skp (skip table, via /media)');
+  let skp=await timedFetch(media(IDX+'/words.skp'), null, 15000);
+  if(skp.err){ log('  FAILED '+skp.ms+'ms: '+skp.err,'err'); return; }
+  log('  HTTP '+skp.status+'  '+skp.len+' bytes  '+skp.ms+'ms', skp.status===200?'ok':'err');
+  let skip=null; try{ skip=JSON.parse(new TextDecoder().decode(skp.buf)); }catch(e){ log('  JSON parse FAILED: '+e.message,'err'); return; }
+  log('  step='+skip.step+' keys='+(skip.keys||[]).length+'  first="'+(skip.keys&&skip.keys[0]&&skip.keys[0][0])+'" last="'+(skip.keys&&skip.keys[skip.keys.length-1]&&skip.keys[skip.keys.length-1][0])+'"','ok');
+
+  hdr('3. RANGE read of words.dat — direct vs /media (the key test)');
+  const ks=skip.keys; let lo=0,hi=ks.length-1,at=0;
+  while(lo<=hi){const m=(lo+hi)>>1; if(ks[m][0]<=term){at=m;lo=m+1;}else hi=m-1;}
+  const start=ks[at][1]; const end=(at+1<ks.length)?ks[at+1][1]:manifest.wordsBytes;
+  const want=end-start;
+  log('  term "'+term+'" -> skip['+at+']="'+ks[at][0]+'" range bytes='+start+'-'+(end-1)+' ('+want+' bytes expected)','dim');
+
+  // 3a: direct path (expected to be broken - ignores Range, streams whole file)
+  log('  [direct]  '+IDX+'/words.dat …','dim');
+  let d1=await timedFetch(IDX+'/words.dat', 'bytes='+start+'-'+(end-1), 12000);
+  if(d1.err) log('    direct: '+d1.err+' after '+d1.ms+'ms (whole-file stream / no Range → expected to fail)','warn');
+  else log('    direct: HTTP '+d1.status+'  got '+d1.len+' bytes ('+(d1.len>want+64?'⚠ MORE than asked = Range ignored':'ok')+')  '+d1.ms+'ms  cr='+d1.cr, d1.len>want+64?'err':'ok');
+
+  // 3b: via /media (routes to range handler - the fix)
+  log('  [/media]  '+media(IDX+'/words.dat')+' …','dim');
+  let d2=await timedFetch(media(IDX+'/words.dat'), 'bytes='+start+'-'+(end-1), 20000);
+  if(d2.err){ log('    /media FAILED '+d2.ms+'ms: '+d2.err,'err'); return; }
+  log('    /media: HTTP '+d2.status+(d2.status===206?' ✓':' (expected 206)')+'  got '+d2.len+' bytes  '+d2.ms+'ms  cr='+d2.cr, d2.status===206?'ok':'err');
+  const lines=new TextDecoder().decode(d2.buf).split('\n').filter(Boolean);
+  log('    parsed '+lines.length+' lines; first: '+(lines[0]||'').slice(0,70),'dim');
+
+  hdr('4. NomadArchiveIndex.search() end-to-end');
+  try{
+    const idx=new NomadZim.NomadArchiveIndex('/Archive/.nomad-zim');
+    const t0=Date.now(); await idx.load(); log('  load() '+(Date.now()-t0)+'ms','ok');
+    const t1=Date.now(); const hits=await idx.search(term,6);
+    log('  search("'+term+'") '+(Date.now()-t1)+'ms -> '+hits.length+' hits', hits.length?'ok':'warn');
+    for(const h of hits) log('     - '+h.title+'  ['+h.archiveId+'] c'+h.cluster+'/b'+h.blob,'dim');
+    if(hits.length){
+      hdr('5. open first article');
+      const t2=Date.now();
+      const c=await idx.openArticle(hits[0],{zstd:async d=>fzstd.decompress(d),xz:async()=>{throw new Error('xz needs xzwasm')}});
+      log('  opened '+c.data.length+' bytes '+c.mimeType+' in '+(Date.now()-t2)+'ms','ok');
+    }
+  }catch(e){ log('  search/open FAILED: '+(e&&(e.message||e)),'err'); }
+  log('\nDone. Screenshot and share.','hdr');
+}
+runAll();
+</script>
+</body>
+</html>

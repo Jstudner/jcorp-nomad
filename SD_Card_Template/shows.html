@@ -1,27 +1,41 @@
 <!DOCTYPE html>
-<!-- Version 2.2 -->
+<!-- Version 4.1 -->
 <html lang="en">
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width,initial-scale=1" />
 <title>Nomad • Shows</title>
+<link rel="stylesheet" href="assets/plyr.css" />
+<link rel="stylesheet" href="/master.css">
+<script src="/theme-boot.js"></script>
+<script src="/nomad-utils.js"></script>
+<script src="assets/plyr.min.js"></script>
+<script src="/theme-manager.js"></script>
 <style>
+  /* Functional CSS: Shows-specific layout and Plyr.js customization */
   :root{
-    --primary:#007bff; --primary-dark:#0056b3; --bg:#f4f4f9; --text:#333; --muted:#6b7280;
-    --radius:10px; --shadow:0 8px 24px rgba(0,0,0,0.08);
     --card-gap:1rem;
+    --header-height:68px; /* fallback used by CSS; JS will set exact top */
   }
-  *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
   html,body{height:100%}
-  body{font-family:Arial,Helvetica,sans-serif;background:var(--bg);color:var(--text);display:flex;flex-direction:column;min-height:100vh}
-  header{background:var(--primary);color:#fff;padding:16px 20px;display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;z-index:60;box-shadow:var(--shadow)}
-  header h1{font-size:clamp(1.15rem,4vw,1.5rem);margin:0;font-weight:700}
-  .back-btn{text-decoration:none;color:#fff;background:var(--primary-dark);padding:.45rem .7rem;border-radius:8px;font-size:0.95rem;display:inline-block}
+  body{display:flex;flex-direction:column;min-height:100vh}
+  header{position:sticky;top:0;z-index:60;}
 
-  .toolbar{background:var(--bg);padding:.65rem 1rem;display:flex;flex-wrap:wrap;gap:.6rem;align-items:center;border-bottom:1px solid #e6e9ef;position:sticky;top:68px;z-index:55;}
-  .toolbar input[type="search"]{flex:1 1 220px;padding:.5rem .75rem;border:1px solid #d6d9e6;border-radius:8px;font-size:0.95rem;background:#fff}
-  .toolbar select, .toolbar .view-btn{padding:.48rem .7rem;border:1px solid #d6d9e6;background:#fff;border-radius:8px;font-size:0.9rem;cursor:pointer}
-  .view-btn.active{background:var(--primary);color:#fff;border-color:var(--primary-dark);}
+  .toolbar{
+    padding:.65rem 1rem;
+    display:flex;
+    flex-wrap:wrap;
+    gap:.6rem;
+    align-items:center;
+    border-bottom:1px solid var(--line);
+    position:sticky;
+    top:var(--header-height);
+    z-index:55;
+    background:var(--bg);
+  }
+  .toolbar input[type="search"]{flex:1 1 220px;padding:.5rem .75rem;border:1px solid var(--line);border-radius:var(--radius);font-size:0.95rem;background:var(--card);color:var(--text)}
+  .toolbar select, .toolbar .view-btn{padding:.48rem .7rem;border:1px solid var(--line);background:var(--card);color:var(--text);border-radius:var(--radius);font-size:0.9rem;cursor:pointer}
+  .view-btn.active{background:var(--primary);color:var(--color-white);border-color:var(--primary-dark);}
 
   main{flex:1;display:flex;flex-direction:column;max-width:1200px;width:100%;margin:0 auto;padding:1rem}
   .grid-wrapper{flex:1;overflow-y:auto;padding-bottom:12px}
@@ -31,23 +45,19 @@
   .media-grid.large  {grid-template-columns:repeat(auto-fill,minmax(220px,1fr));}
 
   @media (max-width:600px){
-    header{flex-direction:column;gap:.5rem;align-items:stretch;}
-    .back-btn{width:100%;text-align:center;}
-    .toolbar{top:112px;}
     .media-grid.small  {grid-template-columns:repeat(2,1fr);}
     .media-grid.medium {grid-template-columns:repeat(3,1fr);}
     .media-grid.large  {grid-template-columns:repeat(4,1fr);}
   }
 
   /* cards */
-  .media-card{background:#fff;border-radius:var(--radius);box-shadow:var(--shadow);overflow:hidden;display:flex;flex-direction:column;transition:transform .22s ease, box-shadow .22s ease;cursor:pointer;width:100%;max-width:220px;margin:0 auto;position:relative;will-change:transform,opacity;}
+  .media-card{width:100%;max-width:220px;margin:0 auto;position:relative;will-change:transform,opacity;}
   .media-grid.small  .media-card{max-width:120px;}
   .media-grid.medium .media-card{max-width:160px;}
   .media-grid.large  .media-card{max-width:220px;}
-  .media-card:hover{transform:translateY(-4px);box-shadow:0 12px 30px rgba(0,0,0,0.10);}
 
-  .thumb-wrapper{position:relative;display:flex;align-items:center;justify-content:center;background:#efeff5;color:#555;font-size:0.9rem;text-align:center;width:100%;aspect-ratio:2/3;overflow:hidden;}
-  .fallback-text{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;z-index:2;text-align:center;font-weight:700;color:#06306f;pointer-events:none;padding:6px}
+  .thumb-wrapper{position:relative;display:flex;align-items:center;justify-content:center;background:var(--thumb-bg);color:var(--thumb-text);font-size:0.9rem;text-align:center;width:100%;aspect-ratio:2/3;overflow:hidden;}
+  .fallback-text{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;z-index:2;text-align:center;font-weight:700;color:var(--thumb-title);pointer-events:none;padding:6px}
   .media-thumb{display:block;width:100%;height:100%;object-fit:cover;position:absolute;top:0;left:0;z-index:1;opacity:0;transition:opacity .35s ease;}
   .badge-resume{position:absolute;left:50%;transform:translateX(-50%);bottom:8px;background:rgba(0,0,0,0.6);color:#fff;padding:6px 10px;border-radius:999px;font-weight:700;font-size:12px;z-index:4;display:block;min-width:40px;max-width:85%;overflow:hidden}
   .marquee{display:block;white-space:nowrap;overflow:hidden;position:relative;height:18px}
@@ -57,60 +67,88 @@
   .card-body{display:none}
 
   /* modals */
-  .modal,.episode-modal,.video-modal{display:none;position:fixed;inset:0;background:rgba(0,0,0,0.55);justify-content:center;align-items:center;z-index:1000;padding:20px;}
-  /* fixed modal size */
-  .modal-content,.episode-modal-content{background:#fff;padding:18px;border-radius:12px;text-align:center;width:94%;max-width:980px;box-shadow:0 12px 44px rgba(0,0,0,0.12);max-height:90vh;overflow:auto}
+  .modal,.episode-modal,.video-modal{display:none;position:fixed;inset:0;background:var(--overlay-modal);justify-content:center;align-items:center;z-index:1000;padding:20px;}
+  .modal-content,.episode-modal-content{background:var(--card-bg);color:var(--text);padding:18px;border-radius:var(--radius);text-align:center;width:94%;max-width:980px;box-shadow:var(--shadow-large);max-height:90vh;overflow:auto}
   .video-modal-content{
-    background:#111;
-    padding:18px;
-    border-radius:12px;
-    width:95%;
+    background:var(--card-bg);
+    color:var(--text);
+    padding:14px;
+    border-radius:var(--radius);
+    width:100%;
     max-width:980px;
-    box-shadow:0 16px 60px rgba(0,0,0,0.28);
-    max-height:80vh;
+    box-shadow:var(--shadow-large);
     display:flex;
     flex-direction:column;
     align-items:center;
     gap:12px;
-    overflow:hidden;
-  }
-  
-  .video-container video {
-    background:#000 !important;
   }
 
-  .modal button,.episode-modal button,.video-modal button{padding:10px 12px;font-size:0.98rem;border-radius:8px;border:0;cursor:pointer}
-  .modal button:not(.cancel):not(.secondary){background:var(--primary);color:#fff;width:100%}
-  .modal button.secondary{background:#f6f9ff;color:var(--primary);border:1px solid rgba(0,123,255,0.12);width:100%}
-  .modal button.cancel{background:#fff;color:#333;border:1px solid #e6e9ef;width:100%}
+  .modal button,.episode-modal button,.video-modal button{padding:10px 12px;font-size:0.98rem;border-radius:var(--radius);border:0;cursor:pointer}
+  .modal button:not(.cancel):not(.secondary){background:var(--primary);color:var(--color-white);width:100%}
+  .modal button.secondary{background:transparent;color:var(--primary);border:1px solid var(--primary);width:100%}
+  .modal button.cancel{background:transparent;color:var(--text);border:1px solid var(--line);width:100%}
+  /* action modal: even spacing between stacked buttons (like movies/books). scoped to #actionModal so the episode picker is untouched */
+  #actionModal .modal-content{display:flex;flex-direction:column;gap:10px}
+  #actionModal .modal-content h2{margin:0;font-size:1.15rem;font-weight:700}
+  #actionSub{font-size:0.9rem;color:var(--muted)}
+  /* episode picker's Resume/Close buttons live in .episode-modal, which the rules above
+     never covered, so they were unreadable in dark. token colors flip on their own */
+  .episode-modal button.secondary{background:transparent;color:var(--primary);border:1px solid var(--primary);width:100%;font-weight:700}
+  .episode-modal button.cancel{background:var(--card);color:var(--text);border:1px solid var(--line);width:100%}
   .episode-list{max-height:60vh;overflow-y:auto;text-align:left;padding:6px}
-  .episode-list .ep-row{display:flex;align-items:center;gap:6px;padding:6px;border-bottom:1px solid #f4f4f9}
-  .episode-list .ep-row button{flex:1;background:var(--primary);border:0;color:#fff;text-align:center;padding:8px;border-radius:8px;cursor:pointer;font-weight:700;font-size:0.95rem}
-  .season-toggle{display:flex;align-items:center;justify-content:space-between;padding:8px;background:var(--primary);color:#fff;border-radius:8px;margin:6px 0;cursor:pointer;font-weight:700}
+  .episode-list .ep-row{display:flex;align-items:center;gap:6px;padding:6px;border-bottom:1px solid var(--line)}
+  .episode-list .ep-row button{flex:1;background:var(--primary);border:0;color:var(--color-white);text-align:center;padding:8px;border-radius:var(--radius);cursor:pointer;font-weight:700;font-size:0.95rem}
+  .season-toggle{display:flex;align-items:center;justify-content:space-between;padding:8px;background:var(--primary);color:var(--color-white);border-radius:var(--radius);margin:6px 0;cursor:pointer;font-weight:700}
   .season-content{padding-left:6px;padding-right:6px;margin-bottom:6px}
 
-  .video-container{display:flex;flex-direction:column;align-items:center;gap:10px;width:100%;padding:6px;box-sizing:border-box}
-  /* Video sizing: limit height so modal won't expand, allow width to be up to container but keep aspect ratio via height auto */
-  .video-container video{ width:100%; height:auto; max-height: calc(80vh - 140px); object-fit:contain; border-radius:8px; background:#000; display:block; }
-  .video-title{font-weight:700;color:#fff;margin-bottom:6px; text-align:center; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:100%}
-  .video-actions{display:flex;gap:8px;width:100%;max-width:420px;margin-top:8px}
-  .video-actions button{flex:1;padding:10px;border-radius:8px;border:0;cursor:pointer}
-  .video-actions .cancel{background:#fff;border:1px solid #e6e9ef;color:#333}
-  .video-actions #videoNextBtn{background:var(--primary);color:#fff}
-
-
-/* marquee keyframes */
-@keyframes scroll { 0% { transform: translateX(0); } 100% { transform: translateX(-50%); } }
-
-/* entrance animation */
-.media-card.play-anim { animation-name:cardIn; animation-duration:360ms; animation-timing-function:cubic-bezier(.2,.9,.2,1); animation-fill-mode:both; }
-@keyframes cardIn { from { opacity:0; transform:translateX(-18px) scale(.994); } to { opacity:1; transform:translateX(0) scale(1); } }
+  .video-container{ width:100%; display:flex;flex-direction:column;align-items:center;gap:8px; }
+  .video-container video{ width:100%; border-radius:var(--radius); }
+  .video-actions{ display:flex; width:100%; gap:10px; }
+  .video-actions button{
+    flex:1;
+    padding:10px 14px;
+    font-size:0.95rem;
+    border:none;
+    border-radius:var(--radius);
+    cursor:pointer;
+    background:var(--primary);
+    color:var(--color-white);
+    transition:filter .18s ease;
+  }
+  .video-actions button:hover{ filter:brightness(0.96); }
+  .plyr {
+    --plyr-color-main: var(--primary);
+    --plyr-video-controls-background: var(--overlay-video);
+    border-radius: var(--radius);
+    width: 100%;
+  }
+  .plyr__video-wrapper {
+    width: 100%;
+  }
+  .plyr--fullscreen {
+    background: var(--color-black);
+  }
+  .plyr--fullscreen video {
+    max-height: 100% !important;
+    max-width: 100% !important;
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+  }
+  @media (max-width: 768px) {
+    .plyr__volume {
+      display: none !important;
+    }
+  }
+  .video-title{font-weight:700;color:var(--color-white);margin:0; text-align:center; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:100%}
+  body.dark .back-btn { background: var(--white-alpha-12); color: var(--color-white); }
+  body.dark .view-btn.active { border-color: var(--primary); }
 </style>
 </head>
-<body>
+<body data-page="shows">
   <header>
     <h1>Shows</h1>
-    <a class="back-btn" href="http://192.168.4.1/menu">← Back to Menu</a>
+    <a class="back-btn" href="/menu">← Back to Menu</a>
   </header>
 
   <div class="toolbar" role="region" aria-label="toolbar">
@@ -142,22 +180,22 @@
   <div id="actionModal" class="modal" role="dialog" aria-modal="true">
     <div class="modal-content" role="document">
       <h2 id="actionTitle">Play / Download</h2>
-      <div id="actionSub" style="margin-bottom:8px;color:#444"></div>
+      <div id="actionSub"></div>
       <button id="playButton">Play (from start)</button>
       <button id="downloadButton" class="cancel">Download</button>
-      <div style="margin-top:8px"><button id="actionCloseBtn" class="cancel">Cancel</button></div>
+      <button id="actionCloseBtn" class="cancel">Cancel</button>
     </div>
   </div>
 
   <div id="videoModal" class="video-modal" role="dialog" aria-modal="true">
     <div class="video-modal-content" role="document">
+      <div id="videoTitle" class="video-title"></div>
       <div class="video-container">
-        <div id="videoTitle" class="video-title"></div>
         <video id="videoPlayer" controls playsinline aria-label="Video player"></video>
-        <div class="video-actions">
-          <button id="videoCloseBtn" class="cancel">Close</button>
-          <button id="videoNextBtn">Next</button>
-        </div>
+      </div>
+      <div class="video-actions">
+        <button id="videoCloseBtn">Close</button>
+        <button id="videoNextBtn">Next</button>
       </div>
     </div>
   </div>
@@ -215,7 +253,7 @@ function applyThemeFlag(dark){
 
     // Header and toolbar surfaces
     const header = document.querySelector('header');
-    if(header) header.style.background = dark ? '#07142a' : 'var(--primary)';
+    if(header) header.style.background = '';
     const toolbar = document.querySelector('.toolbar');
     if(toolbar){
       toolbar.style.background = dark ? '#0d1722' : 'var(--bg)';
@@ -244,8 +282,8 @@ function applyThemeFlag(dark){
       b.style.color = '#fff';
     });
 
-    // Modal content backgrounds & text
-    document.querySelectorAll('.modal-content, .episode-modal-content, .video-modal-content').forEach(el => {
+    // modal bg + text (action modal uses theme-token CSS now, so its excluded here)
+    document.querySelectorAll('.episode-modal-content, .video-modal-content').forEach(el => {
       if(dark){
         el.style.background = '#071722';
         el.style.color = '#eaf6ff';
@@ -289,30 +327,7 @@ function applyThemeFlag(dark){
       }
     });
 
-    // Buttons in modals: cancel/secondary
-    document.querySelectorAll('.modal button.cancel, .episode-modal button.cancel, .video-modal button.cancel').forEach(b => {
-      if(dark){
-        b.style.background = '#0b1220';
-        b.style.color = '#eaf6ff';
-        b.style.border = '1px solid rgba(255,255,255,0.06)';
-      } else {
-        b.style.background = '#fff';
-        b.style.color = '#333';
-        b.style.border = '1px solid #e6e9ef';
-      }
-    });
-
-    document.querySelectorAll('.modal button.secondary').forEach(b => {
-      if(dark){
-        b.style.background = '#0f2340';
-        b.style.color = '#a9d3ff';
-        b.style.border = '1px solid rgba(255,255,255,0.06)';
-      } else {
-        b.style.background = '#f6f9ff';
-        b.style.color = 'var(--primary)';
-        b.style.border = '1px solid rgba(0,123,255,0.12)';
-      }
-    });
+    // cancel/secondary buttons are theme-token CSS now (works for dynamic buttons too), no JS pass needed
 
     // Video player and title
     const videoEl = document.getElementById('videoPlayer');
@@ -379,7 +394,6 @@ let autosaveTimer = null;
 let rootSig = null;
 
 /* Helpers */
-function normalizePath(p){ if(!p) return '/'; p = String(p); if(!p.startsWith('/')) p='/' + p; while(p.length>1 && p.endsWith('/')) p=p.slice(0,-1); return p; }
 function ext(name){ const i=name.lastIndexOf('.'); return i>=0? name.slice(i).toLowerCase() : ''; }
 function isVideoName(n){ return VIDEO_EXTS.includes(ext(n)); }
 function isImageName(n){ return IMAGE_EXTS.includes(ext(n)); }
@@ -427,44 +441,50 @@ function saveResumeEntryByKey(key, entry, purgeOtherNonCompleted = true){
   }
 }
 
+/* Capped: while a reindex runs the firmware 503s every media request device-wide,
+   so an uncapped reindex -> retry -> reindex loop takes down playback on every
+   page (not just this one) until reboot. One attempt per page load. */
+const MAX_REINDEX_ATTEMPTS = 1;
+let reindexAttempts = 0;
+
 async function loadLibrary(){
   try {
     const { header, entries } = await fetchIndex(ROOT_PATH);
     if(!header || !header.sig){
-      console.warn('No index signature found. Index may be building or missing - triggering reindex.');
+      console.warn('No index signature found. Index may be building or missing.');
 
-      // Trigger a reindex instead of returning early
-      try {
-        const reindexUrl = '/api/reindex';
-        const reindexRes = await fetch(reindexUrl, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-          body: `path=${encodeURIComponent(ROOT_PATH)}`
-        });
+      if(reindexAttempts < MAX_REINDEX_ATTEMPTS){
+        reindexAttempts++;
+        try {
+          const reindexRes = await fetch('/api/reindex', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+            body: `path=${encodeURIComponent(ROOT_PATH)}`
+          });
 
-        if (reindexRes.ok) {
-          console.log('Reindex triggered successfully');
-          // Show loading message and retry after a delay
-          gridEl.innerHTML = '<p style="grid-column:1/-1;text-align:center;color:var(--primary-dark);">Building index... Please wait.</p>';
+          if (reindexRes.ok) {
+            console.log('Reindex triggered successfully');
+            gridEl.innerHTML = '<p style="grid-column:1/-1;text-align:center;color:var(--primary-dark);">Building index... Please wait.</p>';
 
-          // Retry loading after a delay
-          setTimeout(async () => {
-            try {
-              await loadLibrary();
-            } catch(e) {
-              console.error('Retry loadLibrary failed', e);
-              gridEl.innerHTML = '<p style="grid-column:1/-1;text-align:center;color:var(--primary-dark);">Could not load library.</p>';
-            }
-          }, 3000);
-          return;
-        } else {
-          console.error('Failed to trigger reindex:', reindexRes.status);
+            setTimeout(async () => {
+              try {
+                await loadLibrary();
+              } catch(e) {
+                console.error('Retry loadLibrary failed', e);
+                gridEl.innerHTML = '<p style="grid-column:1/-1;text-align:center;color:var(--primary-dark);">Could not load library.</p>';
+              }
+            }, 3000);
+            return;
+          } else {
+            console.error('Failed to trigger reindex:', reindexRes.status);
+          }
+        } catch(reindexErr) {
+          console.error('Error triggering reindex:', reindexErr);
         }
-      } catch(reindexErr) {
-        console.error('Error triggering reindex:', reindexErr);
+      } else {
+        console.warn('Reindex already attempted this session; not retrying.');
       }
 
-      // If reindex failed, show error message
       gridEl.innerHTML = '<p style="grid-column:1/-1;text-align:center;color:var(--primary-dark);">Index missing. Please try refreshing the page.</p>';
       return;
     }
@@ -738,11 +758,32 @@ function loadSeriesEpisodes(show){
     const entries = [];
     const showEntries = show.entries || [];
 
+    // Sidecar subtitles: collect per directory, matched to an episode when the
+    // subtitle's basename starts with the episode file's basename
+    // (Ep1.srt / Ep1.en.srt next to Ep1.mp4).
+    const isSubName = (n) => SUB_EXTS.includes(ext(n));
+    const subsInDir = new Map();
+    const addSub = (n, p) => {
+      const full = normalizePath(p);
+      const dir = full.replace(/\/[^/]+$/, '');
+      if(!subsInDir.has(dir)) subsInDir.set(dir, []);
+      subsInDir.get(dir).push({ n, p: full });
+    };
+    const subsFor = (videoPath, rawName) => {
+      const dir = normalizePath(videoPath).replace(/\/[^/]+$/, '');
+      const base = String(rawName).replace(/\.[^.]+$/, '').toLowerCase();
+      return (subsInDir.get(dir) || [])
+        .filter(s => s.n.replace(/\.[^.]+$/, '').toLowerCase().startsWith(base))
+        .map(s => s.p);
+    };
+
     // Process all entries in the show
     for(const e of showEntries){
       if(e.t === 'f' && isVideoName(e.n)) {
         // This is a video file directly in the show directory
-        entries.push({ type:'f', name: prettify(e.n), path: normalizePath(e.p), sz: e.sz||0, mt: e.mt||0 });
+        entries.push({ type:'f', name: prettify(e.n), raw: e.n, path: normalizePath(e.p), sz: e.sz||0, mt: e.mt||0 });
+      } else if(e.t === 'f' && isSubName(e.n)) {
+        addSub(e.n, e.p);
       } else if(e.t === 'd') {
         // This is a directory (season folder)
         const seasonPath = normalizePath(e.p);
@@ -752,7 +793,9 @@ function loadSeriesEpisodes(show){
         if(e.entries) {
           for(const se of e.entries) {
             if(se.t === 'f' && isVideoName(se.n)) {
-              children.push({ name: prettify(se.n), path: normalizePath(se.p), sz: se.sz||0, mt: se.mt||0 });
+              children.push({ name: prettify(se.n), raw: se.n, path: normalizePath(se.p), sz: se.sz||0, mt: se.mt||0 });
+            } else if(se.t === 'f' && isSubName(se.n)) {
+              addSub(se.n, se.p);
             }
           }
         }
@@ -774,13 +817,15 @@ function loadSeriesEpisodes(show){
 
     for(const en of entries){
       if(en.type === 'f'){
-        const item = { name: en.name, path: en.path, season: null, sz: en.sz||0, mt: en.mt||0, _seq: idx+1 };
+        const item = { name: en.name, path: en.path, season: null, sz: en.sz||0, mt: en.mt||0, _seq: idx+1,
+                       subtitles: subsFor(en.path, en.raw || en.name) };
         flat.push(item);
         map[normalizePath(item.path)] = idx;
         idx++;
       } else if(en.type === 'd'){
         for(const c of en.children){
-          const item = { name: c.name, path: c.path, season: en.name, sz: c.sz||0, mt:c.mt||0, _seq: idx+1 };
+          const item = { name: c.name, path: c.path, season: en.name, sz: c.sz||0, mt:c.mt||0, _seq: idx+1,
+                         subtitles: subsFor(c.path, c.raw || c.name) };
           flat.push(item);
           map[normalizePath(item.path)] = idx;
           idx++;
@@ -920,12 +965,25 @@ actionCloseBtn.addEventListener('click', closeActionModal);
 /* closeVideo optionally avoids autosave (used when marking completed to avoid overwriting) */
 function closeVideo(doSave=true){
   try{ if(doSave) saveNow(); }catch(e){}
-  detachVideoListeners();
-  videoPlayer.pause();
-  videoPlayer.removeAttribute('src');
-  videoPlayer.load();
+  if (window.plyrInstance) {
+    window.plyrInstance.pause();
+  }
   videoModal.style.display='none';
   stopAutosave();
+  releaseWakeLock().catch(()=>{});
+
+  try {
+    const allImages = document.querySelectorAll('img[loading="lazy"]');
+    allImages.forEach(img => {
+      if (img.dataset.originalSrc) {
+        img.src = img.dataset.originalSrc;
+        delete img.dataset.originalSrc;
+      }
+    });
+    console.log('Resumed lazy image loading');
+  } catch(e) {
+    console.warn('Could not resume image loading', e);
+  }
 }
 videoModal.addEventListener('click', (e)=>{ if(e.target===videoModal) closeVideo(); });
 videoCloseBtn.addEventListener('click', ()=> closeVideo(true));
@@ -1275,7 +1333,7 @@ function findIndexForPathOrBasename(path){
 }
 
 /* openVideo uses fileKey resume matching and updates title to the current episode */
-function openVideo(src, useResume=false, ep=null){
+async function openVideo(src, useResume=false, ep=null){
   if(ep) currentEpisode = ep;
   if(!currentEpisode || !currentEpisode.path) { console.debug('[Shows] openVideo called without episode'); return; }
 
@@ -1286,70 +1344,189 @@ function openVideo(src, useResume=false, ep=null){
 
   console.debug('[Shows] openVideo', { path: currentEpisode.path, index: currentEpisodeIndex });
 
-  detachVideoListeners();
-  videoPlayer.pause();
-  videoPlayer.removeAttribute('src');
-  videoPlayer.load();
+  console.log('[Shows openVideo] currentEpisode:', currentEpisode ? currentEpisode.path : 'NONE', 'useResume:', useResume);
+  const saved = findResumeForPath(currentEpisode);
+  console.log('[Shows openVideo] findResumeForPath result:', saved);
+  let startTime = 0;
+  if(useResume && saved && saved.entry && saved.entry.position > 1 && !saved.entry.completed){
+    startTime = saved.entry.position;
+  }
+  console.log('[Shows openVideo] startTime will be:', startTime);
 
-  const darkNow = document.body.classList.contains('dark');
-  const videoModalContent = document.querySelector('.video-modal-content');
-  if(videoModalContent) videoModalContent.style.background = darkNow ? '#111' : '#fff';
-  if(videoTitle) videoTitle.style.color = darkNow ? '#fff' : 'var(--text, #111)';
-  if(videoPlayer){
-    videoPlayer.style.background = darkNow ? '#000' : '#fff';
-    videoPlayer.style.outline = darkNow ? 'none' : '1px solid rgba(0,0,0,0.06)';
+  videoPlayer.removeAttribute('src');
+  videoPlayer.innerHTML = '';
+
+  if (!window.plyrInstance) {
+    window.plyrInstance = new Plyr(videoPlayer, {
+      iconUrl: 'assets/plyr.svg',
+      controls: [
+        'play-large',
+        'play',
+        'progress',
+        'current-time',
+        'duration',
+        'mute',
+        'volume',
+        'captions',
+        'settings',
+        'pip',
+        'airplay',
+        'fullscreen'
+      ],
+      settings: ['captions', 'speed'],
+      fullscreen: { enabled: true, fallback: true, iosNative: false },
+      clickToPlay: false,
+      hideControls: true,
+      resetOnEnd: false,
+      keyboard: { focused: true, global: true },
+      tooltips: { controls: true, seek: true }
+    });
+
+    try {
+      const allImages = document.querySelectorAll('img[loading="lazy"]');
+      allImages.forEach(img => {
+        if (img.src && !img.complete) {
+          img.dataset.originalSrc = img.src;
+          img.removeAttribute('src');
+        }
+      });
+      console.log('Paused lazy image loading for video playback');
+    } catch(e) {
+      console.warn('Could not pause image loading', e);
+    }
+
+    window.plyrInstance.on('ended', () => {
+      handleEpisodeEnded();
+    });
+
+    window.plyrInstance.on('pause', () => {
+      saveNow();
+      releaseWakeLock().catch(()=>{});
+    });
+
+    window.plyrInstance.on('play', () => {
+      requestWakeLock().catch(()=>{});
+    });
+
+    window.plyrInstance.on('seeked', () => {
+      saveNow();
+    });
+
+    window.plyrInstance.on('enterfullscreen', async () => {
+      try {
+        if (screen.orientation && screen.orientation.lock) {
+          await screen.orientation.lock('landscape').catch(e => console.log('Orientation lock not supported:', e));
+        }
+      } catch(e) {
+        console.log('Could not lock orientation:', e);
+      }
+    });
+
+    window.plyrInstance.on('exitfullscreen', () => {
+      try {
+        if (screen.orientation && screen.orientation.unlock) {
+          screen.orientation.unlock();
+        }
+      } catch(e) {
+        console.log('Could not unlock orientation:', e);
+      }
+    });
+
+    setTimeout(() => {
+      const plyrWrapper = document.querySelector('.plyr__video-wrapper');
+      if (plyrWrapper) {
+        let lastTap = 0;
+        let tapTimeout = null;
+
+        plyrWrapper.addEventListener('touchend', (e) => {
+          const currentTime = Date.now();
+          const tapLength = currentTime - lastTap;
+
+          if (tapLength < 300 && tapLength > 0) {
+            clearTimeout(tapTimeout);
+            e.preventDefault();
+            e.stopPropagation();
+
+            const rect = plyrWrapper.getBoundingClientRect();
+            const touchX = e.changedTouches[0].clientX - rect.left;
+            const width = rect.width;
+
+            if (touchX < width / 3) {
+              window.plyrInstance.rewind(10);
+              console.log('Rewind 10s');
+            } else if (touchX > (2 * width) / 3) {
+              window.plyrInstance.forward(10);
+              console.log('Forward 10s');
+            }
+            lastTap = 0;
+          } else {
+            lastTap = currentTime;
+            tapTimeout = setTimeout(() => {
+              lastTap = 0;
+              if (window.plyrInstance && document.querySelector('.plyr--hide-controls') === null) {
+                const controlsDiv = document.querySelector('.plyr__controls');
+                if (controlsDiv && getComputedStyle(controlsDiv).opacity !== '0') {
+                  const video = document.querySelector('.plyr video');
+                  if (video) video.click();
+                }
+              }
+            }, 300);
+          }
+        });
+      }
+    }, 500);
   }
 
-  videoPlayer.src = fileUrl(currentEpisode.path);
-  videoPlayer.preload = 'auto';
+  videoPlayer.src = src;
+  // all sidecar subtitles as selectable tracks; srt converted to VTT (browsers
+  // render nothing for raw srt in <track>)
+  const subTracks = await NomadSubs.buildTracks(
+    (currentEpisode.subtitles || []).map(p => ({ path: p, url: fileUrl(p) })),
+    currentEpisode.path);
+  subTracks.forEach(sub => {
+    const track = document.createElement('track');
+    track.kind = sub.kind;
+    track.label = sub.label;
+    track.srclang = sub.srclang;
+    track.src = sub.src;
+    if(sub.default) track.default = true;
+    videoPlayer.appendChild(track);
+  });
+  videoPlayer.load();
+
   videoModal.style.display = 'flex';
   videoTitle.textContent = currentEpisode.name || '';
 
-  const saved = findResumeForPath(currentEpisode);
-  let playAttempted = false;
-
-  function attemptPlay(){
-    if(playAttempted) return;
-    playAttempted = true;
-    
-    console.debug('[Shows] attempting play', { duration: videoPlayer.duration, saved, useResume });
-    
-    if(useResume && saved && saved.entry && saved.entry.position > 1 && !saved.entry.completed){
-      if(videoPlayer.duration && !isNaN(videoPlayer.duration) && videoPlayer.duration > 0){
-        try { 
-          const seekTo = Math.min(saved.entry.position, videoPlayer.duration - 2);
-          videoPlayer.currentTime = seekTo;
-          console.debug('[Shows] seeking to', seekTo); 
-        } catch(e){ 
-          console.warn('seek failed', e); 
+  if (startTime > 0) {
+    let seekDone = false;
+    const doSeek = () => {
+      if(seekDone) return;
+      try {
+        const vid = window.plyrInstance.media || videoPlayer;
+        if(vid.readyState >= 1 && vid.duration > 0){
+          seekDone = true;
+          vid.currentTime = startTime;
+          console.log('Resume position set to:', startTime);
         }
-      } else {
-        console.warn('[Shows] cannot seek - duration not available yet');
-      }
-    }
-    startAutosave();
-    videoPlayer.play().catch(e => console.warn('Play failed:', e));
+      } catch(e){ console.warn('Seek failed:', e); }
+    };
+    videoPlayer.addEventListener('canplay', doSeek, { once: true });
+    videoPlayer.addEventListener('loadeddata', doSeek, { once: true });
+    setTimeout(doSeek, 500);
+    setTimeout(doSeek, 1500);
+    setTimeout(doSeek, 3000);
   }
 
-  videoPlayer.addEventListener('loadedmetadata', () => {
-    console.log('Metadata loaded');
-    attemptPlay();
-  }, { once: true });
+  startAutosave();
 
-  videoPlayer.addEventListener('canplay', () => {
-    console.log('Can play');
-    attemptPlay();
-  }, { once: true });
-
-  setTimeout(() => {
-    if(!playAttempted && videoPlayer.readyState >= 1){
-      console.log('Timeout fallback - forcing play');
-      attemptPlay();
-    }
-  }, 2000);
-
-  attachVideoListeners();
-  startStallWatcher(videoPlayer, videoPlayer.src);
+  const doPlay = () => {
+    window.plyrInstance.play().catch(e => console.warn('Play failed:', e));
+  };
+  if(videoPlayer.readyState >= 3){
+    doPlay();
+  } else {
+    videoPlayer.addEventListener('canplay', doPlay, { once: true });
+  }
 }
 
 /* When an episode ends: mark episode completed and either auto-advance to the next episode
@@ -1360,12 +1537,13 @@ function handleEpisodeEnded(){
     try {
       const store = readResume();
       const key = fileKey(currentEpisode.path, currentEpisode.sz||0, currentEpisode.mt||0);
-      store[key] = { completed: true, position: 0, duration: Math.floor(videoPlayer.duration || 0), updated: Date.now(), title: currentEpisode.name || '' };
+      const dur = window.plyrInstance ? Math.floor(window.plyrInstance.duration || 0) : 0;
+      store[key] = { completed: true, position: 0, duration: dur, updated: Date.now(), title: currentEpisode.name || '' };
       writeResume(store);
     } catch(e){ console.warn('failed to mark completed', e); }
   }
 
-  // Stop the periodic autosave 
+  // Stop the periodic autosave
   stopAutosave();
 
   // Determine current index robustly
@@ -1406,7 +1584,7 @@ function handleEpisodeEnded(){
 }
 
 /* Next button (manual) - still allowed; moves to next ep if available */
-function nextEpisode(){
+async function nextEpisode(){
   console.debug('[Shows] nextEpisode called, currentIndex=', currentEpisodeIndex);
   if(!flattenedEpisodes || flattenedEpisodes.length === 0) return;
   let curIdx = currentEpisodeIndex;
@@ -1417,26 +1595,31 @@ function nextEpisode(){
   const next = flattenedEpisodes[nextIdx];
   console.debug('[Shows] nextEpisode ->', nextIdx, next.path);
 
-  // write a tiny resume for next (position=1) so UI shows upcoming
-    try {
-        const key = fileKey(next.path, next.sz||0, next.mt||0);
-        const entry = { position: 1, duration: next.sz || 0, updated: Date.now(), title: next.name || '' };
-        // Save and purge other non-completed resumes in the same show
-        saveResumeEntryByKey(key, entry, true);
-    } catch(e){ console.warn('saving resume for next failed', e); }
+  try {
+    const key = fileKey(next.path, next.sz||0, next.mt||0);
+    const entry = { position: 1, duration: next.sz || 0, updated: Date.now(), title: next.name || '' };
+    saveResumeEntryByKey(key, entry, true);
+  } catch(e){ console.warn('saving resume for next failed', e); }
 
   currentEpisodeIndex = nextIdx;
   currentEpisode = Object.assign({}, next);
 
-  // update title, swap src and play
   videoTitle.textContent = currentEpisode.name || '';
-  detachVideoListeners();
-  videoPlayer.pause();
-  videoPlayer.src = fileUrl(currentEpisode.path);
-  videoPlayer.load();
-  attachVideoListeners();
-  startStallWatcher(videoPlayer, videoPlayer.src);
-  videoPlayer.play().catch(()=>{});
+
+  const src = fileUrl(currentEpisode.path);
+  const subtitles = await NomadSubs.buildTracks(
+    (currentEpisode.subtitles || []).map(p => ({ path: p, url: fileUrl(p) })),
+    currentEpisode.path);
+
+  if(window.plyrInstance){
+    window.plyrInstance.source = {
+      type: 'video',
+      sources: [{ src: src, type: 'video/mp4' }],
+      tracks: subtitles
+    };
+    window.plyrInstance.play().catch(()=>{});
+  }
+
   const sd = findShowDirForEpisodePath(currentEpisode && currentEpisode.path);
   if(sd) updateShowBadge(sd);
 }
@@ -1448,31 +1631,27 @@ function stopAutosave(){ if(autosaveTimer){ clearInterval(autosaveTimer); autosa
 function saveNow(){
   try {
     if(!currentEpisode || !currentEpisode.path) return;
-    const cur = Math.floor(videoPlayer.currentTime || 0);
-    const dur = Math.floor(videoPlayer.duration || 0);
+    if(!window.plyrInstance) return;
+    const cur = Math.floor(window.plyrInstance.currentTime || 0);
+    const dur = Math.floor(window.plyrInstance.duration || 0);
     if(!isFinite(cur)) return;
     if(cur > 0 && dur > 0){
       const key = fileKey(currentEpisode.path, currentEpisode.sz || 0, currentEpisode.mt || 0);
 
-      // preserve previous logic: do not overwrite an already-completed entry for the same file
       const store = readResume();
       const existing = store[key];
       if(existing && existing.completed) return;
 
       const entry = { position: cur, duration: dur, updated: Date.now(), title: currentEpisode.name || '' };
 
-      // Save and purge other non-completed resume entries for this show so only the latest is kept
       saveResumeEntryByKey(key, entry, true);
 
       console.debug('[Shows] autosave', { key, pos: cur, dur });
 
-      // update only the show badge (stops full-grid re-render and thumbnail flashing)
       const showDir = findShowDirForEpisodePath(currentEpisode.path);
       if(showDir) updateShowBadge(showDir);
 
-      // if episode modal is open for the same show, update its resume banner too
       if(episodeModal.style.display === 'flex' && currentShow && normalizePath(currentShow.dir) === showDir){
-        // rebuild the resume banner minimal contents (do not re-render the whole list)
         const showResume = findResumeForShowDir(showDir);
         if(showResume && showResume.entry && !showResume.entry.completed && (showResume.entry.position && showResume.entry.position > 0)){
           episodeResumeBanner.style.display='block'; episodeResumeBanner.innerHTML = '';
@@ -1546,9 +1725,9 @@ async function handleHashOpenIfPresent(){
       catch(e) { params[k] = v === undefined ? '' : (v || ''); }
     });
 
-    if(!params.open) return;
+    if(!params.open && !params.play) return;
 
-    const openPath = normalizePath(params.open || '');
+    const openPath = normalizePath(params.open || params.play || '');
     const parts = openPath.split('/').filter(Boolean); // e.g. ['Shows','ShowName','Season1'] or ['Shows','ShowName','S01E01.mkv']
 
     // If the path is a show directory or season directory, open the episode modal instead of playing.
@@ -1653,13 +1832,18 @@ sortSelect.addEventListener('change', () => applySort(sortSelect.value));
 (async function init(){
   try {
     await loadLibrary();
+
     // handle hash if present (resume/open)
     await handleHashOpenIfPresent();
   } catch(e){ console.error('init failed', e); }
   setInterval(checkIndex, 30000);
 })();
+
+/* admin toggle: hide the download action when downloads are disabled */
+NomadUI.hideDownloads('downloadButton');
 </script>
 
 </body>
 </html>
+
 

@@ -1,645 +1,99 @@
 <!DOCTYPE html>
+<!-- Version 4 -->
 <html lang="en">
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width,initial-scale=1" />
-<title>Nomad • Playlists</title>
-
-<script>
-  (function(){
-    try {
-      const el = document.documentElement;
-      const dsTheme = el && el.dataset && el.dataset.theme;
-      const stored = localStorage.getItem('nomad_dark_mode');
-      const prefersDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
-      const isDark = (dsTheme === 'dark') || (stored === 'true') || (!dsTheme && !stored && prefersDark);
-      if(isDark) el.classList.add('dark'); else el.classList.remove('dark');
-    } catch(e){}
-  })();
-</script>
-
+<title>Playlists</title>
+<link rel="stylesheet" href="master.css">
+<script src="/theme-boot.js"></script>
+<script src="/nomad-utils.js"></script>
+<script src="theme-manager.js"></script>
 <style>
-  :root{
-    --primary:#007bff;
-    --primary-600:#0066d6;
-    --bg:#f4f4f9;
-    --card:#ffffff;
-    --text:#111827;
-    --muted:#6b7280;
-    --playing-bg:#0b63ff;
-    --playing-text:#fff;
-    --radius:12px;
-    --shadow:0 12px 30px rgba(10,12,20,0.06);
-    --player-h-desktop:110px;
-    --player-h-mobile:86px;
-    --gap:10px;
-
-    /* control sizing */
-    --control-size:44px;
-    --edge-control-size:40px;
-    --control-gap:10px;
-    --center-gap:12px;
-
-    --cache-ttl-ms:120000;
-    --header-text:#ffffff;
-  }
-
-  /* dark */
-  html.dark, body.dark {
-    --primary:#0a84ff;
-    --primary-600:#0a74e0;
-    --bg:#071022;
-    --card:#081223;
-    --text:#e6eef8;
-    --muted:#9aa8bf;
-    --playing-bg:#0a84ff;
-    --playing-text:#fff;
-    --shadow:0 10px 30px rgba(0,0,0,0.6);
-  }
-
-  *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
-  html,body{height:100%}
-  body{font-family:Inter, Arial, Helvetica, sans-serif;background:var(--bg);color:var(--text);display:flex;flex-direction:column;min-height:100vh;-webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale}
-
-  /* header */
-  header{
-    background:var(--primary);
-    color:var(--header-text);
-    padding:14px 18px;
-    display:flex;
-    align-items:center;
-    justify-content:space-between;
-    position:sticky;top:0;z-index:60;box-shadow:var(--shadow);
-  }
-  header h1{font-size:1.15rem;margin:0;font-weight:700}
-  .back-btn{background:rgba(255,255,255,0.12);color:#fff;padding:.45rem .7rem;border-radius:8px;text-decoration:none;font-weight:700}
-
-  /* toolbar */
-  .toolbar{
-    background:transparent;
-    padding:.6rem 14px;
-    display:flex;
-    gap:.6rem;
-    align-items:center;
-    border-bottom:1px solid rgba(0,0,0,0.04);
-    position:sticky;top:64px;z-index:55;flex-wrap:wrap;
-  }
-  .search-wrap{display:flex;flex:1;gap:12px;align-items:center;min-width:0}
-  .toolbar input[type="search"]{
-    flex:1;padding:.56rem .8rem;border-radius:12px;border:1px solid rgba(0,0,0,0.06);background:var(--card);font-size:0.95rem;color:var(--text);
-    min-width:0;
-  }
-  .toolbar .controls{display:flex;gap:8px;align-items:center;flex:0 0 auto;margin-left:12px;white-space:nowrap}
-  .btn{padding:.45rem .65rem;border-radius:8px;border:0;background:var(--card);box-shadow:0 2px 8px rgba(10,12,20,0.04);cursor:pointer;font-weight:700;color:var(--text);display:inline-flex;align-items:center;gap:8px}
-  .btn.ghost{background:transparent;box-shadow:none;border:1px solid rgba(0,0,0,0.04)}
-  .btn .icon{line-height:1}
-  .btn .label{white-space:nowrap}
-  .muted{color:var(--muted);font-weight:700}
-
-  main{flex:1;max-width:1100px;width:100%;margin:0 auto;padding:14px;padding-bottom:calc(var(--player-h-desktop) + 36px)}
-  .section{background:var(--card);border-radius:12px;padding:12px;box-shadow:var(--shadow);margin-bottom:12px}
-  .section h2{font-size:1rem;margin:0 0 8px 0;color:var(--primary-600);font-weight:800}
-
-  /* Playlists list / cards */
-  .playlists{display:flex;flex-direction:column;gap:var(--gap)}
-  .playlist{border-radius:10px;border:1px solid rgba(0,0,0,0.04);overflow:hidden;background:var(--card);box-shadow:0 6px 18px rgba(10,12,20,0.02);position:relative}
-  .playlist .playlist-header{display:flex;align-items:center;gap:12px;padding:12px;cursor:pointer;user-select:none;min-height:48px}
-  .playlist .playlist-header .name{font-weight:800}
-  .playlist .playlist-header .count{margin-left:auto;color:var(--muted);font-weight:700}
-  .playlist-body{display:none;padding:10px;border-top:1px solid rgba(0,0,0,0.04)}
-  .playlist-body.open{display:block}
-
-  .playlist.scope-playing::before{
-    content:"";
-    position:absolute;left:0;top:0;bottom:0;width:6px;background:linear-gradient(180deg,var(--primary-600),var(--primary));border-top-left-radius:8px;border-bottom-left-radius:8px;
-  }
-
-  /* Folder card container - wraps each subfolder */
-  .folder-card {
-    background: rgba(0,0,0,0.015);
-    border: 1px solid rgba(0,0,0,0.08);
-    border-radius: 8px;
-    margin: 8px 4px;
-    overflow: hidden;
-    transition: all 0.2s ease;
-  }
-
-  /* Expanded folder card gets highlighted */
-  .folder-card.expanded {
-    background: rgba(0,123,255,0.04);
-    border-color: rgba(0,123,255,0.3);
-    box-shadow: 0 2px 8px rgba(0,123,255,0.12);
-  }
-
-  /* Folder header (clickable area) */
-  .folder {
-    padding: 10px 12px;
-    border-radius: 0;
-    margin: 0;
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    cursor: pointer;
-    user-select: none;
-    font-weight: 700;
-    background: transparent;
-    transition: background 0.15s ease;
-  }
-
-  /* Add dropdown indicator */
-  .folder::before {
-    content: "▶";
-    font-size: 0.65rem;
-    color: var(--muted);
-    transition: transform 0.2s ease;
-    display: inline-block;
-    width: 12px;
-  }
-
-  .folder.expanded::before {
-    transform: rotate(90deg);
-    color: var(--primary);
-  }
-
-  .folder:hover {
-    background: rgba(0,123,255,0.06);
-  }
-
-  /* Expanded folder header styling */
-  .folder.expanded {
-    font-weight: 800;
-    color: var(--primary);
-    background: rgba(0,123,255,0.04);
-  }
-
-  .folder .meta {
-    margin-left: auto;
-    color: var(--muted);
-    font-weight: 700;
-  }
-
-  /* Subtracks container - indented track list */
-  .subtracks {
-    padding: 4px 8px 8px 28px;
-    margin: 0;
-    background: rgba(0,123,255,0.02);
-    border-top: 1px solid rgba(0,123,255,0.1);
-    display: flex;
-    flex-direction: column;
-    gap: 6px;
-  }
-
-  .track{padding:10px;border-radius:8px;margin:4px 0;display:flex;align-items:center;gap:8px;cursor:pointer;background:transparent;transition:background .12s, transform .08s}
-  .track:hover{background:rgba(0,0,0,0.02);transform:translateY(-1px)}
-  .track .meta{margin-left:auto;color:var(--muted);font-weight:700}
-  .track.playing{background:var(--playing-bg);color:var(--playing-text);box-shadow:0 8px 24px rgba(10,12,20,0.06)}
-
-  .playlist-view{display:none}
-  .playlist-view.active{display:block}
-
-  .view-bar{display:flex;align-items:center;gap:8px;margin-bottom:8px}
-  .title-row{display:flex;align-items:center;gap:8px;flex:1}
-  .title-row h2{margin:0;font-size:1.05rem}
-
-  .player-shell{
-    position:fixed;left:0;right:0;bottom:0;padding:var(--player-padding-desktop,10px);background:var(--card);border-top:1px solid rgba(0,0,0,0.04);box-shadow:0 -12px 36px rgba(10,12,20,0.08);z-index:999;display:flex;justify-content:center;
-  }
-  .player{max-width:1100px;width:100%;display:flex;flex-direction:column;gap:8px;padding:6px 10px;align-items:center}
-  .player .title{font-weight:800;color:var(--primary-600);text-align:center;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:0.95rem;width:100%}
-
-  .time-row{display:flex;align-items:center;gap:12px;justify-content:space-between;color:var(--muted);font-weight:700;font-size:0.95rem;width:100%}
-  #playedTime,#totalTime{flex:0 0 48px;text-align:center}
-  .progress{flex:1 1 auto;max-width:760px;margin:0 12px;height:10px;background:rgba(0,0,0,0.06);border-radius:999px;overflow:hidden;cursor:pointer}
-  .progress > .bar{height:100%;background:var(--primary);width:0%;transition:width .06s linear}
-
-  /* grid controls — left / center / right */
-  .controls{
-    display:grid;
-    grid-template-columns: auto 1fr auto;
-    align-items:center;
-    column-gap: var(--control-gap);
-    width:100%;
-    box-sizing:border-box;
-    padding:0 6px;
-  }
-
-  .controls-left, .controls-center, .controls-right{
-    display:flex;
-    align-items:center;
-    gap:var(--center-gap);
-  }
-  .controls-center{ justify-self:center; justify-content:center; }
-
-  .control{
-    height:var(--control-size);
-    min-width:var(--control-size);
-    display:inline-flex;
-    align-items:center;
-    justify-content:center;
-    padding:0 12px;
-    border-radius:12px;
-    border:0;
-    background:var(--primary);
-    color:#fff;
-    font-weight:800;
-    cursor:pointer;
-    font-size:16px;
-    box-shadow:0 6px 18px rgba(10,12,20,0.06);
-  }
-  .control.ghost{background:var(--card);color:var(--primary);border:1px solid rgba(0,0,0,0.06);box-shadow:none}
-  .control.secondary{background:var(--card);color:var(--primary);border:1px solid rgba(0,0,0,0.06);font-weight:700}
-  .control.play{ width: calc(var(--control-size) * 1.6); border-radius:14px; font-size:18px; }
-
-  /* smaller "edge" buttons (loop & download) */
-  .control.edge{
-    height:var(--edge-control-size);
-    min-width:var(--edge-control-size);
-    padding:0 8px;
-    border-radius:10px;
-    font-size:15px;
-  }
-
-  .control:active{ transform: translateY(1px); }
-
-  .btn.active, .control.active { background:var(--primary-600); color: #fff; box-shadow: 0 8px 18px rgba(10,12,20,0.08); }
-  .btn.active.ghost { border-color: rgba(10,84,255,0.15); background: rgba(10,84,255,0.06); color: var(--primary-600); }
-
-  /* responsive: mobile player compact */
-  @media (max-width:900px){
-    :root{
-      --control-size:42px;
-      --edge-control-size:38px;
-      --control-gap:8px;
-      --center-gap:8px;
-    }
-    .progress{width:64%}
-    .control.play{ width: 56px }
-  }
-
-  @media (max-width:600px){
-    .toolbar{padding:.4rem 8px}
-    .btn{padding:6px 8px;font-size:15px}
-    .btn .label{display:none}               /* icon-only on mobile */
-    .playlist .playlist-header{padding:10px}
-    .player{padding:8px}
-    :root{--control-size:40px;--edge-control-size:36px}
-    .progress{height:6px}
-    /* switch grid to 3 equal columns on very narrow */
-    .controls{
-      grid-template-columns: auto auto auto;
-      justify-items:center;
-      column-gap:6px;
-      padding:0 4px;
-    }
-    .controls-center{ gap:8px; }
-    .control.play{ width:56px }
-    .control.edge{ height:36px; min-width:36px; padding:0 6px; }
-
-    .track .meta { display: none !important; }
-    .folder .meta { display: none !important; }
-  }
-
-  .muted{color:var(--muted);font-weight:700}
-  .small{font-size:0.92rem}
-  
-  /* Audio state restoration styles */
-  .player-title.restoring {
-    opacity: 0.7;
-    transition: opacity 0.3s ease;
-  }
-  
-  .audio-restoring .control {
-    opacity: 0.8;
-  }
+body{margin:0;padding:0;background:var(--bg);font-family:Inter,Arial,sans-serif;}
+.toolbar{background:var(--card);padding:.6rem 14px;display:flex;gap:.6rem;align-items:center;border-bottom:1px solid var(--black-alpha-4);position:sticky;top:0;z-index:55;flex-wrap:wrap;}
+.search-wrap{display:flex;flex:1;gap:12px;align-items:center;}
+.toolbar input[type="search"]{flex:1;padding:.56rem .8rem;border-radius:12px;border:1px solid var(--black-alpha-6);background:var(--card);font-size:0.95rem;color:var(--text);}
+.playlist-count{color:var(--muted);font-weight:700;font-size:0.95rem;margin-left:auto;}
+main{padding:14px;max-width:1100px;margin:0 auto;padding-bottom:20px;}
+.playlists{display:flex;flex-direction:column;gap:12px;}
+.playlist{background:var(--card);border-radius:12px;border:1px solid var(--black-alpha-6);overflow:hidden;box-shadow:var(--shadow);}
+.playlist-header{display:flex;align-items:center;gap:12px;padding:14px;cursor:pointer;user-select:none;background:linear-gradient(to right, var(--primary-alpha-5), transparent);}
+.playlist-header:hover{background:var(--primary-alpha-5);}
+.playlist-header .name{font-weight:800;flex:1;color:var(--text);}
+.playlist-header .count{color:var(--muted);font-weight:700;}
+.playlist-header .icon{transition:transform 0.2s;color:var(--muted);font-size:0.8rem;}
+.playlist-header.open .icon{transform:rotate(90deg);}
+.playlist-body{display:none;padding:10px;border-top:1px solid var(--black-alpha-6);background:var(--primary-alpha-5);}
+.playlist-body.open{display:block;}
+.folder-card{background:var(--black-alpha-4);border:1px solid var(--black-alpha-8);border-radius:8px;margin:8px 4px;overflow:hidden;transition:all 0.2s;}
+.folder-card.expanded{background:var(--primary-alpha-8);border-color:var(--primary-alpha-30);}
+.folder{padding:10px 12px;display:flex;align-items:center;gap:8px;cursor:pointer;user-select:none;font-weight:700;}
+.folder .name{flex:1;}
+.folder .meta{color:var(--muted);font-size:0.85rem;}
+.folder.expanded{background:var(--primary-alpha-5);}
+.subtracks{padding:0 8px 8px 8px;}
+.track{display:flex;align-items:center;gap:10px;padding:10px;border-radius:8px;cursor:pointer;transition:all .15s;margin:4px 0;}
+.track:hover{background:var(--primary-alpha-8);transform:translateY(-1px);}
+.track.playing{background:var(--primary);color:var(--color-white);}
+.track .track-name{flex:1;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.track.playing .track-name{color:var(--color-white);}
+.track .meta{color:var(--muted);font-size:0.85rem;font-weight:600;}
+.track.playing .meta{color:var(--white-alpha-80);}
+.add-queue-btn{padding:4px 8px;background:var(--card);border:1px solid var(--black-alpha-10);border-radius:6px;font-size:0.85rem;font-weight:700;color:var(--primary);cursor:pointer;transition:all .15s;}
+.add-queue-btn:hover{background:var(--primary);color:var(--color-white);transform:scale(1.05);}
+.track.playing .add-queue-btn{background:var(--white-alpha-20);color:var(--color-white);border-color:var(--white-alpha-30);}
 </style>
 </head>
 <body>
-  <header>
-    <h1>Playlists</h1>
-    <a class="back-btn" href="http://192.168.4.1/menu">← Back to Menu</a>
-  </header>
 
-  <div class="toolbar" role="toolbar" aria-label="playlist toolbar">
-    <div class="search-wrap">
-      <input id="search" type="search" placeholder="Search playlists, folders or tracks…" aria-label="Search playlists">
-    </div>
-
-    <div class="controls" style="margin-left:auto">
-      <div id="totalPlaylists" class="muted" style="font-weight:700">0 playlists</div>
-
-      <button id="shuffleScopeBtn" class="btn" title="Shuffle scope">
-        <span class="icon">🔀</span><span class="label">Shuffle</span>
-      </button>
-
-      <button id="sortBtn" class="btn ghost" aria-pressed="false" title="Sort">
-        <span class="icon">⇅</span><span class="label">A → Z</span>
-      </button>
-
-      <button id="songsBtn" class="btn ghost" title="Songs">Songs</button>
-    </div>
+<div class="toolbar">
+  <div class="search-wrap">
+    <input id="search" type="search" placeholder="Search playlists…">
   </div>
+  <div id="playlistCount" class="playlist-count">0 playlists</div>
+</div>
 
-  <main>
-    <section class="section" id="selectorSection">
-      <h2>Available playlists</h2>
-      <div id="playlists" class="playlists" aria-live="polite"></div>
-    </section>
-
-    <section class="section playlist-view" id="playlistView" aria-live="polite">
-      <div class="view-bar">
-        <div class="title-row">
-          <button id="backToList" class="btn ghost">← Back to Playlists</button>
-          <h2 id="currentPlaylistTitle" style="margin-left:8px">Playlist</h2>
-        </div>
-        <div style="display:flex;gap:8px;align-items:center">
-          <div id="playlistCount" class="muted">0 tracks</div>
-        </div>
-      </div>
-
-      <div id="playlistContent"></div>
-    </section>
-  </main>
-
-  <div class="player-shell" role="region" aria-label="Audio player">
-    <div class="player" aria-live="polite">
-      <div id="playerTitle" class="title">Not playing</div>
-
-      <div class="time-row" aria-hidden="false">
-        <div id="playedTime">0:00</div>
-        <div id="progressWrap" class="progress" title="Click to seek"><div id="progressBar" class="bar"></div></div>
-        <div id="totalTime">0:00</div>
-      </div>
-
-      <!-- Controls split into three groups so loop/download are always at edges -->
-      <div class="controls" id="playerControls" aria-label="player controls">
-        <div class="controls-left">
-          <button id="footerLoopBtn" class="control edge secondary" title="Toggle single-track loop" aria-pressed="false">🔁</button>
-        </div>
-
-        <div class="controls-center" role="group" aria-label="playback">
-          <button id="prevBtn" class="control ghost prev" title="Previous track">⏮</button>
-          <button id="playBtn" class="control play" title="Play / Pause" aria-label="Play">▶</button>
-          <button id="nextBtn" class="control ghost next" title="Next track">⏭</button>
-        </div>
-
-        <div class="controls-right">
-          <button id="downloadBtn" class="control edge secondary download" title="Download current track">⬇</button>
-        </div>
-      </div>
-
-      <audio id="audio" preload="none" crossorigin="anonymous" style="display:none"></audio>
-    </div>
-  </div>
+<main>
+  <div id="playlists" class="playlists"></div>
+</main>
 
 <script>
-
-/* ---------- CONFIG ---------- */
 const ROOT = '/Music';
 const INDEX_ENDPOINT = '/api/index';
 const AUDIO_EXTS = ['.mp3','.m4a','.flac','.aac','.ogg','.wav','.opus','.alac','.aiff'];
-const CACHE_KEY = 'nomad_index_cache_v1';
-const CACHE_META_KEY = 'nomad_index_cache_meta_v1';
-const CACHE_TTL = Number(getComputedStyle(document.documentElement).getPropertyValue('--cache-ttl-ms') || 120000); // ms
-const THEME_KEY = 'nomad_dark_mode';
 
-/* ---------- STATE ---------- */
 let directoryMap = new Map();
 let topPlaylists = [];
-let openTop = null;
-let openSub = null;
-
-let currentScopePath = null;
-let currentPlaylist = [];
-let currentIndex = -1;
-
-// Separate browsing state from playing state
-let playingScopePath = null;
-let playingPlaylist = [];
-let playingIndex = -1;
-
-let scopeLoopActive = true;   
-let lastSig = null;
 let sortAsc = true;
+let currentPlayingPath = null;
+let openTopPath = null;
+let openSubPath = null;
+let queuePaths = new Set();
+let isShuffled = false;
+let originalTopPlaylists = [];
 
-let _loadingAudio = false;
-
-/* ---------- DOM ---------- */
 const playlistsEl = document.getElementById('playlists');
-const totalPlaylistsEl = document.getElementById('totalPlaylists');
+const playlistCountEl = document.getElementById('playlistCount');
 const searchEl = document.getElementById('search');
-const shuffleScopeBtn = document.getElementById('shuffleScopeBtn');
-const sortBtn = document.getElementById('sortBtn');
-const songsBtn = document.getElementById('songsBtn');
-const backToList = document.getElementById('backToList');
-
-const playlistView = document.getElementById('playlistView');
-const selectorSection = document.getElementById('selectorSection');
-const currentPlaylistTitle = document.getElementById('currentPlaylistTitle');
-const playlistContent = document.getElementById('playlistContent');
-const playlistCount = document.getElementById('playlistCount');
-
-const audio = document.getElementById('audio');
-const playerTitle = document.getElementById('playerTitle');
-const playedTime = document.getElementById('playedTime');
-const totalTime = document.getElementById('totalTime');
-const progressWrap = document.getElementById('progressWrap');
-const progressBar = document.getElementById('progressBar');
-const playBtn = document.getElementById('playBtn');
-const prevBtn = document.getElementById('prevBtn');
-const nextBtn = document.getElementById('nextBtn');
-const footerLoopBtn = document.getElementById('footerLoopBtn');
-const downloadBtn = document.getElementById('downloadBtn');
-
-/* ---------- HELPERS ---------- */
-function normalizePath(p){ if(!p) return '/'; p=String(p); if(!p.startsWith('/')) p='/' + p; while(p.length>1 && p.endsWith('/')) p=p.slice(0,-1); return p; }
-function ext(name){ const i=name.lastIndexOf('.'); return i>=0? name.slice(i).toLowerCase() : ''; }
-function isAudio(n){ return AUDIO_EXTS.includes(ext(n)); }
-function prettify(n){ if(!n) return ''; let s=n.replace(/\.[^/.]+$/,''); s=s.replace(/[_\.]+/g,' ').trim(); return s; }
-function apiFileUrl(path){ return `/media?file=${encodeURIComponent(normalizePath(path))}`; }
-function directUrl(path){ return normalizePath(path); }
-function fmtTime(sec){ if(!sec||!isFinite(sec)) return '0:00'; sec=Math.floor(sec); const h=Math.floor(sec/3600), m=Math.floor((sec%3600)/60), s=sec%60; if(h) return `${h}:${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`; return `${m}:${String(s).padStart(2,'0')}`; }
 
 
-/* ---------- SHARED AUDIO STATE ---------- */
-const AUDIO_STATE_KEY = 'nomad_audio_state';
-const AUDIO_STATE_TTL = 300000; // 5 minutes
-
-function saveAudioState() {
-  if (!audio.src || audio.paused || audio.currentTime < 1) return;
-  
-  // Get current track info from playlist context
-  const currentTrack = currentPlaylist && currentIndex >= 0 ? currentPlaylist[currentIndex] : null;
-  
-  // Try to get current path from audio src as fallback
-  const currentPath = currentTrack ? currentTrack.path : decodeURIComponent(audio.src.replace(/.*file=([^&]+).*/, '$1'));
-  
-  // Get proper song name (not playlist name)
-  let songName = '';
-  if (currentTrack && currentTrack.name) {
-    songName = currentTrack.name;
-  } else {
-    // Fallback: extract song name from path
-    const pathParts = currentPath.split('/');
-    songName = pathParts[pathParts.length - 1].replace(/\.[^/.]+$/, '').replace(/[_\.]+/g, ' ').trim();
-  }
-  
-  const state = {
-    currentPath: currentPath,
-    currentTime: audio.currentTime || 0,
-    duration: audio.duration || 0,
-    volume: audio.volume,
-    playerTitle: songName, // Store the actual song name
-    timestamp: Date.now()
-  };
-
-  try {
-    localStorage.setItem(AUDIO_STATE_KEY, JSON.stringify(state));
-    console.log('Audio state saved from playlist page:', { path: currentPath, time: state.currentTime, title: songName });
-  } catch(e) {
-    console.warn('Failed to save audio state:', e);
-  }
-}
-function loadAudioState() {
-  try {
-    const raw = localStorage.getItem(AUDIO_STATE_KEY);
-    if (!raw) return null;
-    
-    const state = JSON.parse(raw);
-    const age = Date.now() - (state.timestamp || 0);
-    
-    if (age > AUDIO_STATE_TTL || !state.currentPath || state.fromPage === 'playlist') return null;
-    
-    return state;
-  } catch(e) {
-    console.warn('Failed to load audio state:', e);
-    return null;
-  }
+function ext(name){
+  const i = name.lastIndexOf('.');
+  return i >= 0 ? name.slice(i).toLowerCase() : '';
 }
 
-function clearAudioState() {
-  try {
-    localStorage.removeItem(AUDIO_STATE_KEY);
-  } catch(e) {}
+function isAudio(n){
+  return AUDIO_EXTS.includes(ext(n));
 }
 
-async function restoreAudioStateOnPlaylistPage() {
-  const savedState = loadAudioState();
-  if (!savedState) return false;
-  
-  console.log('Attempting to restore audio state on playlist page:', savedState);
-  
-  // Find the track in available playlists
-  let targetTrack = null;
-  
-  // Search through all available tracks
-  for (const [scopePath, tracks] of Object.entries(gatherAllScopes())) {
-    const found = tracks.find(t => normalizePath(t.path) === normalizePath(savedState.currentPath));
-    if (found) {
-      targetTrack = found;
-      break;
-    }
-  }
-  
-  if (!targetTrack) {
-    console.log('Saved track not found in playlists');
-    return false;
-  }
-  
-  // Restore playback without changing current view
-  try {
-    _setPlayButtonLoading(true);
-    // Use the saved song title, not the playlist/scope name
-    playerTitle.textContent = savedState.playerTitle || targetTrack.name;
-    
-    audio.src = apiFileUrl(targetTrack.path);
-    audio.volume = savedState.volume || 1;
-    
-    const restorePlayback = () => {
-      if (savedState.currentTime > 0 && audio.duration) {
-        const seekTime = Math.min(savedState.currentTime, audio.duration - 1);
-        audio.currentTime = seekTime;
-      }
-      
-      // Auto-play the restored track
-      audio.play().then(() => {
-        console.log('Audio restored and playing on playlist page');
-        _setPlayButtonLoading(false);
-      }).catch(e => {
-        console.log('Could not auto-resume (user interaction may be needed):', e);
-        _setPlayButtonLoading(false);
-        playBtn.textContent = '▶';
-      });
-    };
-
-    if (audio.readyState >= 2) {
-      restorePlayback();
-    } else {
-      audio.addEventListener('loadeddata', restorePlayback, { once: true });
-      setTimeout(restorePlayback, 1000);
-    }
-    
-    return true;
-  } catch(e) {
-    console.warn('Failed to restore audio state:', e);
-    _setPlayButtonLoading(false);
-    return false;
-  }
-}
-function gatherAllScopes() {
-  const result = {};
-  try {
-    for (const [path, dir] of directoryMap.entries()) {
-      if (dir.files && dir.files.length > 0) {
-        result[path] = dir.files;
-      }
-    }
-  } catch(e) {
-    console.warn('Error gathering scopes:', e);
-  }
-  return result;
-}
-function log(...args){ /* console.debug('[PL] ', ...args); */ }
-
-/* ---------- CACHE helpers ---------- */
-function saveCacheToLocalStorage(){
-  try{
-    const obj = {
-      directoryEntries: Array.from(directoryMap.entries()).map(([k,v])=> {
-        return [k, { path: v.path, name: v.name, files: v.files, dirs: Array.from(v.dirs || []) }];
-      }),
-      topPlaylists,
-      lastSig,
-      ts: Date.now()
-    };
-    localStorage.setItem(CACHE_KEY, JSON.stringify(obj));
-    localStorage.setItem(CACHE_META_KEY, JSON.stringify({ saved: Date.now() }));
-  }catch(e){ console.warn('cache save failed', e); }
+function prettify(n){
+  if(!n) return '';
+  let s = n.replace(/\.[^/.]+$/, '');
+  s = s.replace(/[_\.]+/g, ' ').trim();
+  return s;
 }
 
-function loadCacheFromLocalStorage(){
-  try{
-    const raw = localStorage.getItem(CACHE_KEY);
-    if(!raw) return null;
-    const obj = JSON.parse(raw);
-    if(!obj || !obj.directoryEntries) return null;
-    const now = Date.now();
-    const age = now - (obj.ts || 0);
-    if(age > CACHE_TTL) return null;
-    directoryMap = new Map();
-    obj.directoryEntries.forEach(([k,v])=>{
-      directoryMap.set(k, { path: v.path, name: v.name, files: v.files || [], dirs: new Set(v.dirs || []) });
-    });
-    topPlaylists = obj.topPlaylists || [];
-    lastSig = obj.lastSig || null;
-    log('loaded cached index; age ms:', age);
-    return obj;
-  }catch(e){
-    console.warn('cache load failed', e);
-    return null;
-  }
-}
-
-/* ---------- NDJSON FETCH ---------- */
 async function fetchIndex(path){
   const url = `${INDEX_ENDPOINT}?path=${encodeURIComponent(normalizePath(path))}`;
   const res = await fetch(url, { cache: 'no-store' });
@@ -649,30 +103,46 @@ async function fetchIndex(path){
   const header = lines.length ? (()=>{ try{ return JSON.parse(lines[0]); }catch(e){return null;} })() : null;
   const entries = [];
   for(let i=1;i<lines.length;i++){
-    try{ entries.push(JSON.parse(lines[i])); }catch(e){
+    try{
+      entries.push(JSON.parse(lines[i]));
+    }catch(e){
       const idx = lines[i].indexOf('{');
-      if(idx>=0){ try{ entries.push(JSON.parse(lines[i].slice(idx))); }catch(_){} }
+      if(idx>=0){
+        try{ entries.push(JSON.parse(lines[i].slice(idx))); }catch(_){}
+      }
     }
   }
   return { header, entries };
 }
 
-/* ---------- BUILD MAP & SCAN ---------- */
-async function scanPlaylists(useCacheIfAvailable = true){
-  if(useCacheIfAvailable){
-    const cached = loadCacheFromLocalStorage();
-    if(cached){
-      renderTopPlaylists();
-    }
+function addTrackToMap(mapRef, fullPath){
+  const normalized = normalizePath(fullPath);
+  const parts = normalized.split('/').filter(Boolean);
+  if(parts.length < 2) return;
+  const filename = parts[parts.length - 1];
+  if(!isAudio(filename)) return;
+  const dirPath = '/' + parts.slice(0, parts.length - 1).join('/');
+  if(!mapRef.has(dirPath)){
+    mapRef.set(dirPath, {
+      path: dirPath,
+      name: dirPath.split('/').filter(Boolean).pop() || '/',
+      files: [],
+      dirs: new Set()
+    });
   }
+  const entry = mapRef.get(dirPath);
+  if(!entry.files.some(f => f.path === normalized)){
+    const t = { name: prettify(filename), file: filename, path: normalized, dirPath };
+    entry.files.push(t);
+  }
+}
 
+async function scanLibrary(){
   const newDirMap = new Map();
   
   try{
     const resp = await fetchIndex(ROOT);
-    if(resp.header && resp.header.sig) lastSig = resp.header.sig;
-
-    // FIRST PASS: Create all directory entries
+    
     for(const e of resp.entries){
       const type = e.t || e.type || (e.kind === 'file' ? 'f' : (e.kind === 'dir' ? 'd' : undefined));
       let fullPath = e.p || e.path;
@@ -686,17 +156,16 @@ async function scanPlaylists(useCacheIfAvailable = true){
       if(type === 'd'){
         if(!newDirMap.has(fullPath)){
           const name = fullPath.split('/').filter(Boolean).pop() || '/';
-          newDirMap.set(fullPath, { 
-            path: fullPath, 
-            name: name, 
-            files: [], 
-            dirs: new Set() 
+          newDirMap.set(fullPath, {
+            path: fullPath,
+            name: name,
+            files: [],
+            dirs: new Set()
           });
         }
       }
     }
-
-    // SECOND PASS: Add files and link parent-child relationships
+    
     for(const e of resp.entries){
       const type = e.t || e.type || (e.kind === 'file' ? 'f' : (e.kind === 'dir' ? 'd' : undefined));
       let fullPath = e.p || e.path;
@@ -714,11 +183,11 @@ async function scanPlaylists(useCacheIfAvailable = true){
         for(let i = 1; i < parts.length; i++){
           const dirPath = '/' + parts.slice(0, i).join('/');
           if(!newDirMap.has(dirPath)){
-            newDirMap.set(dirPath, { 
-              path: dirPath, 
-              name: parts[i-1], 
-              files: [], 
-              dirs: new Set() 
+            newDirMap.set(dirPath, {
+              path: dirPath,
+              name: parts[i-1],
+              files: [],
+              dirs: new Set()
             });
           }
         }
@@ -729,11 +198,11 @@ async function scanPlaylists(useCacheIfAvailable = true){
         if(parts.length > 1){
           const parentPath = '/' + parts.slice(0, -1).join('/');
           if(!newDirMap.has(parentPath)){
-            newDirMap.set(parentPath, { 
-              path: parentPath, 
-              name: parts[parts.length-2], 
-              files: [], 
-              dirs: new Set() 
+            newDirMap.set(parentPath, {
+              path: parentPath,
+              name: parts[parts.length-2],
+              files: [],
+              dirs: new Set()
             });
           }
           const parent = newDirMap.get(parentPath);
@@ -744,49 +213,29 @@ async function scanPlaylists(useCacheIfAvailable = true){
   }catch(err){
     console.warn('[Playlists] index failed', err);
   }
-
+  
   directoryMap = newDirMap;
-
+  
   const children = Array.from(directoryMap.values()).filter(d => {
     const parts = d.path.split('/').filter(Boolean);
     return parts.length === 2 && parts[0] === ROOT.replace(/^\//,'');
   }).sort((a,b)=> a.name.localeCompare(b.name, undefined, {numeric:true}));
-
+  
   topPlaylists = children.map(c => c.path).filter(p => {
     const entry = directoryMap.get(p);
     return entry && (entry.files.length > 0 || entry.dirs.size > 0);
   });
-
+  
   for(const [k,v] of directoryMap.entries()){
     if(v.files && v.files.length){
       v.files.sort((a,b)=> sortAsc ? a.name.localeCompare(b.name, undefined, {numeric:true}) : b.name.localeCompare(a.name, undefined, {numeric:true}));
     }
   }
-
-  saveCacheToLocalStorage();
-  renderTopPlaylists();
+  
+  console.log('[Playlists] scan complete. playlists:', topPlaylists.length);
+  render();
 }
 
-/* add track to mapRef */
-function addTrackToMap(mapRef, fullPath){
-  const normalized = normalizePath(fullPath);
-  const parts = normalized.split('/').filter(Boolean);
-  if(parts.length < 2) return;
-  const filename = parts[parts.length - 1];
-  if(!isAudio(filename)) return;
-  const dirPath = '/' + parts.slice(0, parts.length - 1).join('/');
-  if(!mapRef.has(dirPath)) mapRef.set(dirPath, { path: dirPath, name: dirPath.split('/').filter(Boolean).pop() || '/', files: [], dirs: new Set() });
-  const entry = mapRef.get(dirPath);
-  // Check if file already exists in this directory
-  if(!entry.files.some(f => f.path === normalized)){
-    const t = { name: prettify(filename), file: filename, path: normalized, dirPath };
-    entry.files.push(t);
-  }
-}
-
-function addTrackToMaps(fullPath){ addTrackToMap(directoryMap, fullPath); }
-
-/* gather recursively */
 function gatherRecursive(dirPath){
   dirPath = normalizePath(dirPath);
   const result = [];
@@ -800,12 +249,10 @@ function gatherRecursive(dirPath){
       children.forEach(c => stack.push(c));
     }
   }
-  // stable sort for deterministic playback order
   result.sort((a,b)=> sortAsc ? a.name.localeCompare(b.name, undefined, {numeric:true}) : b.name.localeCompare(a.name, undefined, {numeric:true}));
   return result;
 }
 
-/* gather direct files only */
 function gatherDirect(dirPath){
   dirPath = normalizePath(dirPath);
   const entry = directoryMap.get(dirPath);
@@ -815,702 +262,305 @@ function gatherDirect(dirPath){
   return arr;
 }
 
-/* ---------- RENDER ---------- */
-function clearChildren(el){ while(el.firstChild) el.removeChild(el.firstChild); }
-
-function renderTopPlaylists(){
-  clearChildren(playlistsEl);
+function render(){
+  playlistsEl.innerHTML = '';
   if(!topPlaylists.length){
-    playlistsEl.innerHTML = '<p class="muted" style="padding:10px">No playlists found. Create subfolders under /Music.</p>';
-    totalPlaylistsEl.textContent = '0 playlists';
+    playlistsEl.innerHTML = '<p style="padding:10px;color:var(--muted)">No playlists found.</p>';
+    playlistCountEl.textContent = '0 playlists';
     return;
   }
-
+  
   const q = (searchEl.value || '').trim().toLowerCase();
-
+  
   topPlaylists.forEach(path => {
     const info = directoryMap.get(path) || { path: path, name: path.split('/').filter(Boolean).pop(), files: [], dirs: new Set() };
     const songs = gatherRecursive(path);
     if(!songs.length) return;
-
+    
     if(q){
       const topMatch = info.name.toLowerCase().includes(q);
       const contains = songs.some(s => s.name.toLowerCase().includes(q) || (s.dirPath||'').toLowerCase().includes(q));
       if(!topMatch && !contains) return;
     }
-
+    
     const wrap = document.createElement('div');
     wrap.className = 'playlist';
     wrap.dataset.path = path;
-
+    
     const header = document.createElement('div');
     header.className = 'playlist-header';
+    if(openTopPath === path) header.classList.add('open');
     header.dataset.path = path;
-
-    const name = document.createElement('div'); name.className='name'; name.textContent = info.name;
-    const count = document.createElement('div'); count.className='count'; count.textContent = `${songs.length} tracks`;
-    header.appendChild(name); header.appendChild(count);
-
-    const body = document.createElement('div'); body.className = 'playlist-body';
-
+    
+    const icon = document.createElement('span');
+    icon.className = 'icon';
+    icon.textContent = '▶';
+    
+    const name = document.createElement('div');
+    name.className = 'name';
+    name.textContent = info.name;
+    
+    const count = document.createElement('div');
+    count.className = 'count';
+    count.textContent = `${songs.length} tracks`;
+    
+    header.appendChild(icon);
+    header.appendChild(name);
+    header.appendChild(count);
+    
+    const body = document.createElement('div');
+    body.className = 'playlist-body';
+    if(openTopPath === path){
+      body.classList.add('open');
+      renderPlaylistBody(path, body);
+    }
+    
     header.addEventListener('click', ()=> {
-      // open/close visual without affecting playback
-      if(openTop === path){
-        openTop = null; openSub = null; body.classList.remove('open');
+      if(openTopPath === path){
+        openTopPath = null;
+        openSubPath = null;
       } else {
-        openTop = path; openSub = null;
-        Array.from(document.querySelectorAll('.playlist-body.open')).forEach(el => el.classList.remove('open'));
-        body.classList.add('open');
-        renderPlaylistBody(path, body);
+        openTopPath = path;
+        openSubPath = null;
       }
-      // Don't auto-set scope, just browse
-      setScopeAndQueue(path, 0, false, true);
+      render();
     });
-
+    
     wrap.appendChild(header);
     wrap.appendChild(body);
     playlistsEl.appendChild(wrap);
   });
-
-  totalPlaylistsEl.textContent = `${playlistsEl.querySelectorAll('.playlist').length} playlists`;
-  // highlight active scope if present
-  highlightScope(currentScopePath);
+  
+  playlistCountEl.textContent = `${playlistsEl.querySelectorAll('.playlist').length} playlists`;
 }
 
-/* render playlist body */
+
 function renderPlaylistBody(topPath, bodyEl){
-  clearChildren(bodyEl);
+  bodyEl.innerHTML = '';
   const topEntry = directoryMap.get(topPath) || { path: topPath, files: [], dirs: new Set() };
   const children = Array.from(topEntry.dirs).sort();
   const q = (searchEl.value || '').trim().toLowerCase();
-
+  
   if(children.length){
     children.forEach(childPath => {
-      const childTracks = gatherDirect(childPath); // list direct files for the child
+      const childTracks = gatherDirect(childPath);
       if(q && !childPath.split('/').pop().toLowerCase().includes(q) && !childTracks.some(t => t.name.toLowerCase().includes(q))) return;
-
+      
       const childName = childPath.split('/').filter(Boolean).pop();
-      const card = document.createElement('div'); card.className = 'folder-card'; card.dataset.path = childPath;
-      const folderEl = document.createElement('div'); folderEl.className = 'folder'; folderEl.dataset.path = childPath;
-      if(openSub === childPath){
-        folderEl.classList.add('expanded');
-        card.classList.add('expanded');
-      }
-
+      const card = document.createElement('div');
+      card.className = 'folder-card';
+      if(openSubPath === childPath) card.classList.add('expanded');
+      card.dataset.path = childPath;
+      
+      const folderEl = document.createElement('div');
+      folderEl.className = 'folder';
+      if(openSubPath === childPath) folderEl.classList.add('expanded');
+      folderEl.dataset.path = childPath;
+      
       const nameDiv = document.createElement('div');
       nameDiv.className = 'name';
       nameDiv.textContent = childName;
-
+      
       const metaDiv = document.createElement('div');
       metaDiv.className = 'meta';
       metaDiv.textContent = `${childTracks.length} tracks`;
-
+      
       folderEl.appendChild(nameDiv);
       folderEl.appendChild(metaDiv);
-
       card.appendChild(folderEl);
-
+      
       folderEl.addEventListener('click', (ev)=> {
         ev.stopPropagation();
-        openSub = (openSub === childPath) ? null : childPath;
-        renderPlaylistBody(topPath, bodyEl);
-        // when selecting subfolder, set scope to child non-recursive
-        setScopeAndQueue(openSub || topPath, 0, false, openSub ? false : true);
+        openSubPath = (openSubPath === childPath) ? null : childPath;
+        render();
       });
-
-      // If expanded, list direct files inside this child (non-recursive)
-      if(openSub === childPath){
+      
+      if(openSubPath === childPath){
         const tracks = gatherDirect(childPath);
-        const subDiv = document.createElement('div'); subDiv.className = 'subtracks';
+        const subDiv = document.createElement('div');
+        subDiv.className = 'subtracks';
         tracks.forEach(t => {
           if(q && !t.name.toLowerCase().includes(q)) return;
-          const tr = document.createElement('div'); tr.className = 'track'; tr.dataset.path = t.path;
-          const tname = document.createElement('div'); tname.textContent = t.name;
-          const meta = document.createElement('div'); meta.className = 'meta'; meta.textContent = '';
-          if(currentPlaylist[currentIndex] && currentPlaylist[currentIndex].path === t.path) tr.classList.add('playing');
-          tr.appendChild(tname); tr.appendChild(meta);
+          const tr = document.createElement('div');
+          tr.className = 'track';
+          if(t.path === currentPlayingPath) tr.classList.add('playing');
+          tr.dataset.path = t.path;
+          
+          const tname = document.createElement('div');
+          tname.className = 'track-name';
+          tname.textContent = t.name;
+          
+          const meta = document.createElement('div');
+          meta.className = 'meta';
+          meta.textContent = '';
+          
+          const queueBtn = document.createElement('button');
+          queueBtn.className = 'add-queue-btn';
+          const inQueue = queuePaths.has(t.path);
+          queueBtn.textContent = inQueue ? '✓' : '+';
+          queueBtn.title = inQueue ? 'In queue' : 'Add to queue';
+          if(inQueue){
+            queueBtn.style.opacity = '0.5';
+            queueBtn.style.pointerEvents = 'none';
+          }
+          queueBtn.onclick = (e) => {
+            e.stopPropagation();
+            if(!inQueue){
+              window.parent.postMessage({
+                type: 'ADD_TO_QUEUE',
+                payload: t
+              }, '*');
+            }
+          };
+          
+          tr.appendChild(tname);
+          tr.appendChild(meta);
+          tr.appendChild(queueBtn);
+          
           tr.addEventListener('click', (ev)=> {
             ev.stopPropagation();
-            // set scope to this child (direct files only) and play from clicked index WITHOUT reordering
-            currentScopePath = childPath;
-            currentPlaylist = gatherDirect(childPath); // non-recursive, deterministic order
-            currentIndex = currentPlaylist.findIndex(x => x.path === t.path);
-            openPlaylistView(topPath);
-            playAtIndex(currentIndex);
-            highlightScope(currentScopePath);
+            const playlist = gatherDirect(childPath);
+            const idx = playlist.findIndex(x => x.path === t.path);
+            window.parent.postMessage({
+              type: 'PLAY_PLAYLIST',
+              payload: {
+                tracks: playlist,
+                startIndex: idx >= 0 ? idx : 0
+              }
+            }, '*');
           });
+          
           subDiv.appendChild(tr);
         });
         card.appendChild(subDiv);
       }
-
+      
       bodyEl.appendChild(card);
     });
   }
-
-  // files directly under topPath (not recursive)
+  
   const topFiles = topEntry.files || [];
   if(topFiles && topFiles.length){
-    const childPaths = new Set(children);
-    const topDiv = document.createElement('div');
     const sorted = topFiles.slice().sort((a,b)=> sortAsc ? a.name.localeCompare(b.name, undefined, {numeric:true}) : b.name.localeCompare(a.name, undefined, {numeric:true}));
     sorted.forEach(t => {
       if(q && !t.name.toLowerCase().includes(q)) return;
-      // Only show if this file's directory is exactly topPath (not a subdirectory)
       if(t.dirPath !== topPath) return;
-      const tr = document.createElement('div'); tr.className = 'track'; tr.dataset.path = t.path;
-      const tname = document.createElement('div'); tname.textContent = t.name;
-      const meta = document.createElement('div'); meta.className = 'meta'; meta.textContent = '';
-      tr.appendChild(tname); tr.appendChild(meta);
+      
+      const tr = document.createElement('div');
+      tr.className = 'track';
+      if(t.path === currentPlayingPath) tr.classList.add('playing');
+      tr.dataset.path = t.path;
+      
+      const tname = document.createElement('div');
+      tname.className = 'track-name';
+      tname.textContent = t.name;
+      
+      const meta = document.createElement('div');
+      meta.className = 'meta';
+      meta.textContent = '';
+      
+      const queueBtn = document.createElement('button');
+      queueBtn.className = 'add-queue-btn';
+      const inQueue = queuePaths.has(t.path);
+      queueBtn.textContent = inQueue ? '✓' : '+';
+      queueBtn.title = inQueue ? 'In queue' : 'Add to queue';
+      if(inQueue){
+        queueBtn.style.opacity = '0.5';
+        queueBtn.style.pointerEvents = 'none';
+      }
+      queueBtn.onclick = (e) => {
+        e.stopPropagation();
+        if(!inQueue){
+          window.parent.postMessage({
+            type: 'ADD_TO_QUEUE',
+            payload: t
+          }, '*');
+        }
+      };
+      
+      tr.appendChild(tname);
+      tr.appendChild(meta);
+      tr.appendChild(queueBtn);
+      
       tr.addEventListener('click', (ev)=> {
         ev.stopPropagation();
-        // clicking a top file sets the scope to the topPath (recursive) but plays the clicked file without reordering
-        currentScopePath = topPath;
-        currentPlaylist = gatherRecursive(topPath); // recursive, sorted deterministically
-        currentIndex = currentPlaylist.findIndex(x => x.path === t.path);
-        openPlaylistView(topPath);
-        playAtIndex(currentIndex);
-        highlightScope(currentScopePath);
+        const playlist = gatherRecursive(topPath);
+        const idx = playlist.findIndex(x => x.path === t.path);
+        window.parent.postMessage({
+          type: 'PLAY_PLAYLIST',
+          payload: {
+            tracks: playlist,
+            startIndex: idx >= 0 ? idx : 0
+          }
+        }, '*');
       });
-      topDiv.appendChild(tr);
+      
+      bodyEl.appendChild(tr);
     });
-    if(topDiv.children.length > 0) bodyEl.appendChild(topDiv);
   }
-
+  
   if(bodyEl.children.length === 0){
-    const p = document.createElement('p'); p.className = 'muted'; p.textContent = 'No songs here.';
+    const p = document.createElement('p');
+    p.style.cssText = 'padding:10px;color:var(--muted)';
+    p.textContent = 'No songs here.';
     bodyEl.appendChild(p);
   }
-
-  highlightScope(currentScopePath);
 }
 
-/* ---------- PLAYLIST VIEW ---------- */
-function openPlaylistView(topPath){
-  selectorSection.style.display = 'none';
-  playlistView.classList.add('active');
-  currentPlaylistTitle.textContent = topPath.split('/').filter(Boolean).pop();
-  playlistCount.textContent = `${(currentPlaylist||[]).length} tracks`;
-  renderPlaylistContent(topPath);
-}
+searchEl.addEventListener('input', render);
 
-function backToPlaylistSelection(){
-  selectorSection.style.display = '';
-  playlistView.classList.remove('active');
-  
-  // Don't reset playing state, just browsing state
-  currentScopePath = playingScopePath;
-  currentPlaylist = playingPlaylist ? [...playingPlaylist] : [];
-  currentIndex = playingIndex;
-  
-  openTop = null; 
-  openSub = null;
-  renderTopPlaylists();
-  highlightScope(playingScopePath);
-}
+window.addEventListener('message', (event) => {
+  const { type, payload } = event.data;
 
-function renderPlaylistContent(topPath){
-  clearChildren(playlistContent);
-  if(!currentPlaylist || !currentPlaylist.length){
-    playlistContent.innerHTML = '<p class="muted" style="padding:8px">No tracks in current scope.</p>';
-    return;
-  }
-  currentPlaylist.forEach((t, idx) => {
-    // Check if this track is actually playing (from playing state, not just current state)
-    const isPlaying = playingPlaylist && playingIndex >= 0 && 
-                     playingPlaylist[playingIndex] && 
-                     playingPlaylist[playingIndex].path === t.path;
-    
-    const tr = document.createElement('div'); 
-    tr.className = 'track' + (isPlaying ? ' playing' : '');
-    tr.dataset.path = t.path;
-    const tname = document.createElement('div'); tname.textContent = t.name;
-    const meta = document.createElement('div'); meta.className = 'meta'; meta.textContent = shortLabelFor(t, openTop || currentScopePath) || '';
-    tr.appendChild(tname); tr.appendChild(meta);
-    tr.addEventListener('click', ()=> {
-      // when user clicks an item in the current list, play that item and update playing state
-      currentIndex = idx;
-      playAtIndex(currentIndex);
-      renderPlaylistContent(openTop || currentScopePath);
-      highlightScope(playingScopePath);
-    });
-    playlistContent.appendChild(tr);
-  });
-}
-/* helper for short label */
-function shortLabelFor(track, topPath){
-  if(!topPath) return '';
-  const tp = normalizePath(topPath);
-  if(track.dirPath === tp) return '';
-  let rel = track.dirPath.replace(tp, '');
-  rel = rel.replace(/^\/+/,'').replace(/\/+$/,'');
-  const parts = rel.split('/').filter(Boolean);
-  return parts.length ? parts[0] : '';
-}
-
-/* ---------- PLAYBACK UTILITIES ---------- */
-function sha1(str){
-  let h = 5381;
-  for(let i=0;i<str.length;i++){ h = ((h << 5) + h) + str.charCodeAt(i); h = h & 0xffffffff; }
-  return 'h' + (h >>> 0).toString(16);
-}
-
-function shuffleArray(arr){ for(let i=arr.length-1;i>0;i--){ const j=Math.floor(Math.random()*(i+1)); [arr[i],arr[j]]=[arr[j],arr[i]]; } }
-
-function shuffleKeepCurrentFirst(arr, currentPath){
-  const copy = arr.slice();
-  const current = currentPath ? copy.find(x => x.path === currentPath) : null;
-  const rest = copy.filter(x => !current || x.path !== current.path);
-  shuffleArray(rest);
-  if(current) return [current, ...rest];
-  return rest;
-}
-
-/* ---------- AUDIO / PLAYBACK ---------- */
-function _setPlayButtonLoading(loading){
-  _loadingAudio = !!loading;
-  if(_loadingAudio){
-    playBtn.disabled = true;
-    playBtn.textContent = '⏳';
-    playBtn.setAttribute('aria-label','Loading');
-    playBtn.style.opacity = '0.85';
-  } else {
-    playBtn.disabled = false;
-    if(audio && !audio.paused){
-      playBtn.textContent = '⏸';
-      playBtn.setAttribute('aria-label','Pause');
-    } else {
-      playBtn.textContent = '▶';
-      playBtn.setAttribute('aria-label','Play');
-    }
-    playBtn.style.opacity = '';
-  }
-}
-
-/* set scope and queue; recursive flag controls whether scope is recursive
-   - recursive = true -> gatherRecursive(scopePath)
-   - recursive = false -> gatherDirect(scopePath)
-   autoPlay: if true, start playback immediately
-*/
-function setScopeAndQueue(scopePath, startAt = 0, autoPlay = false, recursive = true){
-  if(!scopePath) return;
-  
-  if(autoPlay) {
-    // Full playback mode - update both playing and browsing state
-    playingScopePath = scopePath;
-    playingPlaylist = (recursive ? gatherRecursive(scopePath) : gatherDirect(scopePath));
-    playingIndex = Math.max(0, Math.min(startAt, playingPlaylist.length-1));
-    
-    // Update current references for UI consistency
-    currentScopePath = scopePath;
-    currentPlaylist = playingPlaylist;
-    currentIndex = playingIndex;
-    
-    const item = playingPlaylist[playingIndex];
-    if(item){
-      playerTitle.textContent = item.name;
-      try{
-        audio.pause();
-        audio.src = apiFileUrl(item.path);
-        try { audio.load(); } catch(e){}
-        audio.play().catch(()=>{});
-      }catch(e){
-        console.warn('load track error', e);
-      }
-    }
-  } else {
-    // Browse-only mode - only update browsing scope, don't touch playback
-    currentScopePath = scopePath;
-    currentPlaylist = (recursive ? gatherRecursive(scopePath) : gatherDirect(scopePath));
-    currentIndex = Math.max(0, Math.min(startAt, currentPlaylist.length-1));
-    
-    // If nothing is currently playing, initialize playing state to match current
-    if(!playingScopePath || !audio.src) {
-      playingScopePath = scopePath;
-      playingPlaylist = currentPlaylist;
-      playingIndex = currentIndex;
-    }
-  }
-
-  renderPlaylistContent(openTop || currentScopePath);
-  highlightScope(playingScopePath || currentScopePath);
-  playlistCount.textContent = `${currentPlaylist.length} tracks`;
-}
-/* play at index with safer loading */
-function playAtIndex(i){
-  if(!currentPlaylist || i < 0 || i >= currentPlaylist.length) return;
-  
-  // Update both playing and current state
-  playingIndex = i;
-  playingScopePath = currentScopePath;
-  playingPlaylist = [...currentPlaylist];
-  currentIndex = i;
-  
-  const item = currentPlaylist[currentIndex];
-  if(!item) return;
-
-  playerTitle.textContent = item.name;
-  renderPlaylistContent(openTop || currentScopePath);
-  scrollPlayingIntoView();
-
-  try {
-    _setPlayButtonLoading(true);
-    audio.pause();
-    audio.src = apiFileUrl(item.path);
-    
-    audio.addEventListener('canplay', () => {
-      audio.play().then(() => {
-        _setPlayButtonLoading(false);
-      }).catch(() => {
-        _setPlayButtonLoading(false);
-      });
-    }, { once: true });
-    
-    audio.load();
-  } catch(e){
-    console.warn('playAtIndex error', e);
-    _setPlayButtonLoading(false);
-  }
-}
-/* Next strictly follows currentPlaylist; wrap only if scopeLoopActive */
-function playNext(){
-  if(!playingPlaylist || playingPlaylist.length === 0) return;
-  if(playingIndex < playingPlaylist.length - 1){
-    playingIndex++;
-    // Sync current state for UI
-    currentIndex = playingIndex;
-    currentPlaylist = playingPlaylist;
-    currentScopePath = playingScopePath;
-    playAtIndex(currentIndex);
-  } else {
-    if(scopeLoopActive){
-      playingIndex = 0;
-      currentIndex = playingIndex;
-      currentPlaylist = playingPlaylist;
-      currentScopePath = playingScopePath;
-      playAtIndex(currentIndex);
-    } else {
-      audio.pause();
-      audio.currentTime = 0;
-      _setPlayButtonLoading(false);
-      playBtn.textContent = '▶';
-    }
-  }
-}
-/* Prev: if >3s seek to start, else go prev (wrap if scopeLoopActive) */
-function playPrev(){
-  if(!playingPlaylist || playingPlaylist.length === 0) return;
-  if(playingIndex > 0){
-    playingIndex--;
-  } else if(scopeLoopActive){
-    playingIndex = playingPlaylist.length - 1;
-  } else {
-    playingIndex = 0;
-  }
-  // Sync current state for UI
-  currentIndex = playingIndex;
-  currentPlaylist = playingPlaylist;
-  currentScopePath = playingScopePath;
-  playAtIndex(currentIndex);
-}
-function stopPlayback(){
-  try { audio.pause(); } catch(e){}
-  audio.src = '';
-  currentIndex = -1;
-  playerTitle.textContent = 'Not playing';
-  renderPlaylistContent(openTop || currentScopePath);
-}
-
-function scrollPlayingIntoView(){
-  if(currentIndex < 0 || !currentPlaylist[currentIndex]) return;
-  const playingPath = currentPlaylist[currentIndex].path;
-  setTimeout(()=> {
-    try{
-      const node = document.querySelector(`#playlistContent [data-path="${CSS.escape(playingPath)}"]`);
-      if(node) node.scrollIntoView({behavior:'smooth', block:'nearest'});
-    }catch(e){}
-  }, 80);
-}
-
-/* highlight scope region in DOM */
-function highlightScope(path){
-  document.querySelectorAll('.playlist.scope-playing, .folder-card.scope-playing').forEach(el => el.classList.remove('scope-playing'));
-  if(!path) return;
-  try{
-    const topWrap = document.querySelector(`.playlist[data-path="${CSS.escape(path)}"]`);
-    if(topWrap) { topWrap.classList.add('scope-playing'); return; }
-    const folder = document.querySelector(`.folder-card[data-path="${CSS.escape(path)}"]`);
-    if(folder) folder.classList.add('scope-playing');
-  }catch(e){}
-}
-
-/* ---------- AUDIO EVENTS ---------- */
-audio.addEventListener('loadedmetadata', ()=> { totalTime.textContent = fmtTime(audio.duration || 0); });
-audio.addEventListener('timeupdate', ()=> {
-  if(!audio.duration) return;
-  playedTime.textContent = fmtTime(audio.currentTime||0);
-  const pct = (audio.currentTime / audio.duration) * 100;
-  progressBar.style.width = pct + '%';
-});
-audio.addEventListener('playing', ()=> { _setPlayButtonLoading(false); playBtn.textContent = '⏸'; playBtn.setAttribute('aria-label','Pause'); renderPlaylistContent(openTop || currentScopePath); });
-audio.addEventListener('play', ()=> { playBtn.textContent = '⏸'; playBtn.setAttribute('aria-label','Pause'); });
-audio.addEventListener('pause', ()=> { if(!_loadingAudio) { playBtn.textContent = '▶'; playBtn.setAttribute('aria-label','Play'); } });
-audio.addEventListener('waiting', ()=> { _setPlayButtonLoading(true); });
-audio.addEventListener('stalled', ()=> { _setPlayButtonLoading(true); });
-audio.addEventListener('ended', ()=> {
-  if(audio.loop) return;
-  if(scopeLoopActive){
-    const lastIndex = (currentPlaylist && currentPlaylist.length) ? currentPlaylist.length - 1 : -1;
-    if(lastIndex >= 0 && currentIndex >= lastIndex){
-      currentIndex = 0;
-      playAtIndex(currentIndex);
-      return;
-    }
-  }
-  playNext();
-});
-
-/* ---------- AUTO-SAVE AUDIO STATE ---------- */
-let stateSaveInterval;
-
-audio.addEventListener('play', () => {
-  saveAudioState();
-  if (stateSaveInterval) clearInterval(stateSaveInterval);
-  stateSaveInterval = setInterval(saveAudioState, 3000);
-});
-
-audio.addEventListener('pause', () => {
-  saveAudioState();
-  if (stateSaveInterval) clearInterval(stateSaveInterval);
-});
-
-audio.addEventListener('timeupdate', () => {
-  if (!audio.paused && audio.currentTime > 0 && Math.floor(audio.currentTime) % 5 === 0) {
-    saveAudioState();
-  }
-});
-
-window.addEventListener('beforeunload', () => {
-  if (stateSaveInterval) clearInterval(stateSaveInterval);
-  saveAudioState();
-});
-
-window.addEventListener('pagehide', () => {
-  if (stateSaveInterval) clearInterval(stateSaveInterval);
-  saveAudioState();
-});
-
-document.addEventListener('visibilitychange', () => {
-  if (document.visibilityState === 'hidden' && !audio.paused) {
-    saveAudioState();
-  }
-});
-
-document.addEventListener('click', (e) => {
-  const link = e.target.closest('a[href], button[onclick]');
-  if (link && !audio.paused && audio.currentTime > 0) {
-    setTimeout(saveAudioState, 10);
-  }
-});
-/* ---------- UI CONTROLS ---------- */
-playBtn.addEventListener('click', ()=> {
-  if(playBtn.disabled || _loadingAudio) return;
-  try { if(audio.paused) audio.play().catch(()=>{}); else audio.pause(); }catch(e){}
-});
-prevBtn.addEventListener('click', playPrev);
-nextBtn.addEventListener('click', playNext);
-
-progressWrap.addEventListener('click', (e)=> {
-  if(!audio.duration) return;
-  const r = progressWrap.getBoundingClientRect(), x = e.clientX - r.left, pct = Math.max(0, Math.min(1, x / r.width));
-  audio.currentTime = pct * audio.duration;
-});
-
-/* footer single-track loop */
-footerLoopBtn.addEventListener('click', ()=> {
-  audio.loop = !audio.loop;
-  footerLoopBtn.setAttribute('aria-pressed', String(audio.loop));
-  footerLoopBtn.classList.toggle('active', !!audio.loop);
-});
-
-/* shuffle (header) — shuffle currentPlaylist or build and shuffle scope */
-shuffleScopeBtn.addEventListener('click', ()=> {
-  if(currentPlaylist && currentPlaylist.length){
-    const currentPath = (currentIndex >=0 && currentPlaylist[currentIndex]) ? currentPlaylist[currentIndex].path : null;
-    currentPlaylist = shuffleKeepCurrentFirst(currentPlaylist, currentPath);
-    currentIndex = 0;
-    renderPlaylistContent(openTop || currentScopePath);
-    playAtIndex(currentIndex);
-    return;
-  }
-  // no currentPlaylist: pick the best scope to shuffle
-  if(openSub){
-    setScopeAndQueue(openSub, 0, true, false);
-    currentPlaylist = shuffleKeepCurrentFirst(currentPlaylist, (currentPlaylist[0] ? currentPlaylist[0].path : null));
-    currentIndex = 0;
-    playAtIndex(0);
-    return;
-  }
-  if(openTop){
-    setScopeAndQueue(openTop, 0, true, true);
-    currentPlaylist = shuffleKeepCurrentFirst(currentPlaylist, (currentPlaylist[0] ? currentPlaylist[0].path : null));
-    currentIndex = 0;
-    playAtIndex(0);
-    return;
-  }
-  if(topPlaylists && topPlaylists.length){
-    setScopeAndQueue(topPlaylists[0], 0, true, true);
-    currentPlaylist = shuffleKeepCurrentFirst(currentPlaylist, (currentPlaylist[0] ? currentPlaylist[0].path : null));
-    currentIndex = 0;
-    playAtIndex(0);
-  }
-});
-
-/* sort toggle */
-sortBtn.addEventListener('click', ()=> {
-  sortAsc = !sortAsc;
-  const label = sortAsc ? 'A → Z' : 'Z → A';
-  const lblNode = sortBtn.querySelector('.label');
-  if(lblNode) lblNode.textContent = label;
-  sortBtn.setAttribute('aria-pressed', String(!sortAsc));
-  // re-sort directory files for deterministic display
-  for(const [k,v] of directoryMap.entries()){
-    if(v.files && v.files.length){
-      v.files.sort((a,b)=> sortAsc ? a.name.localeCompare(b.name, undefined, {numeric:true}) : b.name.localeCompare(a.name, undefined, {numeric:true}));
-    }
-  }
-  if(openTop){
-    const body = document.querySelector(`.playlist[data-path="${CSS.escape(openTop)}"] .playlist-body`);
-    if(body) renderPlaylistBody(openTop, body);
-  }
-  if(currentPlaylist && currentPlaylist.length) {
-    // re-order current playlist deterministically (but do not move the currently playing song)
-    const currentPath = (currentIndex >= 0 && currentPlaylist[currentIndex]) ? currentPlaylist[currentIndex].path : null;
-    currentPlaylist.sort((a,b)=> sortAsc ? a.name.localeCompare(b.name, undefined, {numeric:true}) : b.name.localeCompare(a.name, undefined, {numeric:true}));
-    if(currentPath){
-      currentIndex = currentPlaylist.findIndex(x => x.path === currentPath);
-      if(currentIndex < 0) currentIndex = 0;
-    }
-    renderPlaylistContent(openTop || currentScopePath);
-  }
-});
-
-/* songs button */
-songsBtn.addEventListener('click', ()=> { window.location.href = 'music.html'; 
-  if (!audio.paused && audio.currentTime > 0) {
-    saveAudioState();
-    // Add a small delay to ensure localStorage write completes
-    setTimeout(() => {
-      window.location.href = 'music.html';
-    }, 50);
-  } else {
-    window.location.href = 'music.html';
-  }
-});
-/* back button */
-backToList.addEventListener('click', ()=> backToPlaylistSelection());
-
-/* search */
-searchEl.addEventListener('input', ()=> {
-  renderTopPlaylists();
-  if(openTop){
-    const body = document.querySelector(`.playlist[data-path="${CSS.escape(openTop)}"] .playlist-body`);
-    if(body) renderPlaylistBody(openTop, body);
-  }
-});
-
-/* download */
-downloadBtn.addEventListener('click', ()=> {
-  if(!currentPlaylist || currentIndex < 0 || !currentPlaylist[currentIndex]) return;
-  const item = currentPlaylist[currentIndex];
-  const a = document.createElement('a');
-  a.href = directUrl(item.path);
-  a.download = item.file || 'download';
-  document.body.appendChild(a);
-  a.click();
-  setTimeout(()=> { try{ document.body.removeChild(a); }catch(e){} }, 50);
-});
-
-/* ---------- POLLING & BOOT ---------- */
-async function pollIndex(){
-  try{
-    const res = await fetch(`${INDEX_ENDPOINT}?path=${encodeURIComponent(ROOT)}`, { cache: 'no-store' });
-    if(!res.ok) return;
-    const text = await res.text();
-    const headerLine = text.split('\n')[0];
-    if(headerLine){
-      try{ const h = JSON.parse(headerLine); if(h && h.sig && h.sig !== lastSig){ lastSig = h.sig; await scanPlaylists(false); } }catch(e){}
-    }
-  }catch(e){}
-}
-
-async function bootstrap(){
-  try{
-    totalPlaylistsEl.textContent = 'Scanning…';
-    const cached = loadCacheFromLocalStorage();
-    if(cached){
-      setTimeout(()=> { scanPlaylists(false).catch(()=>{}); }, 50);
-    } else {
-      await scanPlaylists(false);
-    }
-  }catch(e){
-    console.error('bootstrap failed', e);
-    playlistsEl.innerHTML = '<p class="muted" style="padding:8px">Failed to load playlists.</p>';
-    totalPlaylistsEl.textContent = 'Failed';
-  }
-}
-
-(async function init(){
-  await bootstrap();
-  setInterval(pollIndex, 30000);
-})();
-
-/* ---------- INITIALIZE AUDIO STATE RESTORATION ---------- */
-setTimeout(() => {
-  restoreAudioStateOnPlaylistPage().then(restored => {
-    if (restored) {
-      console.log('Audio state restored from music page');
-    }
-  }).catch(e => {
-    console.warn('Audio state restoration failed:', e);
-  });
-}, 500);
-
-/* theme watcher for live changes */
-(function themeWatcher(){
-  try {
-    const html = document.documentElement;
-    window.addEventListener('storage', (ev) => {
-      if(ev.key === THEME_KEY){
-        const dark = ev.newValue === 'true';
-        html.classList.toggle('dark', !!dark);
+  if(type === 'PLAYBACK_UPDATE'){
+    currentPlayingPath = payload.currentTrack ? payload.currentTrack.path : null;
+    document.querySelectorAll('.track').forEach(track => {
+      if(track.dataset.path === currentPlayingPath){
+        track.classList.add('playing');
+      } else {
+        track.classList.remove('playing');
       }
     });
+  }
 
-    const mo = new MutationObserver(muts => {
-      for(const m of muts){
-        if(m.type === 'attributes' && (m.attributeName === 'data-theme' || m.attributeName === 'class')){
-          const ds = html.dataset && html.dataset.theme;
-          const stored = localStorage.getItem(THEME_KEY);
-          const prefersDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
-          const isDark = (ds === 'dark') || (stored === 'true') || (!ds && !stored && prefersDark);
-          html.classList.toggle('dark', !!isDark);
-        }
-      }
-    });
-    mo.observe(html, { attributes: true, attributeFilter: ['data-theme','class'] });
-
-    if(window.matchMedia){
-      const mq = window.matchMedia('(prefers-color-scheme: dark)');
-      mq.addEventListener && mq.addEventListener('change', (e)=> {
-        const ds = html.dataset && html.dataset.theme;
-        const stored = localStorage.getItem(THEME_KEY);
-        const isDark = (ds === 'dark') || (stored === 'true') || (!ds && !stored && e.matches);
-        html.classList.toggle('dark', !!isDark);
+  if(type === 'QUEUE_UPDATE'){
+    queuePaths.clear();
+    if(payload.queue){
+      payload.queue.forEach(track => {
+        if(track.path) queuePaths.add(track.path);
       });
     }
-  } catch(e){}
-})();
+    render();
+  }
+
+  if(type === 'SHUFFLE'){
+    if(!isShuffled){
+      originalTopPlaylists = topPlaylists.slice();
+      const arr = topPlaylists.slice();
+      fisherYates(arr);
+      topPlaylists = arr;
+      isShuffled = true;
+    } else {
+      topPlaylists = originalTopPlaylists.slice();
+      isShuffled = false;
+    }
+    render();
+  }
+
+  if(type === 'SORT'){
+    sortAsc = payload.ascending;
+    topPlaylists.sort((a, b) => {
+      const aInfo = directoryMap.get(a) || {name: a.split('/').filter(Boolean).pop()};
+      const bInfo = directoryMap.get(b) || {name: b.split('/').filter(Boolean).pop()};
+      return sortAsc ?
+        aInfo.name.localeCompare(bInfo.name, undefined, {numeric: true}) :
+        bInfo.name.localeCompare(aInfo.name, undefined, {numeric: true});
+    });
+    render();
+  }
+});
+
+scanLibrary();
 </script>
 </body>
 </html>

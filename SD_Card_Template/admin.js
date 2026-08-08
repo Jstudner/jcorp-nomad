@@ -1,31 +1,236 @@
-// <!-- Version 2.3 -->
-// Fetch SD card information
+// <!-- Version 4 -->
+
+// trust badge next to the SD usage %. statTrusted is only true once a real scan
+// has confirmed the fast stat figure (see the firmware's reconcileStatTrust)
+function renderSdTrustBadge(statTrusted) {
+  const badge = document.getElementById('sd-trust-badge');
+  if (!badge) return;
+  badge.style.display = 'inline-block';
+  if (statTrusted) {
+    badge.textContent = 'Verified';
+    badge.style.background = 'var(--success)';
+    badge.style.color = '#fff';
+  } else {
+    badge.textContent = 'Estimate';
+    badge.style.background = 'var(--warning)';
+    badge.style.color = '#212529';
+  }
+}
+
+function renderSdUsage(total, used, statTrusted) {
+  document.getElementById('sd-total').textContent = `Total: ${(total/1e9).toFixed(2)} GB`;
+  document.getElementById('sd-used').textContent = `Used: ${(used/1e9).toFixed(2)} GB`;
+  const percent = total > 0 ? Math.round((used / total) * 100) : 0;
+  document.getElementById('sd-bar').style.width = `${percent}%`;
+  document.getElementById('sd-percent').textContent = `${percent}%`;
+  renderSdTrustBadge(statTrusted);
+}
+
+// Fetch SD card information (cached values - near-instant, safe to call often)
 async function fetchSD() {
   try {
     const res = await fetch('/sdinfo');
-    const { total, used } = await res.json();
-    document.getElementById('sd-total').textContent = `Total: ${(total/1e9).toFixed(2)} GB`;
-    document.getElementById('sd-used').textContent = `Used: ${(used/1e9).toFixed(2)} GB`;
-    const percent = Math.round((used / total) * 100);
-    document.getElementById('sd-bar').style.width = `${percent}%`;
-    document.getElementById('sd-percent').textContent = `${percent}%`;
+    const { total, used, statTrusted } = await res.json();
+    renderSdUsage(total, used, statTrusted);
   } catch (e) {
     console.error('Failed to fetch SD info:', e);
   }
 }
-async function triggerSDScan() {
+
+function renderSdBreakdown(entries) {
+  const table = document.getElementById('sd-breakdown-table');
+  const body = document.getElementById('sd-breakdown-body');
+  if (!table || !body) return;
+  if (!entries || entries.length === 0) {
+    table.style.display = 'none';
+    return;
+  }
+  body.innerHTML = '';
+  entries.forEach(e => {
+    const tr = document.createElement('tr');
+    tr.style.borderBottom = '1px solid var(--card-border)';
+
+    const nameTd = document.createElement('td');
+    nameTd.style.padding = '0.35rem 0.25rem';
+    nameTd.textContent = e.dir;
+    tr.appendChild(nameTd);
+
+    const sizeTd = document.createElement('td');
+    sizeTd.style.padding = '0.35rem 0.25rem';
+    sizeTd.style.textAlign = 'right';
+    sizeTd.textContent = `${(e.bytes / 1e9).toFixed(2)} GB`;
+    tr.appendChild(sizeTd);
+
+    const filesTd = document.createElement('td');
+    filesTd.style.padding = '0.35rem 0.25rem';
+    filesTd.style.textAlign = 'right';
+    filesTd.textContent = e.files;
+    tr.appendChild(filesTd);
+
+    body.appendChild(tr);
+  });
+  table.style.display = '';
+}
+
+async function fetchSdBreakdown() {
   try {
-    const res = await fetch('/api/sd-scan', { method: 'POST' });
+    const res = await fetch('/api/sd-breakdown');
     const data = await res.json();
-    if (res.ok) {
-      alert('SD scan started. Check console for progress. Do not use the device during this process.');
-      setTimeout(fetchSD, 5000);
-    } else {
-      alert('Failed to start SD scan');
+    renderSdBreakdown(data.breakdown);
+    return data.scanning;
+  } catch (e) {
+    console.error('Failed to fetch SD breakdown:', e);
+    return false;
+  }
+}
+
+// full-card walk. the exact "how full is my card" answer - slow (10-20 min), also
+// builds the folder-by-folder breakdown
+async function triggerSDScan() {
+  const msg = document.getElementById('sd-scan-msg');
+
+  try {
+    const res = await adminFetch('/api/sd-scan', { method: 'POST' });
+    const data = await res.json().catch(() => ({}));
+
+    if (res.status === 429) {
+      if (msg) msg.textContent = data.message || 'A full scan ran recently - please wait before running another.';
+      return;
     }
+    if (res.status === 409) {
+      // blocked because indexing or another scan is running, not an error
+      if (msg) msg.textContent = data.error || 'Busy - try again once the current operation finishes.';
+      return;
+    }
+    if (!res.ok) {
+      alert(data.error || 'Failed to start scan');
+      return;
+    }
+
+    if (msg) msg.textContent = 'Full system scan started.';
+
+    // Poll until the scan finishes, then show results.
+    const poll = async () => {
+      const stillScanning = await fetchSdBreakdown();
+      await fetchSD();
+      if (stillScanning) {
+        setTimeout(poll, 3000);
+      } else if (msg) {
+        msg.textContent = 'Scan complete.';
+      }
+    };
+    setTimeout(poll, 2000);
   } catch (e) {
     console.error('SD scan error:', e);
     alert('Error starting SD scan');
+  }
+}
+
+// ---------- Library Index scan scope (indexing, not disk usage) ----------
+
+function onIndexScanScopeChange() {
+  const scope = document.getElementById('index-scan-scope').value;
+  const dirWrap = document.getElementById('index-scan-dir-wrap');
+  if (!dirWrap) return;
+  dirWrap.style.display = (scope === 'folder') ? '' : 'none';
+  if (scope === 'folder') {
+    populateIndexScanDirDropdown();
+  }
+}
+
+// fills the "specific folder" dropdown from the real top-level listing, so "scan just
+// Movies" works for any folder, not just the 6 known buckets
+let indexScanDirDropdownLoaded = false;
+async function populateIndexScanDirDropdown() {
+  if (indexScanDirDropdownLoaded) return;
+  const select = document.getElementById('index-scan-dir');
+  if (!select) return;
+  try {
+    const res = await fetch('/listfiles?dir=/');
+    const entries = await res.json();
+    select.innerHTML = '';
+    entries
+      .filter(e => e.isDir)
+      .map(e => e.name.replace(/\/$/, ''))
+      .filter(name => !name.startsWith('.'))
+      .sort((a, b) => a.localeCompare(b))
+      .forEach(name => {
+        const opt = document.createElement('option');
+        opt.value = '/' + name;
+        opt.textContent = name;
+        select.appendChild(opt);
+      });
+    indexScanDirDropdownLoaded = true;
+  } catch (e) {
+    console.error('Failed to load folder list:', e);
+  }
+}
+
+// polls /scan-status directly so it resolves promptly. two phases matter:
+// /generate-media returns as soon as the index is QUEUED, the worker flips
+// indexingInProgress a moment later. so wait for it to actually START, then finish -
+// else we'd see both flags false and return early (the old "totals before index" bug)
+function fetchScanStatus() {
+  return fetch('/scan-status').then(r => r.ok ? r.json() : null).catch(() => null);
+}
+
+async function waitForIndexingToFinish() {
+  // phase 1: wait for the queued index to actually start
+  const startDeadline = Date.now() + 30000;
+  for (;;) {
+    await new Promise(r => setTimeout(r, 1000));
+    const data = await fetchScanStatus();
+    if (!data) { if (Date.now() > startDeadline) return; continue; }
+    if (data.indexingInProgress || data.indexingTasksActive) break; // running
+    // not running and not queued -> done or never started. wait for the deadline so a slow worker still counts
+    if (!data.requestIndexing && Date.now() > startDeadline) return;
+  }
+  // phase 2: wait for the run (and any queued follow-up) to drain
+
+  for (;;) {
+    await new Promise(r => setTimeout(r, 2000));
+    const data = await fetchScanStatus();
+    if (!data) return;
+    if (!(data.indexingInProgress || data.indexingTasksActive || data.requestIndexing)) return;
+  }
+}
+
+async function triggerIndexScan() {
+  const scope = document.getElementById('index-scan-scope').value;
+  const withSd = document.getElementById('index-scan-with-sd').checked;
+  const msg = document.getElementById('generate-msg');
+
+  try {
+    if (scope === 'folder') {
+      const dir = document.getElementById('index-scan-dir').value;
+      if (!dir) {
+        alert('Choose a folder first');
+        return;
+      }
+      if (msg) msg.textContent = `Starting scan of ${dir}...`;
+      const res = await adminFetch(`/api/reindex?path=${encodeURIComponent(dir)}`, { method: 'POST' });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        alert(data.error || 'Failed to start scan');
+        return;
+      }
+      if (msg) msg.textContent = `Scan of ${dir} started. Check console for progress.`;
+    } else {
+      await generateMediaJson();
+    }
+
+    if (withSd) {
+      // full SD scan, but only AFTER indexing finishes - never overlap them, thats
+      // what (with the firmware's index/scan guard) keeps them off each other's SD/heap
+      await waitForIndexingToFinish();
+      if (msg) msg.textContent = 'Index complete - starting SD card scan...';
+      await triggerSDScan();
+    } else {
+      setTimeout(() => { if (msg) msg.textContent = ''; }, 5000);
+    }
+  } catch (e) {
+    console.error('Failed to start index scan:', e);
+    if (msg) msg.textContent = 'Failed to start scan.';
   }
 }
 // Theme management
@@ -95,6 +300,34 @@ async function sha256Hex(str) {
   return Array.from(bytes).map(b => b.toString(16).padStart(2, '0')).join('');
 }
 
+// session token from POST /auth/login, sent as X-Admin-Token on every state-changing
+// request so the device enforces the password, not just this UI
+let adminToken = sessionStorage.getItem('nomad_admin_token') || '';
+
+function setAdminToken(token) {
+  adminToken = token || '';
+  if (adminToken) {
+    sessionStorage.setItem('nomad_admin_token', adminToken);
+  } else {
+    sessionStorage.removeItem('nomad_admin_token');
+  }
+}
+
+// Use for any request that changes device state (restart, settings, LEDs, etc).
+// Attaches the admin session token and re-shows the auth overlay if the server
+// rejects it (e.g. the device rebooted and the token no longer exists).
+async function adminFetch(url, opts = {}) {
+  const headers = Object.assign({}, opts.headers || {});
+  if (adminToken) headers['X-Admin-Token'] = adminToken;
+  const res = await fetch(url, Object.assign({}, opts, { headers }));
+  if (res.status === 401) {
+    setAdminToken('');
+    const overlay = document.getElementById('auth-overlay');
+    if (overlay) overlay.classList.remove('hidden');
+  }
+  return res;
+}
+
 // Settings management
 async function loadSettings() {
   console.log("loadSettings() fired");
@@ -130,16 +363,22 @@ async function loadSettings() {
       document.getElementById('wifi-password').value = s.wifiPassword;
     }
 
-    // Brightness
+    // brightness 0-100, clamp a stale value (old default was 230 -> showed 230%)
     if (s.brightness !== undefined) {
-      document.getElementById('brightness').value = s.brightness;
-      updateBrightnessLabel(s.brightness);
+      const b = Math.max(1, Math.min(100, parseInt(s.brightness, 10) || 100));
+      document.getElementById('brightness').value = b;
+      updateBrightnessLabel(b);
     }
 
     // Auto-generate
     if (s.autoGenerateMedia !== undefined) {
       isAutoGenerate = s.autoGenerateMedia;
       document.getElementById('auto-generate').checked = isAutoGenerate;
+    }
+
+    // Screen flip (180° rotation)
+    if (s.flipScreen !== undefined) {
+      document.getElementById('flip-screen').checked = !!s.flipScreen;
     }
 
     // Check authentication
@@ -168,10 +407,11 @@ async function saveSettings() {
       wifiSSID: document.getElementById('ssid').value,
       wifiPassword: wifiPassword,
       brightness: parseInt(document.getElementById('brightness').value),
-      autoGenerateMedia: document.getElementById('auto-generate').checked
+      autoGenerateMedia: document.getElementById('auto-generate').checked,
+      flipScreen: document.getElementById('flip-screen').checked
     };
 
-    const res = await fetch('/settings', {
+    const res = await adminFetch('/settings', {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
       body: new URLSearchParams({
@@ -221,19 +461,19 @@ function updateModeUI(mode) {
 async function sendModeToServer(mode) {
   try {
     if (mode === 'off') {
-      await fetch('/led/onoff', {
+      await adminFetch('/led/onoff', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ enabled: false })
       });
     } else if (mode === 'solid') {
-      await fetch('/led/onoff', {
+      await adminFetch('/led/onoff', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ enabled: true })
       });
     } else if (mode === 'rainbow') {
-      await fetch('/led/rainbow', {
+      await adminFetch('/led/rainbow', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' }
       });
@@ -245,7 +485,7 @@ async function sendModeToServer(mode) {
 
 async function sendColorToServer(color) {
   try {
-    await fetch('/led/color', {
+    await adminFetch('/led/color', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ color: color })
@@ -276,7 +516,7 @@ async function updateAdminPassword() {
       adminPassword: hashedPw
     };
 
-    const res = await fetch('/settings', {
+    const res = await adminFetch('/settings', {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
       body: new URLSearchParams({
@@ -288,8 +528,8 @@ async function updateAdminPassword() {
       alert('Admin password updated successfully');
       document.getElementById('new-password').value = '';
       document.getElementById('confirm-password').value = '';
-      localStorage.removeItem('nomad_admin_logged_in');
-      sessionStorage.setItem('nomad_force_reauth', 'true');
+      // server drops the token when the password changes, so drop ours and re-auth
+      setAdminToken('');
       await loadSettings();
     } else {
       alert('Failed to update admin password');
@@ -317,41 +557,31 @@ function updateWiFiSettings() {
 // Brightness control
 function setBrightness(val) {
   const brightnessValue = parseInt(val);
-
-  // Wrap the local fetch so the brightness endpoint receives a URLSearchParams-encoded body
-  const _origFetch = window.fetch.bind(window);
-  const fetch = (url, opts = {}) => {
-    if (url === '/brightness') {
-      const newBody = new URLSearchParams({
-        'body': JSON.stringify({ value: brightnessValue })
-      });
-      const newOpts = Object.assign({}, opts, { body: newBody });
-      if (newOpts.headers) {
-        const headers = Object.assign({}, newOpts.headers);
-        delete headers['Content-Type'];
-        delete headers['content-type'];
-        newOpts.headers = headers;
-      }
-      return _origFetch(url, newOpts);
-    }
-    return _origFetch(url, opts);
-  };
-  return fetch('/brightness', {
+  return adminFetch('/brightness', {
     method: 'POST',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    body: 'body=' + encodeURIComponent(JSON.stringify({ value: brightnessValue }))
+    body: new URLSearchParams({
+      'body': JSON.stringify({ value: brightnessValue })
+    })
   }).catch(e => console.error('Failed to set brightness:', e));
 }
 
 function updateBrightnessLabel(val) {
-  document.getElementById('brightness-percent').textContent = `${val}%`;
+  const pct = Math.max(0, Math.min(100, parseInt(val, 10) || 0));
+  document.getElementById('brightness-percent').textContent = `${pct}%`;
+  // paint the used part blue via the element's own background so it repaints while dragging
+  const slider = document.getElementById('brightness');
+  if (slider) {
+    slider.style.background =
+      `linear-gradient(to right, var(--primary) 0 ${pct}%, var(--card-border) ${pct}% 100%)`;
+  }
 }
 
 // Media generation
 async function generateMediaJson() {
   try {
     document.getElementById('generate-msg').textContent = 'Starting full scan...';
-    await fetch('/generate-media', { method: 'POST' });
+    await adminFetch('/generate-media', { method: 'POST' });
     document.getElementById('generate-msg').textContent = 'Full scan initiated. Check console for progress.';
     setTimeout(() => {
       document.getElementById('generate-msg').textContent = '';
@@ -415,6 +645,9 @@ function updateConsoleDisplay() {
   console.scrollTop = console.scrollHeight;
 }
 
+// true while a scan/index is running - the adaptive poll below speeds up when it is
+let indexingActive = false;
+
 async function refreshConsole() {
   try {
     // Fetch scan status
@@ -433,6 +666,27 @@ async function refreshConsole() {
         statusElement.classList.add('scanning');
       } else {
         statusElement.classList.remove('scanning');
+      }
+
+      // Library Index progress bar
+      indexingActive = !!(data.indexingInProgress || data.indexingTasksActive);
+      const wrap = document.getElementById('index-progress-wrap');
+      const text = document.getElementById('index-progress-text');
+      const bar = document.getElementById('index-progress-bar');
+      if (wrap && text && bar) {
+        if (indexingActive) {
+          wrap.style.display = '';
+          const label = data.currentPath ? data.currentPath.replace(/^\//, '') || 'root' : 'library';
+          if (data.totalBuckets > 0) {
+            text.textContent = `Indexing: ${label} (${data.currentBucketNum}/${data.totalBuckets}) ${data.progressPercent}%`;
+            bar.style.width = `${data.progressPercent}%`;
+          } else {
+            text.textContent = `Updating index: ${label}`;
+            bar.style.width = '100%';
+          }
+        } else {
+          wrap.style.display = 'none';
+        }
       }
     }
 
@@ -592,15 +846,14 @@ async function requireAdminAuth(passedSettings) {
     return;
   }
 
-  // Check for cached session key
-  const cachedKey = sessionStorage.getItem('nomad_admin_key');
-  if (cachedKey && cachedKey === settings.adminPassword) {
-    console.debug('requireAdminAuth: session key valid, skipping auth overlay.');
+  // a cached token means a real server-verified session (only the server can validate it)
+  if (adminToken) {
+    console.debug('requireAdminAuth: cached session token present, skipping auth overlay.');
     overlay.classList.add('hidden');
     return;
   }
 
-  // Show auth overlay if password is set and no valid session key
+  // Show auth overlay if password is set and no valid session token
   console.debug('requireAdminAuth: admin password is set — showing auth overlay.');
   overlay.classList.remove('hidden');
   passwordInput.focus();
@@ -613,11 +866,16 @@ async function requireAdminAuth(passedSettings) {
 
       try {
         const hashedInput = await sha256Hex(inputPw);
-        
-        if (hashedInput === settings.adminPassword) {
-          // Success
-          sessionStorage.setItem('nomad_admin_key', hashedInput);
-          sessionStorage.removeItem('nomad_force_reauth');
+        const res = await fetch('/auth/login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+          body: new URLSearchParams({ 'body': JSON.stringify({ hash: hashedInput }) })
+        });
+
+        if (res.ok) {
+          // Success - the server verified the password hash and issued a session token.
+          const data = await res.json();
+          setAdminToken(data.token);
           overlay.classList.add('hidden');
           if (errorDiv) errorDiv.classList.add('hidden');
           passwordInput.value = '';
@@ -649,12 +907,12 @@ document.addEventListener('DOMContentLoaded', async () => {
   // Load settings and authenticate
   await loadSettings();
   
-  // Fetch initial data
+  // initial data (refreshConsole is kicked off by the adaptive poll loop below)
   fetchSD();
+  fetchSdBreakdown(); // shows whatever was cached from the last scan, if any
   fetchAdminBar();
   updateTemp();
-  refreshConsole();
-  
+
   // Set up RGB controls
   const colorPicker = document.getElementById('led-color');
   const modeButtons = {
@@ -704,7 +962,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     restartBtn.addEventListener('click', async () => {
       if (!confirm('⚠️ Are you sure you want to restart the device?')) return;
       try {
-        await fetch('/restart', { method: 'POST' });
+        await adminFetch('/restart', { method: 'POST' });
         addConsoleLog('Restart command sent', 'info');
         alert('Restart command sent. The device will reboot shortly.');
       } catch {
@@ -721,7 +979,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       if (!ok) return;
 
       try {
-        const res = await fetch('/shutdown');
+        const res = await adminFetch('/shutdown', { method: 'POST' });
         if (res.ok) {
           addConsoleLog('Safe shutdown initiated', 'info');
           alert('Safe shutdown initiated.\nNomad will power down shortly.');
@@ -746,7 +1004,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       );
       if (!ok) return;
       try {
-        await fetch('/enterUsb', { method: 'POST' });
+        await adminFetch('/enterUsb', { method: 'POST' });
         addConsoleLog('USB mode command sent', 'info');
         alert('USB-mode command sent. The device will reboot into USB MSC mode.');
       } catch {
@@ -762,7 +1020,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       const ok = confirm('⚠️ Enter flash mode? This will restart the device for firmware updates.');
       if (!ok) return;
       try {
-        await fetch('/flash-mode', { method: 'POST' });
+        await adminFetch('/flash-mode', { method: 'POST' });
         addConsoleLog('Flash mode command sent', 'info');
         alert('Flash mode activated. Device will restart for firmware updates.');
       } catch {
@@ -787,7 +1045,16 @@ document.addEventListener('DOMContentLoaded', async () => {
     autoToggle.addEventListener('change', () => {
       isAutoGenerate = autoToggle.checked;
       saveSettings();
-      addConsoleLog(`Auto-indexing ${isAutoGenerate ? 'enabled' : 'disabled'}`, 'info');
+      addConsoleLog(`Check for new files on boot ${isAutoGenerate ? 'enabled' : 'disabled'}`, 'info');
+    });
+  }
+
+  // Screen flip toggle - firmware applies the rotation live on save
+  const flipToggle = document.getElementById('flip-screen');
+  if (flipToggle) {
+    flipToggle.addEventListener('change', () => {
+      saveSettings();
+      addConsoleLog(`Screen flipped ${flipToggle.checked ? '180° (upside-down mount)' : 'back to normal'}`, 'info');
     });
   }
 
@@ -802,7 +1069,7 @@ document.addEventListener('DOMContentLoaded', async () => {
           adminPassword: ""
         };
 
-        const res = await fetch('/settings', {
+        const res = await adminFetch('/settings', {
           method: 'POST',
           headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
           body: new URLSearchParams({
@@ -812,8 +1079,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
         if (res.ok) {
           alert('Admin password disabled successfully');
-          localStorage.removeItem('nomad_admin_logged_in');
-          sessionStorage.removeItem('nomad_admin_key');
+          setAdminToken('');
           location.reload();
         } else {
           alert('Failed to disable admin password');
@@ -857,8 +1123,14 @@ document.addEventListener('DOMContentLoaded', async () => {
   // Set up periodic updates
   setInterval(fetchAdminBar, 30000); // Every 30 seconds
   setInterval(updateTemp, 6000); // Every 6 seconds
-  setInterval(refreshConsole, 10000); // Every 10 seconds
   setInterval(fetchSD, 60000); // Every minute
+
+  // adaptive poll: every 2s while indexing so the bar looks live, 10s when idle.
+  // self-reschedules instead of setInterval so it reacts to the last poll
+  (async function pollConsoleLoop() {
+    await refreshConsole();
+    setTimeout(pollConsoleLoop, indexingActive ? 2000 : 10000);
+  })();
 });
 
 // Global functions for HTML onclick handlers

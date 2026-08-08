@@ -1,0 +1,696 @@
+<!DOCTYPE html>
+<!-- Version 4 -->
+<html lang="en">
+<head>
+    <link rel="stylesheet" href="/master.css">
+    <script>
+(async function() {
+  try {
+    const isDark = localStorage.getItem('nomad_dark_mode') === 'true';
+    if (isDark) document.documentElement.classList.add('dark');
+
+    async function loadThemeFromServer() {
+      try {
+        const response = await fetch('/.system-theme.json?t=' + Date.now());
+        if (response.ok) {
+          const theme = await response.json();
+          localStorage.setItem('nomad_custom_theme', JSON.stringify(theme));
+          return theme;
+        }
+      } catch (e) {
+        console.log('[EPUB] No theme on SD card, using localStorage');
+      }
+      return null;
+    }
+
+    const serverTheme = await loadThemeFromServer();
+    const colors = serverTheme || (function() {
+      const saved = localStorage.getItem('nomad_custom_theme');
+      return saved ? JSON.parse(saved) : null;
+    })();
+
+    if (colors) {
+      const style = document.createElement('style');
+      style.id = 'custom-theme-style';
+      style.textContent = `
+        :root {
+          --primary: ${colors.primary} !important;
+          --primary-dark: ${colors.primaryDark} !important;
+          --bg: ${colors.bgLight} !important;
+          --card: ${colors.cardLight} !important;
+          --text: ${colors.textLight} !important;
+          --muted: ${colors.mutedLight} !important;
+        }
+        body.dark {
+          --bg: ${colors.bgDark} !important;
+          --card: ${colors.cardDark} !important;
+          --text: ${colors.textDark} !important;
+          --muted: ${colors.mutedDark} !important;
+          --primary: ${colors.primaryDarkTheme} !important;
+        }
+      `;
+      document.head.appendChild(style);
+    }
+  } catch(e) {
+    console.error('[EPUB] Theme loading error:', e);
+  }
+})();
+</script>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Nomad • EPUB Reader</title>
+    <script src="/assets/jszip.min.js"></script>
+    <script>
+        if (typeof window !== 'undefined' && typeof JSZip !== 'undefined') {
+            window.JSZip = JSZip;
+        }
+    </script>
+    <script src="/assets/epub.min.js"></script>
+    <style>
+        *, *::before, *::after {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        html, body {
+            height: 100%;
+        }
+
+        body {
+            font-family: Arial, Helvetica, sans-serif;
+            background: var(--bg);
+            color: var(--text);
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+
+        .reader-container {
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+            width: 100%;
+        }
+
+        .reader-header {
+            background: var(--primary);
+            color: var(--header-text);
+            padding: 12px 16px;
+            display: flex;
+            gap: 10px;
+            align-items: center;
+            flex-wrap: wrap;
+            box-shadow: var(--shadow);
+            z-index: 100;
+        }
+
+        .reader-title {
+            font-size: 1rem;
+            font-weight: 700;
+            margin-right: auto;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .reader-controls {
+            display: flex;
+            gap: 6px;
+            align-items: center;
+            flex-wrap: wrap;
+        }
+
+        .reader-btn {
+            background: rgba(255,255,255,0.2);
+            border: none;
+            color: #fff;
+            padding: 8px 12px;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 0.9rem;
+            transition: background 0.2s ease;
+            white-space: nowrap;
+        }
+
+        .reader-btn:hover {
+            background: rgba(255,255,255,0.3);
+        }
+
+        .reader-main {
+            flex: 1;
+            display: flex;
+            min-height: 0;
+            position: relative;
+            overflow: hidden;
+        }
+
+        #epub-viewer {
+            flex: 1;
+            overflow: hidden;
+            background: #fafafa;
+            position: relative;
+            min-width: 0;
+            min-height: 0;
+        }
+
+        #epub-viewer > div {
+            width: 100%;
+            height: 100%;
+        }
+
+        .loading-overlay {
+            position: absolute;
+            inset: 0;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            background: rgba(250, 250, 250, 0.95);
+            z-index: 50;
+            gap: 15px;
+        }
+
+        .loading-overlay.hidden {
+            display: none;
+        }
+
+        .spinner {
+            width: 50px;
+            height: 50px;
+            border: 4px solid rgba(0, 123, 255, 0.2);
+            border-top-color: var(--primary);
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        .reader-navigation {
+            background: #f5f5f5;
+            padding: 12px;
+            display: flex;
+            gap: 10px;
+            justify-content: center;
+            align-items: center;
+            border-top: 1px solid #ddd;
+            flex-wrap: wrap;
+        }
+
+        .nav-btn {
+            background: var(--primary);
+            color: #fff;
+            border: none;
+            padding: 8px 14px;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 0.95em;
+            transition: background 0.2s ease;
+        }
+
+        .nav-btn:hover {
+            background: var(--primary-dark);
+        }
+
+        .nav-btn:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+        }
+
+        .progress-info {
+            color: #333;
+            font-weight: 600;
+            min-width: 60px;
+            text-align: center;
+        }
+
+        .toc-panel {
+            position: absolute;
+            top: 0;
+            right: 0;
+            bottom: 0;
+            width: var(--reader-sidebar-width);
+            max-width: 80%;
+            background: #fff;
+            border-left: 1px solid #e5e7eb;
+            transform: translateX(100%);
+            transition: transform .25s ease;
+            z-index: 60;
+            display: flex;
+            flex-direction: column;
+            box-shadow: -8px 0 20px rgba(0,0,0,0.08);
+        }
+
+        .toc-panel.open {
+            transform: translateX(0%);
+        }
+
+        .toc-header {
+            padding: 10px 12px;
+            font-weight: 700;
+            border-bottom: 1px solid #e5e7eb;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            background: #fff;
+        }
+
+        .toc-content {
+            padding: 8px 6px;
+            overflow: auto;
+            flex: 1;
+        }
+
+        .toc-item {
+            display: block;
+            padding: 8px 10px;
+            border-radius: 6px;
+            cursor: pointer;
+            color: #0f1720;
+            text-decoration: none;
+            font-size: 0.95rem;
+            transition: background 0.2s ease;
+        }
+
+        .toc-item:hover {
+            background: #eef3ff;
+        }
+
+        .toc-sub {
+            padding-left: 16px;
+        }
+
+        .error-message {
+            padding: 20px;
+            text-align: center;
+            color: #d32f2f;
+            font-size: 1rem;
+        }
+
+        @media (max-width: 768px) {
+            .reader-header {
+                padding: 10px 12px;
+            }
+
+            .reader-title {
+                flex: 1 1 100%;
+                margin-bottom: 4px;
+            }
+
+            .reader-controls {
+                width: 100%;
+                justify-content: flex-start;
+            }
+
+            .reader-btn {
+                font-size: 0.85rem;
+                padding: 6px 10px;
+            }
+        }
+    </style>
+    <script src="theme-manager.js"></script>
+    <script src="/nomad-utils.js"></script>
+</head>
+<body>
+    <div class="reader-container">
+        <div class="reader-header">
+            <div class="reader-title" id="readerTitle">Loading...</div>
+            <div class="reader-controls">
+                <a class="reader-btn" href="/books.html" title="Back to Books">← Back</a>
+                <button class="reader-btn" id="tocBtn" title="Table of Contents">📑 TOC</button>
+                <button class="reader-btn" id="viewModeBtn" title="Toggle view mode">Pages</button>
+                <button class="reader-btn" id="fontSizeDown" title="Decrease font size">A-</button>
+                <button class="reader-btn" id="fontSizeUp" title="Increase font size">A+</button>
+            </div>
+        </div>
+        <div class="reader-main">
+            <div id="epub-viewer"></div>
+            <div class="loading-overlay" id="loadingOverlay">
+                <div class="spinner"></div>
+                <div class="loading-text">Loading EPUB...</div>
+            </div>
+        </div>
+            <aside class="toc-panel" id="tocPanel">
+                <div class="toc-header">
+                    <span>Table of Contents</span>
+                    <button class="reader-btn" id="closeToc" title="Close TOC">✕</button>
+                </div>
+                <div class="toc-content" id="tocContent"></div>
+            </aside>
+        </div>
+        <div class="reader-navigation">
+            <button class="nav-btn" id="prevBtn">← Previous</button>
+            <span class="progress-info" id="progressInfo">0%</span>
+            <button class="nav-btn" id="nextBtn">Next →</button>
+        </div>
+    </div>
+
+    <script>
+        /* theme via shared ThemeManager instead of a local reimplementation */
+        (function () { try { ThemeManager.applyDarkMode(ThemeManager.getDarkMode()); } catch (e) { } })();
+        window.addEventListener('storage', (ev) => { if (ev.key === ThemeManager.STORAGE_KEY) ThemeManager.applyDarkMode(ev.newValue === 'true'); });
+
+        function encodePathSegments(path) {
+            if (!path) return '';
+            let p = String(path).replace(/\\/g, '/').replace(/\/+/g, '/');
+            const leading = p.startsWith('/') ? '/' : '';
+            return leading + p.split('/').filter(Boolean).map(s => encodeURIComponent(s)).join('/');
+        }
+        function fileUrlDirect(path) { if (!path) return ''; return `/media?file=${encodeURIComponent(normalizePath(path))}`; }
+        
+        const urlParams = new URLSearchParams(window.location.search);
+        const bookPath = urlParams.get('path');
+        
+        if (!bookPath) {
+            document.getElementById('epub-viewer').innerHTML = '<p class="error-message">No book path provided. Please go back and select a book.</p>';
+            document.getElementById('loadingOverlay').classList.add('hidden');
+        }
+
+        const readerTitle = document.getElementById('readerTitle');
+        const epubViewer = document.getElementById('epub-viewer');
+        const tocPanel = document.getElementById('tocPanel');
+        const tocContent = document.getElementById('tocContent');
+        const tocBtn = document.getElementById('tocBtn');
+        const closeToc = document.getElementById('closeToc');
+        const prevBtn = document.getElementById('prevBtn');
+        const nextBtn = document.getElementById('nextBtn');
+        const progressInfo = document.getElementById('progressInfo');
+        const fontUpBtn = document.getElementById('fontSizeUp');
+        const fontDownBtn = document.getElementById('fontSizeDown');
+        const viewModeBtn = document.getElementById('viewModeBtn');
+        const loadingOverlay = document.getElementById('loadingOverlay');
+
+        let rendition = null;
+        let epubBook = null;
+        let epubFontSize = parseInt(localStorage.getItem('nomad_epub_font_pct') || '100');
+        let epubFlow = localStorage.getItem('nomad_epub_flow') || 'paginated';
+
+        viewModeBtn.textContent = epubFlow === 'paginated' ? 'Pages' : 'Scroll';
+
+        const RESUME_KEY = 'nomad_epub_progress';
+        
+        function getResumeKey(path) {
+            return `${RESUME_KEY}_${encodeURIComponent(normalizePath(path))}`;
+        }
+
+        function saveProgress(path, cfi, percent) {
+            try {
+                const key = getResumeKey(path);
+                localStorage.setItem(key, JSON.stringify({ cfi, percent, time: Date.now() }));
+            } catch (e) {
+                console.warn('Failed to save progress', e);
+            }
+        }
+
+        function loadProgress(path) {
+            try {
+                const key = getResumeKey(path);
+                const data = localStorage.getItem(key);
+                return data ? JSON.parse(data) : null;
+            } catch (e) {
+                return null;
+            }
+        }
+
+        // shared by initial load and the view-mode switch so they dont drift:
+        // makes the rendition, sets font size + dark theme, wires progress tracking
+        function createEpubRendition(book, flow, isMobile) {
+            const r = book.renderTo(epubViewer, {
+                width: '100%',
+                height: '100%',
+                flow,
+                spread: isMobile ? 'none' : 'auto',
+                minSpreadWidth: isMobile ? 0 : 800
+            });
+
+            r.themes.fontSize(`${epubFontSize}%`);
+            r.themes.register('dark', {
+                'body': {
+                    'color': '#d0d0d0 !important',
+                    'background': '#0b1220 !important'
+                },
+                'p': {
+                    'color': '#d0d0d0 !important'
+                },
+                'a': {
+                    'color': '#4aa3ff !important'
+                }
+            });
+            if (document.body.classList.contains('dark')) {
+                r.themes.select('dark');
+            }
+
+            r.on('relocated', (location) => {
+                try {
+                    if (epubBook.locations && epubBook.locations.total > 0) {
+                        const percent = epubBook.locations.percentageFromCfi(location.start.cfi);
+                        const percentRounded = Math.round(percent * 100);
+                        progressInfo.textContent = percentRounded + '%';
+                        saveProgress(bookPath, location.start.cfi, percentRounded);
+                    } else {
+                        progressInfo.textContent = '—';
+                        saveProgress(bookPath, location.start.cfi, 0);
+                    }
+                } catch (e) {
+                    console.warn('EPUB: Progress tracking error', e);
+                }
+            });
+
+            return r;
+        }
+
+        async function openEpubReader(path) {
+            try {
+                if (epubBook) {
+                    try {
+                        if (rendition) {
+                            rendition.destroy();
+                            rendition = null;
+                        }
+                        epubBook.destroy();
+                        epubBook = null;
+                    } catch (destroyErr) {
+                        console.warn('EPUB: Error destroying old instance:', destroyErr);
+                        epubBook = null;
+                        rendition = null;
+                    }
+                }
+
+                const loadingText = loadingOverlay.querySelector('.loading-text');
+                loadingOverlay.classList.remove('hidden');
+                if (loadingText) loadingText.textContent = 'Loading EPUB...';
+
+                const fileName = path.split('/').pop();
+                readerTitle.textContent = fileName.replace(/\.[^/.]+$/, '').replace(/[_\.]+/g, ' ').trim();
+
+                epubViewer.innerHTML = '';
+
+                const url = fileUrlDirect(path);
+
+                // Detect mobile device for optimization
+                const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+
+                epubBook = ePub(url, {
+                    requestMethod: function(url, type) {
+                        return fetch(url, {
+                            credentials: 'same-origin',
+                            cache: 'no-cache',
+                            headers: {
+                                'Accept': 'application/epub+zip, application/octet-stream, */*',
+                                'Range': ''
+                            }
+                        }).then(response => {
+                            if (!response.ok && response.status !== 206) {
+                                throw new Error(`HTTP ${response.status}`);
+                            }
+                            return response.blob();
+                        }).catch(err => {
+                            console.error('EPUB: requestMethod fetch error:', err);
+                            throw err;
+                        });
+                    }
+                });
+
+                if (loadingText) loadingText.textContent = 'Preparing book...';
+
+                epubBook.ready.catch(err => {
+                    console.error('EPUB: book.ready rejected:', err);
+                });
+                const readyTimeout = new Promise((_, reject) =>
+                    setTimeout(() => reject(new Error('book.ready timeout after 15s')), 15000)
+                );
+
+                await Promise.race([epubBook.ready, readyTimeout]);
+
+                if (loadingText) loadingText.textContent = 'Rendering content...';
+                rendition = createEpubRendition(epubBook, epubFlow, isMobile);
+
+                if (loadingText) loadingText.textContent = 'Generating locations...';
+                try {
+                    // Use smaller chunk size on mobile to reduce memory usage
+                    const chunkSize = isMobile ? 512 : 1024;
+                    const locTimeout = new Promise((_, reject) =>
+                        setTimeout(() => reject(new Error('Location generation timeout')), isMobile ? 15000 : 30000)
+                    );
+
+                    await Promise.race([epubBook.locations.generate(chunkSize), locTimeout]);
+                } catch (locErr) {
+                    console.warn('EPUB: Location generation failed, continuing anyway', locErr);
+                    // Continue without locations - progress tracking will be limited but book will still work
+                }
+
+                const progress = loadProgress(path);
+                let startCfi = progress ? progress.cfi : null;
+
+                if (loadingText) loadingText.textContent = 'Displaying content...';
+                try {
+                    if (startCfi) {
+                        await rendition.display(startCfi);
+                    } else {
+                        await rendition.display();
+                    }
+                } catch (displayErr) {
+                    console.error('EPUB: Display error', displayErr);
+                    await rendition.display();
+                }
+
+                setTimeout(() => loadingOverlay.classList.add('hidden'), 200);
+
+                epubBook.loaded.navigation.then(nav => {
+                    tocContent.innerHTML = '';
+                    if (nav.toc && nav.toc.length) {
+                        nav.toc.forEach(chapter => {
+                            const link = document.createElement('a');
+                            link.className = 'toc-item';
+                            link.textContent = chapter.label;
+                            link.href = '#';
+                            link.onclick = (e) => {
+                                e.preventDefault();
+                                rendition.display(chapter.href);
+                                tocPanel.classList.remove('open');
+                            };
+                            tocContent.appendChild(link);
+
+                            if (chapter.subitems) {
+                                chapter.subitems.forEach(sub => {
+                                    const subLink = document.createElement('a');
+                                    subLink.className = 'toc-item toc-sub';
+                                    subLink.textContent = sub.label;
+                                    subLink.href = '#';
+                                    subLink.onclick = (e) => {
+                                        e.preventDefault();
+                                        rendition.display(sub.href);
+                                        tocPanel.classList.remove('open');
+                                    };
+                                    tocContent.appendChild(subLink);
+                                });
+                            }
+                        });
+                    } else {
+                        tocContent.innerHTML = '<p style="padding:12px;color:var(--muted)">No table of contents available.</p>';
+                    }
+                }).catch(navErr => {
+                    console.error('EPUB: Navigation load failed', navErr);
+                    tocContent.innerHTML = '<p style="padding:12px;color:var(--muted)">Failed to load table of contents.</p>';
+                });
+
+                prevBtn.onclick = () => rendition.prev();
+                nextBtn.onclick = () => rendition.next();
+
+                rendition.on('keyup', (e) => {
+                    if (e.key === 'ArrowLeft') rendition.prev();
+                    else if (e.key === 'ArrowRight') rendition.next();
+                });
+
+            } catch (err) {
+                console.error('EPUB load error', err);
+                loadingOverlay.classList.add('hidden');
+                epubViewer.innerHTML = '<p class="error-message">Failed to load EPUB. Error: ' + err.message + '</p>';
+            }
+        }
+
+        tocBtn.addEventListener('click', () => tocPanel.classList.toggle('open'));
+        closeToc.addEventListener('click', () => tocPanel.classList.remove('open'));
+
+        viewModeBtn.addEventListener('click', async () => {
+            const newFlow = epubFlow === 'paginated' ? 'scrolled-doc' : 'paginated';
+            const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+
+            // Save the new flow preference
+            localStorage.setItem('nomad_epub_flow', newFlow);
+            epubFlow = newFlow;
+
+            // Update button text
+            viewModeBtn.textContent = newFlow === 'paginated' ? 'Pages' : 'Scroll';
+
+            // Save current location before switching
+            if (rendition && rendition.currentLocation()) {
+                const currentCfi = rendition.currentLocation().start.cfi;
+                saveProgress(bookPath, currentCfi, 0);
+            }
+
+            // Re-render with new flow mode without page reload
+            if (rendition && epubBook) {
+                try {
+                    await rendition.destroy();
+                    rendition = createEpubRendition(epubBook, newFlow, isMobile);
+
+                    // Try to restore location
+                    const progress = loadProgress(bookPath);
+                    if (progress && progress.cfi) {
+                        await rendition.display(progress.cfi);
+                    } else {
+                        await rendition.display();
+                    }
+                } catch (err) {
+                    console.error('Failed to switch view mode:', err);
+                }
+            } else if (bookPath) {
+                openEpubReader(bookPath);
+            }
+        });
+
+        fontUpBtn.addEventListener('click', () => {
+            epubFontSize = Math.min(200, epubFontSize + 10);
+            if (rendition) rendition.themes.fontSize(`${epubFontSize}%`);
+            localStorage.setItem('nomad_epub_font_pct', epubFontSize);
+        });
+
+        fontDownBtn.addEventListener('click', () => {
+            epubFontSize = Math.max(80, epubFontSize - 10);
+            if (rendition) rendition.themes.fontSize(`${epubFontSize}%`);
+            localStorage.setItem('nomad_epub_font_pct', epubFontSize);
+        });
+
+        let touchStartX = 0;
+        let touchStartY = 0;
+        const MIN_SWIPE_DISTANCE = 50;
+
+        epubViewer.addEventListener('touchstart', (e) => {
+            touchStartX = e.changedTouches[0].screenX;
+            touchStartY = e.changedTouches[0].screenY;
+        }, { passive: true });
+
+        epubViewer.addEventListener('touchend', (e) => {
+            if (!rendition) return;
+            const dx = e.changedTouches[0].screenX - touchStartX;
+            const dy = e.changedTouches[0].screenY - touchStartY;
+            if (Math.abs(dx) > MIN_SWIPE_DISTANCE && Math.abs(dx) > Math.abs(dy) * 1.5) {
+                if (dx < 0) {
+                    rendition.next();
+                } else {
+                    rendition.prev();
+                }
+            }
+        }, { passive: true });
+
+        if (bookPath) {
+            openEpubReader(bookPath);
+        }
+    </script>
+</body>
+</html>
+
+

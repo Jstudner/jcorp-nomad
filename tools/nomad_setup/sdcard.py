@@ -26,21 +26,41 @@ SKIP_NAMES = {"img.py", ".DS_Store", "Thumbs.db", "desktop.ini"}
 # missing one of them boots into a web UI that half works - which is miserable
 # to diagnose from the device itself. Checked after every copy.
 REQUIRED_FILES = [
-    "index.html",        # captive-portal landing page
-    "appleindex.html",   # the iOS/macOS variant of the same
+    # Pages the firmware routes by name (kPageRoutes in JcorpNomadProject.ino),
+    # plus the two captive-portal landing pages.
+    "index.html",
+    "appleindex.html",
     "menu.html",
     "movies.html",
-    "shows.html",
-    "books.html",
     "music.html",
+    "playlist.html",
+    "books.html",
+    "shows.html",
     "gallery.html",
     "files.html",
+    "filebrowser.html",
     "games.html",
     "comics.html",
-    "playlist.html",
-    "filebrowser.html",
+    "archive.html",
     "admin.html",
+
+    # Reader / sub-pages the UI navigates to.
+    "epub.html",
+    "pdf.html",
+    "queue.html",
+    "songs.html",
+    "theme-customization-ui.html",
+
+    # Shared front-end assets. Mk4 moved the styling and theming out of the
+    # individual pages, so master.css and the theme scripts are now load-bearing
+    # for every page rather than optional extras.
+    "master.css",
+    "theme-manager.js",
+    "theme-boot.js",
+    "nomad-utils.js",
     "admin.js",
+    "default-themes.json",
+
     "Logo.png",
     "favicon.ico",
 ]
@@ -52,8 +72,9 @@ REQUIRED_DIRS = ["assets"]
 # the template. Nothing in the web UI links to them, so their absence is
 # expected rather than a fault - reported as information only.
 OPTIONAL_PATHS = [
-    ("maps.html", "offline maps page (planned feature, no file yet)"),
+    ("maps.html", "offline maps page (routed by the firmware, no file shipped)"),
     ("assets/kiwix", "Kiwix/ZIM reader assets (add your own if you want them)"),
+    ("zimtest.html", "ZIM development page (not linked from the UI)"),
 ]
 
 

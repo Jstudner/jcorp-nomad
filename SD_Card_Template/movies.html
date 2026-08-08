@@ -1,74 +1,52 @@
 <!DOCTYPE html>
-<!-- Version 2.1 -->
+<!-- Version 4.1 -->
 <html lang="en">
 <head>
 <meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width,initial-scale=1"/>
+
 <title>Nomad • Movies</title>
+<link rel="stylesheet" href="assets/plyr.css" />
+<link rel="stylesheet" href="/master.css">
+<script src="/theme-boot.js"></script>
+<script src="/nomad-utils.js"></script>
+<script src="assets/plyr.min.js"></script>
+<script src="/theme-manager.js"></script>
 
 <style>
+  /* Functional CSS: Movies-specific layout and Plyr.js customization */
   :root{
-    --primary:#007bff;
-    --primary-dark:#0056b3;
-    --bg:#f4f4f9;
-    --text:#333;
-    --radius:10px;
-    --shadow:0 6px 18px rgba(0,0,0,0.08);
     --card-gap:1rem; /* used in JS for calculations */
     --header-height:68px; /* fallback used by CSS; JS will set exact top */
   }
-  *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
-  body{font-family:Arial,Helvetica,sans-serif;background:var(--bg);color:var(--text);display:flex;flex-direction:column;min-height:100vh}
-  /* Optional dark class hook - you can extend these rules later if desired */
-  body.dark{ background:#101217; color:#e6eef8; }
-  body.dark header{ background:#07142a; }
-  body.dark .toolbar{ background: #0d1722; border-bottom-color: rgba(255,255,255,0.04); }
 
-  /* ── HEADER / TOOLBAR FIXES ── */
+  body{display:flex;flex-direction:column;min-height:100vh}
+
+  /* Dark mode overrides */
+  body.dark .toolbar{ background: var(--bg); border-bottom-color: var(--white-alpha-4); }
+
   header{
-    display:flex;
-    align-items:center;
-    justify-content:space-between;
-    gap:12px;
-    padding:16px 20px;
     position:sticky;
     top:0;
     z-index:60;
-    box-shadow:var(--shadow);
-    background:var(--primary);
-    color:#fff;
     -webkit-box-align:center;
   }
 
-  header h1{
-    margin:0;
-    font-size:clamp(1.15rem,4vw,1.5rem);
-    font-weight:700;
-    white-space:nowrap;
-    overflow:hidden;
-    text-overflow:ellipsis;
-    flex:1 1 auto;
-    text-align:left;
-  }
-
-  .back-btn{
-    text-decoration:none;
-    color:#fff;
-    background:var(--primary-dark);
-    padding:.45rem .7rem;
-    border-radius:8px;
-    font-size:0.95rem;
-    display:inline-flex;
+  .toolbar{
+    background:var(--bg);
+    padding:.65rem 1rem;
+    display:flex;
+    flex-wrap:wrap;
+    gap:.6rem;
     align-items:center;
-    gap:8px;
-    border:1px solid rgba(0,0,0,0.08);
-    box-shadow: 0 2px 6px rgba(0,0,0,0.06);
+    border-bottom:1px solid var(--line);
+    position:sticky;
+    top:var(--header-height);
+    z-index:55;
   }
-
-  .toolbar{background:var(--bg);padding:.65rem 1rem;display:flex;flex-wrap:wrap;gap:.6rem;align-items:center;border-bottom:1px solid #e6e9ef;position:sticky;top:var(--header-height);z-index:55;}
-  .toolbar input[type="search"]{flex:1 1 220px;padding:.5rem .75rem;border:1px solid #d6d9e6;border-radius:8px;font-size:0.95rem;background:#fff}
-  .toolbar select, .toolbar .view-btn{padding:.48rem .7rem;border:1px solid #d6d9e6;background:#fff;border-radius:8px;font-size:0.9rem;cursor:pointer}
-  .view-btn.active{background:var(--primary);color:#fff;border-color:var(--primary-dark);}
+  .toolbar input[type="search"]{flex:1 1 220px;padding:.5rem .75rem;border:1px solid var(--line);border-radius:var(--radius);font-size:0.95rem;background:var(--card);color:var(--text)}
+  .toolbar select, .toolbar .view-btn{padding:.48rem .7rem;border:1px solid var(--line);background:var(--card);color:var(--text);border-radius:var(--radius);font-size:0.9rem;cursor:pointer}
+  .view-btn.active{background:var(--primary);color:var(--color-white);border-color:var(--primary-dark);}
 
   main{flex:1;display:flex;flex-direction:column;max-width:1200px;width:100%;margin:0 auto;padding:1rem}
   .grid-wrapper{flex:1;overflow-y:auto;padding-bottom:12px}
@@ -78,156 +56,153 @@
   .media-grid.medium {grid-template-columns:repeat(auto-fit,minmax(160px,1fr));}
   .media-grid.large  {grid-template-columns:repeat(auto-fit,minmax(220px,1fr));}
 
+  /* card specifics */
+  .media-card{width:100%;max-width:220px;margin:0 auto;will-change:transform,opacity;}
+  .media-grid.small  .media-card{max-width:120px;}
+  .media-grid.medium .media-card{max-width:160px;}
+  .media-grid.large  .media-card{max-width:220px;}
+
   @media (max-width:600px){
-    header{flex-direction:column;gap:.5rem;align-items:stretch;}
-    .back-btn{width:100%;text-align:center;}
     .toolbar{top:112px;}
     .media-grid.small  {grid-template-columns:repeat(2,1fr);}
     .media-grid.medium {grid-template-columns:repeat(3,1fr);}
     .media-grid.large  {grid-template-columns:repeat(4,1fr);}
   }
 
-  /* card */
-  .media-card{background:#fff;border-radius:var(--radius);box-shadow:var(--shadow);overflow:hidden;display:flex;flex-direction:column;transition:transform .22s ease, box-shadow .22s ease;cursor:pointer;width:100%;max-width:220px;margin:0 auto;will-change:transform,opacity;}
-  .media-grid.small  .media-card{max-width:120px;}
-  .media-grid.medium .media-card{max-width:160px;}
-  .media-grid.large  .media-card{max-width:220px;}
-  .media-card:hover{transform:translateY(-4px);box-shadow:0 10px 26px rgba(0,0,0,0.10);}
-
-  .thumb-wrapper{position:relative;display:flex;align-items:center;justify-content:center;background:#efeff5;color:#555;font-size:0.9rem;text-align:center;width:100%;aspect-ratio:2/3;}
-  .fallback-text{padding:.5rem;position:absolute;z-index:2;text-align:center;font-weight:700;color:#06306f;left:8px;right:8px}
+  .thumb-wrapper{position:relative;display:flex;align-items:center;justify-content:center;background:var(--thumb-bg);color:var(--thumb-text);font-size:0.9rem;text-align:center;width:100%;aspect-ratio:2/3;}
+  .fallback-text{padding:.5rem;position:absolute;z-index:2;text-align:center;font-weight:700;color:var(--thumb-title);left:8px;right:8px}
   .media-thumb{width:100%;height:100%;object-fit:cover;position:absolute;top:0;left:0;z-index:1;opacity:0;transition:opacity .35s ease;}
-  .badge-resume{position:absolute;left:8px;bottom:8px;background:rgba(0,0,0,0.6);color:#fff;padding:6px 8px;border-radius:8px;font-weight:700;font-size:12px;z-index:4}
+  .badge-resume{position:absolute;left:50%;transform:translateX(-50%);bottom:8px;background:rgba(0,0,0,0.6);color:#fff;padding:6px 10px;border-radius:999px;font-weight:700;font-size:12px;z-index:4;display:block;min-width:40px;max-width:85%;overflow:hidden}
 
   .meta{padding:10px 8px;text-align:center}
-  .meta .title{font-weight:700;color:#08306f;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;font-size:0.95rem}
-  .meta .dir{font-size:12px;color:#666;overflow:hidden;white-space:nowrap;text-overflow:ellipsis; display:none}
+  .meta .title{font-weight:700;color:var(--thumb-title);overflow:hidden;white-space:nowrap;text-overflow:ellipsis;font-size:0.95rem}
+  .meta .dir{font-size:12px;color:var(--text-gray);overflow:hidden;white-space:nowrap;text-overflow:ellipsis; display:none}
 
-  /* modal basics */
-  .modal,.video-modal{display:none;position:fixed;inset:0;background:rgba(0,0,0,0.55);justify-content:center;align-items:center;z-index:1000;padding:20px;}
+  /* Plyr.js player customization */
+  .plyr {
+    --plyr-color-main: var(--primary);
+    --plyr-video-controls-background: var(--overlay-video);
+    border-radius: var(--radius);
+    width: 100%;
+  }
+  .plyr__video-wrapper { width: 100%; }
+  .plyr--fullscreen { background: var(--color-black); }
+  .plyr--fullscreen video {
+    max-height: 100% !important;
+    max-width: 100% !important;
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+  }
+  @media (max-width: 768px) {
+    .plyr__volume { display: none !important; }
+  }
+  body.dark .plyr {
+    --plyr-video-background: var(--color-black);
+    --plyr-menu-background: var(--overlay-menu);
+    --plyr-menu-color: var(--color-white);
+  }
+
+  /* modal specifics */
+  .modal,.video-modal{display:none;position:fixed;inset:0;background:var(--overlay-modal);justify-content:center;align-items:center;z-index:1000;padding:20px;}
   .modal-content {
-      background:#fff;
-      padding:20px;
-      border-radius:12px;
-      text-align:center;
-      width:94%;
-      max-width:480px;
-      box-shadow:0 10px 36px rgba(0,0,0,0.12);
-      display:flex;
-      flex-direction:column;
-      gap:10px;
-    }
-    .modal-content h2 {margin:0;font-size:1.15rem;font-weight:700;color:#222}
-    #modalSub {font-size:0.9rem;color:#555}
+    background: var(--card-bg);
+    color: var(--text);
+    padding:20px;
+    border-radius:var(--radius);
+    text-align:center;
+    width:94%;
+    max-width:480px;
+    box-shadow:var(--shadow-large);
+    display:flex;
+    flex-direction:column;
+    gap:10px;
+  }
+  .modal-content h2 {margin:0;font-size:1.15rem;font-weight:700;}
+  #modalSub {font-size:0.9rem;color:var(--muted)}
 
-    .modal button {
-      padding:10px 14px;
-      font-size:0.95rem;
-      border:none;
-      border-radius:8px;
-      cursor:pointer;
-      transition:background-color .18s ease, color .18s ease;
-    }
-    .modal button:not(.cancel):not(.secondary) {
-      background:var(--primary);
-      color:#fff;
-    }
-    .modal button.secondary { background:#f6f9ff; color:var(--primary); border:1px solid rgba(0,123,255,0.12); }
-    .modal button.cancel { background:#fff; color:#444; border:1px solid #e6e9ef; }
+  .modal button {
+    padding:10px 14px;
+    font-size:0.95rem;
+    border:none;
+    border-radius:var(--radius);
+    cursor:pointer;
+    transition:background-color .18s ease, color .18s ease;
+  }
+  .modal button { width:100%; font-weight:600; }
+  .modal button:not(.cancel):not(.secondary) {
+    background:var(--primary);
+    color:var(--color-white);
+  }
+  /* resume = outlined accent, download/cancel = outlined muted. tokens flip for dark on their own */
+  .modal button.secondary { background:transparent; color:var(--primary); border:1px solid var(--primary); }
+  .modal button.cancel { background:transparent; color:var(--text); border:1px solid var(--line); }
 
-    /* video modal styled white with blue close button */
-    .video-modal-content {
-      background:#fff;
-      padding:14px;
-      border-radius:12px;
-      width:100%;
-      max-width:980px;
-      box-shadow:0 12px 44px rgba(0,0,0,0.18);
-      display:flex;
-      flex-direction:column;
-      align-items:center;
-      gap:12px;
-    }
-    .video-modal-content h2 { color:#08306f; font-size:1.05rem; margin:0; text-align:center; font-weight:700 }
-    .video-container { width:100%; display:flex;flex-direction:column;align-items:center;gap:8px; }
-    .video-container video {
-      width:100%;
-      max-height:75vh;
-      border-radius:10px;
-      background:#000;
-      box-shadow:0 8px 26px rgba(0,0,0,0.12);
-      outline:1px solid rgba(0,0,0,0.04);
-    }
-    .video-modal-content .close-btn {
-      padding:10px 14px;
-      font-size:0.95rem;
-      border:none;
-      border-radius:8px;
-      cursor:pointer;
-      background:var(--primary);
-      color:#fff;
-      transition:filter .18s ease;
-    }
-    .video-modal-content .close-btn:hover { filter:brightness(0.96); }
+  .video-modal-content {
+    background: var(--card-bg);
+    color: var(--text);
+    padding:14px;
+    border-radius:var(--radius);
+    width:100%;
+    max-width:980px;
+    box-shadow:var(--shadow-large);
+    display:flex;
+    flex-direction:column;
+    align-items:center;
+    gap:12px;
+  }
+  .video-modal-content h2 { color:var(--text); font-size:1.05rem; margin:0; text-align:center; font-weight:700 }
+  .video-container { width:100%; display:flex;flex-direction:column;align-items:center;gap:8px; }
+  .video-container video { width:100%; border-radius:var(--radius); }
+  .video-modal-content .close-btn {
+    padding:10px 14px;
+    font-size:0.95rem;
+    border:none;
+    border-radius:var(--radius);
+    cursor:pointer;
+    background:var(--primary);
+    color:var(--color-white);
+    transition:filter .18s ease;
+  }
+  .video-modal-content .close-btn:hover { filter:brightness(0.96); }
 
-  /* --- entrance animation for cards --- */
+  /* entrance animation for cards */
   .media-card.play-anim { animation-name:cardIn; animation-duration:360ms; animation-timing-function:cubic-bezier(.2,.9,.2,1); animation-fill-mode:both; will-change:transform,opacity; }
   @keyframes cardIn {
     from { opacity:0; transform:translateX(-18px) scale(.994); }
     to   { opacity:1; transform:translateX(0) scale(1); }
   }
 
-  /* ── DARK-THEME: MODAL + PLAYER SPECIFIC RULES ──
-     Only change the popup/menu and video player appearance when dark mode is active.
-     Keep the rest of the UI unchanged so behavior is preserved.
-  */
-  body.dark .modal { background: rgba(2,6,10,0.78); }
+  /* dark mode modal adjustments */
+  body.dark .modal { background: var(--overlay-modal); }
   body.dark .modal-content {
-    background: #0b1116;
-    color: #e6eef8;
-    box-shadow: 0 18px 46px rgba(0,0,0,0.7);
-    border: 1px solid rgba(255,255,255,0.03);
+    background: var(--card-bg);
+    color: var(--text);
+    border: 1px solid var(--white-alpha-3);
   }
-  body.dark .modal-content h2 { color: #eaf4ff; }
-  body.dark #modalSub { color: rgba(230,238,248,0.85); }
-
-  /* buttons inside modal in dark mode */
-  body.dark .modal button { color: #e6eef8; }
-  body.dark .modal button:not(.cancel):not(.secondary) { background:var(--primary); color:#fff; }
-  body.dark .modal button.secondary { background: rgba(255,255,255,0.02); color: #d9eefc; border:1px solid rgba(255,255,255,0.04); }
-  body.dark .modal button.cancel { background: rgba(255,255,255,0.02); color:#d9eefc; border:1px solid rgba(255,255,255,0.04); }
-
-  /* badge contrast tweak for dark theme */
-  body.dark .badge-resume { background: rgba(255,255,255,0.06); color: #e6eef8; box-shadow: none; }
-
-  /* video modal dark variant */
+  /* modal button colors come from the theme tokens above, no dark overrides needed */
   body.dark .video-modal { background: rgba(0,0,0,0.88); }
   body.dark .video-modal-content {
     background: #071018;
-    color: #e6eef8;
-    box-shadow: 0 20px 64px rgba(0,0,0,0.75);
     border: 1px solid rgba(255,255,255,0.03);
   }
-  body.dark .video-modal-content h2 { color: #eaf4ff; }
   body.dark .video-container video {
     background: #000;
     outline: 1px solid rgba(255,255,255,0.03);
-    box-shadow: 0 10px 30px rgba(0,0,0,0.6);
   }
-  body.dark .video-modal-content .close-btn { background: var(--primary-dark); color: #fff; border: none; }
-
-  /* ensure toolbar inputs keep readable behavior but don't interfere with modal colors */
-  /* Note: the JS intentionally forces the search box to white for readability; leaving that behavior intact. */
+  body.dark .video-modal-content .close-btn { background: var(--white-alpha-12); color: var(--color-white); }
+  body.dark .back-btn { background: var(--white-alpha-12); color: var(--color-white); }
+  body.dark .view-btn.active { border-color: var(--primary); }
 </style>
 </head>
-<body>
+<body data-page="movies">
   <header>
     <h1>Movies</h1>
-    <a class="back-btn" href="http://192.168.4.1/menu">← Back to Menu</a>
+    <a class="back-btn" href="/menu">← Back to Menu</a>
   </header>
 
   <div class="toolbar" role="region" aria-label="toolbar">
-    <input id="searchInput" type="search" placeholder="Search movies…" aria-label="Search movies" class="search-input">
+    <input id="searchInput" type="search" placeholder="Search movies…" aria-label="Search movies">
     <select id="sortSelect" aria-label="Sort movies">
       <option value="nameAsc">A → Z</option>
       <option value="nameDesc">Z → A</option>
@@ -291,6 +266,12 @@ function applyThemeFlag(dark){
       search.style.color = '#000';
     } catch(e){ /* ignore style errors */ }
   }
+
+  // Resume badges - same style for both themes
+  document.querySelectorAll('.badge-resume').forEach(b => {
+    b.style.background = 'rgba(0,0,0,0.6)';
+    b.style.color = '#fff';
+  });
 }
 (function initThemeFromStorage(){
   try {
@@ -321,60 +302,8 @@ let currentMovie = null;
 let autosaveTimer = null;
 let rootSig = null;
 
-/* ---------- Screen wake lock / NoSleep fallback ---------- */
-/* Place this right after your "State" declarations */
-let wakeLock = null;
-let noSleep = null; // used if NoSleep.js is loaded
-
-async function requestWakeLock(){
-  try {
-    // Preferred: Screen Wake Lock API (modern browsers)
-    if('wakeLock' in navigator){
-      if(!wakeLock){
-        wakeLock = await navigator.wakeLock.request('screen');
-        // clear reference if UA releases the lock
-        wakeLock.addEventListener && wakeLock.addEventListener('release', () => { wakeLock = null; });
-      }
-      return true;
-    }
-
-    // Fallback: NoSleep.js (if included via script tag)
-    if(window.NoSleep){
-      if(!noSleep) noSleep = new NoSleep();
-      try { noSleep.enable(); } catch(e){ console.warn('NoSleep.enable() failed', e); }
-      return true;
-    }
-
-    // Nothing available
-    console.warn('No Wake Lock API or NoSleep available — screen may still sleep.');
-    return false;
-  } catch(e){
-    console.warn('requestWakeLock error', e);
-    // last-ditch NoSleep attempt
-    if(window.NoSleep){
-      try { if(!noSleep) noSleep = new NoSleep(); noSleep.enable(); return true; } catch(e2){}
-    }
-    return false;
-  }
-}
-
-async function releaseWakeLock(){
-  try {
-    if(wakeLock){
-      try { await wakeLock.release(); } catch(e){}
-      wakeLock = null;
-    }
-    if(noSleep){
-      try { noSleep.disable(); } catch(e){}
-    }
-  } catch(e){
-    console.warn('releaseWakeLock error', e);
-  }
-}
-
 
 /* Helpers */
-function normalizePath(p){ if(!p) return '/'; if(!p.startsWith('/')) p='/' + p; while(p.length>1 && p.endsWith('/')) p=p.slice(0,-1); return p; }
 function ext(name){ const i=name.lastIndexOf('.'); return i>=0? name.slice(i).toLowerCase() : ''; }
 function isVideoName(n){ return VIDEO_EXTS.includes(ext(n)); }
 function isImageName(n){ return IMAGE_EXTS.includes(ext(n)); }
@@ -385,7 +314,7 @@ function writeResume(v){ localStorage.setItem(RESUME_KEY, JSON.stringify(v)); }
 function fileKey(path, sz=0, mt=0){ return `${normalizePath(path)}|${sz||0}|${mt||0}`; }
 function formatTime(sec){ if(!sec||!isFinite(sec)) return '0:00'; sec=Math.floor(sec); const h=Math.floor(sec/3600), m=Math.floor((sec%3600)/60), s=sec%60; if(h) return `${h}:${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`; return `${m}:${String(s).padStart(2,'0')}`; }
 
-/* NEW: getHashParam() — parse location.hash into {action, path} safely */
+/* getHashParam() parses location.hash into {action, path} safely */
 function getHashParam(){
   const h = (location.hash || '').replace(/^#/,'');
 
@@ -402,20 +331,23 @@ function getHashParam(){
 /* Better Resume Badge Handling */
 function updateResumeBadge(movie, position){
   if(!movie || !movie.path) return;
-  // find a card with matching dataset.path and update or insert the badge
   const cards = Array.from(gridEl.querySelectorAll('.media-card'));
   for(const card of cards){
     if(card.dataset.path === movie.path){
       const badge = card.querySelector('.badge-resume');
       if(position > 1){
         if(badge){
-          badge.textContent = `Resume ${formatTime(position)}`;
+          badge.textContent = formatTime(position);
+          badge.style.background = 'rgba(0,0,0,0.6)';
+          badge.style.color = '#fff';
         } else {
           const wrapper = card.querySelector('.thumb-wrapper');
           if(wrapper){
             const div = document.createElement('div');
             div.className = 'badge-resume';
-            div.textContent = `Resume ${formatTime(position)}`;
+            div.textContent = formatTime(position);
+            div.style.background = 'rgba(0,0,0,0.6)';
+            div.style.color = '#fff';
             wrapper.appendChild(div);
           }
         }
@@ -463,7 +395,7 @@ function clearResumeFor(path){
   if(changed) writeResume(store);
 }
 
-/* Fetch NDJSON index for a path — cache-busted to avoid stale results */
+/* Fetch NDJSON index for a path, cache-busted to avoid stale results */
 async function fetchIndex(path){
   const url = `${INDEX_ENDPOINT}?path=${encodeURIComponent(normalizePath(path))}&_=${Date.now()}`;
   const res = await fetch(url, { cache: 'no-store' });
@@ -520,6 +452,22 @@ async function buildFromIndexes(root){
         console.warn('child index missing', dirPath, err);
       }
     }
+  }
+
+  // Attach language-suffixed subtitles (Movie.en.srt) to their video's group:
+  // the suffix makes their basename differ, so they land in a video-less group
+  // of their own and would otherwise be dropped.
+  for(const [k,v] of map.entries()){
+    if(v.files.some(x => isVideoName(x.name))) continue;
+    const subsOnly = v.files.filter(x => isSubtitleName(x.name));
+    if(!subsOnly.length) continue;
+    let best = null;
+    for(const v2 of map.values()){
+      if(v2 === v || v2.dir !== v.dir) continue;
+      if(!v2.files.some(x => isVideoName(x.name))) continue;
+      if(v.base.startsWith(v2.base) && (!best || v2.base.length > best.base.length)) best = v2;
+    }
+    if(best) best.files.push(...subsOnly);
   }
 
   const out = [];
@@ -585,7 +533,7 @@ function renderGrid(){
     card.dataset.path = item.path || '';
 
     const saved = findResume(item);
-    const resumeHTML = (saved && saved.entry && saved.entry.position > 1) ? `<div class="badge-resume">Resume ${formatTime(saved.entry.position)}</div>` : '';
+    const resumeHTML = (saved && saved.entry && saved.entry.position > 1) ? `<div class="badge-resume" style="background:rgba(0,0,0,0.6);color:#fff;">${formatTime(saved.entry.position)}</div>` : '';
     const imgHTML = item.cover ? `<img class="media-thumb" loading="lazy" src="${item.cover}" alt="${escapeHtml(item.name)}">` : '';
     card.innerHTML = `
       <div class="thumb-wrapper">
@@ -675,19 +623,7 @@ const videoPlayer = document.getElementById('videoPlayer');
 const videoTitle = document.getElementById('videoTitle');
 
 /* ---------- keep device awake while playing ---------- */
-/* Attach listeners so we request a wake lock on play and release on pause/ended */
-videoPlayer.addEventListener('playing', () => {
-  // request wake lock after a user gesture starts playback
-  requestWakeLock().catch(()=>{});
-});
-videoPlayer.addEventListener('pause', () => {
-  // release when paused
-  releaseWakeLock().catch(()=>{});
-});
-videoPlayer.addEventListener('ended', () => {
-  // release on ended (also handled by pause in some UAs)
-  releaseWakeLock().catch(()=>{});
-});
+/* Wake lock is now handled by Plyr event listeners in openVideo function */
 
 /* Continue with existing functions */
 function showMovieOptions(movie){
@@ -758,21 +694,11 @@ function openMovieFromHash(hashObj){
   // Set currentMovie used by openVideo / resume logic
   currentMovie = found;
 
-  // Detect if user came from the Menu (only auto-play in that case)
-  const ref = (document.referrer || '').toLowerCase();
-  const fromMenu = ref && (ref.includes('/menu') || ref.includes('/menu.html') || ref.includes('/menu/'));
+  // Hash navigation indicates intent to play: auto-play with resume
+  openVideo(fileUrl(found.path), true);
 
-  if(fromMenu){
-    // Auto-play and use resume (openVideo's useResume param handles seeking)
-    openVideo(fileUrl(found.path), true);
-
-    // Clear the hash so reloads / back button don't auto-play again unexpectedly
-    try { history.replaceState(null, '', location.pathname + location.search); } catch(e){ /* ignore */ }
-  } else {
-    // Normal behavior: show modal/options so we don't interrupt a regular visitor
-    showMovieOptions(found);
-    // leave the hash intact for user context
-  }
+  // Clear the hash so reloads / back button don't auto-play again unexpectedly
+  try { history.replaceState(null, '', location.pathname + location.search); } catch(e){ /* ignore */ }
 }
 
 function handleHashNavigation(hashObj){
@@ -855,65 +781,288 @@ function startStallWatcher(player, src){
 }
 
 
-function openVideo(src, useResume=false){
+async function openVideo(src, useResume=false){
   clearTimeout(stallTimer);
   stallRetries = 0;
+
+  console.log('[openVideo] currentMovie:', currentMovie ? currentMovie.path : 'NONE', 'useResume:', useResume);
+  const saved = findResume(currentMovie || { path: '' });
+  console.log('[openVideo] findResume result:', saved);
+  let startTime = 0;
+  if(useResume && saved && saved.entry && saved.entry.position > 1){
+    startTime = saved.entry.position;
+  }
+  console.log('[openVideo] startTime will be:', startTime);
+
   videoPlayer.pause();
   videoPlayer.removeAttribute('src');
-  videoPlayer.load();
-  videoModal.style.display = 'flex';
-  videoPlayer.src = src;
-  videoPlayer.preload = 'auto';
-  videoTitle.textContent = currentMovie ? currentMovie.name : '';
+  videoPlayer.innerHTML = '';
 
-  const saved = findResume(currentMovie || { path: '' });
-  let playAttempted = false;
+  // every sidecar subtitle becomes a selectable track; srt is converted to VTT
+  // (browsers render nothing for raw srt in <track>)
+  const subtitles = await NomadSubs.buildTracks(
+    ((currentMovie && currentMovie.subtitles) || []).map(s => ({ path: s.path, url: fileUrl(s.path) })),
+    currentMovie && currentMovie.path);
 
-  function attemptPlay(){
-    if(playAttempted) return;
-    playAttempted = true;
-    
-    if(useResume && saved && saved.entry && saved.entry.position > 1){
-      videoPlayer.currentTime = saved.entry.position;
+  if (!window.plyrInstance) {
+    window.plyrInstance = new Plyr(videoPlayer, {
+      iconUrl: 'assets/plyr.svg',
+      controls: [
+        'play-large',
+        'play',
+        'progress',
+        'current-time',
+        'duration',
+        'mute',
+        'volume',
+        'captions',
+        'settings',
+        'pip',
+        'airplay',
+        'fullscreen'
+      ],
+      settings: ['captions', 'speed'],
+      fullscreen: { enabled: true, fallback: true, iosNative: false },
+      clickToPlay: false,
+      hideControls: true,
+      resetOnEnd: false,
+      keyboard: { focused: true, global: true },
+      tooltips: { controls: true, seek: true }
+    });
+
+    try {
+      const allImages = document.querySelectorAll('img[loading="lazy"]');
+      allImages.forEach(img => {
+        if (img.src && !img.complete) {
+          img.dataset.originalSrc = img.src;
+          img.removeAttribute('src');
+        }
+      });
+      console.log('Paused lazy image loading for video playback');
+    } catch(e) {
+      console.warn('Could not pause image loading', e);
     }
-    startAutosave();
-    videoPlayer.play().catch(e => console.warn('Play failed:', e));
+
+    window.plyrInstance.on('pause', () => {
+      saveNow();
+      releaseWakeLock().catch(()=>{});
+    });
+    window.plyrInstance.on('play', () => {
+      requestWakeLock().catch(()=>{});
+    });
+    window.plyrInstance.on('ended', () => {
+      clearResumeFor(currentMovie.path);
+      stopAutosave();
+      releaseWakeLock().catch(()=>{});
+      renderGrid();
+    });
+    window.plyrInstance.on('seeked', () => {
+      saveNow();
+    });
+
+    window.plyrInstance.on('loadedmetadata', () => {
+      console.log('Video metadata loaded:', videoPlayer.videoWidth, 'x', videoPlayer.videoHeight);
+
+      if (document.querySelector('.plyr--fullscreen')) {
+        requestAnimationFrame(() => {
+          const plyrContainer = document.querySelector('.plyr--fullscreen');
+          const wrapper = document.querySelector('.plyr--fullscreen .plyr__video-wrapper');
+          const video = videoPlayer;
+
+          if (plyrContainer) {
+            plyrContainer.style.width = '100vw';
+            plyrContainer.style.height = '100vh';
+            plyrContainer.style.display = 'flex';
+            plyrContainer.style.alignItems = 'center';
+            plyrContainer.style.justifyContent = 'center';
+          }
+
+          if (wrapper) {
+            wrapper.style.width = '100%';
+            wrapper.style.height = '100%';
+            wrapper.style.display = 'flex';
+            wrapper.style.alignItems = 'center';
+            wrapper.style.justifyContent = 'center';
+          }
+
+          if (video) {
+            video.style.width = '100%';
+            video.style.height = '100%';
+            video.style.maxWidth = '100vw';
+            video.style.maxHeight = '100vh';
+            video.style.objectFit = 'contain';
+          }
+
+          console.log('Reapplied fullscreen sizing after metadata load');
+        });
+      }
+    });
+
+    window.plyrInstance.on('enterfullscreen', async () => {
+      console.log('Entered fullscreen');
+
+      const enforceFullscreenSizing = () => {
+        const plyrContainer = document.querySelector('.plyr--fullscreen');
+        const wrapper = document.querySelector('.plyr--fullscreen .plyr__video-wrapper');
+        const video = videoPlayer;
+
+        if (plyrContainer) {
+          plyrContainer.style.cssText = 'width: 100vw !important; height: 100vh !important; display: flex !important; align-items: center !important; justify-content: center !important; background: #000 !important; padding: 0 !important;';
+        }
+
+        if (wrapper) {
+          wrapper.style.cssText = 'width: 100% !important; height: 100% !important; display: flex !important; align-items: center !important; justify-content: center !important; position: relative !important; padding-bottom: 0 !important; padding: 0 !important;';
+        }
+
+        if (video) {
+          video.style.cssText = 'width: 100% !important; height: 100% !important; max-width: 100vw !important; max-height: 100vh !important; object-fit: contain !important; position: relative !important;';
+        }
+      };
+
+      enforceFullscreenSizing();
+      setTimeout(enforceFullscreenSizing, 50);
+      setTimeout(enforceFullscreenSizing, 100);
+      setTimeout(enforceFullscreenSizing, 200);
+
+      const enforcerInterval = setInterval(() => {
+        if (!document.querySelector('.plyr--fullscreen')) {
+          clearInterval(enforcerInterval);
+        } else {
+          enforceFullscreenSizing();
+        }
+      }, 100);
+
+      try {
+        if (screen.orientation && screen.orientation.lock) {
+          await screen.orientation.lock('landscape').catch(e => console.log('Orientation lock not supported:', e));
+        }
+      } catch(e) {
+        console.log('Could not lock orientation:', e);
+      }
+    });
+
+    window.plyrInstance.on('exitfullscreen', () => {
+      try {
+        if (screen.orientation && screen.orientation.unlock) {
+          screen.orientation.unlock();
+        }
+      } catch(e) {
+        console.log('Could not unlock orientation:', e);
+      }
+    });
+
+    setTimeout(() => {
+      const plyrWrapper = document.querySelector('.plyr__video-wrapper');
+      if (plyrWrapper) {
+        let lastTap = 0;
+        let tapTimeout = null;
+
+        plyrWrapper.addEventListener('touchend', (e) => {
+          const currentTime = Date.now();
+          const tapLength = currentTime - lastTap;
+
+          if (tapLength < 300 && tapLength > 0) {
+            clearTimeout(tapTimeout);
+            e.preventDefault();
+            e.stopPropagation();
+
+            const rect = plyrWrapper.getBoundingClientRect();
+            const touchX = e.changedTouches[0].clientX - rect.left;
+            const width = rect.width;
+
+            if (touchX < width / 3) {
+              window.plyrInstance.rewind(10);
+              console.log('Rewind 10s');
+            } else if (touchX > (2 * width) / 3) {
+              window.plyrInstance.forward(10);
+              console.log('Forward 10s');
+            }
+            lastTap = 0;
+          } else {
+            lastTap = currentTime;
+            tapTimeout = setTimeout(() => {
+              lastTap = 0;
+              if (window.plyrInstance && document.querySelector('.plyr--hide-controls') === null) {
+                const controlsDiv = document.querySelector('.plyr__controls');
+                if (controlsDiv && getComputedStyle(controlsDiv).opacity !== '0') {
+                  const video = document.querySelector('.plyr video');
+                  if (video) video.click();
+                }
+              }
+            }, 300);
+          }
+        });
+      }
+    }, 500);
   }
 
-  videoPlayer.addEventListener('loadedmetadata', () => {
-    console.log('Metadata loaded');
-    attemptPlay();
-  }, { once: true });
-
-  videoPlayer.addEventListener('canplay', () => {
-    console.log('Can play');
-    attemptPlay();
-  }, { once: true });
-
-  setTimeout(() => {
-    console.log('Timeout fallback - forcing play');
-    attemptPlay();
-  }, 1000);
-
-  videoPlayer.addEventListener('pause', saveNow);
-  videoPlayer.addEventListener('seeked', saveNow);
-  videoPlayer.addEventListener('ended', () => {
-    clearResumeFor(currentMovie.path);
-    stopAutosave();
-    renderGrid();
+  videoPlayer.src = src;
+  subtitles.forEach(sub => {
+    const track = document.createElement('track');
+    track.kind = sub.kind;
+    track.label = sub.label;
+    track.srclang = sub.srclang;
+    track.src = sub.src;
+    if(sub.default) track.default = true;
+    videoPlayer.appendChild(track);
   });
-  
-  startStallWatcher(videoPlayer, src);
+  videoPlayer.load();
+
+  videoModal.style.display = 'flex';
+  videoTitle.textContent = currentMovie ? currentMovie.name : '';
+
+  if (startTime > 0) {
+    let seekDone = false;
+    const doSeek = () => {
+      if(seekDone) return;
+      try {
+        const vid = window.plyrInstance.media || videoPlayer;
+        if(vid.readyState >= 1 && vid.duration > 0){
+          seekDone = true;
+          vid.currentTime = startTime;
+          console.log('Resume position set to:', startTime);
+        }
+      } catch(e){ console.warn('Seek failed:', e); }
+    };
+    videoPlayer.addEventListener('canplay', doSeek, { once: true });
+    videoPlayer.addEventListener('loadeddata', doSeek, { once: true });
+    setTimeout(doSeek, 500);
+    setTimeout(doSeek, 1500);
+    setTimeout(doSeek, 3000);
+  }
+
+  startAutosave();
+
+  const doPlay = () => {
+    window.plyrInstance.play().catch(e => console.warn('Play failed:', e));
+  };
+  if(videoPlayer.readyState >= 3){
+    doPlay();
+  } else {
+    videoPlayer.addEventListener('canplay', doPlay, { once: true });
+  }
 }
 function closeVideo(){
   try{ saveNow(); }catch(e){}
-  videoPlayer.pause();
-  videoPlayer.removeAttribute('src');
-  videoPlayer.load();
+  if (window.plyrInstance) {
+    window.plyrInstance.pause();
+  }
   videoModal.style.display = 'none';
   stopAutosave();
-  // ensure wake lock released when closing the player
   releaseWakeLock().catch(()=>{});
+
+  try {
+    const allImages = document.querySelectorAll('img[loading="lazy"]');
+    allImages.forEach(img => {
+      if (img.dataset.originalSrc) {
+        img.src = img.dataset.originalSrc;
+        delete img.dataset.originalSrc;
+      }
+    });
+    console.log('Resumed lazy image loading');
+  } catch(e) {
+    console.warn('Could not resume image loading', e);
+  }
 }
 
 /* autosave every 4s */
@@ -922,15 +1071,15 @@ function stopAutosave(){ if(autosaveTimer){ clearInterval(autosaveTimer); autosa
 function saveNow(){
   try {
     if(!currentMovie) return;
-    const cur = Math.floor(videoPlayer.currentTime || 0);
-    const dur = Math.floor(videoPlayer.duration || 0);
+    if(!window.plyrInstance) return;
+    const cur = Math.floor(window.plyrInstance.currentTime || 0);
+    const dur = Math.floor(window.plyrInstance.duration || 0);
     if(!isFinite(cur)) return;
     if(cur > 0 && dur > 0){
       const store = readResume();
       const key = fileKey(currentMovie.path, currentMovie.sz || 0, currentMovie.mt || 0);
       store[key] = { position: cur, duration: dur, updated: Date.now() };
       writeResume(store);
-      // only update the badge for the current movie to avoid re-rendering the whole grid (stops flashing)
       try { updateResumeBadge(currentMovie, cur); } catch(e){ /* noop */ }
     }
   } catch(e){ console.warn('saveNow failed', e); }
@@ -1036,7 +1185,6 @@ window.addEventListener('hashchange', ()=> handleHashNavigation(getHashParam()))
   try {
     await loadLibrary();
 
-    // NEW: ensure toolbar sits below the header on all screen sizes
     function updateToolbarTop(){
       try {
         const headerEl = document.querySelector('header');
@@ -1044,15 +1192,13 @@ window.addEventListener('hashchange', ()=> handleHashNavigation(getHashParam()))
         if(!headerEl || !toolbarEl) return;
         const h = Math.ceil(headerEl.getBoundingClientRect().height);
         toolbarEl.style.top = h + 'px';
-        // Also update CSS var (keeps the stylesheet fallback in sync)
         document.documentElement.style.setProperty('--header-height', h + 'px');
       } catch(e){ /* ignore measurement errors */ }
     }
     window.addEventListener('resize', updateToolbarTop);
     window.addEventListener('load', updateToolbarTop);
-    updateToolbarTop(); // initial set
+    updateToolbarTop();
 
-    // NEW: handle any hash present once movies[] is available
     try { handleHashNavigation(getHashParam()); } catch(e){ console.warn('hash handling failed', e); }
 
   } catch(e){
@@ -1060,6 +1206,10 @@ window.addEventListener('hashchange', ()=> handleHashNavigation(getHashParam()))
   }
   setInterval(checkIndex, 30000);
 })();
+
+/* admin toggle: hide the download action when downloads are disabled */
+NomadUI.hideDownloads('downloadButton');
 </script>
 </body>
 </html>
+

@@ -190,6 +190,15 @@ static void LCD_PanelInit(void) {
 #endif
 
 // ------------------------------------------------------------- public API ---
+void LCD_SetRotation180(bool flip) {
+  // XORing MX|MY (0xC0) into MADCTL reverses both scan directions, which is a
+  // 180-degree turn on either controller.
+  uint8_t madctl = LCD_MADCTL;
+  if (flip) madctl ^= 0xC0;
+  LCD_WriteCommand(0x36);
+  LCD_WriteData(madctl);
+}
+
 void LCD_SetCursor(uint16_t Xstart, uint16_t Ystart, uint16_t Xend, uint16_t Yend) {
   uint16_t x0 = Xstart + LCD_OFFSET_X;
   uint16_t x1 = Xend + LCD_OFFSET_X;

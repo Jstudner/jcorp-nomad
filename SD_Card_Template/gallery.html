@@ -1,59 +1,153 @@
 <!DOCTYPE html>
 <!-- Nomad Gallery -->
-<!-- Version 2.1 -->
+<!-- Version 4.1 -->
 <html lang="en">
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>Nomad • Gallery</title>
   <meta name="description" content="Jcorp Nomad Media Server – Images & Video" />
+  <link rel="stylesheet" href="/master.css">
+  <script src="/theme-boot.js"></script>
+  <script src="/nomad-utils.js?v=45"></script>
+  <script src="/theme-manager.js"></script>
   <style>
-    :root{--primary:#007bff;--primary-dark:#0056b3;--bg:#f4f4f9;--text:#333;--radius:8px;--shadow:0 4px 12px rgba(0,0,0,.08)}
-    *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
-    body{font-family:Arial,Helvetica,sans-serif;background:var(--bg);color:var(--text);display:flex;flex-direction:column;min-height:100vh;padding:0 .5rem;overflow-x:hidden}
-    /* dark-mode */
-    body.dark{ background:#0b0f14; color:#e6eef8; }
-    body.dark .toolbar, body.dark .grid-wrapper, body.dark .media-card { background:#07101a; }
-    body.dark header{ background:#051226; }
-    header{background:var(--primary);color:#fff;padding:1.25rem 1rem;margin-left:-.5rem;margin-right:-.5rem;padding-left:calc(1rem + .5rem);padding-right:calc(1rem + .5rem);display:flex;align-items:center;justify-content:space-between;box-shadow:var(--shadow);position:sticky;top:0;z-index:60;flex-wrap:wrap;gap:.5rem}
-    header h1{font-size:clamp(1.25rem,5vw,1.75rem);font-weight:600;white-space:nowrap;flex:1 1 auto;min-width:150px}
-    .back-btn{color:#fff;text-decoration:none;background:var(--primary-dark);padding:.5rem .75rem;border-radius:var(--radius)}
-    .toolbar{background:var(--bg);padding:.75rem 1rem;display:flex;gap:.75rem;align-items:center;border-bottom:1px solid #ddd;position:sticky;top:64px;z-index:55;justify-content:flex-end;flex-wrap:wrap}
-    .toolbar-left{margin-right:auto;display:flex;gap:.5rem;align-items:center}
-    .toolbar select,.toolbar input[type='number'],.toolbar .view-btn,.toolbar .btn{padding:.45rem .65rem;border-radius:var(--radius);border:1px solid #ccc;background:#fff;cursor:pointer;font-size:.9rem}
-    .btn.primary{background:var(--primary);color:#fff;border-color:var(--primary-dark)}
-    .view-btn.active{background:var(--primary);color:#fff;border-color:var(--primary-dark)}
-    main{flex:1;display:flex;flex-direction:column;max-width:1200px;width:100%;margin:0 auto;overflow-x:hidden}
-    .grid-wrapper{flex:1;overflow-y:auto;padding:1rem}
-    .media-grid{display:grid;gap:1rem;justify-content:center;width:100%;box-sizing:border-box}
-    .media-grid.small{grid-template-columns:repeat(auto-fill,minmax(90px,1fr))}
-    .media-grid.medium{grid-template-columns:repeat(auto-fill,minmax(140px,1fr))}
-    .media-grid.large{grid-template-columns:repeat(auto-fill,minmax(200px,1fr))}
-    .media-card{background:#fff;border-radius:var(--radius);box-shadow:var(--shadow);overflow:hidden;display:flex;align-items:center;justify-content:center;transition:transform .25s ease;cursor:pointer;position:relative;width:100%;aspect-ratio:1/1;max-width:100%;box-sizing:border-box}
-    .media-card:hover{transform:translateY(-3px)}
-    .media-thumb{width:100%;height:100%;object-fit:cover;display:block;user-select:none;pointer-events:none}
-    .play-overlay{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);pointer-events:none;opacity:.9;font-size:3rem;color:#fff;text-shadow:0 0 10px black;z-index:2;background:rgba(0,0,0,.28);border-radius:50%;padding:.3em .4em}
-    .spinner{position:absolute;right:8px;top:8px;width:28px;height:28px;border-radius:999px;background:rgba(255,255,255,.9);display:flex;align-items:center;justify-content:center;box-shadow:0 2px 6px rgba(0,0,0,.08);z-index:6}
-    .spinner .dot{width:8px;height:8px;border-radius:50%;background:#cbd5e1;animation:spin 1s linear infinite}
-    @keyframes spin{0%{transform:rotate(0)}100%{transform:rotate(360deg)}}
-    .modal{display:none;position:fixed;inset:0;background:rgba(0,0,0,.8);justify-content:center;align-items:center;z-index:1000}
-    .modal-content{position:relative;border-radius:var(--radius);overflow:hidden;width:90vw;height:90vh;padding:1rem;background:#000;color:#fff;display:flex;flex-direction:column}
-    #modalMedia{flex:1;display:flex;align-items:center;justify-content:center;overflow:hidden}
-    #modalMedia img,#modalMedia video{width:100%;height:100%;object-fit:contain}
-    .modal-info{flex:0 0 auto;padding:1rem 0 0;overflow-y:auto;max-height:25vh;color:#ddd;font-size:.95rem}
-    .modal-close{position:absolute;top:8px;right:8px;background:rgba(0,0,0,.5);color:#fff;border:none;font-size:1.5rem;padding:.2rem .5rem;border-radius:50%;cursor:pointer}
-    .pager{display:flex;justify-content:center;align-items:center;padding:1rem;gap:1rem;flex-wrap:wrap}
-    @media(max-width:600px){
-      header{flex-direction:column}
-      .back-btn{width:100%;text-align:center}
-      .toolbar{top:112px;justify-content:center}
-      .media-grid.small{grid-template-columns:repeat(3,1fr)}
-      .media-grid.medium{grid-template-columns:repeat(2,1fr)}
-      .media-grid.large{grid-template-columns:repeat(1,1fr)}
+    /* Functional CSS: Gallery-specific layout and positioning */
+    body { display: flex; flex-direction: column; min-height: 100vh; padding: 0 .5rem; overflow-x: hidden; }
+
+    header {
+      margin-left: -.5rem;
+      margin-right: -.5rem;
+      padding-left: calc(1rem + .5rem);
+      padding-right: calc(1rem + .5rem);
+      position: sticky;
+      top: 0;
+      z-index: 60;
+      flex-wrap: wrap;
+      gap: .5rem;
     }
+
+    .toolbar {
+      padding: .75rem 1rem;
+      display: flex;
+      gap: .75rem;
+      align-items: center;
+      border-bottom: 1px solid var(--line);
+      position: sticky;
+      top: var(--header-height);
+      z-index: 55;
+      justify-content: flex-end;
+      flex-wrap: wrap;
+      background: var(--bg);
+    }
+    .toolbar-left { margin-right: auto; display: flex; gap: .5rem; align-items: center; }
+    .toolbar select, .toolbar input[type='number'], .toolbar .view-btn, .toolbar .btn {
+      padding: .45rem .65rem;
+      border-radius: var(--radius);
+      border: 1px solid var(--line);
+      background: var(--card);
+      color: var(--text);
+      cursor: pointer;
+      font-size: .9rem;
+    }
+    .view-btn.active { background: var(--primary); color: var(--header-text); border-color: var(--primary-dark); }
+
+    main { flex: 1; display: flex; flex-direction: column; max-width: 1200px; width: 100%; margin: 0 auto; overflow-x: hidden; }
+    .grid-wrapper { flex: 1; overflow-y: auto; padding: 1rem; }
+    .media-grid { display: grid; gap: 1rem; justify-content: center; width: 100%; box-sizing: border-box; }
+    .media-grid.small { grid-template-columns: repeat(auto-fill, minmax(90px, 1fr)); }
+    .media-grid.medium { grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); }
+    .media-grid.large { grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); }
+
+    .media-card {
+      background: var(--card-bg);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+      overflow: hidden;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: transform .25s ease;
+      cursor: pointer;
+      position: relative;
+      width: 100%;
+      aspect-ratio: 1/1;
+      max-width: 100%;
+      box-sizing: border-box;
+    }
+    .media-card:hover { transform: translateY(-3px); }
+    .media-thumb { width: 100%; height: 100%; object-fit: cover; display: block; user-select: none; pointer-events: none; opacity: 0; transition: opacity .3s ease; }
+    .play-overlay {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      pointer-events: none;
+      opacity: .9;
+      font-size: 3rem;
+      color: var(--header-text);
+      text-shadow: 0 0 10px black;
+      z-index: 2;
+      background: rgba(0,0,0,0.6);
+      border-radius: 50%;
+      padding: .3em .4em;
+    }
+    .spinner {
+      position: absolute;
+      right: 8px;
+      top: 8px;
+      width: 28px;
+      height: 28px;
+      border-radius: 999px;
+      background: rgba(255,255,255,0.9);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      box-shadow: 0 2px 6px rgba(0,0,0,0.08);
+      z-index: 6;
+    }
+    .spinner .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--primary); animation: spin 1s linear infinite; }
+    @keyframes spin { 0% { transform: rotate(0); } 100% { transform: rotate(360deg); } }
+
+    .modal-content {
+      position: relative;
+      border-radius: var(--radius);
+      overflow: hidden;
+      width: 90vw;
+      height: 90vh;
+      padding: 1rem;
+      background: #000;
+      color: var(--header-text);
+      display: flex;
+      flex-direction: column;
+    }
+    #modalMedia { flex: 1; display: flex; align-items: center; justify-content: center; overflow: hidden; }
+    #modalMedia img, #modalMedia video { width: 100%; height: 100%; object-fit: contain; }
+    .modal-info { flex: 0 0 auto; padding: 1rem 0 0; overflow-y: auto; max-height: 25vh; color: rgba(255,255,255,0.75); font-size: .95rem; }
+    .modal-close {
+      position: absolute;
+      top: 8px;
+      right: 8px;
+      background: rgba(0,0,0,0.6);
+      color: var(--header-text);
+      border: none;
+      font-size: 1.5rem;
+      padding: .2rem .5rem;
+      border-radius: 50%;
+      cursor: pointer;
+    }
+    .pager { display: flex; justify-content: center; align-items: center; padding: 1rem; gap: 1rem; flex-wrap: wrap; }
+
+    @media (max-width: 768px) {
+      .media-grid.small { grid-template-columns: repeat(auto-fill, minmax(70px, 1fr)); }
+      .media-grid.medium { grid-template-columns: repeat(auto-fill, minmax(110px, 1fr)); }
+      .media-grid.large { grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); }
+    }
+    body.dark .back-btn { background: rgba(255,255,255,0.12); color: var(--header-text); }
+    body.dark .view-btn.active { border-color: var(--primary); }
   </style>
 </head>
-<body>
+<body data-page="gallery">
   <header>
     <h1>Gallery</h1>
     <a class="back-btn" href="/menu">← Back to Menu</a>
@@ -61,8 +155,7 @@
 
   <div class="toolbar" role="toolbar" aria-label="Gallery toolbar">
     <div class="toolbar-left">
-      <!-- Uncomment to add upload functionality / button -->
-      <!-- <button id="uploadBtn" class="btn" title="Upload files">⬆ Upload</button> -->
+      <button id="uploadBtn" class="btn" title="Upload files" style="display:none">Upload</button>
     </div>
 
     <label>
@@ -94,9 +187,9 @@
     </div>
 
     <div class="pager">
-      <button id="prevBtn">Prev</button>
+      <button id="prevBtn" class="btn btn-secondary">Prev</button>
       <span id="pageInfo"></span>
-      <button id="nextBtn">Next</button>
+      <button id="nextBtn" class="btn btn-secondary">Next</button>
     </div>
   </main>
 
@@ -112,7 +205,6 @@
 
 <script>
 /* ---------- CONFIG ---------- */
-const THEME_KEY = 'nomad_dark_mode';
 const ROOT = '/Gallery';
 const INDEX_ENDPOINT = '/api/index';
 const UPLOAD_ENDPOINT = '/upload';
@@ -136,24 +228,6 @@ const prevBtn = document.getElementById('prevBtn');
 const nextBtn = document.getElementById('nextBtn');
 const pageInfo = document.getElementById('pageInfo');
 
-/* ---------- THEME BOOT & SYNC ---------- */
-function applyThemeFlag(dark){
-  document.body.classList.toggle('dark', !!dark);
-  const search = document.querySelector('.toolbar input[type="search"]');
-  if(search){ search.style.background = '#fff'; search.style.color = '#000'; }
-}
-// apply on load
-(function initThemeFromStorage(){
-  try{ const saved = localStorage.getItem(THEME_KEY); applyThemeFlag(saved === 'true'); } catch(e){ applyThemeFlag(false); }
-})();
-// listen for theme changes in other tabs/pages (keeps pages in sync)
-window.addEventListener('storage', (ev) => {
-  if(ev.key === THEME_KEY){
-    const dark = ev.newValue === 'true';
-    applyThemeFlag(dark);
-  }
-});
-
 /* ---------- STATE ---------- */
 let items = [];
 let filtered = [];
@@ -166,7 +240,13 @@ let currentPage = 1;
 let sortMode = localStorage.getItem('nomadGallery.sort') || sortSelect.value;
 
 /* ---------- THUMBNAIL QUEUE & DEDUPE ---------- */
-const thumbQueue = [];           // { item, imgEl, spinner }
+// Images go through this queue too, not just videos. There is no device-side
+// thumbnailing, so an image thumb pulls the FULL original off the SD card. A
+// gallery of a few hundred photos firing those in parallel outruns the
+// firmware's 8 concurrent streams and its ~60KB of internal heap: responses get
+// truncated mid-body (NS_ERROR_NET_RESET) and every thumb falls back to the
+// white placeholder. Sequential + paced keeps us under that ceiling.
+const thumbQueue = [];           // { item, imgEl, spinner, kind }
 const thumbPending = new Set();  // dedupe by path
 let thumbWorkerRunning = false;
 
@@ -176,9 +256,9 @@ const cardObserver = new IntersectionObserver((entries) => {
   for(const e of entries){
     if(e.isIntersecting){
       const card = e.target;
-      const jobData = card._thumbJob; // set in createCard for video cards
+      const jobData = card._thumbJob; // set in createCard for image + video cards
       if(jobData){
-        enqueueThumbJob(jobData.item, jobData.imgEl, jobData.spinner);
+        enqueueThumbJob(jobData.item, jobData.imgEl, jobData.spinner, jobData.kind);
         // after queued, stop observing
         cardObserver.unobserve(card);
       }
@@ -216,10 +296,10 @@ async function storeThumbToCache(item, blob, mime='image/jpeg'){
 }
 
 /* ---------- Queue processor (sequential) ---------- */
-function enqueueThumbJob(item, imgEl, spinner){
+function enqueueThumbJob(item, imgEl, spinner, kind='video'){
   if(thumbPending.has(item.path)) return;
   thumbPending.add(item.path);
-  thumbQueue.push({ item, imgEl, spinner });
+  thumbQueue.push({ item, imgEl, spinner, kind });
   processThumbQueue().catch(()=>{/* ignore */});
 }
 
@@ -228,7 +308,7 @@ async function processThumbQueue(){
   thumbWorkerRunning = true;
   while(thumbQueue.length){
     const job = thumbQueue.shift();
-    const { item, imgEl, spinner } = job;
+    const { item, imgEl, spinner, kind } = job;
     if(!document.body.contains(imgEl)){ thumbPending.delete(item.path); continue; }
     spinner.style.display = 'flex';
 
@@ -243,18 +323,31 @@ async function processThumbQueue(){
         continue;
       }
 
-      // range-first strategy: try to fetch a partial chunk and extract a frame from ~3s into the video
-      const videoUrl = mediaStreamUrlWithVersion(item.path, item);
-      const dataUrl = await rangeFetchAndExtract(videoUrl, 3.0, 450000).catch(()=>null);
-
-      if(dataUrl){
-        const blob = dataURLToBlob(dataUrl);
-        await storeThumbToCache(item, blob, 'image/jpeg');
-        const blobUrl = URL.createObjectURL(blob);
-        setImageFromBlobUrl(imgEl, blobUrl);
+      if(kind === 'image'){
+        // one full-size original at a time. no direct-URL fallback on failure:
+        // that would re-request the same bytes off-queue and undo the pacing.
+        const r = await fetch(fileUrlWithVersion(item.path,item), { cache:'no-store', credentials:'same-origin' });
+        if(r.ok){
+          const b = await r.blob();
+          await storeThumbToCache(item, b, b.type || 'image/jpeg');
+          setImageFromBlobUrl(imgEl, URL.createObjectURL(b));
+        } else {
+          imgEl.src = WHITE_SVG;
+        }
       } else {
-        // fallback white placeholder
-        imgEl.src = WHITE_SVG;
+        // range-first strategy: try to fetch a partial chunk and extract a frame from ~3s into the video
+        const videoUrl = mediaStreamUrlWithVersion(item.path, item);
+        const dataUrl = await rangeFetchAndExtract(videoUrl, 3.0, 450000).catch(()=>null);
+
+        if(dataUrl){
+          const blob = dataURLToBlob(dataUrl);
+          await storeThumbToCache(item, blob, 'image/jpeg');
+          const blobUrl = URL.createObjectURL(blob);
+          setImageFromBlobUrl(imgEl, blobUrl);
+        } else {
+          // fallback white placeholder
+          imgEl.src = WHITE_SVG;
+        }
       }
     }catch(e){
       imgEl.src = WHITE_SVG;
@@ -274,6 +367,9 @@ function setImageFromBlobUrl(imgEl, blobUrl){
     try{ URL.revokeObjectURL(old); }catch(e){}
   }
   imgEl.dataset.objectUrl = blobUrl;
+  imgEl.onload = () => {
+    imgEl.style.opacity = '1';
+  };
   imgEl.src = blobUrl;
   imgEl.onerror = () => { imgEl.src = WHITE_SVG; };
 }
@@ -359,7 +455,6 @@ function dataURLToBlob(dataURL){
   return new Blob([u8], { type: mime });
 }
 
-function normalizePath(p){ if(!p) return '/'; p = String(p).trim().replace(/\\/g,'/').replace(/\/+/g,'/'); if(!p.startsWith('/')) p='/' + p; if(p.length>1 && p.endsWith('/')) p=p.slice(0,-1); return p; }
 function joinPaths(a,b){ if(!a) return normalizePath(b||''); if(!b) return normalizePath(a||''); return normalizePath(a + '/' + b); }
 function encodePathSegments(path){ if(!path) return ''; let p=String(path).replace(/\\/g,'/').replace(/\/+/g,'/'); const leading=p.startsWith('/')? '/' : ''; return leading + p.split('/').filter(Boolean).map(s=>encodeURIComponent(s)).join('/'); }
 function fileUrlDirect(path){ return encodePathSegments(path); }
@@ -404,6 +499,41 @@ async function fetchRawNDJSONFile(urlPath){
   return parseNDJSONWithHeader(text);
 }
 
+/* Reindex is a last resort, and it must be capped.
+   While a reindex runs the firmware sets indexingTasksActive and returns 503 for
+   EVERY media request device-wide (not just gallery), so an uncapped
+   fail -> reindex -> retry -> fail loop bricks playback on every page until
+   reboot. One attempt per page load is enough to recover a genuinely missing
+   index; more than that means something else is wrong and retrying won't fix it. */
+const MAX_REINDEX_ATTEMPTS = 1;
+let reindexAttempts = 0;
+const MAX_BUILD_POLLS = 10;   // ~30s of 202 polling, then stop
+let buildPolls = 0;
+async function triggerReindexOnce(path, reason){
+  if(reindexAttempts >= MAX_REINDEX_ATTEMPTS){
+    console.warn(`Gallery: reindex already attempted this session (${reason}); not retrying.`);
+    return false;
+  }
+  reindexAttempts++;
+  try{
+    const res = await fetch('/api/reindex', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: `path=${encodeURIComponent(path)}`
+    });
+    if(!res.ok){ console.error('Failed to trigger gallery reindex:', res.status); return false; }
+    console.log(`Gallery reindex triggered (${reason})`);
+    return true;
+  }catch(e){
+    console.error('Error triggering gallery reindex:', e);
+    return false;
+  }
+}
+
+function showGalleryMessage(msg){
+  grid.innerHTML = `<p style="grid-column:1/-1;text-align:center;color:var(--primary-dark);">${msg}</p>`;
+}
+
 async function fetchIndexWithFallback(path){
   try{
     const apiUrl = `${INDEX_ENDPOINT}?path=${encodeURIComponent(normalizePath(path))}&_=${Date.now()}`;
@@ -412,41 +542,26 @@ async function fetchIndexWithFallback(path){
       const text = await res.text();
       const parsed = parseNDJSONWithHeader(text);
 
-      // Check if we have a valid header signature
+      // Check if we have a valid header signature.
+      // A missing sig can also mean the response was truncated in transit under
+      // load, so only act on it if we haven't already tried once.
       if(!parsed.header || !parsed.header.sig){
-        console.warn('No index signature found in gallery. Index may be building or missing - triggering reindex.');
+        console.warn('No index signature found in gallery. Index may be building or missing.');
 
-        // Trigger a reindex
-        try {
-          const reindexUrl = '/api/reindex';
-          const reindexRes = await fetch(reindexUrl, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-            body: `path=${encodeURIComponent(path)}`
-          });
-
-          if (reindexRes.ok) {
-            console.log('Gallery reindex triggered successfully');
-            // Show loading message
-            grid.innerHTML = '<p style="grid-column:1/-1;text-align:center;color:var(--primary-dark);">Building gallery index... Please wait.</p>';
-
-            // Retry after a delay
-            setTimeout(async () => {
-              try {
-                await refreshIndex();
-                renderPage();
-              } catch(e) {
-                console.error('Retry refreshIndex failed', e);
-                grid.innerHTML = '<p style="grid-column:1/-1;text-align:center;color:var(--primary-dark);">Could not load gallery.</p>';
-              }
-            }, 3000);
-            return { source: null, header: null, entries: [] };
-          } else {
-            console.error('Failed to trigger gallery reindex:', reindexRes.status);
-          }
-        } catch(reindexErr) {
-          console.error('Error triggering gallery reindex:', reindexErr);
+        if(await triggerReindexOnce(path, 'missing sig')){
+          showGalleryMessage('Building gallery index... Please wait.');
+          setTimeout(async () => {
+            try {
+              await refreshIndex();
+              renderPage();
+            } catch(e) {
+              console.error('Retry refreshIndex failed', e);
+              showGalleryMessage('Could not load gallery.');
+            }
+          }, 3000);
+          return { source: null, header: null, entries: [] };
         }
+        // cap hit: fall through and use whatever entries we did parse
       }
 
       if(parsed.header && parsed.header.count !== undefined && parsed.entries.length < parsed.header.count){
@@ -455,19 +570,25 @@ async function fetchIndexWithFallback(path){
         return { source: 'api', header: parsed.header, entries: parsed.entries };
       }
     } else if(res.status === 202) {
-      // Server is building index - show message and retry
-      console.log('Gallery index is building (202 status)');
-      grid.innerHTML = '<p style="grid-column:1/-1;text-align:center;color:var(--primary-dark);">Building gallery index... Please wait.</p>';
-
-      setTimeout(async () => {
-        try {
-          await refreshIndex();
-          renderPage();
-        } catch(e) {
-          console.error('Retry after 202 failed', e);
-          grid.innerHTML = '<p style="grid-column:1/-1;text-align:center;color:var(--primary-dark);">Could not load gallery.</p>';
-        }
-      }, 3000);
+      // Server is building the index on its own. Poll, but bounded: an unbounded
+      // 3s poll never stops if the build keeps failing.
+      if(buildPolls < MAX_BUILD_POLLS){
+        buildPolls++;
+        console.log(`Gallery index is building (202) - poll ${buildPolls}/${MAX_BUILD_POLLS}`);
+        showGalleryMessage('Building gallery index... Please wait.');
+        setTimeout(async () => {
+          try {
+            await refreshIndex();
+            renderPage();
+          } catch(e) {
+            console.error('Retry after 202 failed', e);
+            showGalleryMessage('Could not load gallery.');
+          }
+        }, 3000);
+      } else {
+        console.warn('Gallery index still building after max polls; giving up.');
+        showGalleryMessage('Gallery index is still building. Reload the page in a moment.');
+      }
       return { source: null, header: null, entries: [] };
     }
   }catch(e){
@@ -485,32 +606,21 @@ async function fetchIndexWithFallback(path){
     }catch(e){}
   }
 
-  // If no fallback worked, trigger reindex as last resort
-  console.warn('No gallery index found in API or fallback files - triggering reindex');
-  try {
-    const reindexUrl = '/api/reindex';
-    const reindexRes = await fetch(reindexUrl, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: `path=${encodeURIComponent(path)}`
-    });
-
-    if (reindexRes.ok) {
-      console.log('Gallery fallback reindex triggered successfully');
-      grid.innerHTML = '<p style="grid-column:1/-1;text-align:center;color:var(--primary-dark);">Building gallery index... Please wait.</p>';
-
-      setTimeout(async () => {
-        try {
-          await refreshIndex();
-          renderPage();
-        } catch(e) {
-          console.error('Retry after fallback reindex failed', e);
-          grid.innerHTML = '<p style="grid-column:1/-1;text-align:center;color:var(--primary-dark);">Could not load gallery.</p>';
-        }
-      }, 3000);
-    }
-  } catch(reindexErr) {
-    console.error('Error triggering gallery fallback reindex:', reindexErr);
+  // If no fallback worked, trigger reindex as last resort (capped)
+  console.warn('No gallery index found in API or fallback files');
+  if(await triggerReindexOnce(path, 'no index found')){
+    showGalleryMessage('Building gallery index... Please wait.');
+    setTimeout(async () => {
+      try {
+        await refreshIndex();
+        renderPage();
+      } catch(e) {
+        console.error('Retry after fallback reindex failed', e);
+        showGalleryMessage('Could not load gallery.');
+      }
+    }, 3000);
+  } else {
+    showGalleryMessage('Could not load the gallery index. Try reloading, or reindex from the admin page.');
   }
 
   return { source: null, header: null, entries: [] };
@@ -570,32 +680,15 @@ function createCard(item){
     card.appendChild(overlay);
 
     // attach job metadata to card and observe it (thumbnail will only be queued when visible)
-    card._thumbJob = { item, imgEl: thumb, spinner };
+    card._thumbJob = { item, imgEl: thumb, spinner, kind: 'video' };
     cardObserver.observe(card);
   } else {
-    // image: try cached first, otherwise fetch and store to cache, then set blobURL.
-    (async ()=>{
-      const cached = await getCachedThumb(item);
-      if(cached){
-        setImageFromBlobUrl(thumb, cached.url);
-      } else {
-        try{
-          const r = await fetch(fileUrlWithVersion(item.path,item), { cache:'no-store', credentials:'same-origin' });
-          if(r.ok){
-            const b = await r.blob();
-            // store to cache for future loads
-            await storeThumbToCache(item, b, b.type || 'image/jpeg');
-            const url = URL.createObjectURL(b);
-            setImageFromBlobUrl(thumb, url);
-          } else {
-            // fallback to direct URL if fetch failed
-            thumb.src = fileUrlWithVersion(item.path,item);
-          }
-        }catch(e){
-          thumb.src = fileUrlWithVersion(item.path,item);
-        }
-      }
-    })();
+    // image: same observer + queue as video. previously this fired its own
+    // unthrottled fetch per card at creation time, so a full page of photos hit
+    // the server all at once and starved it.
+    thumb.src = WHITE_SVG;
+    card._thumbJob = { item, imgEl: thumb, spinner, kind: 'image' };
+    cardObserver.observe(card);
   }
 
   card.addEventListener('click', ()=> openModal(item));
@@ -605,6 +698,18 @@ function createCard(item){
 }
 
 /* ---------- render & pagination ---------- */
+// free blob URLs + observers before discarding a card, else every page/sort change leaks thumbnail memory
+function destroyCard(card){
+  try{ cardObserver.unobserve(card); }catch(e){}
+  const thumb = card.querySelector && card.querySelector('.media-thumb');
+  const url = thumb && thumb.dataset && thumb.dataset.objectUrl;
+  if(url){ try{ URL.revokeObjectURL(url); }catch(e){} }
+}
+function clearGrid(){
+  for(const card of grid.children) destroyCard(card);
+  grid.innerHTML = '';
+}
+
 function renderPage(){
   // clamp page size between 1 and 100
   pageSize = clampPageSize(parseInt(pageSizeInput.value,10) || pageSize);
@@ -612,7 +717,7 @@ function renderPage(){
   const start = (currentPage - 1) * pageSize;
   const end = start + pageSize;
   const pageItems = filtered.slice(start, end);
-  grid.innerHTML = '';
+  clearGrid();
   if(pageItems.length === 0){
     grid.innerHTML = `<p style="grid-column:1/-1;text-align:center;color:var(--primary-dark);">No items.</p>`;
     return;
@@ -654,19 +759,34 @@ function changePage(delta){
 }
 
 /* ---------- modal (zoom/pan + playback) ---------- */
+let modalGeneration = 0;
 function openModal(item){
+  if(modal._cleanup){ modal._cleanup(); modal._cleanup = null; } // in case a modal was already open (e.g. hash navigation)
   modalMedia.innerHTML = '';
   modalInfo.innerHTML = '';
+  const gen = ++modalGeneration;
+  const modalUrls = []; // blob URLs created for this modal instance, revoked on close
   let mediaEl;
   if(item.type === 'video'){
     mediaEl = document.createElement('video');
     mediaEl.src = mediaStreamUrlWithVersion(item.path,item);
     mediaEl.controls = true; mediaEl.preload = 'metadata'; mediaEl.autoplay = false; mediaEl.setAttribute('playsinline','');
-    (async ()=>{ const cached = await getCachedThumb(item); if(cached) mediaEl.poster = cached.url; })();
+    (async ()=>{
+      const cached = await getCachedThumb(item);
+      if(!cached) return;
+      if(gen !== modalGeneration){ try{ URL.revokeObjectURL(cached.url); }catch(e){} return; }
+      mediaEl.poster = cached.url;
+      modalUrls.push(cached.url);
+    })();
     modalMedia.appendChild(mediaEl);
   } else {
     mediaEl = document.createElement('img');
-    (async ()=>{ const cached = await getCachedThumb(item); if(cached) mediaEl.src = cached.url; else mediaEl.src = fileUrlWithVersion(item.path,item); })();
+    (async ()=>{
+      const cached = await getCachedThumb(item);
+      if(cached && gen !== modalGeneration){ try{ URL.revokeObjectURL(cached.url); }catch(e){} return; }
+      if(cached){ mediaEl.src = cached.url; modalUrls.push(cached.url); }
+      else mediaEl.src = fileUrlWithVersion(item.path,item);
+    })();
     mediaEl.alt = item.name;
     modalMedia.appendChild(mediaEl);
   }
@@ -690,7 +810,11 @@ function openModal(item){
   window.addEventListener('mousemove', onMouseMove); window.addEventListener('mouseup', onMouseUp);
   function onMouseMove(e){ if(!isDragging) return; const dx=(e.clientX-dragStartX)/zoom; const dy=(e.clientY-dragStartY)/zoom; if(Math.abs(dx)>3 || Math.abs(dy)>3) dragMoved=true; offsetX+=dx; offsetY+=dy; dragStartX=e.clientX; dragStartY=e.clientY; updateTransform(); }
   function onMouseUp(){ if(!isDragging) return; isDragging=false; mediaEl.style.cursor='grab'; setTimeout(()=>dragMoved=false,100); }
-  modal._cleanup = ()=>{ window.removeEventListener('mousemove', onMouseMove); window.removeEventListener('mouseup', onMouseUp); const v = modalMedia.querySelector('video'); if(v){ v.pause(); try{ v.removeAttribute('src'); v.load(); }catch(e){} } };
+  modal._cleanup = ()=>{
+    window.removeEventListener('mousemove', onMouseMove); window.removeEventListener('mouseup', onMouseUp);
+    const v = modalMedia.querySelector('video'); if(v){ v.pause(); try{ v.removeAttribute('src'); v.load(); }catch(e){} }
+    for(const url of modalUrls){ try{ URL.revokeObjectURL(url); }catch(e){} }
+  };
 }
 function closeModal(evt){
   if(modal._cleanup && evt && evt.type === 'click' && evt.clientX === 0 && evt.clientY === 0) return;
@@ -700,45 +824,21 @@ function closeModal(evt){
   }
 }
 
-/* ---------- upload (sequential XHR; sends dir=/Gallery) ---------- */
-// uploadBtn.addEventListener('click', ()=> uploadInput.click());
-// uploadInput.addEventListener('change', (e)=>{
-//   const files = Array.from(e.target.files || []);
-//   if(files.length === 0) return;
-//   (async ()=>{
-//     uploadBtn.disabled = true;
-//     const originalText = uploadBtn.textContent;
-//     uploadBtn.textContent = 'Uploading…';
-//     try{
-//       for(let i=0;i<files.length;i++){
-//         await uploadSingleFileXHR(files[i], ROOT);
-//       }
-//       await refreshIndex();
-//       uploadBtn.textContent = 'Uploaded ✓';
-//       setTimeout(()=>{ uploadBtn.textContent = originalText; uploadBtn.disabled = false; }, 1000);
-//     }catch(err){
-//       console.error('upload error', err);
-//       uploadBtn.textContent = 'Upload Failed';
-//       setTimeout(()=>{ uploadBtn.textContent = originalText; uploadBtn.disabled = false; }, 1500);
-//     } finally { uploadInput.value = ''; }
-//   })();
-// });
-// function uploadSingleFileXHR(file, dir){
-//   return new Promise((resolve,reject)=>{
-//     const xhr = new XMLHttpRequest();
-//     xhr.open('POST', UPLOAD_ENDPOINT, true);
-//     xhr.withCredentials = true;
-//     const fd = new FormData();
-//     fd.append('dir', (dir.startsWith('/') ? dir : '/' + dir));
-//     fd.append('file', file, file.name);
-//     xhr.onload = function(){
-//       if(xhr.status >= 200 && xhr.status < 300){ resolve(); }
-//       else { reject(new Error('Upload failed: ' + xhr.status)); }
-//     };
-//     xhr.onerror = function(){ reject(new Error('Upload network error')); };
-//     xhr.send(fd);
-//   });
-// }
+/* ---------- upload (shared NomadUpload modal; sends dir=/Gallery) ---------- */
+uploadBtn.addEventListener('click', () => uploadInput.click());
+uploadInput.addEventListener('change', (e) => {
+  const files = Array.from(e.target.files || []);
+  uploadInput.value = '';
+  if(!files.length) return;
+  (async () => {
+    uploadBtn.disabled = true;
+    const ok = await NomadUpload.run(files, ROOT);
+    uploadBtn.disabled = false;
+    if(ok) await refreshIndex();
+  })();
+});
+/* admin toggle: the button only appears when uploads are allowed */
+NomadUI.config().then(c => { if(!c.uploadsDisabled && uploadBtn) uploadBtn.style.display = ''; });
 
 /* ---------- Hash helpers (open via #open=...) ---------- */
 function getHashParam(){

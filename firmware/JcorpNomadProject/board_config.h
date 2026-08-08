@@ -136,7 +136,7 @@
 
 #define NOMAD_UI_LAYOUT   NOMAD_UI_PORTRAIT_TALL
 #define LVGL_BUF_DIVISOR  20
-#define LVGL_FULL_REFRESH 1
+#define LVGL_FULL_REFRESH 0   // upstream moved to partial refresh; far less SPI traffic
 
 #else
 #error "Unknown NOMAD_BOARD - see board_config.h for the supported profiles"

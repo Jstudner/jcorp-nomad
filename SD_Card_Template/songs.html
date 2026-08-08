@@ -1,0 +1,449 @@
+<!DOCTYPE html>
+<!-- Version 4 -->
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Songs</title>
+<link rel="stylesheet" href="master.css">
+<script src="/theme-boot.js"></script>
+<script src="/nomad-utils.js"></script>
+<script src="theme-manager.js"></script>
+<style>
+body{margin:0;padding:0;background:var(--bg);font-family:Inter,Arial,sans-serif;}
+.toolbar{background:var(--card);padding:.6rem 14px;display:flex;gap:.6rem;align-items:center;border-bottom:1px solid var(--black-alpha-4);position:sticky;top:0;z-index:55;flex-wrap:wrap;}
+.search-wrap{display:flex;flex:1;gap:12px;align-items:center;}
+.toolbar input[type="search"]{flex:1;padding:.56rem .8rem;border-radius:12px;border:1px solid var(--black-alpha-6);background:var(--card);font-size:0.95rem;color:var(--text);}
+.toolbar .controls{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-left:auto;}
+.btn{padding:.45rem .65rem;border-radius:8px;border:0;background:var(--card);box-shadow:0 2px 8px var(--black-alpha-4);cursor:pointer;font-weight:700;color:var(--text);display:inline-flex;align-items:center;gap:6px;}
+.btn.ghost{background:transparent;box-shadow:none;border:1px solid var(--black-alpha-4);}
+.btn .icon{font-size:1rem;line-height:1;}
+.btn .label{white-space:nowrap;}
+.total-count{color:var(--muted);font-weight:700;white-space:nowrap;font-size:0.95rem;}
+main{padding:14px;max-width:1200px;margin:0 auto;padding-bottom:20px;}
+.section{background:var(--card);border-radius:12px;padding:12px;box-shadow:var(--shadow);margin-bottom:12px;}
+.section h2{font-size:1rem;margin:0 0 8px 0;color:var(--primary);font-weight:800;}
+.all-list{display:flex;flex-direction:column;gap:8px;max-height:70vh;overflow:auto;}
+.row{display:flex;align-items:center;gap:12px;padding:10px;border-radius:8px;cursor:pointer;transition:all .2s;background:transparent;}
+.row:hover{transform:translateY(-2px);box-shadow:0 4px 12px var(--black-alpha-8);background:var(--primary-alpha-5);}
+.row.playing{background:var(--primary);color:var(--color-white);}
+.row .title{font-weight:700;flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--text);}
+.row.playing .title{color:var(--color-white);}
+/* album is secondary: smaller, de-emphasized, and capped so it cant crowd the title */
+.row .context{color:var(--muted);font-weight:600;font-size:0.82rem;text-align:right;flex:0 1 auto;max-width:38%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.row.playing .context{color:var(--white-alpha-80);}
+/* no room on phones, hide the album so the song name gets the full row. back on wider screens */
+@media (max-width:600px){
+  .row .context{display:none;}
+}
+.add-queue-btn{padding:4px 8px;background:var(--card);border:1px solid var(--black-alpha-10);border-radius:6px;font-size:0.85rem;font-weight:700;color:var(--primary);cursor:pointer;transition:all .15s;margin-left:8px;}
+.add-queue-btn:hover{background:var(--primary);color:var(--color-white);transform:scale(1.05);}
+.row.playing .add-queue-btn{background:var(--white-alpha-20);color:var(--color-white);border-color:var(--white-alpha-30);}
+</style>
+</head>
+<body>
+
+<div class="toolbar">
+  <div class="search-wrap">
+    <input id="search" type="search" placeholder="Search songs…">
+  </div>
+  <div id="totalCount" class="total-count">0 tracks</div>
+</div>
+
+<main>
+  <section class="section">
+    <h2>All Songs</h2>
+    <div id="allList" class="all-list"></div>
+  </section>
+</main>
+
+<script>
+const ROOT = '/Music';
+const INDEX_ENDPOINT = '/api/index';
+const AUDIO_EXTS = ['.mp3','.m4a','.flac','.aac','.ogg','.wav','.opus','.alac','.aiff'];
+
+let trackPathSet = new Set();
+let allTracks = [];
+let directoryMap = new Map();
+let currentPlaylist = [];
+let sortAsc = true;
+let currentPlayingPath = null;
+let isShuffled = false;
+let originalTracks = [];
+let queuePaths = new Set();
+
+const allListEl = document.getElementById('allList');
+const totalCountEl = document.getElementById('totalCount');
+const searchEl = document.getElementById('search');
+
+
+function ext(name){
+  const i = name.lastIndexOf('.');
+  return i >= 0 ? name.slice(i).toLowerCase() : '';
+}
+
+function isAudio(n){
+  return AUDIO_EXTS.includes(ext(n));
+}
+
+function prettifyFilename(n){
+  if(!n) return '';
+  let s = n.replace(/\.[^/.]+$/, '');
+  s = s.replace(/[_\.]+/g, ' ').trim();
+  return s;
+}
+
+function topLevelKeyForPath(full){
+  const parts = normalizePath(full).split('/').filter(Boolean);
+  if(parts.length >= 2) return parts[1];
+  return '/';
+}
+
+function computeDisplayForPath(fullPath){
+  try {
+    const normalized = normalizePath(fullPath);
+    const parts = normalized.split('/').filter(Boolean);
+    if(parts.length === 0) return '';
+    const filename = parts[parts.length - 1] || '';
+    const folderRel = parts.slice(1, parts.length - 1);
+    if(folderRel.length === 0){
+      return '';
+    } else if(folderRel.length === 1){
+      return folderRel[0];
+    } else {
+      return `${folderRel[0]} - ${folderRel[1]}`;
+    }
+  } catch(e){
+    return '';
+  }
+}
+
+function sha1(str){
+  let h = 5381;
+  for(let i=0;i<str.length;i++){
+    h = ((h << 5) + h) + str.charCodeAt(i);
+    h = h & 0xffffffff;
+  }
+  return 'h' + (h >>> 0).toString(16);
+}
+
+async function fetchIndex(path){
+  const url = `${INDEX_ENDPOINT}?path=${encodeURIComponent(normalizePath(path))}`;
+  const res = await fetch(url, { cache: 'no-store' });
+  if(!res.ok) throw new Error('index fetch failed '+res.status);
+  const text = await res.text();
+  const lines = text.split('\n').filter(Boolean);
+  const header = lines.length ? (()=>{ try{ return JSON.parse(lines[0]); }catch(e){return null;} })() : null;
+  const entries = [];
+  for(let i=1;i<lines.length;i++){
+    try{
+      entries.push(JSON.parse(lines[i]));
+    }catch(e){
+      const idx = lines[i].indexOf('{');
+      if(idx>=0){
+        try{ entries.push(JSON.parse(lines[i].slice(idx))); }catch(_){}
+      }
+    }
+  }
+  return { header, entries };
+}
+
+function addTrackToMaps(fullPath){
+  const normalized = normalizePath(fullPath);
+  if(trackPathSet.has(normalized)) return;
+  
+  const parts = normalized.split('/').filter(Boolean);
+  if(parts.length === 0) return;
+  const filename = parts[parts.length - 1];
+  if(!isAudio(filename)) return;
+  
+  const dirPath = '/' + parts.slice(0, parts.length - 1).join('/');
+  if(!directoryMap.has(dirPath)){
+    directoryMap.set(dirPath, {
+      path: dirPath,
+      name: dirPath.split('/').filter(Boolean).pop() || '/',
+      files: [],
+      dirs: new Set()
+    });
+  }
+  
+  const topKey = topLevelKeyForPath(normalized);
+  const contextParts = parts.slice(2, parts.length - 1);
+  const display = computeDisplayForPath(normalized);
+  
+  const t = {
+    id: sha1(normalized),
+    name: prettifyFilename(filename),
+    file: filename,
+    path: normalized,
+    dirPath,
+    topKey,
+    contextParts,
+    display
+  };
+  
+  trackPathSet.add(normalized);
+  allTracks.push(t);
+  const dir = directoryMap.get(dirPath);
+  if(dir) dir.files.push(t);
+}
+
+async function scanLibrary(){
+  trackPathSet = new Set();
+  allTracks = [];
+  directoryMap = new Map();
+  
+  try{
+    const resp = await fetchIndex(ROOT);
+    
+    for(const e of resp.entries){
+      if(e.t === 'f'){
+        const fullPath = e.p || (ROOT + '/' + e.n);
+        if(isAudio(fullPath)){
+          addTrackToMaps(normalizePath(fullPath));
+        }
+      } else if(e.t === 'd'){
+        const dirPath = e.p || (ROOT + '/' + e.n);
+        const normalized = normalizePath(dirPath);
+        if(!directoryMap.has(normalized)){
+          directoryMap.set(normalized, {
+            path: normalized,
+            name: e.n,
+            files: [],
+            dirs: new Set()
+          });
+        }
+      }
+    }
+  }catch(err){
+    console.warn('[Songs] index failed', err);
+  }
+  
+  allTracks.sort((a,b)=>{
+    const da = (a.display || '').toLowerCase();
+    const db = (b.display || '').toLowerCase();
+    if(da !== db) return da.localeCompare(db, undefined, {numeric:true});
+    return a.name.localeCompare(b.name, undefined, {numeric:true});
+  });
+
+  totalCountEl.textContent = `${allTracks.length} tracks`;
+  console.log('[Songs] scan complete. tracks:', allTracks.length);
+  render();
+
+  await handleHashPlayIfPresent();
+}
+
+async function handleHashPlayIfPresent(){
+  try {
+    if(!location.hash) return;
+    const raw = location.hash.replace(/^#/, '');
+    const params = {};
+    raw.split('&').forEach(p => {
+      const [k,v] = p.split('=');
+      if(!k) return;
+      try { params[k] = v === undefined ? '' : decodeURIComponent(v || ''); }
+      catch(e){ params[k] = v === undefined ? '' : (v || ''); }
+    });
+    if(!params.play) return;
+
+    const playPath = normalizePath(params.play || '');
+
+    const orderedAll = allTracks.slice();
+    orderedAll.sort((a,b) => sortAsc ? a.name.localeCompare(b.name, undefined, {numeric:true}) : b.name.localeCompare(a.name, undefined, {numeric:true}));
+
+    let foundIndex = orderedAll.findIndex(t => normalizePath(t.path).toLowerCase() === playPath.toLowerCase());
+
+    if(foundIndex >= 0){
+      window.parent.postMessage({
+        type: 'PLAY_PLAYLIST',
+        payload: {
+          tracks: orderedAll,
+          startIndex: foundIndex
+        }
+      }, '*');
+      history.replaceState(null, '', location.pathname + location.search);
+      return;
+    }
+
+    const fallbackItem = {
+      id: sha1(playPath),
+      name: prettifyFilename(playPath.split('/').pop() || ''),
+      file: playPath.split('/').pop() || '',
+      path: playPath,
+      dirPath: normalizePath(playPath).replace(/\/[^/]+$/,''),
+      topKey: topLevelKeyForPath(playPath),
+      display: computeDisplayForPath(playPath)
+    };
+    window.parent.postMessage({
+      type: 'PLAY_PLAYLIST',
+      payload: {
+        tracks: [fallbackItem],
+        startIndex: 0
+      }
+    }, '*');
+    history.replaceState(null, '', location.pathname + location.search);
+  } catch(err){
+    console.warn('[Songs] handleHashPlayIfPresent failed', err);
+  }
+}
+
+function render(){
+  allListEl.innerHTML = '';
+  const q = (searchEl.value || '').trim().toLowerCase();
+  
+  let listToShow = currentPlaylist.length > 0 ? currentPlaylist : allTracks;
+  
+  if(q){
+    listToShow = listToShow.filter(t => {
+      const display = (t.display || '').toLowerCase();
+      const name = (t.name || '').toLowerCase();
+      const top = (t.topKey || '').toLowerCase();
+      const ctx = (t.contextParts || []).join('/').toLowerCase();
+      return name.includes(q) || display.includes(q) || top.includes(q) || ctx.includes(q);
+    });
+  }
+  
+  const seenPaths = new Set();
+  listToShow = listToShow.filter(t => {
+    if(seenPaths.has(t.path)) return false;
+    seenPaths.add(t.path);
+    return true;
+  });
+  
+  if(!listToShow || listToShow.length === 0){
+    allListEl.innerHTML = '<p style="padding:12px;color:var(--muted)">No tracks found.</p>';
+    return;
+  }
+  
+  listToShow.forEach((t, idx) => {
+    const row = document.createElement('div');
+    row.className = 'row';
+    if(t.path === currentPlayingPath) row.classList.add('playing');
+    row.dataset.path = t.path;
+    
+    const title = document.createElement('div');
+    title.className = 'title';
+    title.textContent = t.name;
+    
+    const context = document.createElement('div');
+    context.className = 'context';
+    context.textContent = t.display || '';
+    
+    const queueBtn = document.createElement('button');
+    queueBtn.className = 'add-queue-btn';
+    const inQueue = queuePaths.has(t.path);
+    queueBtn.textContent = inQueue ? '✓' : '+';
+    queueBtn.title = inQueue ? 'In queue' : 'Add to queue';
+    if(inQueue) {
+      queueBtn.style.opacity = '0.5';
+      queueBtn.style.pointerEvents = 'none';
+    }
+    queueBtn.onclick = (e) => {
+      e.stopPropagation();
+      if(!inQueue){
+        window.parent.postMessage({
+          type: 'ADD_TO_QUEUE',
+          payload: t
+        }, '*');
+      }
+    };
+    
+    row.appendChild(title);
+    row.appendChild(context);
+    row.appendChild(queueBtn);
+    
+    row.onclick = () => {
+      const arr = listToShow.slice();
+      const start = arr.findIndex(x => x.path === t.path);
+      window.parent.postMessage({
+        type: 'PLAY_PLAYLIST',
+        payload: {
+          tracks: arr,
+          startIndex: start >= 0 ? start : 0
+        }
+      }, '*');
+    };
+    
+    allListEl.appendChild(row);
+  });
+}
+
+
+searchEl.addEventListener('input', render);
+
+window.addEventListener('message', (event) => {
+  const { type, payload } = event.data;
+
+  if(type === 'PLAYBACK_UPDATE'){
+    currentPlayingPath = payload.currentTrack ? payload.currentTrack.path : null;
+    document.querySelectorAll('.row').forEach(row => {
+      if(row.dataset.path === currentPlayingPath){
+        row.classList.add('playing');
+      } else {
+        row.classList.remove('playing');
+      }
+    });
+  }
+
+  if(type === 'QUEUE_UPDATE'){
+    queuePaths.clear();
+    if(payload.queue){
+      payload.queue.forEach(track => {
+        if(track.path) queuePaths.add(track.path);
+      });
+    }
+    render();
+  }
+
+  if(type === 'SHUFFLE'){
+    if(!isShuffled){
+      originalTracks = allTracks.slice();
+      const arr = allTracks.slice();
+      fisherYates(arr);
+      allTracks = arr;
+      currentPlaylist = arr;
+      isShuffled = true;
+      render();
+      if(arr.length > 0){
+        window.parent.postMessage({
+          type: 'PLAY_PLAYLIST',
+          payload: {
+            tracks: arr,
+            startIndex: 0
+          }
+        }, '*');
+      }
+    } else {
+      allTracks = originalTracks.slice();
+      currentPlaylist = allTracks;
+      isShuffled = false;
+      render();
+      if(allTracks.length > 0){
+        window.parent.postMessage({
+          type: 'PLAY_PLAYLIST',
+          payload: {
+            tracks: allTracks,
+            startIndex: 0
+          }
+        }, '*');
+      }
+    }
+  }
+
+  if(type === 'SORT'){
+    const sortAsc = payload.ascending;
+    allTracks.sort((a, b) => {
+      return sortAsc ?
+        a.name.localeCompare(b.name, undefined, {numeric: true}) :
+        b.name.localeCompare(a.name, undefined, {numeric: true});
+    });
+    render();
+  }
+});
+
+window.addEventListener('hashchange', handleHashPlayIfPresent);
+
+scanLibrary();
+</script>
+</body>
+</html>

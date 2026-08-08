@@ -25,6 +25,15 @@ extern "C" {
 #endif
 
 void LCD_Init(void);
+
+// Rotate the panel output 180 degrees, for sticks mounted upside down.
+// Both supported panels sit centred in their controller's RAM (172 of 240 with
+// Offset_X 34 either side; 160 of 162 and 80 of 132 with offsets 1 and 26), so
+// the window offsets stay valid in either orientation and only MADCTL changes.
+// Call from the task that owns LVGL flushes and repaint afterwards - panel RAM
+// shows mirrored content until it is redrawn.
+void LCD_SetRotation180(bool flip);
+
 void LCD_SetCursor(uint16_t Xstart, uint16_t Ystart, uint16_t Xend, uint16_t Yend);
 void LCD_addWindow(uint16_t Xstart, uint16_t Ystart, uint16_t Xend, uint16_t Yend, uint16_t *color);
 
