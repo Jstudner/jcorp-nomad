@@ -194,6 +194,8 @@ const NomadUpload = {
     return new Promise((resolve, reject) => {
       const xhr = new XMLHttpRequest();
       xhr.open('POST', '/upload', true);
+      const token = sessionStorage.getItem('nomad_admin_token') || '';
+      if (token) xhr.setRequestHeader('X-Admin-Token', token);
       xhr.withCredentials = true;
       const fd = new FormData();
       fd.append('dir', dir);                       // fields must precede the file part

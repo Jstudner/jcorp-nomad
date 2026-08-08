@@ -344,6 +344,9 @@ static bool shouldSkipIndexingPath(const String &path) {
 #endif
 #define INDEXER_SLEEP_MS 300000 // 5 minutes between background scans
 #define MAX_CLIENTS 8 // SoftAP max_connection; keep in sync with WiFi.softAP() calls below
+#ifndef NOMAD_AP_CHANNEL
+#define NOMAD_AP_CHANNEL 6
+#endif
 String encodeIndexName(const String &path);
 
 struct AdminSettings {
@@ -352,6 +355,9 @@ struct AdminSettings {
   String adminPassword = "";
   String wifiSSID = "Jcorp_Nomad";
   String wifiPassword = "password";
+  String homeWifiSSID = "";
+  String homeWifiPassword = "";
+  bool homeWifiEnabled = false;
   int brightness = 100;            // percent 0-100 (Set_Backlight range); 230 was out-of-range and ignored
   bool autoGenerateMedia = true;   // check for new files on boot (default on)
   bool flipScreen = false;         // rotate LCD 180 deg (USB port upside down, e.g. car mounts)
@@ -452,6 +458,51 @@ String normalizePath(const String &p_in){
   while (p.length() > 1 && p.endsWith("/")) p = p.substring(0, p.length()-1);
   return p;
 }
+
+bool validateUserPath(String &path, bool allowRoot, String &error) {
+  path = normalizePath(path);
+  if (!allowRoot && path == "/") {
+    error = "Root path is not allowed";
+    return false;
+  }
+  if (path.indexOf("..") >= 0 || path.indexOf("//") >= 0) {
+    error = "Path traversal is not allowed";
+    return false;
+  }
+  for (size_t i = 0; i < path.length(); ++i) {
+    uint8_t c = (uint8_t)path.charAt(i);
+    if (c < 32 || c == 127) {
+      error = "Path contains invalid characters";
+      return false;
+    }
+  }
+  if ((path.startsWith("/.") && path != "/.system-theme.json" && path != "/.search-index.json") ||
+      path == String(INDEX_DIR) || path.startsWith(String(INDEX_DIR) + "/") ||
+      path == "/config" || path.startsWith("/config/") ||
+      path == "/boot_done.flag" || path == "/generate_once.flag" ||
+      path == "/always_generate.flag") {
+    error = "System paths cannot be modified";
+    return false;
+  }
+  return true;
+}
+
+bool validateUploadFilename(const String &filename, String &error) {
+  if (filename.length() == 0 || filename.indexOf('/') >= 0 ||
+      filename.indexOf('\\') >= 0 || filename.indexOf("..") >= 0) {
+    error = "Invalid filename";
+    return false;
+  }
+  for (size_t i = 0; i < filename.length(); ++i) {
+    uint8_t c = (uint8_t)filename.charAt(i);
+    if (c < 32 || c == 127) {
+      error = "Filename contains invalid characters";
+      return false;
+    }
+  }
+  return true;
+}
+
 String encodeIndexName(const String &path_in) {
   String p = path_in;
   if (p.length() == 0) return String("root");
@@ -508,6 +559,21 @@ String jsonEscape(const String &in){
     if (c == '\\' || c == '\"') { out += '\\'; out += c; }
     else if (c == '\n') out += "\\n";
     else if (c == '\r') out += "\\r";
+    else out += c;
+  }
+  return out;
+}
+
+String htmlEscape(const String &in) {
+  String out;
+  out.reserve(in.length() + 8);
+  for (size_t i = 0; i < in.length(); ++i) {
+    char c = in.charAt(i);
+    if (c == '&') out += F("&amp;");
+    else if (c == '<') out += F("&lt;");
+    else if (c == '>') out += F("&gt;");
+    else if (c == '"') out += F("&quot;");
+    else if (c == '\'') out += F("&#39;");
     else out += c;
   }
   return out;
@@ -1238,6 +1304,9 @@ bool loadSettings() {
   settings.adminPassword = doc["adminPassword"] | "";
   settings.wifiSSID = doc["wifiSSID"] | "Jcorp_Nomad";
   settings.wifiPassword = doc["wifiPassword"] | "password";
+  settings.homeWifiSSID = doc["homeWifiSSID"] | "";
+  settings.homeWifiPassword = doc["homeWifiPassword"] | "";
+  settings.homeWifiEnabled = doc["homeWifiEnabled"] | false;
   settings.brightness = doc["brightness"] | 100;
   // brightness is 0-100 (Set_Backlight ignores >100). old builds defaulted to 230, clamp it
   settings.brightness = constrain(settings.brightness, 0, 100);
@@ -1255,12 +1324,15 @@ bool saveSettings() {
     return false;
   }
 
-  StaticJsonDocument<512> doc;
+  StaticJsonDocument<768> doc;
   doc["rgbMode"] = settings.rgbMode;
   doc["rgbColor"] = settings.rgbColor;
   doc["adminPassword"] = settings.adminPassword;
   doc["wifiSSID"] = settings.wifiSSID;
   doc["wifiPassword"] = settings.wifiPassword;
+  doc["homeWifiSSID"] = settings.homeWifiSSID;
+  doc["homeWifiPassword"] = settings.homeWifiPassword;
+  doc["homeWifiEnabled"] = settings.homeWifiEnabled;
   doc["brightness"] = settings.brightness;
   doc["autoGenerateMedia"] = settings.autoGenerateMedia;
   doc["flipScreen"] = settings.flipScreen;
@@ -2678,6 +2750,10 @@ void handleMpState(AsyncWebServerRequest *request) {
 
 void handleRename(AsyncWebServerRequest *request) {
     Serial.println("[RENAME] Request received");
+    if (!checkAdminAuth(request)) {
+        request->send(401, "application/json", "{\"error\":\"Unauthorized\"}");
+        return;
+    }
 
     if (!request->hasParam("oldname", true) || !request->hasParam("newname", true)) {
         Serial.println("[RENAME] Missing parameters");
@@ -2687,6 +2763,11 @@ void handleRename(AsyncWebServerRequest *request) {
 
     String oldName = request->getParam("oldname", true)->value();
     String newName = request->getParam("newname", true)->value();
+    String pathError;
+    if (!validateUserPath(oldName, false, pathError) || !validateUserPath(newName, false, pathError)) {
+        request->send(400, "application/json", String("{\"error\":\"") + jsonEscape(pathError) + "\"}");
+        return;
+    }
 
     Serial.printf("[RENAME] Attempting to rename: '%s' -> '%s'\n", oldName.c_str(), newName.c_str());
 
@@ -2828,12 +2909,22 @@ void handleRename(AsyncWebServerRequest *request) {
 }
 
 void handleDelete(AsyncWebServerRequest *request) {
+    if (!checkAdminAuth(request)) {
+    request->send(401, "application/json", "{\"error\":\"Unauthorized\"}");
+    return;
+    }
+
     if (!request->hasParam("filename", true)) {
     request->send(400, "application/json", "{\"error\":\"Missing 'filename' parameter\"}");
     return;
     }
 
     String filename = request->getParam("filename", true)->value();
+    String pathError;
+    if (!validateUserPath(filename, false, pathError)) {
+    request->send(400, "application/json", String("{\"error\":\"") + jsonEscape(pathError) + "\"}");
+    return;
+    }
 
     if (streamingFilesMutex && xSemaphoreTake(streamingFilesMutex, pdMS_TO_TICKS(100)) == pdTRUE) {
         bool inUse = false;
@@ -2918,7 +3009,20 @@ void createSimpleUploadHandler(const String& mediaFolder, const char* endpoint) 
     uint8_t *data, size_t len, bool final) {
 
     if (index == 0) {
+    if (!checkAdminAuth(request)) {
+    request->send(401, "application/json", "{\"error\":\"Unauthorized\"}");
+    return;
+    }
+    String pathError;
+    if (!validateUploadFilename(filename, pathError)) {
+    request->send(400, "application/json", String("{\"error\":\"") + jsonEscape(pathError) + "\"}");
+    return;
+    }
     String fullPath = "/" + mediaFolder + "/" + filename;
+    if (!validateUserPath(fullPath, false, pathError)) {
+    request->send(400, "application/json", String("{\"error\":\"") + jsonEscape(pathError) + "\"}");
+    return;
+    }
     Serial.println("[Upload] Starting upload to: " + fullPath);
     File f = SD_MMC.open(fullPath, FILE_WRITE);
     if (!f) {
@@ -3319,10 +3423,20 @@ bool checkGenerateFlagFile() {
     return false;
 }
 void handleConnector(AsyncWebServerRequest *request) {
+  if (!checkAdminAuth(request)) {
+    request->send(401, "application/json", "{\"error\":\"Unauthorized\"}");
+    return;
+  }
+
   // 1) Get 'dir' from POST body
   String dir = "/";
   if (request->hasParam("dir", true)) {
     dir = request->getParam("dir", true)->value();
+  }
+  String pathError;
+  if (!validateUserPath(dir, true, pathError)) {
+    request->send(400, "text/plain", pathError);
+    return;
   }
   if (!dir.endsWith("/")) dir += "/";
 
@@ -3346,15 +3460,19 @@ void handleConnector(AsyncWebServerRequest *request) {
   File entry;
   while ((entry = root.openNextFile())) {
     String name = entry.name();
+    String rel = dir + name;
+    String relEsc = htmlEscape(rel);
+    String nameEsc = htmlEscape(name);
     if (entry.isDirectory()) {
       html += "<li class=\"directory collapsed\">"
-           "<a href=\"#\" rel=\"" + dir + name + "/\">" + name + "</a>"
+           "<a href=\"#\" rel=\"" + relEsc + "/\">" + nameEsc + "</a>"
            "</li>";
     } else {
       int dot = name.lastIndexOf('.');
       String ext = dot > 0 ? name.substring(dot+1) : "";
-      html += "<li class=\"file ext_" + ext + "\">"
-           "<a href=\"#\" rel=\"" + dir + name + "\">" + name + "</a>"
+      String extEsc = htmlEscape(sanitizeToken(ext));
+      html += "<li class=\"file ext_" + extEsc + "\">"
+           "<a href=\"#\" rel=\"" + relEsc + "\">" + nameEsc + "</a>"
            "</li>";
     }
     entry.close();
@@ -3365,15 +3483,19 @@ void handleConnector(AsyncWebServerRequest *request) {
   request->send(200, "text/html", html);
 }
 void handleMkdir(AsyncWebServerRequest *request) {
+    if (!checkAdminAuth(request)) {
+        request->send(401, "application/json", "{\"error\":\"Unauthorized\"}");
+        return;
+    }
     if (!request->hasParam("dir", true)) {
         request->send(400, "application/json", "{\"error\":\"Missing 'dir' parameter\"}");
         return;
     }
 
     String dirPath = request->getParam("dir", true)->value();
-
-    if (dirPath == "/" || dirPath == "") {
-        request->send(400, "application/json", "{\"error\":\"Invalid directory path\"}");
+    String pathError;
+    if (!validateUserPath(dirPath, false, pathError)) {
+        request->send(400, "application/json", String("{\"error\":\"") + jsonEscape(pathError) + "\"}");
         return;
     }
 
@@ -3426,14 +3548,44 @@ void startNomadMDNS() {
     Serial.println("[mDNS] Failed to start responder (nomad.local unavailable; IP access unaffected)");
   }
 }
+
+void configureSoftAPPerformance() {
+  WiFi.setSleep(false);
+  esp_wifi_set_ps(WIFI_PS_NONE);
+  esp_wifi_set_max_tx_power(78); // 19.5 dBm, SDK units are 0.25 dBm
+  esp_wifi_set_protocol(WIFI_IF_AP, WIFI_PROTOCOL_11B | WIFI_PROTOCOL_11G | WIFI_PROTOCOL_11N);
+  esp_wifi_set_bandwidth(WIFI_IF_AP, WIFI_BW_HT20); // stable with phones/tablets on 2.4 GHz
+  esp_wifi_set_inactive_time(WIFI_IF_AP, 60);
+  Serial.printf("[WiFi] AP performance mode: channel=%d sleep=off txPower=max protocol=b/g/n bandwidth=HT20\n",
+                NOMAD_AP_CHANNEL);
+}
+
+void connectHomeWiFi() {
+  if (!settings.homeWifiEnabled || settings.homeWifiSSID.length() == 0) {
+    WiFi.disconnect(false, false);
+    webLog("[WiFi] Home network client disabled; AP-only offline mode remains active", "info");
+    return;
+  }
+
+  Serial.printf("[WiFi] Connecting STA to home network: %s\n", settings.homeWifiSSID.c_str());
+  webLogf("info", "Connecting to home WiFi network: %s", settings.homeWifiSSID.c_str());
+  WiFi.begin(settings.homeWifiSSID.c_str(), settings.homeWifiPassword.c_str());
+}
+
 void applyWiFiSettings() {
   Serial.print("Stopping existing WiFi Access Point...");
   WiFi.softAPdisconnect(true);  // Stop AP and clear config
+  WiFi.disconnect(false, false);
   delay(100);  // Give time for cleanup
 
   Serial.print("Starting WiFi with SSID: ");
   Serial.println(settings.wifiSSID);
-  WiFi.softAP(settings.wifiSSID.c_str(), settings.wifiPassword.c_str(), 1, 0, MAX_CLIENTS);
+  WiFi.mode(WIFI_AP_STA);
+  WiFi.persistent(false);
+  WiFi.setSleep(false);
+  WiFi.softAP(settings.wifiSSID.c_str(), settings.wifiPassword.c_str(), NOMAD_AP_CHANNEL, 0, MAX_CLIENTS);
+  configureSoftAPPerformance();
+  connectHomeWiFi();
   dnsServer.start(DNS_PORT, "*", WiFi.softAPIP());
   startNomadMDNS();
 }
@@ -4205,7 +4357,11 @@ void setup() {
                   (int)psramFound(),
                   (unsigned)heap_caps_get_free_size(MALLOC_CAP_SPIRAM));
 
-    WiFi.softAP(settings.wifiSSID.c_str(), settings.wifiPassword.c_str(), 1, 0, MAX_CLIENTS);
+    WiFi.mode(WIFI_AP_STA);
+    WiFi.persistent(false);
+    WiFi.setSleep(false);
+    WiFi.softAP(settings.wifiSSID.c_str(), settings.wifiPassword.c_str(), NOMAD_AP_CHANNEL, 0, MAX_CLIENTS);
+    configureSoftAPPerformance();
 
     Serial.printf("[DIAG] post-AP internal=%u largest=%u  apIP=%s\n",
                   (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL),
@@ -4971,15 +5127,30 @@ server.on(
 
     // Begin upload
     if (index == 0) {
+      if (!checkAdminAuth(request)) {
+        request->send(401, "application/json", "{\"error\":\"Unauthorized\"}");
+        return;
+      }
+      String pathError;
+      if (!validateUploadFilename(filename, pathError)) {
+        request->send(400, "application/json", String("{\"error\":\"") + jsonEscape(pathError) + "\"}");
+        return;
+      }
       String dir = "/";
       if (request->hasParam("dir", true)) {
         dir = request->getParam("dir", true)->value();
       }
 
-      if (!dir.startsWith("/")) dir = "/" + dir;
-      if (dir.endsWith("/")) dir.remove(dir.length() - 1);
+      if (!validateUserPath(dir, true, pathError)) {
+        request->send(400, "application/json", String("{\"error\":\"") + jsonEscape(pathError) + "\"}");
+        return;
+      }
 
       String fullPath = dir + "/" + filename;
+      if (!validateUserPath(fullPath, false, pathError)) {
+        request->send(400, "application/json", String("{\"error\":\"") + jsonEscape(pathError) + "\"}");
+        return;
+      }
 
       // Check for duplicate
       if (SD_MMC.exists(fullPath)) {
@@ -5063,6 +5234,11 @@ server.on("/list-assets", HTTP_GET, [](AsyncWebServerRequest *request){
 
 
 server.on("/mkdir", HTTP_POST, [](AsyncWebServerRequest *request) {
+    if (!checkAdminAuth(request)) {
+        request->send(401, "application/json", "{\"error\":\"Unauthorized\"}");
+        return;
+    }
+
     // Require POST parameter "dirname"
     if (!request->hasParam("dirname", true)) {
         request->send(400, "text/plain", "Missing 'dirname' parameter");
@@ -5071,21 +5247,10 @@ server.on("/mkdir", HTTP_POST, [](AsyncWebServerRequest *request) {
 
     // Get and sanitize input
     String dirName = request->getParam("dirname", true)->value();
-
-    // Ensure it starts with a slash (absolute path)
-    if (!dirName.startsWith("/")) {
-        dirName = "/" + dirName;
-    }
-
-    // Prevent directory traversal (no "../")
-    if (dirName.indexOf("..") >= 0) {
-        request->send(400, "text/plain", "Invalid directory name");
+    String pathError;
+    if (!validateUserPath(dirName, false, pathError)) {
+        request->send(400, "text/plain", pathError);
         return;
-    }
-
-    // Remove trailing slash, if present
-    if (dirName.endsWith("/")) {
-        dirName.remove(dirName.length() - 1);
     }
 
     // Check if the path already exists
@@ -5124,6 +5289,10 @@ server.on("^\\/Archive\\/.*$", HTTP_ANY, [](AsyncWebServerRequest *request){
 
 server.on("/save", HTTP_POST, [](AsyncWebServerRequest *request){
   Serial.println("[SAVE] Request received");
+  if (!checkAdminAuth(request)) {
+    request->send(401, "application/json", "{\"error\":\"Unauthorized\"}");
+    return;
+  }
 
   if (!request->hasParam("filename", true) || !request->hasParam("content", true)) {
     return request->send(400, "text/plain", "Missing parameters");
@@ -5131,6 +5300,10 @@ server.on("/save", HTTP_POST, [](AsyncWebServerRequest *request){
 
   String path = request->getParam("filename", true)->value();
   String content = request->getParam("content", true)->value();
+  String pathError;
+  if (!validateUserPath(path, false, pathError)) {
+    return request->send(400, "text/plain", pathError);
+  }
 
   if (sdMutex && xSemaphoreTake(sdMutex, pdMS_TO_TICKS(5000)) != pdTRUE) {
     Serial.println("[SAVE] Mutex timeout");
@@ -5194,12 +5367,19 @@ server.on("/save", HTTP_POST, [](AsyncWebServerRequest *request){
 
 
 server.on("/settings", HTTP_GET, [](AsyncWebServerRequest *request){
-  StaticJsonDocument<512> doc;
+  StaticJsonDocument<768> doc;
   doc["rgbMode"] = settings.rgbMode;
   doc["rgbColor"] = settings.rgbColor;
-  doc["adminPassword"] = settings.adminPassword;
+  doc["adminPasswordSet"] = isAdminAuthRequired();
   doc["wifiSSID"] = settings.wifiSSID;
-  doc["wifiPassword"] = settings.wifiPassword;
+  doc["homeWifiSSID"] = settings.homeWifiSSID;
+  doc["homeWifiEnabled"] = settings.homeWifiEnabled;
+  doc["homeWifiConnected"] = WiFi.status() == WL_CONNECTED;
+  doc["homeWifiIP"] = WiFi.status() == WL_CONNECTED ? WiFi.localIP().toString() : "";
+  if (checkAdminAuth(request)) {
+    doc["wifiPassword"] = settings.wifiPassword;
+    doc["homeWifiPassword"] = settings.homeWifiPassword;
+  }
   doc["brightness"] = settings.brightness;
   doc["autoGenerateMedia"] = settings.autoGenerateMedia;
   doc["flipScreen"] = settings.flipScreen;
@@ -5236,6 +5416,19 @@ server.on("/settings", HTTP_POST, [](AsyncWebServerRequest *request){
   }
   if (doc.containsKey("wifiSSID")) settings.wifiSSID = doc["wifiSSID"].as<String>();
   if (doc.containsKey("wifiPassword")) settings.wifiPassword = doc["wifiPassword"].as<String>();
+  bool homeWifiChanged = false;
+  if (doc.containsKey("homeWifiSSID")) {
+    settings.homeWifiSSID = doc["homeWifiSSID"].as<String>();
+    homeWifiChanged = true;
+  }
+  if (doc.containsKey("homeWifiPassword")) {
+    settings.homeWifiPassword = doc["homeWifiPassword"].as<String>();
+    homeWifiChanged = true;
+  }
+  if (doc.containsKey("homeWifiEnabled")) {
+    settings.homeWifiEnabled = doc["homeWifiEnabled"].as<bool>();
+    homeWifiChanged = true;
+  }
   if (doc.containsKey("brightness")) settings.brightness = constrain(doc["brightness"].as<int>(), 0, 100);
   if (doc.containsKey("autoGenerateMedia")) settings.autoGenerateMedia = doc["autoGenerateMedia"].as<bool>();
   if (doc.containsKey("flipScreen")) {
@@ -5248,6 +5441,9 @@ server.on("/settings", HTTP_POST, [](AsyncWebServerRequest *request){
 
   if (saveSettings()) {
       webLogf("info", "Settings updated successfully");
+      if (homeWifiChanged) {
+        connectHomeWiFi();
+      }
       request->send(200, "application/json", "{\"status\":\"updated\"}");
   } else {
       webLogf("error", "Failed to save settings");
@@ -5288,11 +5484,16 @@ server.on("/auth/logout", HTTP_POST, [](AsyncWebServerRequest *request){
 });
 
   server.on("/admin-status", HTTP_GET, [](AsyncWebServerRequest *request){
+    if (!checkAdminAuth(request)) { request->send(401, "application/json", "{\"error\":\"Unauthorized\"}"); return; }
     // Build JSON
-    StaticJsonDocument<256> doc;
+    StaticJsonDocument<384> doc;
     doc["ssid"]         = settings.wifiSSID;
     doc["wifiPassword"] = settings.wifiPassword;
     doc["users"]        = getConnectedUserCount();
+    doc["homeWifiSSID"] = settings.homeWifiSSID;
+    doc["homeWifiEnabled"] = settings.homeWifiEnabled;
+    doc["homeWifiConnected"] = WiFi.status() == WL_CONNECTED;
+    doc["homeWifiIP"] = WiFi.status() == WL_CONNECTED ? WiFi.localIP().toString() : "";
 
     String payload;
     serializeJson(doc, payload);

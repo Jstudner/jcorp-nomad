@@ -1,0 +1,4 @@
+arduino-cli.exe
+arduino-compile.log
+.arduino-build/
+.arduino-output/

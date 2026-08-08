@@ -1135,6 +1135,10 @@ async function saveSearchIndexToSD(entries) {
 
     const response = await fetch('/upload', {
       method: 'POST',
+      headers: (() => {
+        const token = sessionStorage.getItem('nomad_admin_token') || '';
+        return token ? { 'X-Admin-Token': token } : {};
+      })(),
       body: formData
     });
 
@@ -2051,5 +2055,4 @@ document.addEventListener('keydown', (e) => { if(e.key === 'Escape'){ resultsPan
 </script>
 </body>
 </html>
-
 

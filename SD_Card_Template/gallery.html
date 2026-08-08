@@ -518,7 +518,10 @@ async function triggerReindexOnce(path, reason){
   try{
     const res = await fetch('/api/reindex', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      headers: Object.assign({ 'Content-Type': 'application/x-www-form-urlencoded' }, (() => {
+        const token = sessionStorage.getItem('nomad_admin_token') || '';
+        return token ? { 'X-Admin-Token': token } : {};
+      })()),
       body: `path=${encodeURIComponent(path)}`
     });
     if(!res.ok){ console.error('Failed to trigger gallery reindex:', res.status); return false; }

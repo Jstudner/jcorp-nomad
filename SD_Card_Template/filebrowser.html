@@ -743,12 +743,18 @@
     }
 
     /* AJAX helpers */
+    function adminHeaders() {
+      const token = sessionStorage.getItem('nomad_admin_token') || '';
+      return token ? { 'X-Admin-Token': token } : {};
+    }
+
     function ajaxPost(url, data, timeout = 30000) {
       return new Promise((resolve, reject) => {
         $.ajax({
           url: url,
           method: 'POST',
           data: data,
+          headers: adminHeaders(),
           timeout: timeout,
           success: resolve,
           error: (xhr, status, error) => {
@@ -1254,6 +1260,8 @@
           // Create XHR to track progress
           const xhr = new XMLHttpRequest();
           xhr.open('POST', uploadEndpoint, true);
+          const token = sessionStorage.getItem('nomad_admin_token') || '';
+          if (token) xhr.setRequestHeader('X-Admin-Token', token);
           xhr.timeout = UPLOAD_TIMEOUT;
     
           await new Promise((resolve, reject) => {
@@ -1439,6 +1447,7 @@
 
         const response = await fetch(saveEndpoint, {
           method: 'POST',
+          headers: adminHeaders(),
           body: formData
         });
 
@@ -1678,5 +1687,4 @@
   </script>
   </body>
   </html>
-
 

@@ -226,9 +226,20 @@ void LCD_addWindow(uint16_t Xstart, uint16_t Ystart, uint16_t Xend, uint16_t Yen
   uint16_t Show_Width = Xend - Xstart + 1;
   uint16_t Show_Height = Yend - Ystart + 1;
   uint32_t numBytes = Show_Width * Show_Height * sizeof(uint16_t);
-  uint8_t Read_D[numBytes];
   LCD_SetCursor(Xstart, Ystart, Xend, Yend);
-  LCD_WriteData_nbyte((uint8_t*)color, Read_D, numBytes);        
+  static uint8_t Read_D[256];
+  uint8_t *src = (uint8_t*)color;
+  LCDspi.beginTransaction(SPISettings(SPIFreq, MSBFIRST, SPI_MODE0));
+  digitalWrite(EXAMPLE_PIN_NUM_LCD_CS, LOW);
+  digitalWrite(EXAMPLE_PIN_NUM_LCD_DC, HIGH);
+  while (numBytes > 0) {
+    uint32_t chunk = numBytes > sizeof(Read_D) ? sizeof(Read_D) : numBytes;
+    LCDspi.transferBytes(src, Read_D, chunk);
+    src += chunk;
+    numBytes -= chunk;
+  }
+  digitalWrite(EXAMPLE_PIN_NUM_LCD_CS, HIGH);
+  LCDspi.endTransaction();
 }
 // backlight
 void Backlight_Init(void)
@@ -247,8 +258,6 @@ void Set_Backlight(uint8_t Light)                        //
     ledcWrite(EXAMPLE_PIN_NUM_BK_LIGHT, Backlight);
   }
 }
-
-
 
 
 

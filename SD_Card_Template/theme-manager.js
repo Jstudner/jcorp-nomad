@@ -10,6 +10,11 @@ const ThemeManager = {
   STORAGE_KEY: 'nomad_dark_mode',
   THEME_STORAGE_KEY: 'nomad_custom_theme',
   THEME_FILE_PATH: '/.system-theme.json',
+
+  adminHeaders() {
+    const token = sessionStorage.getItem('nomad_admin_token') || '';
+    return token ? { 'X-Admin-Token': token } : {};
+  },
   
   init() {
     try {
@@ -79,6 +84,7 @@ const ThemeManager = {
         
         const deleteResponse = await fetch('/delete', {
           method: 'POST',
+          headers: this.adminHeaders(),
           body: deleteFormData
         });
         
@@ -107,6 +113,7 @@ const ThemeManager = {
       console.log('[ThemeManager] Uploading theme file to SD card...');
       const response = await fetch('/upload', {
         method: 'POST',
+        headers: this.adminHeaders(),
         body: formData
       });
       
@@ -210,7 +217,7 @@ const ThemeManager = {
       try {
         const deleteFormData = new FormData();
         deleteFormData.append('filename', this.THEME_FILE_PATH);
-        await fetch('/delete', { method: 'POST', body: deleteFormData });
+        await fetch('/delete', { method: 'POST', headers: this.adminHeaders(), body: deleteFormData });
       } catch (e) {
         // Ignore errors
       }

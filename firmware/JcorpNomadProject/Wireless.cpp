@@ -10,7 +10,7 @@ int wifi_scan_number()
   printf("/**********WiFi Test**********/\r\n");
   // Set WiFi to station mode and disconnect from an AP if it was previously connected.
   WiFi.mode(WIFI_STA);                           
-  WiFi.setSleep(true);     
+  WiFi.setSleep(false);
   // WiFi.scanNetworks will return the number of networks found.
   int count = WiFi.scanNetworks();
   if (count == 0)
@@ -31,6 +31,7 @@ int wifi_scan_number()
 }
 int ble_scan_number()
 {
+#if NOMAD_ENABLE_BLE_SCAN
   printf("/**********BLE Test**********/\r\n"); 
   BLEDevice::init("ESP32");
   BLEScan* pBLEScan = BLEDevice::getScan();
@@ -57,6 +58,9 @@ int ble_scan_number()
   vTaskDelay(100);         
   printf("/**********BLE Test Over**********/\r\n\r\n");
   return count;
+#else
+  return 0;
+#endif
 }
 extern char buffer[128];    /* Make sure buffer is enough for `sprintf` */
 void Wireless_Test1(){
@@ -66,7 +70,11 @@ void Wireless_Test1(){
 }
 
 void WirelessScanTask(void *parameter) {
-  BLE_NUM = ble_scan_number();                       // !!! Please note that continuing to use Bluetooth will result in allocation failure due to RAM usage, so pay attention to RAM usage when Bluetooth is turned on
+#if NOMAD_ENABLE_BLE_SCAN
+  BLE_NUM = ble_scan_number();                       // BLE scan is optional; it adds RAM pressure and compile weight.
+#else
+  BLE_NUM = 0;
+#endif
   WIFI_NUM = wifi_scan_number();
   Scan_finish = 1;
   vTaskDelay(pdMS_TO_TICKS(1000));

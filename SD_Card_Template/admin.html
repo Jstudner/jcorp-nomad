@@ -2,9 +2,9 @@
 <!-- Version 4 -->
 <html lang="en">
 <head>
-    <link rel="stylesheet" href="/master.css">
-    <script src="/theme-boot.js"></script>
   <meta charset="UTF-8">
+  <link rel="stylesheet" href="/master.css">
+  <script src="/theme-boot.js"></script>
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Admin Panel</title>
   <style>
@@ -213,6 +213,7 @@
     }
 
     .console-section,
+    .home-wifi-section,
     .file-browser-section {
       grid-column: 1 / -1;
     }
@@ -430,6 +431,17 @@
       border: none;
     }
 
+    .lazy-frame-placeholder {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 160px;
+      padding: 1rem;
+      background: var(--bg);
+      color: var(--muted);
+      text-align: center;
+    }
+
     .file-browser-disclaimer {
       background: rgba(255, 193, 7, 0.1);
       border: 1px solid var(--warning);
@@ -442,6 +454,27 @@
 
     .file-browser-disclaimer strong {
       color: var(--warning);
+    }
+
+    .home-wifi-layout {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 1rem;
+      align-items: end;
+    }
+
+    .home-wifi-status {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 1rem;
+      margin-top: 1rem;
+    }
+
+    @media (max-width: 768px) {
+      .home-wifi-layout,
+      .home-wifi-status {
+        grid-template-columns: 1fr;
+      }
     }
 
     /* Authentication Overlay */
@@ -631,7 +664,7 @@
   <!-- Header -->
   <header class="header">
     <h1>Admin Panel</h1>
-    <a href="/menu" class="menu-button">← Back</a>
+    <a href="/menu" class="menu-button">&lt; Back</a>
   </header>
 
   <!-- Action Bar -->
@@ -641,21 +674,21 @@
       <button id="btn-shutdown" class="btn btn-danger">Shutdown</button>
       <button id="btn-usbmode" class="btn btn-warning">USB Mode</button>
       <button id="btn-flashmode" class="btn btn-info">Flash Mode</button>
-      <button id="cpu-temp" class="btn btn-secondary">🌡️ --°C</button>
+      <button id="cpu-temp" class="btn btn-secondary" title="ESP32 internal CPU/die temperature">CPU -- C</button>
     </div>
 
     <div class="device-info">
       <div class="info-badge">
         <span class="label">SSID</span>
-        <span id="bar-ssid" class="value" aria-live="polite" title="SSID">—</span>
+        <span id="bar-ssid" class="value" aria-live="polite" title="SSID">-</span>
       </div>
       <div class="info-badge">
         <span class="label">Password</span>
-        <span id="bar-wifi-pass" class="value" aria-live="polite" title="Wi-Fi password">—</span>
+        <span id="bar-wifi-pass" class="value" aria-live="polite" title="Wi-Fi password">-</span>
       </div>
       <div class="info-badge">
         <span class="label">Users</span>
-        <span id="bar-users" class="value">—</span>
+        <span id="bar-users" class="value">-</span>
       </div>
     </div>
   </div>
@@ -805,6 +838,42 @@
 
     <!-- Full Width Sections -->
     <div class="grid-full">
+      <!-- Home WiFi Client -->
+      <div class="card home-wifi-section">
+        <h2>Home WiFi Connection</h2>
+        <div class="home-wifi-layout">
+          <div class="form-group" style="margin: 0;">
+            <label class="form-label">Network SSID</label>
+            <input type="text" id="home-wifi-ssid" class="form-control" placeholder="Home network name">
+          </div>
+          <div class="form-group" style="margin: 0;">
+            <label class="form-label">Network Password</label>
+            <input type="password" id="home-wifi-password" class="form-control" placeholder="Home network password">
+          </div>
+          <div style="display: flex; align-items: center; gap: 1rem; flex-wrap: wrap;">
+            <label style="display: flex; align-items: center; gap: 0.5rem;">
+              <input type="checkbox" id="home-wifi-enabled">
+              Enable home WiFi
+            </label>
+            <button onclick="updateHomeWiFiSettings()" class="btn btn-primary">Save Home WiFi</button>
+          </div>
+        </div>
+        <div class="home-wifi-status">
+          <div class="status-item">
+            <div class="status-label">Home Status</div>
+            <div id="home-wifi-status" class="status-value">Disabled</div>
+          </div>
+          <div class="status-item">
+            <div class="status-label">Home IP</div>
+            <div id="home-wifi-ip" class="status-value">-</div>
+          </div>
+          <div class="status-item">
+            <div class="status-label">Offline AP</div>
+            <div id="home-wifi-ap-status" class="status-value">Active</div>
+          </div>
+        </div>
+      </div>
+
       <!-- Console -->
       <div class="card console-section">
       <div class="card">
@@ -816,7 +885,7 @@
           </div>
           <div class="status-item">
             <div class="status-label">Mode</div>
-            <div id="scan-mode-text" class="status-value">—</div>
+            <div id="scan-mode-text" class="status-value">-</div>
           </div>
           <div class="status-item">
             <div class="status-label">Queue</div>
@@ -837,8 +906,12 @@
         <p style="color: var(--muted); font-size: 0.875rem; margin-bottom: 1rem;">
           Customize your media server's appearance with pre-designed themes or create your own color scheme.
         </p>
+        <div style="display: flex; justify-content: flex-end; margin-bottom: 0.75rem;">
+          <button id="load-theme-customizer" class="btn btn-secondary" type="button">Load Theme Customizer</button>
+        </div>
         <div style="border: 1px solid var(--card-border); border-radius: 0.5rem; overflow: hidden;">
-          <iframe src="/theme-customization-ui.html" style="width: 100%; height: 800px; border: none; display: block;"></iframe>
+          <div class="lazy-frame-placeholder" data-placeholder-for="theme-customizer-iframe">Theme customizer will load when opened.</div>
+          <iframe id="theme-customizer-iframe" data-src="/theme-customization-ui.html" loading="lazy" style="width: 100%; height: 800px; border: none; display: none;"></iframe>
         </div>
       </div>
 
@@ -846,20 +919,23 @@
       <div class="card file-browser-section">
         <h2>File Browser</h2>
         <div class="file-browser-disclaimer">
-          <strong>⚠️ Note:</strong> The file browser is a backup method for quick edits. For best results, remove the SD card and edit files directly from your PC.
+          <strong>Note:</strong> The file browser is a backup method for quick edits. For best results, remove the SD card and edit files directly from your PC.
+        </div>
+        <div style="display: flex; justify-content: flex-end; margin-bottom: 0.75rem;">
+          <button id="load-filebrowser" class="btn btn-secondary" type="button">Load File Browser</button>
         </div>
         <div class="file-browser">
-          <iframe id="filebrowser-iframe" src="/filebrowser" title="File Browser"></iframe>
+          <div class="lazy-frame-placeholder" data-placeholder-for="filebrowser-iframe">File browser will load when opened.</div>
+          <iframe id="filebrowser-iframe" data-src="/filebrowser" loading="lazy" title="File Browser" style="display: none;"></iframe>
         </div>
         <div style="display: flex; gap: 0.5rem; justify-content: center; margin-top: 1rem; flex-wrap: wrap;">
-          <button class="btn btn-primary" onclick="document.getElementById('filebrowser-iframe').contentWindow.location.reload();">Reload</button>
+          <button id="reload-filebrowser" class="btn btn-primary" type="button">Reload</button>
           <button class="btn btn-secondary" onclick="window.open('/filebrowser','_blank')">Open in New Tab</button>
         </div>
       </div>
     </div>
   </div>
 
-  <script src="admin.js"></script>
+  <script src="/admin.js?v=9"></script>
 </body>
 </html>
-

@@ -84,6 +84,71 @@ async function fetchSdBreakdown() {
   }
 }
 
+function loadLazyFrame(id) {
+  const frame = document.getElementById(id);
+  if (!frame) return false;
+
+  const needsSrc = !frame.getAttribute('src') && frame.dataset.src;
+  if (needsSrc) {
+    frame.src = frame.dataset.src;
+  }
+  frame.style.display = 'block';
+
+  const placeholder = document.querySelector(`[data-placeholder-for="${id}"]`);
+  if (placeholder) {
+    placeholder.style.display = 'none';
+  }
+
+  return Boolean(needsSrc);
+}
+
+function setupLazyFrames() {
+  const loadThemeBtn = document.getElementById('load-theme-customizer');
+  const loadFileBrowserBtn = document.getElementById('load-filebrowser');
+  const reloadFileBrowserBtn = document.getElementById('reload-filebrowser');
+
+  if (loadThemeBtn) {
+    loadThemeBtn.addEventListener('click', () => loadLazyFrame('theme-customizer-iframe'));
+  }
+
+  if (loadFileBrowserBtn) {
+    loadFileBrowserBtn.addEventListener('click', () => loadLazyFrame('filebrowser-iframe'));
+  }
+
+  if (reloadFileBrowserBtn) {
+    reloadFileBrowserBtn.addEventListener('click', () => {
+      const frame = document.getElementById('filebrowser-iframe');
+      const startedLoading = loadLazyFrame('filebrowser-iframe');
+      if (!startedLoading && frame && frame.contentWindow) {
+        frame.contentWindow.location.reload();
+      }
+    });
+  }
+
+  if (!('IntersectionObserver' in window)) return;
+
+  const frames = [
+    { section: document.querySelector('.theme-customization-section'), id: 'theme-customizer-iframe' },
+    { section: document.querySelector('.file-browser-section'), id: 'filebrowser-iframe' }
+  ];
+
+  const observer = new IntersectionObserver((entries) => {
+    entries.forEach((entry) => {
+      if (!entry.isIntersecting) return;
+      const item = frames.find(f => f.section === entry.target);
+      if (!item) return;
+      if (item.section.offsetParent !== null) {
+        loadLazyFrame(item.id);
+      }
+      observer.unobserve(entry.target);
+    });
+  }, { rootMargin: '300px 0px' });
+
+  frames.forEach((item) => {
+    if (item.section) observer.observe(item.section);
+  });
+}
+
 // full-card walk. the exact "how full is my card" answer - slow (10-20 min), also
 // builds the folder-by-folder breakdown
 async function triggerSDScan() {
@@ -332,14 +397,13 @@ async function adminFetch(url, opts = {}) {
 async function loadSettings() {
   console.log("loadSettings() fired");
   try {
-    const res = await fetch('/settings', { cache: 'no-store' });
+    const res = await adminFetch('/settings', { cache: 'no-store' });
     const s = await res.json();
     console.log("settings from backend:", s);
 
     // Update UI elements
-    if (s.hasOwnProperty('adminPassword')) {
-      const serverPw = s.adminPassword;
-      if (serverPw === null || serverPw === '' || serverPw === 'null') {
+    if (s.hasOwnProperty('adminPasswordSet')) {
+      if (!s.adminPasswordSet) {
         console.log('Admin password is disabled on server');
       } else {
         console.log('Admin password is set on server');
@@ -362,6 +426,19 @@ async function loadSettings() {
     if (s.wifiPassword !== undefined) {
       document.getElementById('wifi-password').value = s.wifiPassword;
     }
+    if (s.homeWifiSSID !== undefined) {
+      const homeSsid = document.getElementById('home-wifi-ssid');
+      if (homeSsid) homeSsid.value = s.homeWifiSSID;
+    }
+    if (s.homeWifiPassword !== undefined) {
+      const homePassword = document.getElementById('home-wifi-password');
+      if (homePassword) homePassword.value = s.homeWifiPassword;
+    }
+    if (s.homeWifiEnabled !== undefined) {
+      const homeEnabled = document.getElementById('home-wifi-enabled');
+      if (homeEnabled) homeEnabled.checked = !!s.homeWifiEnabled;
+    }
+    updateHomeWiFiStatus(s);
 
     // brightness 0-100, clamp a stale value (old default was 230 -> showed 230%)
     if (s.brightness !== undefined) {
@@ -376,7 +453,7 @@ async function loadSettings() {
       document.getElementById('auto-generate').checked = isAutoGenerate;
     }
 
-    // Screen flip (180° rotation)
+    // Screen flip (180 degree rotation)
     if (s.flipScreen !== undefined) {
       document.getElementById('flip-screen').checked = !!s.flipScreen;
     }
@@ -394,10 +471,15 @@ async function loadSettings() {
 async function saveSettings() {
   try {
     const wifiPassword = document.getElementById('wifi-password').value;
+    const homeWifiPassword = document.getElementById('home-wifi-password')?.value || '';
     
     // Validate WiFi password length
     if (wifiPassword && wifiPassword.length < 8) {
       alert('WiFi password must be at least 8 characters long for captive portal compatibility.');
+      return;
+    }
+    if (homeWifiPassword && homeWifiPassword.length < 8) {
+      alert('Home WiFi password must be at least 8 characters long.');
       return;
     }
     
@@ -406,6 +488,9 @@ async function saveSettings() {
       rgbColor: document.getElementById('led-color').value,
       wifiSSID: document.getElementById('ssid').value,
       wifiPassword: wifiPassword,
+      homeWifiSSID: document.getElementById('home-wifi-ssid')?.value || '',
+      homeWifiPassword: homeWifiPassword,
+      homeWifiEnabled: document.getElementById('home-wifi-enabled')?.checked || false,
       brightness: parseInt(document.getElementById('brightness').value),
       autoGenerateMedia: document.getElementById('auto-generate').checked,
       flipScreen: document.getElementById('flip-screen').checked
@@ -554,6 +639,62 @@ function updateWiFiSettings() {
   alert('WiFi settings updated. Changes will take effect after restart.');
 }
 
+function updateHomeWiFiStatus(data = {}) {
+  const statusEl = document.getElementById('home-wifi-status');
+  const ipEl = document.getElementById('home-wifi-ip');
+  const apEl = document.getElementById('home-wifi-ap-status');
+  if (!statusEl || !ipEl || !apEl) return;
+
+  if (!data.homeWifiEnabled) {
+    statusEl.textContent = 'Disabled';
+    ipEl.textContent = '-';
+  } else if (data.homeWifiConnected) {
+    statusEl.textContent = 'Connected';
+    ipEl.textContent = data.homeWifiIP || '-';
+  } else {
+    statusEl.textContent = 'Connecting';
+    ipEl.textContent = '-';
+  }
+  apEl.textContent = 'Active';
+}
+
+async function updateHomeWiFiSettings() {
+  const homeWifiSSID = document.getElementById('home-wifi-ssid')?.value.trim() || '';
+  const homeWifiPassword = document.getElementById('home-wifi-password')?.value || '';
+  const homeWifiEnabled = document.getElementById('home-wifi-enabled')?.checked || false;
+
+  if (homeWifiEnabled && !homeWifiSSID) {
+    alert('Enter a home network SSID or disable home WiFi.');
+    return;
+  }
+  if (homeWifiPassword && homeWifiPassword.length < 8) {
+    alert('Home WiFi password must be at least 8 characters long.');
+    return;
+  }
+
+  try {
+    const res = await adminFetch('/settings', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({
+        body: JSON.stringify({ homeWifiSSID, homeWifiPassword, homeWifiEnabled })
+      })
+    });
+
+    if (!res.ok) {
+      alert('Failed to update home WiFi settings');
+      return;
+    }
+
+    updateHomeWiFiStatus({ homeWifiEnabled, homeWifiConnected: false, homeWifiIP: '' });
+    addConsoleLog('Home WiFi settings saved. Connection attempt started.', 'info');
+    setTimeout(fetchAdminBar, 3000);
+  } catch (e) {
+    console.error('Error updating home WiFi settings:', e);
+    alert('Error updating home WiFi settings');
+  }
+}
+
 // Brightness control
 function setBrightness(val) {
   const brightnessValue = parseInt(val);
@@ -617,29 +758,34 @@ function updateConsoleDisplay() {
   const console = document.getElementById('console-output');
   if (!console) return;
 
-  console.innerHTML = consoleLines.map(({ line, type }) => {
+  console.textContent = '';
+  consoleLines.forEach(({ line, type }) => {
     let color = '#00ff00'; // Default green
     let icon = '';
 
     if (type === 'error') {
       color = '#ff4444';
-      icon = '❌ ';
+      icon = '[ERROR] ';
     } else if (type === 'warning') {
       color = '#ffaa00';
-      icon = '⚠️ ';
+      icon = '[WARN] ';
     } else if (type === 'info') {
       color = '#00aaff';
-      icon = 'ℹ️ ';
+      icon = '[INFO] ';
     } else if (type === 'success') {
       color = '#00ff88';
-      icon = '✅ ';
+      icon = '[OK] ';
     } else if (type === 'system') {
       color = '#88aaff';
-      icon = '🔧 ';
+      icon = '[SYSTEM] ';
     }
 
-    return `<div style="color: ${color}; margin-bottom: 2px;">${icon}${line}</div>`;
-  }).join('');
+    const row = document.createElement('div');
+    row.style.color = color;
+    row.style.marginBottom = '2px';
+    row.textContent = icon + line;
+    console.appendChild(row);
+  });
 
   // Auto-scroll to bottom
   console.scrollTop = console.scrollHeight;
@@ -657,7 +803,7 @@ async function refreshConsole() {
 
       // Update status display
       document.getElementById('scan-status-text').textContent = data.status || 'Idle';
-      document.getElementById('scan-mode-text').textContent = data.mode || '—';
+    document.getElementById('scan-mode-text').textContent = data.mode || '-';
       document.getElementById('scan-queue-depth').textContent = data.queueDepth || '0';
 
       // Update scanning animation
@@ -695,7 +841,7 @@ async function refreshConsole() {
 
   } catch (e) {
     const timestamp = new Date().toLocaleTimeString();
-    addConsoleLog(`[${timestamp}] ❌ Failed to fetch system status: ${e.message}`, 'error');
+    addConsoleLog(`[${timestamp}] Failed to fetch system status: ${e.message}`, 'error');
   }
 }
 
@@ -744,7 +890,7 @@ async function fetchSystemInfo() {
     const timestamp = new Date().toLocaleTimeString();
 
     // Fetch admin status for additional info
-    const adminRes = await fetch('/admin-status');
+    const adminRes = await adminFetch('/admin-status');
     if (adminRes.ok) {
       const adminData = await adminRes.json();
 
@@ -752,7 +898,7 @@ async function fetchSystemInfo() {
       if (!window.lastUserCount || window.lastUserCount !== adminData.users) {
         const userChange = window.lastUserCount ?
           (adminData.users > window.lastUserCount ? 'connected' : 'disconnected') : 'detected';
-        addConsoleLog(`[${timestamp}] 👥 User ${userChange}: ${adminData.users} active connection${adminData.users !== 1 ? 's' : ''}`, 'info');
+        addConsoleLog(`[${timestamp}] User ${userChange}: ${adminData.users} active connection${adminData.users !== 1 ? 's' : ''}`, 'info');
         window.lastUserCount = adminData.users;
       }
     }
@@ -764,10 +910,10 @@ async function fetchSystemInfo() {
 
       // Log temperature warnings
       if (tempData.temp > 70) {
-        addConsoleLog(`[${timestamp}] 🌡️ High CPU temperature detected: ${tempData.temp}°C`, 'warning');
+        addConsoleLog(`[${timestamp}] High CPU die temperature detected: ${tempData.temp} C`, 'warning');
       } else if (!window.lastTempLog || Date.now() - window.lastTempLog > 60000) {
         // Log temperature every minute
-        addConsoleLog(`[${timestamp}] 🌡️ CPU temperature: ${tempData.temp}°C`, 'system');
+        addConsoleLog(`[${timestamp}] CPU die temperature: ${tempData.temp} C`, 'system');
         window.lastTempLog = Date.now();
       }
     }
@@ -780,13 +926,14 @@ async function fetchSystemInfo() {
 // Admin bar functionality
 async function fetchAdminBar() {
   try {
-    const res = await fetch('/admin-status');
+    const res = await adminFetch('/admin-status');
     const data = await res.json();
 
-    document.getElementById('bar-ssid').textContent = data.ssid || '—';
-    document.getElementById('bar-wifi-pass').textContent = data.wifiPassword || '—';
+    document.getElementById('bar-ssid').textContent = data.ssid || '-';
+    document.getElementById('bar-wifi-pass').textContent = data.wifiPassword || '-';
     document.getElementById('bar-users').textContent =
       typeof data.users === 'number' ? `${data.users}` : '0';
+    updateHomeWiFiStatus(data);
 
   } catch (e) {
     console.error('Could not load admin bar:', e);
@@ -794,7 +941,7 @@ async function fetchAdminBar() {
 }
 
 // Temperature monitoring
-let showFahrenheit = false;
+let showFahrenheit = true;
 
 async function updateTemp() {
   try {
@@ -803,15 +950,16 @@ async function updateTemp() {
     const temp = data.temperature || 0;
     
     let displayTemp = temp;
-    let unit = "°C";
+    let unit = "C";
     
     if (showFahrenheit) {
       displayTemp = (temp * 9/5) + 32;
-      unit = "°F";
+      unit = "F";
     }
 
     const tempBtn = document.getElementById('cpu-temp');
-    tempBtn.textContent = `🌡️ ${displayTemp.toFixed(1)} ${unit}`;
+    tempBtn.textContent = `CPU ${displayTemp.toFixed(1)} ${unit}`;
+    tempBtn.title = `ESP32 internal CPU/die temperature. Click to show ${showFahrenheit ? 'C' : 'F'}.`;
 
     // Color coding based on temperature
     tempBtn.classList.remove('btn-success', 'btn-warning', 'btn-danger', 'btn-secondary');
@@ -839,9 +987,8 @@ async function requireAdminAuth(passedSettings) {
   }
 
   // Check if password is disabled
-  if (!settings || !settings.hasOwnProperty('adminPassword') ||
-      settings.adminPassword === null || settings.adminPassword === '' || settings.adminPassword === 'null') {
-    console.debug('requireAdminAuth: admin password explicitly disabled on server — skipping auth.');
+  if (!settings || !settings.adminPasswordSet) {
+    console.debug('requireAdminAuth: admin password explicitly disabled on server - skipping auth.');
     overlay.classList.add('hidden');
     return;
   }
@@ -854,7 +1001,7 @@ async function requireAdminAuth(passedSettings) {
   }
 
   // Show auth overlay if password is set and no valid session token
-  console.debug('requireAdminAuth: admin password is set — showing auth overlay.');
+  console.debug('requireAdminAuth: admin password is set - showing auth overlay.');
   overlay.classList.remove('hidden');
   passwordInput.focus();
 
@@ -879,6 +1026,7 @@ async function requireAdminAuth(passedSettings) {
           overlay.classList.add('hidden');
           if (errorDiv) errorDiv.classList.add('hidden');
           passwordInput.value = '';
+          await loadSettings();
           console.debug('requireAdminAuth: authentication success, overlay hidden.');
         } else {
           // Failure
@@ -906,12 +1054,13 @@ document.addEventListener('DOMContentLoaded', async () => {
   
   // Load settings and authenticate
   await loadSettings();
+  setupLazyFrames();
   
   // initial data (refreshConsole is kicked off by the adaptive poll loop below)
   fetchSD();
-  fetchSdBreakdown(); // shows whatever was cached from the last scan, if any
   fetchAdminBar();
   updateTemp();
+  setTimeout(fetchSdBreakdown, 1500); // shows cached scan data after first render
 
   // Set up RGB controls
   const colorPicker = document.getElementById('led-color');
@@ -960,7 +1109,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   const restartBtn = document.getElementById('btn-restart');
   if (restartBtn) {
     restartBtn.addEventListener('click', async () => {
-      if (!confirm('⚠️ Are you sure you want to restart the device?')) return;
+      if (!confirm('Are you sure you want to restart the device?')) return;
       try {
         await adminFetch('/restart', { method: 'POST' });
         addConsoleLog('Restart command sent', 'info');
@@ -975,7 +1124,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   const shutdownBtn = document.getElementById('btn-shutdown');
   if (shutdownBtn) {
     shutdownBtn.addEventListener('click', async () => {
-      const ok = confirm('⚠️ Shut down Nomad safely?\n\nThis will unmount the SD card and enter deep sleep.');
+      const ok = confirm('Shut down Nomad safely?\n\nThis will unmount the SD card and enter deep sleep.');
       if (!ok) return;
 
       try {
@@ -989,7 +1138,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         }
       } catch (err) {
         addConsoleLog('Device disconnected - shutdown in progress', 'warning');
-        alert('Device disconnected — shutdown likely in progress.');
+        alert('Device disconnected - shutdown likely in progress.');
       }
     });
   }
@@ -998,7 +1147,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   if (usbBtn) {
     usbBtn.addEventListener('click', async () => {
       const ok = confirm(
-        '⚠️ This will restart the device into USB Transfer mode. It can take more than 60 seconds to mount\n\n' +
+        'This will restart the device into USB Transfer mode. It can take more than 60 seconds to mount\n\n' +
         'To exit USB mode, you must unplug and re-plug the device.\n\n' +
         'Proceed?'
       );
@@ -1017,7 +1166,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   const flashBtn = document.getElementById('btn-flashmode');
   if (flashBtn) {
     flashBtn.addEventListener('click', async () => {
-      const ok = confirm('⚠️ Enter flash mode? This will restart the device for firmware updates.');
+      const ok = confirm('Enter flash mode? This will restart the device for firmware updates.');
       if (!ok) return;
       try {
         await adminFetch('/flash-mode', { method: 'POST' });
@@ -1054,7 +1203,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   if (flipToggle) {
     flipToggle.addEventListener('change', () => {
       saveSettings();
-      addConsoleLog(`Screen flipped ${flipToggle.checked ? '180° (upside-down mount)' : 'back to normal'}`, 'info');
+      addConsoleLog(`Screen flipped ${flipToggle.checked ? '180 degrees (upside-down mount)' : 'back to normal'}`, 'info');
     });
   }
 
@@ -1127,19 +1276,23 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   // adaptive poll: every 2s while indexing so the bar looks live, 10s when idle.
   // self-reschedules instead of setInterval so it reacts to the last poll
-  (async function pollConsoleLoop() {
-    await refreshConsole();
-    setTimeout(pollConsoleLoop, indexingActive ? 2000 : 10000);
-  })();
+  setTimeout(() => {
+    (async function pollConsoleLoop() {
+      await refreshConsole();
+      setTimeout(pollConsoleLoop, indexingActive ? 2000 : 10000);
+    })();
+  }, 2000);
 });
 
 // Global functions for HTML onclick handlers
 window.updateAdminPassword = updateAdminPassword;
 window.updateWiFiSettings = updateWiFiSettings;
+window.updateHomeWiFiSettings = updateHomeWiFiSettings;
 window.setBrightness = setBrightness;
 window.updateBrightnessLabel = updateBrightnessLabel;
 window.generateMediaJson = generateMediaJson;
 window.refreshConsole = refreshConsole;
+window.loadAdminFrame = loadLazyFrame;
 
 // Also expose utility/init functions that may be called from HTML or externally
 window.fetchSD = fetchSD;
