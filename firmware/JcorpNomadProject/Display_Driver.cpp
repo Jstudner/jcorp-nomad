@@ -258,16 +258,22 @@ void LCD_Init(void) {
 
   LCD_FillColor(0x0000);  // blank before anything becomes visible
   Set_Backlight(60);      // sane default until settings.json is loaded
+                          // (no-op on boards with no backlight GPIO)
 }
 
 // -------------------------------------------------------------- backlight ---
+// LCD_PIN_BL of -1 means the board ties the backlight on with no GPIO in the
+// path. The panel is simply always lit and the brightness calls do nothing but
+// remember the value, so the admin slider still round-trips instead of failing.
 void Backlight_Init(void) {
-  ledcAttach(LCD_PIN_BL, LCD_BL_PWM_FREQ_HZ, LCD_BL_PWM_BITS);
   s_backlightPercent = 0;
+#if LCD_PIN_BL >= 0
+  ledcAttach(LCD_PIN_BL, LCD_BL_PWM_FREQ_HZ, LCD_BL_PWM_BITS);
 #if LCD_BL_ACTIVE_LEVEL
   ledcWrite(LCD_PIN_BL, 0);
 #else
   ledcWrite(LCD_PIN_BL, LCD_BL_PWM_MAX);
+#endif
 #endif
 }
 
@@ -275,11 +281,13 @@ void Set_Backlight(uint8_t Light) {
   if (Light > 100) Light = 100;  // the admin slider is 1..100; clamp, don't bail
   s_backlightPercent = Light;
 
+#if LCD_PIN_BL >= 0
   uint32_t duty = ((uint32_t)Light * LCD_BL_PWM_MAX) / 100u;
 #if !LCD_BL_ACTIVE_LEVEL
-  duty = LCD_BL_PWM_MAX - duty;  // inverted drive (dongle)
+  duty = LCD_BL_PWM_MAX - duty;  // inverted drive
 #endif
   ledcWrite(LCD_PIN_BL, duty);
+#endif
 }
 
 uint8_t Get_Backlight(void) {

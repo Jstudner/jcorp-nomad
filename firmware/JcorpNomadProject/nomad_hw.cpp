@@ -50,8 +50,11 @@ NomadSdMountResult NomadSD_Mount(uint8_t maxOpenFiles) {
   }
 
   Serial.println("[SD] Could not mount the card at any speed.");
-  Serial.println("[SD] Check the card is FAT32/exFAT and that the SD pins in "
-                 "board_config.h match your board (see firmware/NomadHardwareTest).");
+  Serial.printf("[SD] Pins tried: CLK %d CMD %d D0 %d D1 %d D2 %d D3 %d\n",
+                SD_CLK_PIN, SD_CMD_PIN, SD_D0_PIN, SD_D1_PIN, SD_D2_PIN, SD_D3_PIN);
+  Serial.println("[SD] Check the card is FAT32 and that those pins match your "
+                 "board. firmware/NomadHardwareTest sweeps the known maps and "
+                 "also probes SPI mode.");
   return r;
 }
 
@@ -116,9 +119,15 @@ void NomadHW_PrintBoardInfo(Stream &out) {
     out.println("PSRAM         : not detected  <-- enable OPI PSRAM in the board menu");
   }
   out.printf("Free heap     : %lu KB\n", (unsigned long)(ESP.getFreeHeap() / 1024));
-  out.printf("LCD           : %dx%d, MOSI %d SCLK %d CS %d DC %d RST %d BL %d @ %lu Hz\n",
+  out.printf("LCD           : %dx%d, MOSI %d SCLK %d CS %d DC %d RST %d @ %lu Hz\n",
              LCD_WIDTH, LCD_HEIGHT, LCD_PIN_MOSI, LCD_PIN_SCLK, LCD_PIN_CS,
-             LCD_PIN_DC, LCD_PIN_RST, LCD_PIN_BL, (unsigned long)LCD_SPI_FREQ);
+             LCD_PIN_DC, LCD_PIN_RST, (unsigned long)LCD_SPI_FREQ);
+#if LCD_PIN_BL >= 0
+  out.printf("Backlight     : GPIO %d, active %s\n", LCD_PIN_BL,
+             LCD_BL_ACTIVE_LEVEL ? "HIGH" : "LOW");
+#else
+  out.println("Backlight     : hardwired on (no brightness control)");
+#endif
   out.printf("SD (SDMMC)    : CLK %d CMD %d D0 %d D1 %d D2 %d D3 %d\n",
              SD_CLK_PIN, SD_CMD_PIN, SD_D0_PIN, SD_D1_PIN, SD_D2_PIN, SD_D3_PIN);
 #if NOMAD_LED_TYPE == NOMAD_LED_APA102

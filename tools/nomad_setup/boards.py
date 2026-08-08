@@ -31,7 +31,7 @@ class Board:
 BOARDS: Dict[str, Board] = {
     "pocket-dongle": Board(
         key="pocket-dongle",
-        name="Pocket-Dongle-S3 0.96 / LilyGO T-Dongle-S3 (ESP32-S3 N16R8)",
+        name="GNPE Pocket-Dongle-S3 0.96 (ESP32-S3 N16R8)",
         nomad_board=2,
         fqbn="esp32:esp32:esp32s3",
         options={
@@ -43,6 +43,21 @@ BOARDS: Dict[str, Board] = {
         },
         default_flash_mb=16,
         notes="USB-A stick, 0.96\" ST7735 160x80, microSD in the plug.",
+    ),
+    "t-dongle": Board(
+        key="t-dongle",
+        name="LilyGO T-Dongle-S3",
+        nomad_board=3,
+        fqbn="esp32:esp32:esp32s3",
+        options={
+            "PSRAM": "opi",
+            "CDCOnBoot": "cdc",
+            "USBMode": "hwcdc",
+            "CPUFreq": "240",
+            "DebugLevel": "none",
+        },
+        default_flash_mb=16,
+        notes="Same stick shape as the GNPE board, different wiring, APA102 LED.",
     ),
     "waveshare-1.47": Board(
         key="waveshare-1.47",

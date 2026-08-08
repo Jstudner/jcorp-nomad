@@ -23,6 +23,7 @@
 #include <Arduino.h>
 #include <SPI.h>
 #include <SD_MMC.h>
+#include <SD.h>
 
 #include "../JcorpNomadProject/board_config.h"
 
@@ -87,11 +88,15 @@ static void lcdFill(uint16_t colour) {
 }
 
 static void backlight(uint8_t percent) {
+#if LCD_PIN_BL >= 0
   uint32_t duty = ((uint32_t)percent * LCD_BL_PWM_MAX) / 100u;
 #if !LCD_BL_ACTIVE_LEVEL
   duty = LCD_BL_PWM_MAX - duty;
 #endif
   ledcWrite(LCD_PIN_BL, duty);
+#else
+  (void)percent;   // no backlight GPIO on this board; panel is always lit
+#endif
 }
 
 static void lcdInit() {
@@ -100,7 +105,9 @@ static void lcdInit() {
   if (LCD_PIN_RST >= 0) pinMode(LCD_PIN_RST, OUTPUT);
   digitalWrite(LCD_PIN_CS, HIGH);
 
+#if LCD_PIN_BL >= 0
   ledcAttach(LCD_PIN_BL, LCD_BL_PWM_FREQ_HZ, LCD_BL_PWM_BITS);
+#endif
   backlight(0);
 
   lcdSpi.begin(LCD_PIN_SCLK, LCD_PIN_MISO, LCD_PIN_MOSI);
@@ -196,7 +203,10 @@ struct SdPinSet {
 // fallbacks mounts, copy those numbers into board_config.h.
 static const SdPinSet kSdCandidates[] = {
   {"board_config.h",              SD_CLK_PIN, SD_CMD_PIN, SD_D0_PIN, SD_D1_PIN, SD_D2_PIN, SD_D3_PIN},
-  {"T-Dongle-S3 / Pocket-Dongle", 12, 16, 14, 17, 21, 18},
+  // GNPE Pocket-Dongle-S3, from the seller's schematic. Their SPI names map to
+  // the SD bus as MISO=D0, MOSI=CMD, CS=D3.
+  {"GNPE Pocket-Dongle-S3",       17, 18, 16, 15, 48, 47},
+  {"LilyGO T-Dongle-S3",          12, 16, 14, 17, 21, 18},
   {"Waveshare ESP32-S3-LCD-1.47", 14, 15, 16, 18, 17, 21},
   {"ESP32-S3 devkit common",      36, 35, 37, 38, 33, 34},
 };
@@ -207,6 +217,20 @@ static bool trySd(const SdPinSet &p, bool oneBit, int freq) {
   if (!SD_MMC.setPins(p.clk, p.cmd, p.d0, p.d1, p.d2, p.d3)) return false;
   if (!SD_MMC.begin("/sdcard", oneBit, false /* never format */, freq, 5)) return false;
   if (SD_MMC.cardType() == CARD_NONE) return false;
+  return true;
+}
+
+// SD over plain SPI: sck = SD_CLK, mosi = CMD (DI), miso = D0 (DO), cs = D3.
+static bool trySdSpi(int sck, int mosi, int miso, int cs) {
+  static SPIClass sdSpi(HSPI);
+  SD.end();
+  sdSpi.end();
+  delay(20);
+  sdSpi.begin(sck, miso, mosi, cs);
+  if (!SD.begin(cs, sdSpi, 20000000)) return false;
+  if (SD.cardType() == CARD_NONE) return false;
+  Serial.printf("    card size : %.2f GB\n",
+                (double)SD.cardSize() / (1024.0 * 1024.0 * 1024.0));
   return true;
 }
 
@@ -252,7 +276,18 @@ static void sdSweep() {
     return;
   }
 
-  Serial.println("  No pin set worked. Is a FAT32/exFAT card actually inserted?");
+  // Every SDMMC combination failed. The seller documents this card over SPI, so
+  // try that too - if SPI works and SDMMC does not, the data lines are probably
+  // not all wired and the firmware needs the 1-bit path.
+  Serial.println("  No SDMMC pin set worked. Trying SPI mode on the configured pins...");
+  if (trySdSpi(SD_CLK_PIN, SD_CMD_PIN, SD_D0_PIN, SD_D3_PIN)) {
+    Serial.println("    MOUNTED over SPI.");
+    Serial.println("    *** SPI works but SDMMC does not. Report this - the");
+    Serial.println("    *** firmware uses SDMMC and would need an SPI path.");
+  } else {
+    Serial.println("    SPI mode failed too. Is a FAT32 card actually inserted,");
+    Serial.println("    and are the pins in board_config.h right?");
+  }
 }
 
 // ============================================================= sketch =======
@@ -279,10 +314,16 @@ void setup() {
 
   // --- 2/3. display ------------------------------------------------------
   Serial.println("\n--- 2. Backlight ---");
+#if LCD_PIN_BL >= 0
   Serial.printf("  pin %d, active %s. Ramping 0%% -> 100%%.\n",
                 LCD_PIN_BL, LCD_BL_ACTIVE_LEVEL ? "HIGH" : "LOW");
   Serial.println("  If the panel goes DARK as this ramps up, flip");
   Serial.println("  LCD_BL_ACTIVE_LEVEL in board_config.h.");
+#else
+  Serial.println("  No backlight GPIO configured; the panel should just be lit.");
+  Serial.println("  If it is dark, find the backlight pin in the schematic and");
+  Serial.println("  set LCD_PIN_BL in board_config.h.");
+#endif
 
   lcdInit();
   lcdFill(0x0000);

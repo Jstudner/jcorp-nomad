@@ -5,9 +5,12 @@
 // and nothing else in the firmware needs to be touched.
 //
 // Supported boards
-//   NOMAD_BOARD_POCKET_DONGLE_S3   Pocket-Dongle-S3-0.96 / LilyGO T-Dongle-S3 class
-//                                  USB-A stick, ESP32-S3 N16R8, 0.96" ST7735 160x80,
-//                                  microSD in the USB shell, APA102 RGB LED.
+//   NOMAD_BOARD_POCKET_DONGLE_S3   GNPE Pocket-Dongle-S3-0.96. USB-A stick,
+//                                  ESP32-S3 N16R8, 0.96" ST7735 160x80, microSD in
+//                                  the USB shell. Pin map from the seller's
+//                                  schematic - it is NOT a LilyGO clone.
+//   NOMAD_BOARD_TDONGLE_S3         LilyGO T-Dongle-S3. Same form factor and panel,
+//                                  completely different wiring, plus an APA102 LED.
 //   NOMAD_BOARD_WAVESHARE_LCD147   Waveshare ESP32-S3-LCD-1.47 (the original Nomad
 //                                  target), 1.47" ST7789 172x320, WS2812 RGB LED.
 //
@@ -21,6 +24,7 @@
 // ---------------------------------------------------------------- board ids
 #define NOMAD_BOARD_WAVESHARE_LCD147 1
 #define NOMAD_BOARD_POCKET_DONGLE_S3 2
+#define NOMAD_BOARD_TDONGLE_S3       3
 
 #ifndef NOMAD_BOARD
 #define NOMAD_BOARD NOMAD_BOARD_POCKET_DONGLE_S3
@@ -40,17 +44,79 @@
 // =========================================================================
 #if NOMAD_BOARD == NOMAD_BOARD_POCKET_DONGLE_S3
 // =========================================================================
-#define NOMAD_BOARD_NAME "Pocket-Dongle-S3 0.96"
+#define NOMAD_BOARD_NAME "GNPE Pocket-Dongle-S3 0.96"
+
+// Pin map from the schematic the seller supplies on request. This board shares
+// the T-Dongle-S3's form factor and panel but none of its wiring, so do not
+// mix the two profiles up.
+//
+// The seller documents the card with SPI names because their example drives it
+// over SPI. The same six pins are a full 4-bit SD bus, under the usual dual
+// naming: MISO is DAT0, MOSI is CMD, CS is DAT3. That is what the SDMMC block
+// below uses; NomadSD_Mount falls back to 1-bit if 4-bit does not come up.
 
 // ---- display: 0.96" IPS, ST7735(S) controller, 160x80 landscape ----------
 #define NOMAD_LCD_CONTROLLER NOMAD_LCD_ST7735
 #define LCD_WIDTH  160
 #define LCD_HEIGHT 80
 
-// The panel is a 160x80 window inside the controller's 132x162 GRAM. In
-// landscape (MADCTL MV|MY) the column window starts at 1 and the row window at
-// 26. Verified against both LilyGO's esp_lcd config (set_gap(1, 26)) and
+// The panel is a 160x80 window inside the controller's 132x162 GRAM.
+#define LCD_OFFSET_X 1
+#define LCD_OFFSET_Y 26
+#define LCD_MADCTL   0xA8  // MY | MV | BGR
+#define LCD_INVERT_COLORS 1
+
+#define LCD_PIN_MISO -1
+#define LCD_PIN_MOSI 11
+#define LCD_PIN_SCLK 10
+#define LCD_PIN_CS   12
+#define LCD_PIN_DC   13
+#define LCD_PIN_RST  14
+
+// The schematic lists no backlight GPIO, so it is presumed tied on. -1 means
+// "no software control": the panel lights up and the brightness slider becomes
+// a no-op. If your schematic does show one, put its number here and the slider
+// starts working again.
+#define LCD_PIN_BL   -1
+#define LCD_BL_ACTIVE_LEVEL 1
+
+#define LCD_SPI_FREQ 27000000
+
+// ---- microSD (SDMMC, 4-bit) ---------------------------------------------
+#define SD_CLK_PIN 17  // seller: SD_CLK
+#define SD_CMD_PIN 18  // seller: SD_MOSI
+#define SD_D0_PIN  16  // seller: SD_MISO
+#define SD_D1_PIN  15  // seller: SD_D1
+#define SD_D2_PIN  48  // seller: SD_D2
+#define SD_D3_PIN  47  // seller: SD_CS
+
+// ---- RGB LED -------------------------------------------------------------
+// Not present in the pin list the seller gave. Set to APA102/WS2812 with the
+// right pins if your board does have one; the /led endpoints are no-ops until
+// then.
+#define NOMAD_LED_TYPE NOMAD_LED_NONE
+#define LED_PIN_DATA   -1
+#define LED_PIN_CLOCK  -1
+
+// ---- controls ------------------------------------------------------------
+#define BOOT_BUTTON_PIN 0
+
+// ---- UI ------------------------------------------------------------------
+#define NOMAD_UI_LAYOUT   NOMAD_UI_LANDSCAPE_MINI
+#define LVGL_BUF_DIVISOR  4
+#define LVGL_FULL_REFRESH 0
+
+// =========================================================================
+#elif NOMAD_BOARD == NOMAD_BOARD_TDONGLE_S3
+// =========================================================================
+#define NOMAD_BOARD_NAME "LilyGO T-Dongle-S3"
+
+// LilyGO's reference wiring, cross-checked against their esp_lcd config and
 // Adafruit_ST7735's INITR_MINI160x80 rotation 1.
+#define NOMAD_LCD_CONTROLLER NOMAD_LCD_ST7735
+#define LCD_WIDTH  160
+#define LCD_HEIGHT 80
+
 #define LCD_OFFSET_X 1
 #define LCD_OFFSET_Y 26
 #define LCD_MADCTL   0xA8  // MY | MV | BGR
@@ -64,17 +130,9 @@
 #define LCD_PIN_RST  1
 #define LCD_PIN_BL   38
 
-// ST7735S is only specced to ~15 MHz but happily runs faster on these short
-// traces. 27 MHz redraws the whole 160x80 frame in ~10 ms with plenty of
-// margin. Raise to 40000000 if you want, drop to 20000000 if you see speckle.
 #define LCD_SPI_FREQ 27000000
+#define LCD_BL_ACTIVE_LEVEL 0   // backlight is driven through an inverter here
 
-// Backlight is driven through a PNP/low-side inverter on this board family:
-// pulling the pin LOW lights it up. Flip to 1 if your screen is brightest at
-// 0% and dark at 100%.
-#define LCD_BL_ACTIVE_LEVEL 0
-
-// ---- microSD (SDMMC, 4-bit) ---------------------------------------------
 #define SD_CLK_PIN 12
 #define SD_CMD_PIN 16
 #define SD_D0_PIN  14
@@ -82,16 +140,13 @@
 #define SD_D2_PIN  21
 #define SD_D3_PIN  18
 
-// ---- RGB LED: APA102 (2-wire, clock + data) ------------------------------
 #define NOMAD_LED_TYPE   NOMAD_LED_APA102
 #define LED_PIN_DATA     40
 #define LED_PIN_CLOCK    39
 #define LED_APA102_LEVEL 12  // APA102 global-current field, 0..31
 
-// ---- controls ------------------------------------------------------------
 #define BOOT_BUTTON_PIN 0
 
-// ---- UI ------------------------------------------------------------------
 #define NOMAD_UI_LAYOUT   NOMAD_UI_LANDSCAPE_MINI
 #define LVGL_BUF_DIVISOR  4
 #define LVGL_FULL_REFRESH 0

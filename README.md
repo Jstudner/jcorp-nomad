@@ -130,11 +130,13 @@ either of two boards, selected by one line in
 
 | Board | Screen | Notes |
 | --- | --- | --- |
-| **Pocket-Dongle-S3 0.96** (also LilyGO T-Dongle-S3 and clones) | 0.96" ST7735, 160x80 | USB-A stick, microSD in the plug, APA102 LED. **Default on this branch.** See [docs/PocketDongleS3.md](docs/PocketDongleS3.md) |
+| **GNPE Pocket-Dongle-S3 0.96** | 0.96" ST7735, 160x80 | USB-A stick, microSD in the plug. Pin map from the seller's schematic. **Default on this branch.** See [docs/PocketDongleS3.md](docs/PocketDongleS3.md) |
+| **LilyGO T-Dongle-S3** | 0.96" ST7735, 160x80 | Same form factor and panel, completely different wiring, plus an APA102 LED |
 | **Waveshare ESP32-S3-LCD-1.47** | 1.47" ST7789, 172x320 | The original Nomad board, WS2812 LED |
 
 ```c
 #define NOMAD_BOARD NOMAD_BOARD_POCKET_DONGLE_S3
+// #define NOMAD_BOARD NOMAD_BOARD_TDONGLE_S3
 // #define NOMAD_BOARD NOMAD_BOARD_WAVESHARE_LCD147
 ```
 
@@ -152,7 +154,7 @@ alternative SD pin maps if the configured one does not mount.
 ## Hardware Requirements
 
 - **An ESP32-S3 board from the compatibility table above**
-  - Pocket-Dongle-S3 0.96 / LilyGO T-Dongle-S3 (ESP32-S3 N16R8), or
+  - GNPE Pocket-Dongle-S3 0.96 or LilyGO T-Dongle-S3 (ESP32-S3 N16R8), or
   - Waveshare ESP32-S3 Dev Board, 1.47" LCD version —
     [Amazon Link](https://amzn.to/4ktB6oT)
 

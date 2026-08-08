@@ -100,46 +100,56 @@ from the admin page.
 
 ## 3. Pin map
 
-Taken from LilyGO's T-Dongle-S3 reference design, which the Pocket-Dongle
-follows. Confirm with the self-test if in doubt.
+From the schematic GNPE supply on request. **This board is not a LilyGO clone** —
+it shares the form factor and the panel, but the wiring is entirely different.
+If you have an actual LilyGO T-Dongle-S3, use `NOMAD_BOARD_TDONGLE_S3` instead;
+its map is in the same file.
 
 ### Display — ST7735, 160x80 landscape
 
 | Signal | GPIO |
 | --- | --- |
-| MOSI / SDA | 3 |
-| SCLK | 5 |
-| CS | 4 |
-| DC | 2 |
-| RST | 1 |
-| Backlight | 38 (active **LOW**) |
+| MOSI / SDA | 11 |
+| SCLK | 10 |
+| CS | 12 |
+| DC | 13 |
+| RST | 14 |
+| Backlight | not in the schematic — presumed tied on |
+
+`LCD_PIN_BL` is `-1`, meaning no software control: the panel is simply lit and
+the admin brightness slider is a no-op. If your schematic does show a backlight
+GPIO, set it there and brightness starts working.
 
 The 160x80 panel sits inside the ST7735's 132x162 GRAM, so the window is offset
-by `X=1, Y=26` with `MADCTL = 0xA8` (MY | MV | BGR) and inversion on. SPI runs
-at 27 MHz, which redraws the whole frame in about 10 ms; raise `LCD_SPI_FREQ`
-to 40 MHz if you want, or drop to 20 MHz if you see speckle.
+by `X=1, Y=26` with `MADCTL = 0xA8` (MY | MV | BGR) and inversion on. If the
+image comes out upside down, that is what the **flip screen** option in the
+admin page is for.
 
 ### microSD — SDMMC, 4-bit
 
-| Signal | GPIO |
-| --- | --- |
-| CLK | 12 |
-| CMD | 16 |
-| D0 | 14 |
-| D1 | 17 |
-| D2 | 21 |
-| D3 | 18 |
+The seller documents this with SPI names because their example drives the card
+over SPI. The same six pins are a full 4-bit SD bus under the usual dual
+naming, which is what the firmware uses:
+
+| Seller's name | GPIO | SD bus signal |
+| --- | --- | --- |
+| SD_CLK | 17 | CLK |
+| SD_MOSI | 18 | CMD |
+| SD_MISO | 16 | DAT0 |
+| SD_D1 | 15 | DAT1 |
+| SD_D2 | 48 | DAT2 |
+| SD_CS | 47 | DAT3 |
 
 The firmware mounts in tiers — 4-bit/40 MHz, then 4-bit/20 MHz, then
 1-bit/20 MHz, then 1-bit/400 kHz — and logs which one took. It **never**
-formats the card on a failed mount.
+formats the card on a failed mount. If only the 1-bit tiers come up, DAT1/DAT2
+are likely not actually wired; everything still works, just slower.
 
-### Status LED — APA102
+### Status LED
 
-| Signal | GPIO |
-| --- | --- |
-| Data | 40 |
-| Clock | 39 |
+None in the pin list GNPE provided, so `NOMAD_LED_TYPE` is `NOMAD_LED_NONE` and
+the `/led` endpoints do nothing. If your board has one, set the type and pins in
+`board_config.h`.
 
 ### Button
 
@@ -186,13 +196,14 @@ the admin page does the same thing.
 One line in `firmware/JcorpNomadProject/board_config.h`:
 
 ```c
-#define NOMAD_BOARD NOMAD_BOARD_POCKET_DONGLE_S3   // 0.96" USB stick
+#define NOMAD_BOARD NOMAD_BOARD_POCKET_DONGLE_S3   // GNPE 0.96" USB stick
+// #define NOMAD_BOARD NOMAD_BOARD_TDONGLE_S3        // LilyGO T-Dongle-S3
 // #define NOMAD_BOARD NOMAD_BOARD_WAVESHARE_LCD147  // 1.47" Waveshare board
 ```
 
 or pass `-DNOMAD_BOARD=...` from the build. That single switch selects the LCD
-controller and geometry, the SPI/SD/LED pins, the backlight polarity, the LED
-backend, the LVGL buffer size and which of the two screen layouts gets
+controller and geometry, the SPI/SD/LED pins, the backlight polarity and
+presence, the LED backend, the LVGL buffer size and which screen layout gets
 compiled. Nothing else in the firmware is board-aware.
 
 To add a third board, copy one of the `#elif` blocks in `board_config.h` and
@@ -203,8 +214,11 @@ fill in the numbers.
 ## 6. Troubleshooting
 
 **Screen stays black, serial looks healthy.**
-Backlight polarity. Set `LCD_BL_ACTIVE_LEVEL` to `1` and reflash. The
-self-test's ramp step makes this obvious.
+On the GNPE board there is no backlight GPIO configured, so the panel should be
+lit whenever the board is powered — a black screen there means the display pins
+are wrong, not the backlight. On boards that do have one, it is usually
+polarity: flip `LCD_BL_ACTIVE_LEVEL` and reflash. The self-test's ramp step
+makes that obvious.
 
 **Screen shows a shifted or wrapped image, with a band of noise at one edge.**
 Window offsets. Run the self-test and adjust `LCD_OFFSET_X` / `LCD_OFFSET_Y`
