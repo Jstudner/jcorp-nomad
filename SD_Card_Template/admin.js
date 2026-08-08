@@ -642,20 +642,28 @@ function updateWiFiSettings() {
 function updateHomeWiFiStatus(data = {}) {
   const statusEl = document.getElementById('home-wifi-status');
   const ipEl = document.getElementById('home-wifi-ip');
+  const rssiEl = document.getElementById('home-wifi-rssi');
   const apEl = document.getElementById('home-wifi-ap-status');
-  if (!statusEl || !ipEl || !apEl) return;
+  const detailEl = document.getElementById('home-wifi-detail');
+  if (!statusEl || !ipEl || !rssiEl || !apEl || !detailEl) return;
 
   if (!data.homeWifiEnabled) {
     statusEl.textContent = 'Disabled';
     ipEl.textContent = '-';
+    rssiEl.textContent = '-';
   } else if (data.homeWifiConnected) {
-    statusEl.textContent = 'Connected';
+    statusEl.textContent = data.homeWifiStatus || 'Connected';
     ipEl.textContent = data.homeWifiIP || '-';
+    rssiEl.textContent = typeof data.homeWifiRSSI === 'number' && data.homeWifiRSSI !== 0
+      ? `${data.homeWifiRSSI} dBm`
+      : '-';
   } else {
-    statusEl.textContent = 'Connecting';
+    statusEl.textContent = data.homeWifiStatus || 'Connecting';
     ipEl.textContent = '-';
+    rssiEl.textContent = '-';
   }
   apEl.textContent = 'Active';
+  detailEl.textContent = data.homeWifiStatusDetail || statusEl.textContent;
 }
 
 async function updateHomeWiFiSettings() {
@@ -692,6 +700,46 @@ async function updateHomeWiFiSettings() {
   } catch (e) {
     console.error('Error updating home WiFi settings:', e);
     alert('Error updating home WiFi settings');
+  }
+}
+
+async function homeWiFiAction(action) {
+  try {
+    const res = await adminFetch('/api/home-wifi', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({ action })
+    });
+    const data = await res.json().catch(() => ({}));
+
+    if (!res.ok) {
+      alert(data.error || `Home WiFi ${action} failed`);
+      return;
+    }
+
+    if (action === 'forget') {
+      const ssid = document.getElementById('home-wifi-ssid');
+      const password = document.getElementById('home-wifi-password');
+      const enabled = document.getElementById('home-wifi-enabled');
+      if (ssid) ssid.value = '';
+      if (password) password.value = '';
+      if (enabled) enabled.checked = false;
+      updateHomeWiFiStatus({ homeWifiEnabled: false, homeWifiStatusDetail: 'Home WiFi forgotten' });
+      addConsoleLog('Home WiFi credentials forgotten.', 'info');
+    } else {
+      updateHomeWiFiStatus({
+        homeWifiEnabled: true,
+        homeWifiConnected: false,
+        homeWifiStatus: 'Connecting',
+        homeWifiStatusDetail: 'Reconnect requested'
+      });
+      addConsoleLog('Home WiFi reconnect requested.', 'info');
+    }
+
+    setTimeout(fetchAdminBar, 2000);
+  } catch (e) {
+    console.error(`Home WiFi ${action} error:`, e);
+    alert(`Home WiFi ${action} error`);
   }
 }
 
@@ -1185,6 +1233,19 @@ document.addEventListener('DOMContentLoaded', async () => {
     tempBtn.addEventListener('click', () => {
       showFahrenheit = !showFahrenheit;
       updateTemp();
+    });
+  }
+
+  const homeReconnectBtn = document.getElementById('home-wifi-reconnect');
+  if (homeReconnectBtn) {
+    homeReconnectBtn.addEventListener('click', () => homeWiFiAction('reconnect'));
+  }
+
+  const homeForgetBtn = document.getElementById('home-wifi-forget');
+  if (homeForgetBtn) {
+    homeForgetBtn.addEventListener('click', () => {
+      if (!confirm('Forget saved home WiFi credentials? The offline AP will remain active.')) return;
+      homeWiFiAction('forget');
     });
   }
 

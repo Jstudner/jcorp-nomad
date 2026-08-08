@@ -465,8 +465,15 @@
 
     .home-wifi-status {
       display: grid;
-      grid-template-columns: repeat(3, minmax(0, 1fr));
+      grid-template-columns: repeat(4, minmax(0, 1fr));
       gap: 1rem;
+      margin-top: 1rem;
+    }
+
+    .home-wifi-actions {
+      display: flex;
+      gap: 0.5rem;
+      flex-wrap: wrap;
       margin-top: 1rem;
     }
 
@@ -868,9 +875,18 @@
             <div id="home-wifi-ip" class="status-value">-</div>
           </div>
           <div class="status-item">
+            <div class="status-label">Signal</div>
+            <div id="home-wifi-rssi" class="status-value">-</div>
+          </div>
+          <div class="status-item">
             <div class="status-label">Offline AP</div>
             <div id="home-wifi-ap-status" class="status-value">Active</div>
           </div>
+        </div>
+        <div id="home-wifi-detail" style="font-size: 0.875rem; color: var(--muted); margin-top: 0.75rem;">Home WiFi disabled</div>
+        <div class="home-wifi-actions">
+          <button id="home-wifi-reconnect" class="btn btn-secondary" type="button">Reconnect</button>
+          <button id="home-wifi-forget" class="btn btn-danger" type="button">Forget Home WiFi</button>
         </div>
       </div>
 
@@ -936,6 +952,6 @@
     </div>
   </div>
 
-  <script src="/admin.js?v=9"></script>
+  <script src="/admin.js?v=10"></script>
 </body>
 </html>

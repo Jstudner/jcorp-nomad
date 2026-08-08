@@ -364,6 +364,8 @@ struct AdminSettings {
 };
 
 AdminSettings settings;
+unsigned long homeWifiConnectStartedMs = 0;
+String homeWifiLastMessage = "Home WiFi disabled";
 // Set by the /settings handler (async_tcp task); consumed by the task that owns
 // LVGL flushes. MADCTL must never be written mid-flush from another task.
 volatile bool lcdRotatePending = false;
@@ -3560,15 +3562,38 @@ void configureSoftAPPerformance() {
                 NOMAD_AP_CHANNEL);
 }
 
+String homeWifiStatusText() {
+  if (!settings.homeWifiEnabled || settings.homeWifiSSID.length() == 0) return "Disabled";
+  wl_status_t status = WiFi.status();
+  if (status == WL_CONNECTED) return "Connected";
+  if (homeWifiConnectStartedMs > 0 && millis() - homeWifiConnectStartedMs > 30000) return "Failed";
+  return "Connecting";
+}
+
+String homeWifiStatusDetail() {
+  if (!settings.homeWifiEnabled || settings.homeWifiSSID.length() == 0) return "Home WiFi disabled";
+  wl_status_t status = WiFi.status();
+  if (status == WL_CONNECTED) return "Connected to " + settings.homeWifiSSID;
+  if (homeWifiConnectStartedMs > 0 && millis() - homeWifiConnectStartedMs > 30000) {
+    return "Connection timed out. Check SSID, password, and 2.4 GHz availability.";
+  }
+  return homeWifiLastMessage.length() ? homeWifiLastMessage : "Connecting";
+}
+
 void connectHomeWiFi() {
   if (!settings.homeWifiEnabled || settings.homeWifiSSID.length() == 0) {
     WiFi.disconnect(false, false);
+    homeWifiConnectStartedMs = 0;
+    homeWifiLastMessage = "Home WiFi disabled";
     webLog("[WiFi] Home network client disabled; AP-only offline mode remains active", "info");
     return;
   }
 
   Serial.printf("[WiFi] Connecting STA to home network: %s\n", settings.homeWifiSSID.c_str());
   webLogf("info", "Connecting to home WiFi network: %s", settings.homeWifiSSID.c_str());
+  homeWifiConnectStartedMs = millis();
+  homeWifiLastMessage = "Connecting to " + settings.homeWifiSSID;
+  WiFi.disconnect(false, false);
   WiFi.begin(settings.homeWifiSSID.c_str(), settings.homeWifiPassword.c_str());
 }
 
@@ -5367,7 +5392,7 @@ server.on("/save", HTTP_POST, [](AsyncWebServerRequest *request){
 
 
 server.on("/settings", HTTP_GET, [](AsyncWebServerRequest *request){
-  StaticJsonDocument<768> doc;
+  StaticJsonDocument<1024> doc;
   doc["rgbMode"] = settings.rgbMode;
   doc["rgbColor"] = settings.rgbColor;
   doc["adminPasswordSet"] = isAdminAuthRequired();
@@ -5376,6 +5401,9 @@ server.on("/settings", HTTP_GET, [](AsyncWebServerRequest *request){
   doc["homeWifiEnabled"] = settings.homeWifiEnabled;
   doc["homeWifiConnected"] = WiFi.status() == WL_CONNECTED;
   doc["homeWifiIP"] = WiFi.status() == WL_CONNECTED ? WiFi.localIP().toString() : "";
+  doc["homeWifiRSSI"] = WiFi.status() == WL_CONNECTED ? WiFi.RSSI() : 0;
+  doc["homeWifiStatus"] = homeWifiStatusText();
+  doc["homeWifiStatusDetail"] = homeWifiStatusDetail();
   if (checkAdminAuth(request)) {
     doc["wifiPassword"] = settings.wifiPassword;
     doc["homeWifiPassword"] = settings.homeWifiPassword;
@@ -5486,7 +5514,7 @@ server.on("/auth/logout", HTTP_POST, [](AsyncWebServerRequest *request){
   server.on("/admin-status", HTTP_GET, [](AsyncWebServerRequest *request){
     if (!checkAdminAuth(request)) { request->send(401, "application/json", "{\"error\":\"Unauthorized\"}"); return; }
     // Build JSON
-    StaticJsonDocument<384> doc;
+    StaticJsonDocument<768> doc;
     doc["ssid"]         = settings.wifiSSID;
     doc["wifiPassword"] = settings.wifiPassword;
     doc["users"]        = getConnectedUserCount();
@@ -5494,10 +5522,46 @@ server.on("/auth/logout", HTTP_POST, [](AsyncWebServerRequest *request){
     doc["homeWifiEnabled"] = settings.homeWifiEnabled;
     doc["homeWifiConnected"] = WiFi.status() == WL_CONNECTED;
     doc["homeWifiIP"] = WiFi.status() == WL_CONNECTED ? WiFi.localIP().toString() : "";
+    doc["homeWifiRSSI"] = WiFi.status() == WL_CONNECTED ? WiFi.RSSI() : 0;
+    doc["homeWifiStatus"] = homeWifiStatusText();
+    doc["homeWifiStatusDetail"] = homeWifiStatusDetail();
 
     String payload;
     serializeJson(doc, payload);
     request->send(200, "application/json", payload);
+  });
+
+  server.on("/api/home-wifi", HTTP_POST, [](AsyncWebServerRequest *request){
+    if (!checkAdminAuth(request)) { request->send(401, "application/json", "{\"error\":\"Unauthorized\"}"); return; }
+
+    String action = "";
+    if (request->hasParam("action", true)) action = request->getParam("action", true)->value();
+    else if (request->hasParam("action")) action = request->getParam("action")->value();
+
+    if (action == "reconnect") {
+      if (!settings.homeWifiEnabled || settings.homeWifiSSID.length() == 0) {
+        request->send(400, "application/json", "{\"error\":\"Home WiFi is not configured\"}");
+        return;
+      }
+      connectHomeWiFi();
+      request->send(200, "application/json", "{\"status\":\"reconnecting\"}");
+      return;
+    }
+
+    if (action == "forget") {
+      settings.homeWifiSSID = "";
+      settings.homeWifiPassword = "";
+      settings.homeWifiEnabled = false;
+      WiFi.disconnect(false, false);
+      homeWifiConnectStartedMs = 0;
+      homeWifiLastMessage = "Home WiFi forgotten";
+      saveSettings();
+      webLog("[WiFi] Home WiFi credentials forgotten; offline AP remains active", "info");
+      request->send(200, "application/json", "{\"status\":\"forgotten\"}");
+      return;
+    }
+
+    request->send(400, "application/json", "{\"error\":\"Unknown action\"}");
   });
 
   // Scan status endpoint for admin console
@@ -5507,7 +5571,7 @@ server.on("/auth/logout", HTTP_POST, [](AsyncWebServerRequest *request){
     // order matters. also check indexingTasksActive or the queued/incremental
     // path reads as "Idle" while its actually rewriting an index
     String status = "Idle";
-    String mode = "—";
+    String mode = "-";
     int queueDepth = 0;
 
     if (sdScanInProgress) {
