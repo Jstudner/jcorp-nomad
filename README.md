@@ -145,13 +145,30 @@ alternative SD pin maps if the configured one does not mount.
 
 ## Software Requirements
 
-- Arduino IDE with **esp32 core 3.x** by Espressif  
-- Fat32Format or equivalent  
+- Python 3.8+ if you use `tools/nomad-setup` (which installs the rest for you)  
+- Otherwise: Arduino IDE with **esp32 core 3.x** by Espressif, and a FAT32
+  formatter such as Fat32Format  
 - SquareLine Studio (optional, for UI editing)
 
 ---
 
 ## Quick Start
+
+The `nomad-setup` tool does the whole thing — builds and flashes the firmware
+with the correct flash size and partition layout, then formats the card and
+copies the files onto it:
+
+```
+git clone https://github.com/beastboost/jcorp-nomad
+cd jcorp-nomad
+sudo ./tools/nomad-setup --install-deps      # Windows: tools\nomad-setup.bat
+```
+
+Run `./tools/nomad-setup doctor` first if you want to see what it will use.
+Full documentation in [tools/README.md](tools/README.md).
+
+<details>
+<summary>Doing it by hand instead</summary>
 
 1. Pick your board in `firmware/JcorpNomadProject/board_config.h`, then flash
    the firmware from `/firmware/`. (Dongle builds: check the board settings in
@@ -165,6 +182,8 @@ alternative SD pin maps if the configured one does not mount.
 7. Click the gear icon → Library Index → **Full Scan Now**.  
 8. Monitor Admin Console for progress; scan may take minutes.  
 9. Return to Menu page and enjoy your media!
+
+</details>
 
 On the dongle build the boot button does double duty: **tap** it to cycle the
 screen between connection / system / storage pages, **hold** it for ~1.2 s to

@@ -1,0 +1,11 @@
+# Arduino / arduino-cli build output
+build/
+*.elf
+*.map
+
+# Python
+__pycache__/
+*.pyc
+
+# Editor / IDE state
+.vs/

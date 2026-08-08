@@ -35,7 +35,17 @@ Everything the port needs to know about your board lives in one file:
 
 ---
 
-## 2. Arduino IDE settings
+## 2. Building and flashing
+
+`tools/nomad-setup` does everything in this section for you, including picking
+the partition scheme from the flash size it reads off the chip:
+
+```
+sudo ./tools/nomad-setup --install-deps
+```
+
+See [tools/README.md](../tools/README.md). If you would rather drive the
+Arduino IDE by hand, these are the settings it uses.
 
 Install **esp32 by Espressif Systems, version 3.x** (the firmware uses the 3.x
 `ledcAttach()` API). Then, under *Tools*:
