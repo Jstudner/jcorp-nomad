@@ -344,11 +344,9 @@ static bool shouldSkipIndexingPath(const String &path) {
   return false;
 }
 
-// START: SD_MMC compatibility alias
-#include <SD_MMC.h>
-#ifndef SD
-#define SD SD_MMC
-#endif
+// The filesystem object: SD_MMC on the 4-bit boards, SD on the SPI-card
+// dongle. nomad_sd.h picks one and calls it NomadSD.
+#include "nomad_sd.h"
 #define INDEXER_SLEEP_MS 300000 // 5 minutes between background scans
 #define MAX_CLIENTS 8 // SoftAP max_connection; keep in sync with WiFi.softAP() calls below
 String encodeIndexName(const String &path);
@@ -555,8 +553,8 @@ String buildIndexEntry(const char t, const String &name, const String &path, uin
 bool readIndexHeaderSig(const String &indexPath, String &outSig, uint32_t &outCount) {
   outSig = "";
   outCount = 0;
-  if (!SD_MMC.exists(indexPath)) return false;
-  File f = SD_MMC.open(indexPath, FILE_READ);
+  if (!NomadSD.exists(indexPath)) return false;
+  File f = NomadSD.open(indexPath, FILE_READ);
   if (!f) return false;
   String header = f.readStringUntil('\n');
   f.close();
@@ -599,7 +597,7 @@ static bool isMediaFile(const String &lowerName) {
   return false;
 }
 static bool isComicFolder(const String &dirPath) {
-  File d = SD_MMC.open(dirPath);
+  File d = NomadSD.open(dirPath);
   if (!d || !d.isDirectory()) {
     if (d) d.close();
     return false;
@@ -654,7 +652,7 @@ static bool isBookFormat(const String &name) {
 unsigned int countMediaFiles(const String &dirPath) {
   unsigned int count = 0;
 
-  File d = SD_MMC.open(dirPath);
+  File d = NomadSD.open(dirPath);
   if (!d || !d.isDirectory()) {
     if (d) d.close();
     return 0;
@@ -691,8 +689,8 @@ unsigned int countDirItems(const String &p) {
 
 // Ensure INDEX_DIR exists (creates it if missing.. usualy)
 void ensureIndexDir(){
-  if (!SD_MMC.exists(INDEX_DIR)) {
-    if (!SD_MMC.mkdir(INDEX_DIR)) {
+  if (!NomadSD.exists(INDEX_DIR)) {
+    if (!NomadSD.mkdir(INDEX_DIR)) {
       Serial.printf("[Index] Failed to create index dir %s\n", INDEX_DIR);
     } else {
       Serial.printf("[Index] Created index dir %s\n", INDEX_DIR);
@@ -713,12 +711,12 @@ uint64_t fnv1a64_update(uint64_t h, const String &s){
 
 // Rename or copy fallback: try rename first, if that fails try copy & remove.
 bool renameOrCopy(const String &src, const String &dst) {
-  if (SD_MMC.exists(dst)) SD_MMC.remove(dst);
-  if (SD_MMC.rename(src, dst)) return true;
+  if (NomadSD.exists(dst)) NomadSD.remove(dst);
+  if (NomadSD.rename(src, dst)) return true;
 
-  File fsrc = SD_MMC.open(src, FILE_READ);
+  File fsrc = NomadSD.open(src, FILE_READ);
   if (!fsrc) return false;
-  File fdst = SD_MMC.open(dst, FILE_WRITE);
+  File fdst = NomadSD.open(dst, FILE_WRITE);
   if (!fdst) { fsrc.close(); return false; }
 
   uint8_t buf[512];
@@ -728,7 +726,7 @@ bool renameOrCopy(const String &src, const String &dst) {
   }
   fsrc.close();
   fdst.close();
-  SD_MMC.remove(src);
+  NomadSD.remove(src);
   return true;
 }
 
@@ -739,7 +737,7 @@ bool atomicWriteFile(const String &tmpPath, const String &finalPath) {
 }
 void dumpSDRoot() {
   Serial.println("[Index] dumpSDRoot(): listing /");
-  File r = SD_MMC.open("/");
+  File r = NomadSD.open("/");
   if (!r) {
     Serial.println("[Index] dumpSDRoot(): FAILED to open root '/'");
     return;
@@ -762,7 +760,7 @@ bool writeNDIndexForDir(const String &dirPath, const String &outFilename) {
   bool mutexHeld = true;
 
   // ensure index folder exists
-  if (!SD_MMC.exists(INDEX_DIR)) SD_MMC.mkdir(INDEX_DIR);
+  if (!NomadSD.exists(INDEX_DIR)) NomadSD.mkdir(INDEX_DIR);
 
   if (!enoughHeapForIndex()) {
     Serial.printf("[Index] Skipping index for '%s' due to low memory (free=%u)\n",
@@ -778,14 +776,14 @@ bool writeNDIndexForDir(const String &dirPath, const String &outFilename) {
 
   Serial.printf("[Index] Building index for '%s' (free heap=%u)\n", normPath.c_str(), (unsigned)ESP.getFreeHeap());
   webLogf("indexing_progress", "Starting indexing for '%s'", normPath.c_str());
-  if (!SD_MMC.exists(normPath)) {
+  if (!NomadSD.exists(normPath)) {
     Serial.printf("[Index] Path does not exist: %s\n", normPath.c_str());
     if (sdMutex && mutexHeld) xSemaphoreGive(sdMutex);
     return false;
   }
 
   // Open once to verify directory
-  File root = SD_MMC.open(normPath);
+  File root = NomadSD.open(normPath);
   if (!root || !root.isDirectory()) {
     if (root) root.close();
     Serial.printf("[Index] Not a directory: %s\n", normPath.c_str());
@@ -843,7 +841,7 @@ bool writeNDIndexForDir(const String &dirPath, const String &outFilename) {
     return;
     }
 
-    File d = SD_MMC.open(path);
+    File d = NomadSD.open(path);
     if (!d || !d.isDirectory()) { if (d) d.close(); return; }
     vTaskDelay(pdMS_TO_TICKS(1));
     d.rewindDirectory();
@@ -945,7 +943,7 @@ bool writeNDIndexForDir(const String &dirPath, const String &outFilename) {
     }
   }
 
-  File fout = SD_MMC.open(tmpPath, FILE_WRITE);
+  File fout = NomadSD.open(tmpPath, FILE_WRITE);
   if (!fout) {
     Serial.printf("[Index] FAILED to open tmp for write: %s\n", tmpPath.c_str());
     if (sdMutex && mutexHeld) xSemaphoreGive(sdMutex);
@@ -967,7 +965,7 @@ bool writeNDIndexForDir(const String &dirPath, const String &outFilename) {
 
     if (path.startsWith("/Books/") && isComicFolder(path)) return;
 
-    File d = SD_MMC.open(path);
+    File d = NomadSD.open(path);
     if (!d || !d.isDirectory()) { if (d) d.close(); return; }
     vTaskDelay(pdMS_TO_TICKS(1));
     d.rewindDirectory();
@@ -982,7 +980,7 @@ bool writeNDIndexForDir(const String &dirPath, const String &outFilename) {
       webLogf("warning", "Indexing '%s' aborted - directory too large or taking too long", normPath.c_str());
       abortIndex = true;
       fout.close();
-      SD_MMC.remove(tmpPath);
+      NomadSD.remove(tmpPath);
       break;
     }
 
@@ -1056,7 +1054,7 @@ bool writeNDIndexForDir(const String &dirPath, const String &outFilename) {
         abortIndex = true;
         d.close();
         fout.close();
-        SD_MMC.remove(tmpPath);
+        NomadSD.remove(tmpPath);
         return;
       }
       mutexHeld = true;
@@ -1080,13 +1078,13 @@ bool writeNDIndexForDir(const String &dirPath, const String &outFilename) {
   fout.close();
 
   String newFinal = finalPath + ".new";
-  if (SD_MMC.exists(newFinal)) SD_MMC.remove(newFinal);
+  if (NomadSD.exists(newFinal)) NomadSD.remove(newFinal);
 
-  bool moved = SD_MMC.rename(tmpPath, newFinal);
+  bool moved = NomadSD.rename(tmpPath, newFinal);
   if (!moved) {
-    File fsrc = SD_MMC.open(tmpPath, FILE_READ);
+    File fsrc = NomadSD.open(tmpPath, FILE_READ);
     if (fsrc) {
-    File fdst = SD_MMC.open(newFinal, FILE_WRITE);
+    File fdst = NomadSD.open(newFinal, FILE_WRITE);
     if (fdst) {
     uint8_t buf[512];
     while (fsrc.available()) {
@@ -1095,7 +1093,7 @@ bool writeNDIndexForDir(const String &dirPath, const String &outFilename) {
     }
     fsrc.close();
     fdst.close();
-    SD_MMC.remove(tmpPath);
+    NomadSD.remove(tmpPath);
     moved = true;
     } else {
     fsrc.close();
@@ -1105,22 +1103,22 @@ bool writeNDIndexForDir(const String &dirPath, const String &outFilename) {
 
   if (!moved) {
     Serial.printf("[Index] FAILED staging -> %s from tmp %s\n", newFinal.c_str(), tmpPath.c_str());
-    SD_MMC.remove(tmpPath);
+    NomadSD.remove(tmpPath);
     if (sdMutex && mutexHeld) xSemaphoreGive(sdMutex);
     return false;
   }
 
-  if (SD_MMC.exists(finalPath)) SD_MMC.remove(finalPath);
+  if (NomadSD.exists(finalPath)) NomadSD.remove(finalPath);
 
-  if (!SD_MMC.rename(newFinal, finalPath)) {
+  if (!NomadSD.rename(newFinal, finalPath)) {
     if (!renameOrCopy(newFinal, finalPath)) {
     Serial.printf("[Index] FAILED atomic replace %s -> %s\n", newFinal.c_str(), finalPath.c_str());
-    SD_MMC.remove(newFinal);
+    NomadSD.remove(newFinal);
     webLogf("error", "Failed atomic replace %s -> %s", newFinal.c_str(), finalPath.c_str());
     if (sdMutex && mutexHeld) xSemaphoreGive(sdMutex);
     return false;
     } else {
-    SD_MMC.remove(newFinal);
+    NomadSD.remove(newFinal);
     }
   }
 
@@ -1135,7 +1133,7 @@ bool writeNDIndexForDir(const String &dirPath, const String &outFilename) {
     metaFilename += ".meta";
     String metaPath = String(INDEX_DIR) + "/" + metaFilename;
 
-    File metaFile = SD_MMC.open(metaPath, FILE_WRITE);
+    File metaFile = NomadSD.open(metaPath, FILE_WRITE);
     if (metaFile) {
     // Write JSON meta with path, count, and signature
     metaFile.print("{\"path\":\"");
@@ -1211,13 +1209,13 @@ bool loadSettings() {
     return false;
   }
 
-  if (!SD_MMC.exists(SETTINGS_PATH)) {
+  if (!NomadSD.exists(SETTINGS_PATH)) {
     Serial.println("Settings file not found. Generating default.");
     if (sdMutex) xSemaphoreGive(sdMutex);
     return saveSettings();  // Save defaults
   }
 
-  File file = SD_MMC.open(SETTINGS_PATH);
+  File file = NomadSD.open(SETTINGS_PATH);
   if (!file || file.isDirectory()) {
     Serial.println("Failed to open settings file.");
     if (sdMutex) xSemaphoreGive(sdMutex);
@@ -1249,9 +1247,9 @@ bool loadSettings() {
   return true;
 }
 bool saveSettings() {
-  SD_MMC.mkdir("/config"); // Ensure directory exists
+  NomadSD.mkdir("/config"); // Ensure directory exists
 
-  File file = SD_MMC.open(SETTINGS_PATH, FILE_WRITE);
+  File file = NomadSD.open(SETTINGS_PATH, FILE_WRITE);
   if (!file) {
     Serial.println("Failed to open settings file for writing.");
     return false;
@@ -1274,11 +1272,11 @@ bool saveSettings() {
 
 // --------------- Media Generation Stuff ------------
 bool isAlwaysGenerateEnabled() {
-    return SD_MMC.exists("/always_generate.flag");
+    return NomadSD.exists("/always_generate.flag");
 }
 
 void enableAlwaysGenerate() {
-    File f = SD_MMC.open("/always_generate.flag", FILE_WRITE);
+    File f = NomadSD.open("/always_generate.flag", FILE_WRITE);
     if (f) {
         f.print("1");
         f.close();
@@ -1286,15 +1284,15 @@ void enableAlwaysGenerate() {
 }
 
 void disableAlwaysGenerate() {
-    SD_MMC.remove("/always_generate.flag");
+    NomadSD.remove("/always_generate.flag");
 }
 
 bool isOneTimeGenerateRequested() {
-    return SD_MMC.exists("/generate_once.flag");
+    return NomadSD.exists("/generate_once.flag");
 }
 
 void requestOneTimeGenerate() {
-    File f = SD_MMC.open("/generate_once.flag", FILE_WRITE);
+    File f = NomadSD.open("/generate_once.flag", FILE_WRITE);
     if (f) {
         f.print("1");
         f.close();
@@ -1302,16 +1300,16 @@ void requestOneTimeGenerate() {
 }
 
 void clearOneTimeGenerate() {
-    SD_MMC.remove("/generate_once.flag");
+    NomadSD.remove("/generate_once.flag");
 }
 //------------------- delete recursive -------------
 bool deleteRecursive(String path) {
-  File entry = SD_MMC.open(path);
+  File entry = NomadSD.open(path);
   if (!entry) return false;
 
   if (!entry.isDirectory()) {
     entry.close();
-    return SD_MMC.remove(path);
+    return NomadSD.remove(path);
   }
 
   File child;
@@ -1322,7 +1320,7 @@ bool deleteRecursive(String path) {
   }
 
   entry.close();
-  return SD_MMC.rmdir(path);
+  return NomadSD.rmdir(path);
 }
 
 
@@ -1342,7 +1340,7 @@ bool tryRecoverSDCard() {
         streamPathIndex.clear();
         activeStreams = 0;
 
-        SD_MMC.end();          // unmount
+        NomadSD.end();          // unmount
         delay(1000);           // give hardware a breather
         bool ok = NomadSD_Mount(12).mounted;
 
@@ -1356,7 +1354,7 @@ bool tryRecoverSDCard() {
     // give back only what we took - releasing a mutex we don't hold frees it under its owner
     bool sdTaken = (!sdMutex) || (xSemaphoreTake(sdMutex, pdMS_TO_TICKS(3000)) == pdTRUE);
     if (!sdTaken) Serial.println("[SD] Recovery: sdMutex timeout, remounting without it.");
-    SD_MMC.end();
+    NomadSD.end();
     delay(1000);
     bool ok = NomadSD_Mount(12).mounted;
     if (sdTaken && sdMutex) xSemaphoreGive(sdMutex);
@@ -1438,7 +1436,7 @@ void updateToggleStatus() {
 }
 
 void updateSDStatus() {
-    bool currentSDStatus = SD_MMC.cardType() != CARD_NONE;
+    bool currentSDStatus = NomadSD.cardType() != CARD_NONE;
     if (currentSDStatus != lastSDStatus) {
         NomadUI_SetSdOk(currentSDStatus);
         if (currentSDStatus) {
@@ -1522,7 +1520,7 @@ void generateMediaJson(){
   buildBucketIndex("/Games");  // writes Games.index.ndjson (flat layout, no nested per-subfolder pass)
   webLogf("indexing_progress", "Completed indexing Games bucket");
 
-File showsDir = SD.open("/Shows");
+File showsDir = NomadSD.open("/Shows");
   if(showsDir){
     while(true){
     File s = showsDir.openNextFile();
@@ -1542,7 +1540,7 @@ File showsDir = SD.open("/Shows");
   }
 
   // Generate nested indexes for Music subfolders (Artist/Playlist level)
-  File musicDir = SD.open("/Music");
+  File musicDir = NomadSD.open("/Music");
   if(musicDir){
     while(true){
     File m = musicDir.openNextFile();
@@ -1566,7 +1564,7 @@ File showsDir = SD.open("/Shows");
   buildBucketIndex("/Books");
   webLogf("indexing_progress", "Completed indexing Books bucket");
   
-  File booksDir = SD.open("/Books");
+  File booksDir = NomadSD.open("/Books");
   if(booksDir){
     while(true){
       File b = booksDir.openNextFile();
@@ -1592,7 +1590,7 @@ File showsDir = SD.open("/Shows");
   }
   String summary = "{\n  \"generated\": true,\n  \"buckets\": {\n";
   // read index files to include counts
-  File idx = SD.open(INDEX_DIR);
+  File idx = NomadSD.open(INDEX_DIR);
   if(idx){
     while(true){
       File f = idx.openNextFile();
@@ -1620,7 +1618,7 @@ File showsDir = SD.open("/Shows");
   summary += "  }\n}\n";
 
   // write summary to /media.json (small)
-  File mf = SD.open("/media.json", FILE_WRITE);
+  File mf = NomadSD.open("/media.json", FILE_WRITE);
   if(mf){
     mf.print(summary);
     mf.close();
@@ -1689,7 +1687,7 @@ void handleOPDSBooks(AsyncWebServerRequest *request) {
       "type=\"application/atom+xml;profile=opds-catalog;kind=navigation\"/>\n");
 
     std::function<void(const String&)> processDir = [&](const String& dirPath) {
-      File dir = SD_MMC.open(dirPath);
+      File dir = NomadSD.open(dirPath);
       if (!dir || !dir.isDirectory()) {
         if (dir) dir.close();
         return;
@@ -1712,7 +1710,7 @@ void handleOPDSBooks(AsyncWebServerRequest *request) {
             String safeId = "urn:uuid:nomad-comic-" + slugify(base);
             
             String coverPath = "placeholder.jpg";
-            File comicDir = SD_MMC.open(fullPath);
+            File comicDir = NomadSD.open(fullPath);
             if (comicDir && comicDir.isDirectory()) {
               comicDir.rewindDirectory();
               File firstImg;
@@ -1763,7 +1761,7 @@ void handleOPDSBooks(AsyncWebServerRequest *request) {
         
         String parentPath = fullPath.substring(0, fullPath.lastIndexOf('/'));
         String coverPath = parentPath + "/" + base + ".jpg";
-        if (!SD_MMC.exists(coverPath)) {
+        if (!NomadSD.exists(coverPath)) {
           coverPath = "placeholder.jpg";
         } else {
           coverPath = coverPath.substring(1);
@@ -1848,7 +1846,7 @@ void handleRangeRequest(AsyncWebServerRequest *request) {
     if (sdMutex) xSemaphoreGive(sdMutex);
   };
 
-  bool fileExists = SD_MMC.exists(filePath);
+  bool fileExists = NomadSD.exists(filePath);
 
   if (!fileExists) {
     Serial.printf("[RangeHandler] File not found: %s\n", filePath.c_str());
@@ -1857,7 +1855,7 @@ void handleRangeRequest(AsyncWebServerRequest *request) {
     return;
   }
 
-  File file = SD_MMC.open(filePath, "r");
+  File file = NomadSD.open(filePath, "r");
   releaseSd(); 
 
   if (!file) {
@@ -2038,7 +2036,7 @@ void handleRangeRequest(AsyncWebServerRequest *request) {
       }
     }
 
-    File f = SD_MMC.open(filePath, "r");
+    File f = NomadSD.open(filePath, "r");
     if (!f) {
       Serial.printf("[Stream] Failed to open: %s\n", filePath.c_str());
       if (sdMutex) xSemaphoreGive(sdMutex);
@@ -2088,7 +2086,7 @@ void handleRangeRequest(AsyncWebServerRequest *request) {
           xSemaphoreGive(streamingFilesMutex);
           return RESPONSE_TRY_AGAIN;
         }
-        File rf = SD_MMC.open(filePath, "r");
+        File rf = NomadSD.open(filePath, "r");
         if (!rf) {
           if (sdMutex) xSemaphoreGive(sdMutex);
           xSemaphoreGive(streamingFilesMutex);
@@ -2165,12 +2163,12 @@ void handleListFiles(AsyncWebServerRequest *request) {
     }
     String dir = request->getParam("dir")->value();
 
-    if (!SD_MMC.exists(dir)) {
+    if (!NomadSD.exists(dir)) {
         request->send(404, "application/json", "{\"error\":\"Directory not found\"}");
         return;
     }
 
-    File directory = SD_MMC.open(dir);
+    File directory = NomadSD.open(dir);
     if (!directory || !directory.isDirectory()) {
         request->send(404, "application/json", "{\"error\":\"Not a directory\"}");
         return;
@@ -2258,7 +2256,7 @@ void handleArchiveList(AsyncWebServerRequest *request) {
     sdLocked = true;
   }
 
-  File root = SD_MMC.open("/Archive");
+  File root = NomadSD.open("/Archive");
   if (!root || !root.isDirectory()) {
     if (root) root.close();
     if (sdLocked) xSemaphoreGive(sdMutex);
@@ -2356,7 +2354,7 @@ void handleGamesList(AsyncWebServerRequest *request) {
     sdLocked = true;
   }
 
-  File root = SD_MMC.open("/Games");
+  File root = NomadSD.open("/Games");
   if (!root || !root.isDirectory()) {
     if (root) root.close();
     if (sdLocked) xSemaphoreGive(sdMutex);
@@ -2413,7 +2411,7 @@ void handleMapsList(AsyncWebServerRequest *request) {
     sdLocked = true;
   }
 
-  File root = SD_MMC.open("/Maps");
+  File root = NomadSD.open("/Maps");
   if (!root || !root.isDirectory()) {
     if (root) root.close();
     if (sdLocked) xSemaphoreGive(sdMutex);
@@ -2434,7 +2432,7 @@ void handleMapsList(AsyncWebServerRequest *request) {
       if (slash >= 0) name = name.substring(slash + 1);
       if (!name.startsWith(".")) {
         String manifestPath = "/Maps/" + name + "/manifest.json";
-        if (SD_MMC.exists(manifestPath)) {
+        if (NomadSD.exists(manifestPath)) {
           regionCount++;
           if (!first) resp += ",";
           first = false;
@@ -2710,14 +2708,14 @@ void handleRename(AsyncWebServerRequest *request) {
         return;
     }
 
-    if (!SD_MMC.exists(oldName)) {
+    if (!NomadSD.exists(oldName)) {
         Serial.printf("[RENAME] Source file not found: %s\n", oldName.c_str());
         if (sdMutex) xSemaphoreGive(sdMutex);
         request->send(404, "application/json", "{\"error\":\"Original file not found\"}");
         return;
     }
 
-    if (SD_MMC.exists(newName)) {
+    if (NomadSD.exists(newName)) {
         Serial.printf("[RENAME] Target already exists: %s\n", newName.c_str());
         if (sdMutex) xSemaphoreGive(sdMutex);
         request->send(409, "application/json", "{\"error\":\"Target file already exists\"}");
@@ -2725,7 +2723,7 @@ void handleRename(AsyncWebServerRequest *request) {
     }
 
     bool wasDirectory = false;
-    File sourceFile = SD_MMC.open(oldName);
+    File sourceFile = NomadSD.open(oldName);
     if (!sourceFile) {
         Serial.printf("[RENAME] Cannot open source file: %s\n", oldName.c_str());
         if (sdMutex) xSemaphoreGive(sdMutex);
@@ -2741,10 +2739,10 @@ void handleRename(AsyncWebServerRequest *request) {
 
     vTaskDelay(pdMS_TO_TICKS(100));
 
-    bool renameSuccess = SD_MMC.rename(oldName, newName);
+    bool renameSuccess = NomadSD.rename(oldName, newName);
 
     if (!renameSuccess) {
-        Serial.printf("[RENAME] SD_MMC.rename() failed: %s -> %s\n", oldName.c_str(), newName.c_str());
+        Serial.printf("[RENAME] NomadSD.rename() failed: %s -> %s\n", oldName.c_str(), newName.c_str());
         webLogf("error", "Rename failed: %s → %s", oldName.c_str(), newName.c_str());
         if (sdMutex) xSemaphoreGive(sdMutex);
         request->send(500, "application/json", "{\"error\":\"Rename operation failed\"}");
@@ -2753,14 +2751,14 @@ void handleRename(AsyncWebServerRequest *request) {
 
     vTaskDelay(pdMS_TO_TICKS(150));
 
-    if (SD_MMC.exists(oldName)) {
+    if (NomadSD.exists(oldName)) {
         Serial.printf("[RENAME] ERROR: Source still exists after rename: %s\n", oldName.c_str());
         if (sdMutex) xSemaphoreGive(sdMutex);
         request->send(500, "application/json", "{\"error\":\"Rename verification failed - source still exists\"}");
         return;
     }
 
-    if (!SD_MMC.exists(newName)) {
+    if (!NomadSD.exists(newName)) {
         Serial.printf("[RENAME] ERROR: Target doesn't exist after rename: %s\n", newName.c_str());
         if (sdMutex) xSemaphoreGive(sdMutex);
         request->send(500, "application/json", "{\"error\":\"Rename verification failed - target missing\"}");
@@ -2776,10 +2774,10 @@ void handleRename(AsyncWebServerRequest *request) {
         webLogf("info", "%s renamed: %s → %s", wasDirectory ? "Directory" : "File", oldName.c_str(), newName.c_str());
         Serial.printf("[RENAME] Directory renamed successfully: '%s' -> '%s'\n", oldName.c_str(), newName.c_str());
 
-        if (SD_MMC.exists(oldNestedPath)) {
+        if (NomadSD.exists(oldNestedPath)) {
             vTaskDelay(pdMS_TO_TICKS(50));
 
-            if (SD_MMC.remove(oldNestedPath)) {
+            if (NomadSD.remove(oldNestedPath)) {
                 Serial.printf("[RENAME] Removed old nested index: %s\n", oldNestedPath.c_str());
             } else {
                 Serial.printf("[RENAME] Warning: Failed to remove old nested index: %s\n", oldNestedPath.c_str());
@@ -2855,7 +2853,7 @@ void handleDelete(AsyncWebServerRequest *request) {
         return;
     }
 
-    if (!SD_MMC.exists(filename)) {
+    if (!NomadSD.exists(filename)) {
     if (sdMutex) xSemaphoreGive(sdMutex);
     request->send(404, "application/json", "{\"error\":\"File not found\"}");
     return;
@@ -2863,7 +2861,7 @@ void handleDelete(AsyncWebServerRequest *request) {
 
     bool success = false;
     bool wasDirectory = false;
-    File f = SD_MMC.open(filename);
+    File f = NomadSD.open(filename);
     if (f && f.isDirectory()) {
         wasDirectory = true;
     }
@@ -2875,7 +2873,7 @@ void handleDelete(AsyncWebServerRequest *request) {
     if (wasDirectory) {
         success = deleteRecursive(filename);
     } else {
-        success = SD_MMC.remove(filename);
+        success = NomadSD.remove(filename);
     }
 
     if (sdMutex) xSemaphoreGive(sdMutex);
@@ -2884,8 +2882,8 @@ void handleDelete(AsyncWebServerRequest *request) {
         if (wasDirectory) {
             String nestedIndexName = encodeIndexName(filename) + ".nested.ndjson";
             String nestedIndexPath = String(INDEX_DIR) + "/" + nestedIndexName;
-            if (SD_MMC.exists(nestedIndexPath)) {
-                SD_MMC.remove(nestedIndexPath);
+            if (NomadSD.exists(nestedIndexPath)) {
+                NomadSD.remove(nestedIndexPath);
                 Serial.printf("[Delete] Removed stale nested index: %s\n", nestedIndexPath.c_str());
             }
         }
@@ -2921,7 +2919,7 @@ void createSimpleUploadHandler(const String& mediaFolder, const char* endpoint) 
     if (index == 0) {
     String fullPath = "/" + mediaFolder + "/" + filename;
     Serial.println("[Upload] Starting upload to: " + fullPath);
-    File f = SD_MMC.open(fullPath, FILE_WRITE);
+    File f = NomadSD.open(fullPath, FILE_WRITE);
     if (!f) {
     webLogf("error", "Upload failed: could not open file for writing");
     Serial.println("[Upload] Failed to open file for writing");
@@ -2963,7 +2961,7 @@ void saveSdUsageToFile(uint64_t totalBytes, uint64_t usedBytes, unsigned long ts
   doc["statTrusted"] = g_sdStatTrusted;
 
   String tmp = String(SD_USAGE_FILE) + ".tmp";
-  File f = SD_MMC.open(tmp, FILE_WRITE);
+  File f = NomadSD.open(tmp, FILE_WRITE);
   if (!f) {
     static unsigned long lastFailLog = 0;
     if (millis() - lastFailLog > 10000) {
@@ -2975,15 +2973,15 @@ void saveSdUsageToFile(uint64_t totalBytes, uint64_t usedBytes, unsigned long ts
   serializeJson(doc, f);
   f.close();
 
-  if (SD_MMC.exists(SD_USAGE_FILE)) SD_MMC.remove(SD_USAGE_FILE);
-  if (!SD_MMC.rename(tmp, SD_USAGE_FILE)) {
-    File ft = SD_MMC.open(tmp, FILE_READ);
-    File ff = SD_MMC.open(SD_USAGE_FILE, FILE_WRITE);
+  if (NomadSD.exists(SD_USAGE_FILE)) NomadSD.remove(SD_USAGE_FILE);
+  if (!NomadSD.rename(tmp, SD_USAGE_FILE)) {
+    File ft = NomadSD.open(tmp, FILE_READ);
+    File ff = NomadSD.open(SD_USAGE_FILE, FILE_WRITE);
     if (ft && ff) {
       while (ft.available()) ff.write(ft.read());
       ft.close();
       ff.close();
-      SD_MMC.remove(tmp);
+      NomadSD.remove(tmp);
     } else {
       if (ft) ft.close();
       if (ff) ff.close();
@@ -2997,8 +2995,8 @@ void saveSdUsageToFile(uint64_t totalBytes, uint64_t usedBytes, unsigned long ts
 }
 
 bool loadSdUsageFromFile() {
-  if (!SD_MMC.exists(SD_USAGE_FILE)) return false;
-  File f = SD_MMC.open(SD_USAGE_FILE, FILE_READ);
+  if (!NomadSD.exists(SD_USAGE_FILE)) return false;
+  File f = NomadSD.open(SD_USAGE_FILE, FILE_READ);
   if (!f) return false;
   String s = f.readString();
   f.close();
@@ -3028,12 +3026,12 @@ bool refreshCachedTotalsFromStat(uint64_t &outStatUsedBytes, uint32_t mutexTimeo
     Serial.println("[SDBAR] refreshCachedTotalsFromStat: SD busy, skipped");
     return false;
   }
-  uint64_t total = SD_MMC.totalBytes();
-  uint64_t used = SD_MMC.usedBytes();
+  uint64_t total = NomadSD.totalBytes();
+  uint64_t used = NomadSD.usedBytes();
   if (sdMutex) xSemaphoreGive(sdMutex);
 
   if (total == 0) {
-    Serial.println("[SDBAR] refreshCachedTotalsFromStat: SD_MMC reported 0 total bytes, skipping update");
+    Serial.println("[SDBAR] refreshCachedTotalsFromStat: NomadSD reported 0 total bytes, skipping update");
     return false;
   }
 
@@ -3052,10 +3050,10 @@ bool refreshCachedTotalsFromStat(uint32_t mutexTimeoutMs = 400) {
   return refreshCachedTotalsFromStat(unused, mutexTimeoutMs);
 }
 
-// checks a real walk's usage against SD_MMC.usedBytes() and trusts the fast stat path
+// checks a real walk's usage against NomadSD.usedBytes() and trusts the fast stat path
 // only if they agree. this is the only place g_sdStatTrusted is set true.
 void reconcileStatTrust(uint64_t walkedUsedBytes) {
-  uint64_t statUsed = SD_MMC.usedBytes();
+  uint64_t statUsed = NomadSD.usedBytes();
   if (walkedUsedBytes == 0 || statUsed == 0) {
     Serial.println("[SDBAR] reconcileStatTrust: skipped (zero reading)");
     return;
@@ -3069,7 +3067,7 @@ void reconcileStatTrust(uint64_t walkedUsedBytes) {
                 (unsigned long long)walkedUsedBytes, (unsigned long long)statUsed, diffPct,
                 agrees ? "TRUSTED" : "NOT TRUSTED");
   if (!agrees) {
-    webLogf("warning", "SD_MMC.usedBytes() disagrees with a real scan by %.1f%% - fast totals will be marked unverified", diffPct);
+    webLogf("warning", "NomadSD.usedBytes() disagrees with a real scan by %.1f%% - fast totals will be marked unverified", diffPct);
   }
 
   g_sdStatTrusted = agrees;
@@ -3112,7 +3110,7 @@ void saveSdBreakdownToFile(const std::map<String, BreakdownStats> &breakdown) {
   }
 
   String tmp = String(SD_BREAKDOWN_FILE) + ".tmp";
-  File f = SD_MMC.open(tmp, FILE_WRITE);
+  File f = NomadSD.open(tmp, FILE_WRITE);
   if (!f) {
     Serial.println("[SDBreakdown] Warning: couldn't open temp breakdown file for write");
     return;
@@ -3120,15 +3118,15 @@ void saveSdBreakdownToFile(const std::map<String, BreakdownStats> &breakdown) {
   serializeJson(doc, f);
   f.close();
 
-  if (SD_MMC.exists(SD_BREAKDOWN_FILE)) SD_MMC.remove(SD_BREAKDOWN_FILE);
-  if (!SD_MMC.rename(tmp, SD_BREAKDOWN_FILE)) {
-    File ft = SD_MMC.open(tmp, FILE_READ);
-    File ff = SD_MMC.open(SD_BREAKDOWN_FILE, FILE_WRITE);
+  if (NomadSD.exists(SD_BREAKDOWN_FILE)) NomadSD.remove(SD_BREAKDOWN_FILE);
+  if (!NomadSD.rename(tmp, SD_BREAKDOWN_FILE)) {
+    File ft = NomadSD.open(tmp, FILE_READ);
+    File ff = NomadSD.open(SD_BREAKDOWN_FILE, FILE_WRITE);
     if (ft && ff) {
       while (ft.available()) ff.write(ft.read());
       ft.close();
       ff.close();
-      SD_MMC.remove(tmp);
+      NomadSD.remove(tmp);
     } else {
       if (ft) ft.close();
       if (ff) ff.close();
@@ -3138,8 +3136,8 @@ void saveSdBreakdownToFile(const std::map<String, BreakdownStats> &breakdown) {
 }
 
 bool loadSdBreakdownFromFile() {
-  if (!SD_MMC.exists(SD_BREAKDOWN_FILE)) return false;
-  File f = SD_MMC.open(SD_BREAKDOWN_FILE, FILE_READ);
+  if (!NomadSD.exists(SD_BREAKDOWN_FILE)) return false;
+  File f = NomadSD.open(SD_BREAKDOWN_FILE, FILE_READ);
   if (!f) return false;
   String s = f.readString();
   f.close();
@@ -3174,7 +3172,7 @@ void scanSDCardUsage() {
   }
 
   cachedUsedBytes  = 0;
-  uint64_t reportedTotal = SD_MMC.cardSize();
+  uint64_t reportedTotal = NomadSD.cardSize();
   uint32_t startMs = millis();
   uint64_t lastSavedBytes = 0;
 
@@ -3210,7 +3208,7 @@ void scanSDCardUsage() {
     String currentPath = dirStack.back();
     dirStack.pop_back();
 
-    File dir = SD_MMC.open(currentPath);
+    File dir = NomadSD.open(currentPath);
     if (!dir || !dir.isDirectory()) {
       if (dir) dir.close();
       continue;
@@ -3312,9 +3310,9 @@ static inline int calcUsagePct(uint64_t used, uint64_t total) {
 }
 
 bool checkGenerateFlagFile() {
-    if (SD_MMC.exists("/.generate_flag")) {
+    if (NomadSD.exists("/.generate_flag")) {
         Serial.println("[BOOT] Found /.generate_flag, will generate media.json");
-        SD_MMC.remove("/.generate_flag");
+        NomadSD.remove("/.generate_flag");
         return true;
     }
     return false;
@@ -3334,7 +3332,7 @@ void handleConnector(AsyncWebServerRequest *request) {
   }
 
   // 3) Open the directory
-  File root = SD_MMC.open(dir);
+  File root = NomadSD.open(dir);
   if (!root || !root.isDirectory()) {
     if (sdMutex) xSemaphoreGive(sdMutex);
     request->send(400, "text/plain", "Invalid directory");
@@ -3378,7 +3376,7 @@ void handleMkdir(AsyncWebServerRequest *request) {
         return;
     }
 
-    if (SD_MMC.mkdir(dirPath)) {
+    if (NomadSD.mkdir(dirPath)) {
         request->send(200, "application/json", "{\"success\":\"Directory created\"}");
     } else {
         request->send(500, "application/json", "{\"error\":\"Failed to create directory\"}");
@@ -3650,7 +3648,7 @@ void indexWorkerTask(void *param) {
       }
 
       if (!shutdownBackgroundTasks) {
-        File f = SD_MMC.open("/boot_done.flag", FILE_WRITE);
+        File f = NomadSD.open("/boot_done.flag", FILE_WRITE);
         if (f) { f.print("1"); f.close(); }
 
         // Show completion and trigger a storage scan (covers both first-time and
@@ -3843,7 +3841,7 @@ void storageMonitorTask(void *param) {
 
 void immediateEnqueueTopLevelTask(void *param) {
   Serial.println("[Index] immediateEnqueueTopLevelTask: starting one-shot boot scan of top-level dirs");
-  File root = SD_MMC.open("/");
+  File root = NomadSD.open("/");
   if (!root || !root.isDirectory()) {
     if (root) root.close();
     Serial.println("[Index] immediateEnqueueTopLevelTask: root not available, exiting task");
@@ -3996,10 +3994,10 @@ void bootCoordinatorTask(void *pv) {
 
   // old firmware used one /media.json instead of per-bucket NDJSON. if its still here, nuke it and rebuild
   bool legacyUpgradeNeeded = false;
-  if (SD_MMC.exists("/media.json")) {
+  if (NomadSD.exists("/media.json")) {
     Serial.println("[BootCoord] Found legacy media.json - upgrading to NDJSON index system");
     lvglSendMsg("Updating to new index system...", true);
-    if (SD_MMC.remove("/media.json")) {
+    if (NomadSD.remove("/media.json")) {
       Serial.println("[BootCoord] Removed legacy media.json file");
     } else {
       Serial.println("[BootCoord] WARNING: failed to remove legacy media.json file");
@@ -4009,7 +4007,7 @@ void bootCoordinatorTask(void *pv) {
 
   // "Has this device ever completed an index?" 
   String rootIndexFile = String(INDEX_DIR) + "/root.index.ndjson";
-  if (legacyUpgradeNeeded || !SD_MMC.exists(INDEX_DIR) || !SD_MMC.exists(rootIndexFile)) {
+  if (legacyUpgradeNeeded || !NomadSD.exists(INDEX_DIR) || !NomadSD.exists(rootIndexFile)) {
     Serial.println("[BootCoord] Index missing or incomplete - triggering normal index build");
 
     lvglSendMsg("First-time setup detected\nBuilding media indexes...\nThis will take a few minutes", true);
@@ -4124,14 +4122,14 @@ void serveProtectedFile(AsyncWebServerRequest *request, const String& filePath) 
         if (sdMutex) xSemaphoreGive(sdMutex);
     };
     
-    if (!SD_MMC.exists(filePath)) {
+    if (!NomadSD.exists(filePath)) {
         releaseSd();
         request->send(404, "text/plain", "File not found");
         return;
     }
     
     String mime = getMimeType(filePath);
-    AsyncWebServerResponse *response = request->beginResponse(SD_MMC, filePath, mime);
+    AsyncWebServerResponse *response = request->beginResponse(NomadSD, filePath, mime);
     releaseSd();
     if (!response) {
         Serial.printf("[Static] beginResponse OOM for %s (heap=%u)\n",
@@ -4345,7 +4343,7 @@ Serial.println("SD Card initialized successfully!");
     Serial.println(settings.brightness);
     // legacy one-time flag + did USB mode write data last session. the indexer only sees
     // web-UI changes, so a USB write is otherwise invisible to it
-    bool generateOnce = SD_MMC.exists("/generate_once.flag");
+    bool generateOnce = NomadSD.exists("/generate_once.flag");
     bool needsReindexAfterUsb = get_needs_reindex_flag();
 
     // Log state
@@ -4368,8 +4366,8 @@ Serial.println("SD Card initialized successfully!");
       bootReindexQueued = true;
       Serial.println("[BOOT] Boot check ON + filesystem changes detected -> queued reindex");
 
-      if (generateOnce && SD_MMC.exists("/generate_once.flag")) {
-        SD_MMC.remove("/generate_once.flag");
+      if (generateOnce && NomadSD.exists("/generate_once.flag")) {
+        NomadSD.remove("/generate_once.flag");
         Serial.println("[BOOT] Cleared /generate_once.flag");
       }
       if (needsReindexAfterUsb) {
@@ -4383,8 +4381,8 @@ Serial.println("SD Card initialized successfully!");
       Serial.println("[BOOT] Boot check OFF -> booting normally (manual index only)");
 
       // Clear any pending one-time signals so a stale flag can't surprise-index later.
-      if (generateOnce && SD_MMC.exists("/generate_once.flag")) {
-        SD_MMC.remove("/generate_once.flag");
+      if (generateOnce && NomadSD.exists("/generate_once.flag")) {
+        NomadSD.remove("/generate_once.flag");
         Serial.println("[BOOT] Cleared /generate_once.flag (boot check off)");
       }
       if (needsReindexAfterUsb) {
@@ -4396,7 +4394,7 @@ Serial.println("SD Card initialized successfully!");
     // Remove /boot_done.flag if cold boot or one-time requested
     esp_reset_reason_t resetReason = esp_reset_reason();
     if (resetReason == ESP_RST_POWERON || resetReason == ESP_RST_SW || oneTimeReindexRequested) {
-        SD_MMC.remove("/boot_done.flag");
+        NomadSD.remove("/boot_done.flag");
     }
 
     Serial.println("[BOOT] Deferring media generation to bootCoordinatorTask (non-blocking)");
@@ -4436,7 +4434,7 @@ Serial.println("SD Card initialized successfully!");
         stream->print("#EXTM3U\n");
 
         stream->print("# === MOVIES ===\n");
-        File movieDir = SD_MMC.open("/Movies");
+        File movieDir = NomadSD.open("/Movies");
         if (movieDir && movieDir.isDirectory()) {
             File file = movieDir.openNextFile();
             while (file) {
@@ -4452,7 +4450,7 @@ Serial.println("SD Card initialized successfully!");
         }
 
         stream->print("# === SHOWS ===\n");
-        File showsRoot = SD_MMC.open("/Shows");
+        File showsRoot = NomadSD.open("/Shows");
         if (showsRoot && showsRoot.isDirectory()) {
             File showFolder = showsRoot.openNextFile();
             while (showFolder) {
@@ -4461,7 +4459,7 @@ Serial.println("SD Card initialized successfully!");
                     if (showFolderName.startsWith("/")) showFolderName = showFolderName.substring(1);
                     String fullShowPath = "/Shows/" + showFolderName;
 
-                    File episodeDir = SD_MMC.open(fullShowPath);
+                    File episodeDir = NomadSD.open(fullShowPath);
                     if (episodeDir && episodeDir.isDirectory()) {
                         File ep = episodeDir.openNextFile();
                         while (ep) {
@@ -4483,7 +4481,7 @@ Serial.println("SD Card initialized successfully!");
         }
 
         stream->print("# === MUSIC ===\n");
-        File musicDir = SD_MMC.open("/Music");
+        File musicDir = NomadSD.open("/Music");
         if (musicDir && musicDir.isDirectory()) {
             File file = musicDir.openNextFile();
             while (file) {
@@ -4647,7 +4645,7 @@ Serial.println("SD Card initialized successfully!");
       if (!checkAdminAuth(request)) { request->send(401, "application/json", "{\"error\":\"Unauthorized\"}"); return; }
       webLog("[ADMIN] Media generation requested by user interface", "info");
 
-      if (SD_MMC.cardType() == CARD_NONE) {
+      if (NomadSD.cardType() == CARD_NONE) {
         request->send(500, "text/plain", "SD card not available.");
         webLog("[ADMIN] SD card not mounted - cannot generate media", "error");
         return;
@@ -4684,8 +4682,8 @@ Serial.println("SD Card initialized successfully!");
         webLog("[ADMIN] Failed to start immediate index task", "error");
       }
 
-      if (SD_MMC.exists("/generate_once.flag")) {
-        SD_MMC.remove("/generate_once.flag");
+      if (NomadSD.exists("/generate_once.flag")) {
+        NomadSD.remove("/generate_once.flag");
         webLog("[ADMIN] Removed legacy generate_once.flag file", "info");
       }
 
@@ -4713,7 +4711,7 @@ Serial.println("SD Card initialized successfully!");
         return;
       }
       String p = request->getParam("path")->value();
-      bool exist = SD_MMC.exists(p.c_str());
+      bool exist = NomadSD.exists(p.c_str());
       String out = String("{\"path\":\"") + p + String("\",\"exists\":") + (exist ? "true" : "false") + "}";
       request->send(200, "application/json", out);
     });
@@ -4722,7 +4720,7 @@ Serial.println("SD Card initialized successfully!");
       // query param ?file=/assets/... 
       if (request->hasParam("file")) {
         String p = request->getParam("file")->value();
-        bool ok = SD_MMC.exists(p);
+        bool ok = NomadSD.exists(p);
         String res = String("{\"file\":") + "\"" + p + "\"" + ",\"exists\":" + (ok?"true":"false") + "}";
         request->send(200, "application/json", res);
       } else {
@@ -4756,14 +4754,14 @@ Serial.println("SD Card initialized successfully!");
 
       const String sdPath = url;
 
-      if (!SD_MMC.exists(sdPath.c_str())) {
+      if (!NomadSD.exists(sdPath.c_str())) {
         Serial.printf("[ASSETS] not found: %s\n", sdPath.c_str());
         request->send(404, "text/plain", "not found");
         return;
       }
 
       String mime = mimeForPath(sdPath); // call the top-level helper
-      AsyncWebServerResponse *resp = request->beginResponse(SD_MMC, sdPath.c_str(), mime.c_str());
+      AsyncWebServerResponse *resp = request->beginResponse(NomadSD, sdPath.c_str(), mime.c_str());
 
       // Helpful headers for libraries (PDF.js, wasm, fonts, etc.)
       resp->addHeader("Access-Control-Allow-Origin", "*");
@@ -4788,12 +4786,12 @@ Serial.println("SD Card initialized successfully!");
     // Captive triggers for Apple & Android devices
     server.on("/hotspot-detect.html", HTTP_GET, [](AsyncWebServerRequest *request) {
         Serial.println("Apple captive portal request detected, serving appleindex.html");
-        request->send(SD_MMC, "/appleindex.html", "text/html");
+        request->send(NomadSD, "/appleindex.html", "text/html");
     });
     
     server.on("/generate_204", HTTP_GET, [](AsyncWebServerRequest *request) {
         Serial.println("Android/NORMAL captive portal request detected, serving index.html");
-        request->send(SD_MMC, "/index.html", "text/html");
+        request->send(NomadSD, "/index.html", "text/html");
     });
     server.on("/dlna/desc.xml", HTTP_GET, [](AsyncWebServerRequest *request){
       request->send(200, "text/xml", R"rawliteral(
@@ -4817,7 +4815,7 @@ Serial.println("SD Card initialized successfully!");
     server.on("/dlna/contentdir.xml", HTTP_GET, [](AsyncWebServerRequest *request){
       AsyncResponseStream *stream = request->beginResponseStream("text/xml");
       stream->print("<?xml version=\"1.0\"?><ContentDirectory>");
-      File root = SD_MMC.open("/Movies");
+      File root = NomadSD.open("/Movies");
       if (root && root.isDirectory()) {
         File file = root.openNextFile();
         while (file) {
@@ -4910,7 +4908,7 @@ Serial.println("SD Card initialized successfully!");
             };
             // Check if file exists
                           
-            bool fileExists = SD_MMC.exists(filePath);
+            bool fileExists = NomadSD.exists(filePath);
 
             if (!fileExists) {
                 releaseSd();
@@ -4924,7 +4922,7 @@ Serial.println("SD Card initialized successfully!");
                     return;
                 }
                 
-                bool indexExists = SD_MMC.exists(filePath);
+                bool indexExists = NomadSD.exists(filePath);
 
                 if (!indexExists) {
                     releaseSd();
@@ -4935,7 +4933,7 @@ Serial.println("SD Card initialized successfully!");
             
             // Serve the file
             String mime = getMimeType(filePath);
-            AsyncWebServerResponse *response = request->beginResponse(SD_MMC, filePath, mime);
+            AsyncWebServerResponse *response = request->beginResponse(NomadSD, filePath, mime);
             releaseSd();
             
             response->addHeader("Accept-Ranges", "bytes");
@@ -4947,12 +4945,12 @@ Serial.println("SD Card initialized successfully!");
     // Handle captive portal redirects for non-file requests
     if (userAgent.length()) {
         if (userAgent.indexOf("iPhone") >= 0 || userAgent.indexOf("iPad") >= 0 || userAgent.indexOf("Macintosh") >= 0) {
-            request->send(SD_MMC, "/appleindex.html", "text/html");
+            request->send(NomadSD, "/appleindex.html", "text/html");
             return;
         }
     }
     
-    request->send(SD_MMC, "/index.html", "text/html");
+    request->send(NomadSD, "/index.html", "text/html");
 });
     // /Gallery and /Files were serveStatic mounts - the only SD reads with no
     // sdMutex, no busy-503 and no OOM guard. Now handled in onNotFound instead.
@@ -4981,7 +4979,7 @@ server.on(
       String fullPath = dir + "/" + filename;
 
       // Check for duplicate
-      if (SD_MMC.exists(fullPath)) {
+      if (NomadSD.exists(fullPath)) {
         Serial.println("[Upload] Duplicate file detected: " + fullPath);
         request->send(409, "application/json", "{\"error\":\"File already exists\"}");
         return;
@@ -4991,12 +4989,12 @@ server.on(
       int slashPos = fullPath.lastIndexOf('/');
       if (slashPos != -1) {
         String folder = fullPath.substring(0, slashPos);
-        if (!SD_MMC.exists(folder)) {
-          SD_MMC.mkdir(folder);
+        if (!NomadSD.exists(folder)) {
+          NomadSD.mkdir(folder);
         }
       }
 
-      File f = SD_MMC.open(fullPath, FILE_WRITE);
+      File f = NomadSD.open(fullPath, FILE_WRITE);
       if (!f) {
         webLogf("error", "Upload failed to open file: %s", fullPath.c_str());
         Serial.println("[Upload] Failed to open file: " + fullPath);
@@ -5030,7 +5028,7 @@ server.on("/list-assets", HTTP_GET, [](AsyncWebServerRequest *request){
   }
 
   String dir = request->getParam("dir")->value();
-  File d = SD_MMC.open(dir);
+  File d = NomadSD.open(dir);
   if (!d || !d.isDirectory()) {
     request->send(404, "application/json", "{\"error\":\"Invalid dir\"}");
     return;
@@ -5088,13 +5086,13 @@ server.on("/mkdir", HTTP_POST, [](AsyncWebServerRequest *request) {
     }
 
     // Check if the path already exists
-    if (SD_MMC.exists(dirName)) {
+    if (NomadSD.exists(dirName)) {
         request->send(409, "text/plain", "Directory already exists");
         return;
     }
 
     // Attempt to create the directory
-    if (SD_MMC.mkdir(dirName)) {
+    if (NomadSD.mkdir(dirName)) {
         webLogf("info", "Directory created: %s", dirName.c_str());
         request->send(200, "text/plain", "OK");
     } else {
@@ -5142,7 +5140,7 @@ server.on("/save", HTTP_POST, [](AsyncWebServerRequest *request){
   Serial.printf("[SAVE] Atomic write: %s -> %s\n", tempPath.c_str(), path.c_str());
 
   // Step 1: Write to temporary file
-  File tempFile = SD_MMC.open(tempPath, FILE_WRITE);
+  File tempFile = NomadSD.open(tempPath, FILE_WRITE);
   if (!tempFile) {
     if (sdMutex) xSemaphoreGive(sdMutex);
     return request->send(500, "text/plain", "Cannot create temp file");
@@ -5156,30 +5154,30 @@ server.on("/save", HTTP_POST, [](AsyncWebServerRequest *request){
   vTaskDelay(pdMS_TO_TICKS(100));  // Allow OS buffer flush
 
   // Step 3: Verify temp file was written correctly
-  File verifyFile = SD_MMC.open(tempPath, FILE_READ);
+  File verifyFile = NomadSD.open(tempPath, FILE_READ);
   if (!verifyFile || verifyFile.size() != content.length()) {
     if (verifyFile) verifyFile.close();
-    SD_MMC.remove(tempPath);
+    NomadSD.remove(tempPath);
     if (sdMutex) xSemaphoreGive(sdMutex);
     return request->send(500, "text/plain", "Write verification failed");
   }
   verifyFile.close();
 
   // Step 4: Atomic rename (temp -> final)
-  if (SD_MMC.exists(path)) {
-    SD_MMC.remove(path);
+  if (NomadSD.exists(path)) {
+    NomadSD.remove(path);
     vTaskDelay(pdMS_TO_TICKS(50));  // Allow cleanup
   }
 
-  if (!SD_MMC.rename(tempPath, path)) {
-    SD_MMC.remove(tempPath);  // Cleanup temp file
+  if (!NomadSD.rename(tempPath, path)) {
+    NomadSD.remove(tempPath);  // Cleanup temp file
     if (sdMutex) xSemaphoreGive(sdMutex);
     return request->send(500, "text/plain", "Atomic rename failed");
   }
 
   // Step 5: Final verification
   vTaskDelay(pdMS_TO_TICKS(100));
-  if (!SD_MMC.exists(path)) {
+  if (!NomadSD.exists(path)) {
     if (sdMutex) xSemaphoreGive(sdMutex);
     return request->send(500, "text/plain", "Final verification failed");
   }
@@ -5426,7 +5424,7 @@ server.on("/auth/logout", HTTP_POST, [](AsyncWebServerRequest *request){
 
       // Unmount SD card safely
       Serial.println("Unmounting SD card...");
-      SD_MMC.end();
+      NomadSD.end();
       
       // Small delay to ensure response is sent
       delay(1000);
@@ -5471,8 +5469,8 @@ server.on("/auth/logout", HTTP_POST, [](AsyncWebServerRequest *request){
     ensureIndexDir();
 
     // If index exists, serve it
-    if (SD_MMC.exists(fullPath)) {
-      AsyncWebServerResponse *resp = request->beginResponse(SD_MMC, fullPath, "application/x-ndjson");
+    if (NomadSD.exists(fullPath)) {
+      AsyncWebServerResponse *resp = request->beginResponse(NomadSD, fullPath, "application/x-ndjson");
       resp->addHeader("Cache-Control", "no-cache, no-store");
       request->send(resp);
       return;
@@ -5508,8 +5506,8 @@ server.on("/auth/logout", HTTP_POST, [](AsyncWebServerRequest *request){
     ensureIndexDir();
 
     // If index exists already, serve it as JSON
-    if (SD_MMC.exists(fullPath)) {
-      File file = SD_MMC.open(fullPath, FILE_READ);
+    if (NomadSD.exists(fullPath)) {
+      File file = NomadSD.open(fullPath, FILE_READ);
       if (file) {
         AsyncResponseStream *stream = request->beginResponseStream("application/json");
         stream->addHeader("Cache-Control", "no-cache, no-store");
@@ -5632,7 +5630,7 @@ server.on("/auth/logout", HTTP_POST, [](AsyncWebServerRequest *request){
       delete arg;
     }
   });
-  // fast path: reads SD_MMC's allocation metadata instead of walking files, so it
+  // fast path: reads NomadSD's allocation metadata instead of walking files, so it
   // answers synchronously (no task/polling), usually sub-100ms
   server.on("/api/sd-refresh-totals", HTTP_POST, [](AsyncWebServerRequest *request){
     if (!checkAdminAuth(request)) { request->send(401, "application/json", "{\"error\":\"Unauthorized\"}"); return; }
@@ -5735,7 +5733,7 @@ server.on("/auth/logout", HTTP_POST, [](AsyncWebServerRequest *request){
       return;
     }
 
-    File d = SD_MMC.open(path);
+    File d = NomadSD.open(path);
     if (!d || !d.isDirectory()) {
       if (d) d.close();
       if (sdMutex) xSemaphoreGive(sdMutex);
@@ -5829,9 +5827,9 @@ server.on("/auth/logout", HTTP_POST, [](AsyncWebServerRequest *request){
       String currentPath = dirStack.back();
       dirStack.pop_back();
 
-      if (!SD_MMC.exists(currentPath)) continue;
+      if (!NomadSD.exists(currentPath)) continue;
 
-      File dir = SD_MMC.open(currentPath);
+      File dir = NomadSD.open(currentPath);
       if (!dir || !dir.isDirectory()) {
         if (dir) dir.close();
         continue;

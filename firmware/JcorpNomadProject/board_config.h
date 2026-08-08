@@ -41,6 +41,11 @@
 #define NOMAD_UI_PORTRAIT_TALL  1  // 172x320, the original SquareLine layout
 #define NOMAD_UI_LANDSCAPE_MINI 2  // 160x80, the dongle layout
 
+// How the microSD is wired. SDMMC is the 4-bit bus the Waveshare and LilyGO
+// boards use; SPI is a plain 4-wire card on its own SPI host.
+#define NOMAD_SD_BUS_SDMMC 1
+#define NOMAD_SD_BUS_SPI   2
+
 // =========================================================================
 #if NOMAD_BOARD == NOMAD_BOARD_POCKET_DONGLE_S3
 // =========================================================================
@@ -60,7 +65,10 @@
 #define LCD_WIDTH  160
 #define LCD_HEIGHT 80
 
-// The panel is a 160x80 window inside the controller's 132x162 GRAM.
+// ST7735S. Natively 80x160 portrait inside a 132x160 GRAM with portrait
+// offsets x=26 y=1. We drive it landscape (MADCTL MV), which swaps those into
+// x=1 y=26. Cross-checked against USBArmyKnife's LovyanGFX config for this
+// exact board (offset_x 26, offset_y 1, memory 132x160, 27 MHz).
 #define LCD_OFFSET_X 1
 #define LCD_OFFSET_Y 26
 #define LCD_MADCTL   0xA8  // MY | MV | BGR
@@ -82,13 +90,16 @@
 
 #define LCD_SPI_FREQ 27000000
 
-// ---- microSD (SDMMC, 4-bit) ---------------------------------------------
-#define SD_CLK_PIN 17  // seller: SD_CLK
-#define SD_CMD_PIN 18  // seller: SD_MOSI
-#define SD_D0_PIN  16  // seller: SD_MISO
-#define SD_D1_PIN  15  // seller: SD_D1
-#define SD_D2_PIN  48  // seller: SD_D2
-#define SD_D3_PIN  47  // seller: SD_CS
+// ---- microSD: plain SPI, on its own host ---------------------------------
+// Four wires only. There is no CMD line and no DAT1/DAT2/DAT3, so the SDMMC
+// driver cannot drive this card at all - see nomad_sd.h. Confirmed by the
+// board spec and by USBArmyKnife, which supports this board.
+#define NOMAD_SD_BUS  NOMAD_SD_BUS_SPI
+#define SD_SCLK_PIN   17
+#define SD_MOSI_PIN   18
+#define SD_MISO_PIN   16
+#define SD_CS_PIN     47
+#define SD_SPI_FREQ   20000000   // starting point; NomadSD_Mount steps down
 
 // ---- RGB LED -------------------------------------------------------------
 // Not present in the pin list the seller gave. Set to APA102/WS2812 with the
@@ -133,6 +144,7 @@
 #define LCD_SPI_FREQ 27000000
 #define LCD_BL_ACTIVE_LEVEL 0   // backlight is driven through an inverter here
 
+#define NOMAD_SD_BUS NOMAD_SD_BUS_SDMMC
 #define SD_CLK_PIN 12
 #define SD_CMD_PIN 16
 #define SD_D0_PIN  14
@@ -176,6 +188,7 @@
 #define LCD_SPI_FREQ 80000000
 #define LCD_BL_ACTIVE_LEVEL 1
 
+#define NOMAD_SD_BUS NOMAD_SD_BUS_SDMMC
 #define SD_CLK_PIN 14
 #define SD_CMD_PIN 15
 #define SD_D0_PIN  16

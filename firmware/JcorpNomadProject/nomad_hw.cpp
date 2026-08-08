@@ -1,8 +1,56 @@
 #include "nomad_hw.h"
-#include <SD_MMC.h>
+#include "nomad_sd.h"
 #include <esp_heap_caps.h>
 
 // ============================================================ SD mounting ==
+#if NOMAD_SD_BUS == NOMAD_SD_BUS_SPI
+
+// The card has its own SPI host so it never contends with the display bus.
+SPIClass NomadSdSpi(HSPI);
+
+NomadSdMountResult NomadSD_Mount(uint8_t maxOpenFiles) {
+  // Step the clock down until the card answers. Cheap cards and long traces
+  // often refuse the top speed but work fine slower.
+  static const uint32_t freqs[] = {SD_SPI_FREQ, 10000000, 4000000, 1000000};
+
+  NomadSdMountResult r = {false, false, 0, 0};
+
+  for (size_t i = 0; i < sizeof(freqs) / sizeof(freqs[0]); ++i) {
+    NomadSD.end();
+    NomadSdSpi.end();
+    delay(20);
+    NomadSdSpi.begin(SD_SCLK_PIN, SD_MISO_PIN, SD_MOSI_PIN, SD_CS_PIN);
+
+    // format_if_empty stays false: a card that will not mount must never be
+    // wiped just because the driver could not read it.
+    if (NomadSD.begin(SD_CS_PIN, NomadSdSpi, freqs[i], "/sdcard", maxOpenFiles, false)) {
+      if (NomadSD.cardType() == CARD_NONE) {
+        Serial.printf("[SD] SPI @ %lu MHz mounted but reports no card, trying slower\n",
+                      (unsigned long)(freqs[i] / 1000000UL));
+        continue;
+      }
+      r.mounted = true;
+      r.fourBit = false;          // SPI is single-data-line by definition
+      r.freqHz = freqs[i];
+      r.cardSizeBytes = NomadSD.cardSize();
+      Serial.printf("[SD] Mounted over SPI @ %lu MHz (%.2f GB)\n",
+                    (unsigned long)(freqs[i] / 1000000UL),
+                    (double)r.cardSizeBytes / (1024.0 * 1024.0 * 1024.0));
+      return r;
+    }
+    Serial.printf("[SD] SPI @ %lu MHz failed\n", (unsigned long)(freqs[i] / 1000000UL));
+  }
+
+  Serial.println("[SD] Could not mount the card at any speed.");
+  Serial.printf("[SD] Pins tried: SCLK %d MOSI %d MISO %d CS %d\n",
+                SD_SCLK_PIN, SD_MOSI_PIN, SD_MISO_PIN, SD_CS_PIN);
+  Serial.println("[SD] Check the card is FAT32 and that those pins match your "
+                 "board. firmware/NomadHardwareTest sweeps the known maps.");
+  return r;
+}
+
+#else  // NOMAD_SD_BUS_SDMMC
+
 NomadSdMountResult NomadSD_Mount(uint8_t maxOpenFiles) {
   struct Attempt {
     bool     oneBit;
@@ -10,8 +58,8 @@ NomadSdMountResult NomadSD_Mount(uint8_t maxOpenFiles) {
     const char *label;
   };
 
-  // Fastest first. These clone dongles vary a lot in trace quality, so instead
-  // of hard-failing at one fixed speed we walk down until the card answers.
+  // Fastest first. Board quality varies a lot, so instead of hard-failing at
+  // one fixed setting we walk down until the card answers.
   static const Attempt attempts[] = {
     {false, SDMMC_FREQ_HIGHSPEED, "4-bit @ 40 MHz"},
     {false, SDMMC_FREQ_DEFAULT,   "4-bit @ 20 MHz"},
@@ -22,25 +70,25 @@ NomadSdMountResult NomadSD_Mount(uint8_t maxOpenFiles) {
   NomadSdMountResult r = {false, false, 0, 0};
 
   for (size_t i = 0; i < sizeof(attempts) / sizeof(attempts[0]); ++i) {
-    SD_MMC.end();
+    NomadSD.end();
     delay(20);
 
-    if (!SD_MMC.setPins(SD_CLK_PIN, SD_CMD_PIN, SD_D0_PIN, SD_D1_PIN, SD_D2_PIN, SD_D3_PIN)) {
+    if (!NomadSD.setPins(SD_CLK_PIN, SD_CMD_PIN, SD_D0_PIN, SD_D1_PIN, SD_D2_PIN, SD_D3_PIN)) {
       Serial.println("[SD] setPins() rejected the board_config.h pin map");
       return r;
     }
 
     // format_if_mount_failed stays false on purpose: a bad mount must never
     // wipe somebody's media library.
-    if (SD_MMC.begin("/sdcard", attempts[i].oneBit, false, (int)attempts[i].freq, maxOpenFiles)) {
-      if (SD_MMC.cardType() == CARD_NONE) {
+    if (NomadSD.begin("/sdcard", attempts[i].oneBit, false, (int)attempts[i].freq, maxOpenFiles)) {
+      if (NomadSD.cardType() == CARD_NONE) {
         Serial.printf("[SD] %s mounted but reports no card, trying slower\n", attempts[i].label);
         continue;
       }
       r.mounted = true;
       r.fourBit = !attempts[i].oneBit;
       r.freqHz = attempts[i].freq;
-      r.cardSizeBytes = SD_MMC.cardSize();
+      r.cardSizeBytes = NomadSD.cardSize();
       Serial.printf("[SD] Mounted %s (%.2f GB)\n", attempts[i].label,
                     (double)r.cardSizeBytes / (1024.0 * 1024.0 * 1024.0));
       return r;
@@ -57,6 +105,8 @@ NomadSdMountResult NomadSD_Mount(uint8_t maxOpenFiles) {
                  "also probes SPI mode.");
   return r;
 }
+
+#endif
 
 // ================================================================= button ==
 static bool     s_btnInit = false;
@@ -128,8 +178,14 @@ void NomadHW_PrintBoardInfo(Stream &out) {
 #else
   out.println("Backlight     : hardwired on (no brightness control)");
 #endif
+#if NOMAD_SD_BUS == NOMAD_SD_BUS_SPI
+  out.printf("SD (SPI)      : SCLK %d MOSI %d MISO %d CS %d, up to %lu MHz\n",
+             SD_SCLK_PIN, SD_MOSI_PIN, SD_MISO_PIN, SD_CS_PIN,
+             (unsigned long)(SD_SPI_FREQ / 1000000UL));
+#else
   out.printf("SD (SDMMC)    : CLK %d CMD %d D0 %d D1 %d D2 %d D3 %d\n",
              SD_CLK_PIN, SD_CMD_PIN, SD_D0_PIN, SD_D1_PIN, SD_D2_PIN, SD_D3_PIN);
+#endif
 #if NOMAD_LED_TYPE == NOMAD_LED_APA102
   out.printf("RGB LED       : APA102, data %d clock %d\n", LED_PIN_DATA, LED_PIN_CLOCK);
 #elif NOMAD_LED_TYPE == NOMAD_LED_WS2812

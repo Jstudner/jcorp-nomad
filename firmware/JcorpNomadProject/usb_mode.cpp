@@ -11,7 +11,7 @@
 #include "RGB_lamp.h"
 #include <USB.h>
 #include <USBMSC.h>
-#include <SD_MMC.h>
+#include "nomad_sd.h"
 
 // USB Mass Storage Class (MSC) object
 USBMSC msc;
@@ -25,13 +25,13 @@ static volatile bool s_usbWroteData = false;
 // --------------------- Callbacks ---------------------
 
 static int32_t onWrite(uint32_t lba, uint32_t offset, uint8_t *buffer, uint32_t bufsize) {
-  uint32_t secSize = SD_MMC.sectorSize();
+  uint32_t secSize = NomadSD.sectorSize();
   if (!secSize) {
     return -1;  // disk error
   }
   s_usbWroteData = true;
   for (uint32_t x = 0; x < bufsize / secSize; x++) {
-    if (!SD_MMC.writeRAW(buffer + secSize * x, lba + x)) {
+    if (!NomadSD.writeRAW(buffer + secSize * x, lba + x)) {
       return -1;
     }
   }
@@ -39,12 +39,12 @@ static int32_t onWrite(uint32_t lba, uint32_t offset, uint8_t *buffer, uint32_t 
 }
 
 static int32_t onRead(uint32_t lba, uint32_t offset, void *buffer, uint32_t bufsize) {
-  uint32_t secSize = SD_MMC.sectorSize();
+  uint32_t secSize = NomadSD.sectorSize();
   if (!secSize) {
     return -1;  // disk error
   }
   for (uint32_t x = 0; x < bufsize / secSize; x++) {
-    if (!SD_MMC.readRAW((uint8_t *)buffer + secSize * x, lba + x)) {
+    if (!NomadSD.readRAW((uint8_t *)buffer + secSize * x, lba + x)) {
       return -1;  // outside of volume boundary
     }
   }
@@ -102,7 +102,7 @@ void usb_setup() {
   msc.onWrite(onWrite);
   msc.onStartStop(onStartStop);
   msc.mediaPresent(true);
-  msc.begin(SD_MMC.numSectors(), SD_MMC.sectorSize());
+  msc.begin(NomadSD.numSectors(), NomadSD.sectorSize());
 
   USB.begin();
   USB.onEvent(usbEventCallback);

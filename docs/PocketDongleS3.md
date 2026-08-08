@@ -125,25 +125,26 @@ by `X=1, Y=26` with `MADCTL = 0xA8` (MY | MV | BGR) and inversion on. If the
 image comes out upside down, that is what the **flip screen** option in the
 admin page is for.
 
-### microSD — SDMMC, 4-bit
+### microSD — plain SPI, separate bus
 
-The seller documents this with SPI names because their example drives the card
-over SPI. The same six pins are a full 4-bit SD bus under the usual dual
-naming, which is what the firmware uses:
+**This card is not on an SDMMC bus.** It is a four-wire SPI device on its own
+SPI host, so there is no CMD line and no DAT1/DAT2/DAT3 — `SD_MMC` cannot drive
+it at all. The firmware selects the `SD` (SPI) filesystem for this board via
+`NOMAD_SD_BUS` in `board_config.h`; see `nomad_sd.h`.
 
-| Seller's name | GPIO | SD bus signal |
-| --- | --- | --- |
-| SD_CLK | 17 | CLK |
-| SD_MOSI | 18 | CMD |
-| SD_MISO | 16 | DAT0 |
-| SD_D1 | 15 | DAT1 |
-| SD_D2 | 48 | DAT2 |
-| SD_CS | 47 | DAT3 |
+| Signal | GPIO |
+| --- | --- |
+| SCLK | 17 |
+| MOSI | 18 |
+| MISO | 16 |
+| CS | 47 |
 
-The firmware mounts in tiers — 4-bit/40 MHz, then 4-bit/20 MHz, then
-1-bit/20 MHz, then 1-bit/400 kHz — and logs which one took. It **never**
-formats the card on a failed mount. If only the 1-bit tiers come up, DAT1/DAT2
-are likely not actually wired; everything still works, just slower.
+The card sits on `HSPI` while the display uses `FSPI`, so the two never
+contend. `NomadSD_Mount` starts at 20 MHz and steps down through 10, 4 and
+1 MHz until the card answers, and **never** formats on a failed mount.
+
+An earlier revision of this port assumed a 4-bit SDMMC bus with DAT lines on
+GPIO 15 and 48. That was wrong: neither pin is connected to the card.
 
 ### Status LED
 
@@ -232,10 +233,12 @@ Clear the BGR bit: change `LCD_MADCTL` from `0xA8` to `0xA0`. If red/blue are
 swapped in the LVGL UI but correct in the self-test's colour bars, it is the
 framebuffer byte order instead — set `LV_COLOR_16_SWAP` to `1` in `lv_conf.h`.
 
-**"SDMMC Card initialization failed" at every speed.**
-Run the self-test's SD sweep; it tries the other known dongle pin maps and
-prints any that mount. Also confirm the card is FAT32 or exFAT — cards over
-32 GB formatted by Windows default to exFAT, which works, but NTFS does not.
+**The card will not mount at any speed.**
+Run the self-test's SD sweep. On this board it probes the SPI pins at four
+clock speeds; on the SDMMC boards it also falls back to probing SPI, which
+tells you whether the bus type is wrong rather than the pins. Also confirm the
+card is FAT32 — ESP-IDF's FATFS is built without exFAT support here, so an
+exFAT card will not mount.
 
 **PSRAM reports "not detected".**
 The board menu is set to QSPI PSRAM or PSRAM is disabled. Set it to OPI PSRAM.

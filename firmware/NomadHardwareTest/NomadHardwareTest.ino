@@ -194,6 +194,75 @@ static void ledSet(uint8_t, uint8_t, uint8_t) {}
 #endif
 
 // =============================================================== SD =========
+#if NOMAD_SD_BUS == NOMAD_SD_BUS_SPI
+
+// This board wires the card as a plain 4-wire SPI device on its own host.
+static SPIClass sdSpi(HSPI);
+
+struct SdSpiPinSet {
+  const char *name;
+  int sclk, mosi, miso, cs;
+};
+
+static const SdSpiPinSet kSdSpiCandidates[] = {
+  {"board_config.h",        SD_SCLK_PIN, SD_MOSI_PIN, SD_MISO_PIN, SD_CS_PIN},
+  {"GNPE Pocket-Dongle-S3", 17, 18, 16, 47},
+};
+
+static bool trySdSpi(const SdSpiPinSet &p, uint32_t freq) {
+  SD.end();
+  sdSpi.end();
+  delay(20);
+  sdSpi.begin(p.sclk, p.miso, p.mosi, p.cs);
+  if (!SD.begin(p.cs, sdSpi, freq, "/sdcard", 5, false /* never format */)) return false;
+  if (SD.cardType() == CARD_NONE) return false;
+  return true;
+}
+
+static void sdSweep() {
+  Serial.println("\n--- 5. microSD (SPI) ---");
+
+  static const uint32_t freqs[] = {SD_SPI_FREQ, 10000000, 4000000, 1000000};
+
+  for (size_t i = 0; i < sizeof(kSdSpiCandidates) / sizeof(kSdSpiCandidates[0]); ++i) {
+    const SdSpiPinSet &p = kSdSpiCandidates[i];
+    Serial.printf("  trying %-24s SCLK %d MOSI %d MISO %d CS %d ... ",
+                  p.name, p.sclk, p.mosi, p.miso, p.cs);
+
+    for (size_t f = 0; f < sizeof(freqs) / sizeof(freqs[0]); ++f) {
+      if (!trySdSpi(p, freqs[f])) continue;
+
+      Serial.printf("MOUNTED @ %lu MHz\n", (unsigned long)(freqs[f] / 1000000UL));
+      Serial.printf("    card size : %.2f GB\n",
+                    (double)SD.cardSize() / (1024.0 * 1024.0 * 1024.0));
+      Serial.printf("    used      : %.2f GB of %.2f GB\n",
+                    (double)SD.usedBytes() / (1024.0 * 1024.0 * 1024.0),
+                    (double)SD.totalBytes() / (1024.0 * 1024.0 * 1024.0));
+
+      Serial.println("    root listing:");
+      File root = SD.open("/");
+      if (root) {
+        int n = 0;
+        for (File e = root.openNextFile(); e && n < 15; e = root.openNextFile(), ++n) {
+          Serial.printf("      %-30s %s\n", e.name(), e.isDirectory() ? "<dir>" : "");
+          e.close();
+        }
+        root.close();
+      }
+      if (i != 0) {
+        Serial.println("    *** These pins are NOT what board_config.h says.");
+        Serial.println("    *** Copy them into the SD section of board_config.h.");
+      }
+      return;
+    }
+    Serial.println("no");
+  }
+
+  Serial.println("  No SPI pin set worked. Is a FAT32 card actually inserted?");
+}
+
+#else  // NOMAD_SD_BUS_SDMMC
+
 struct SdPinSet {
   const char *name;
   int clk, cmd, d0, d1, d2, d3;
@@ -203,9 +272,6 @@ struct SdPinSet {
 // fallbacks mounts, copy those numbers into board_config.h.
 static const SdPinSet kSdCandidates[] = {
   {"board_config.h",              SD_CLK_PIN, SD_CMD_PIN, SD_D0_PIN, SD_D1_PIN, SD_D2_PIN, SD_D3_PIN},
-  // GNPE Pocket-Dongle-S3, from the seller's schematic. Their SPI names map to
-  // the SD bus as MISO=D0, MOSI=CMD, CS=D3.
-  {"GNPE Pocket-Dongle-S3",       17, 18, 16, 15, 48, 47},
   {"LilyGO T-Dongle-S3",          12, 16, 14, 17, 21, 18},
   {"Waveshare ESP32-S3-LCD-1.47", 14, 15, 16, 18, 17, 21},
   {"ESP32-S3 devkit common",      36, 35, 37, 38, 33, 34},
@@ -220,14 +286,15 @@ static bool trySd(const SdPinSet &p, bool oneBit, int freq) {
   return true;
 }
 
-// SD over plain SPI: sck = SD_CLK, mosi = CMD (DI), miso = D0 (DO), cs = D3.
-static bool trySdSpi(int sck, int mosi, int miso, int cs) {
+// Some boards wire the card as plain SPI instead. Probe that as a fallback so a
+// total SDMMC failure can be told apart from a wrong pin map.
+static bool trySdSpiFallback(int sck, int mosi, int miso, int cs) {
   static SPIClass sdSpi(HSPI);
   SD.end();
   sdSpi.end();
   delay(20);
   sdSpi.begin(sck, miso, mosi, cs);
-  if (!SD.begin(cs, sdSpi, 20000000)) return false;
+  if (!SD.begin(cs, sdSpi, 20000000, "/sdcard", 5, false)) return false;
   if (SD.cardType() == CARD_NONE) return false;
   Serial.printf("    card size : %.2f GB\n",
                 (double)SD.cardSize() / (1024.0 * 1024.0 * 1024.0));
@@ -235,7 +302,7 @@ static bool trySdSpi(int sck, int mosi, int miso, int cs) {
 }
 
 static void sdSweep() {
-  Serial.println("\n--- 5. microSD ---");
+  Serial.println("\n--- 5. microSD (SDMMC) ---");
 
   for (size_t i = 0; i < sizeof(kSdCandidates) / sizeof(kSdCandidates[0]); ++i) {
     const SdPinSet &p = kSdCandidates[i];
@@ -253,7 +320,8 @@ static void sdSweep() {
     }
 
     Serial.printf("MOUNTED (%s)\n", how);
-    Serial.printf("    card size : %.2f GB\n", (double)SD_MMC.cardSize() / (1024.0 * 1024.0 * 1024.0));
+    Serial.printf("    card size : %.2f GB\n",
+                  (double)SD_MMC.cardSize() / (1024.0 * 1024.0 * 1024.0));
     Serial.printf("    used      : %.2f GB of %.2f GB\n",
                   (double)SD_MMC.usedBytes() / (1024.0 * 1024.0 * 1024.0),
                   (double)SD_MMC.totalBytes() / (1024.0 * 1024.0 * 1024.0));
@@ -276,19 +344,18 @@ static void sdSweep() {
     return;
   }
 
-  // Every SDMMC combination failed. The seller documents this card over SPI, so
-  // try that too - if SPI works and SDMMC does not, the data lines are probably
-  // not all wired and the firmware needs the 1-bit path.
   Serial.println("  No SDMMC pin set worked. Trying SPI mode on the configured pins...");
-  if (trySdSpi(SD_CLK_PIN, SD_CMD_PIN, SD_D0_PIN, SD_D3_PIN)) {
+  if (trySdSpiFallback(SD_CLK_PIN, SD_CMD_PIN, SD_D0_PIN, SD_D3_PIN)) {
     Serial.println("    MOUNTED over SPI.");
-    Serial.println("    *** SPI works but SDMMC does not. Report this - the");
-    Serial.println("    *** firmware uses SDMMC and would need an SPI path.");
+    Serial.println("    *** This board wires the card as SPI, not SDMMC.");
+    Serial.println("    *** Set NOMAD_SD_BUS to NOMAD_SD_BUS_SPI in board_config.h.");
   } else {
     Serial.println("    SPI mode failed too. Is a FAT32 card actually inserted,");
     Serial.println("    and are the pins in board_config.h right?");
   }
 }
+
+#endif
 
 // ============================================================= sketch =======
 void setup() {

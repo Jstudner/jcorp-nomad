@@ -130,7 +130,7 @@ either of two boards, selected by one line in
 
 | Board | Screen | Notes |
 | --- | --- | --- |
-| **GNPE Pocket-Dongle-S3 0.96** | 0.96" ST7735, 160x80 | USB-A stick, microSD in the plug. Pin map from the seller's schematic. **Default on this branch.** See [docs/PocketDongleS3.md](docs/PocketDongleS3.md) |
+| **GNPE Pocket-Dongle-S3 0.96** | 0.96" ST7735, 160x80 | USB-A stick, microSD on a plain **SPI** bus, no backlight control, no RGB LED. Pin map from the board spec. **Default on this branch.** See [docs/PocketDongleS3.md](docs/PocketDongleS3.md) |
 | **LilyGO T-Dongle-S3** | 0.96" ST7735, 160x80 | Same form factor and panel, completely different wiring, plus an APA102 LED |
 | **Waveshare ESP32-S3-LCD-1.47** | 1.47" ST7789, 172x320 | The original Nomad board, WS2812 LED |
 
