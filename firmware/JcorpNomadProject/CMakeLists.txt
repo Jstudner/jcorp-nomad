@@ -1,5 +1,8 @@
-SET(SOURCES ui_Screen1.c
-    ui.c
+# Board-independent sources plus whichever screen layout board_config.h selects.
+# Both layout files are listed: each one #if's itself out for the other board.
+SET(SOURCES ui.c
+    ui_Screen1.c
+    ui_screen_mini.c
     ui_comp_hook.c
     ui_helpers.c
     ui_img_1472434861.c

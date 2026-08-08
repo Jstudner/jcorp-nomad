@@ -8,12 +8,15 @@
 SdExFat sd;
 ExFatFile file;
 #include <DNSServer.h>
+#include "board_config.h"
 #include "SD_Card.h"
 #include <ArduinoJson.h>
 #include <map>
-#include "Display_ST7789.h"
+#include "Display_Driver.h"
 #include "LVGL_Driver.h"
 #include "ui.h"
+#include "nomad_ui.h"
+#include "nomad_hw.h"
 #include "RGB_lamp.h"
 #include <SPIFFS.h>
 #include <Preferences.h>
@@ -27,6 +30,9 @@ ExFatFile file;
 #include "boot_mode.h" // library for firmware switching
 
 void handleRangeRequest(AsyncWebServerRequest *request);
+String humanSize(size_t bytes);   // defined further down; declared here so the
+                                  // sketch no longer depends on the IDE's
+                                  // auto-generated prototypes
 void handleUpload(AsyncWebServerRequest *request, const String& filename, size_t index, uint8_t *data, size_t len, bool final);
 String urlDecode(const String& str);
 void enqueueIndexUpdateForPath(const String& path);
@@ -43,7 +49,7 @@ extern void usb_loop();
     usb_loop();
   }
 }
-#define BOOT_BUTTON_PIN 0  
+// BOOT_BUTTON_PIN now comes from board_config.h
 #include <vector>
 #ifndef GLOBAL_INDEX_BUF
 #define GLOBAL_INDEX_BUF 1024
@@ -145,6 +151,8 @@ volatile bool firstTimeIndexBuild = false;  // Track if this is initial index cr
 // Function declarations for task management
 void shutdownBackgroundTasksForStreaming();
 void startBackgroundTasksIfNeeded();
+void handleBootButton();
+void refreshDeviceStats();
 void checkStreamingTimeout();
 void immediateEnqueueTopLevelTask(void *param);
 void triggerIndexingIfNeeded(const String& filePath);
@@ -155,12 +163,12 @@ void updateSDBAR() {
 }
 void updateSDBAR_UI_ThreadOnly() {
   if (cachedTotalBytes == 0) return;
-  
+
   int usage = (int)((cachedUsedBytes * 100) / cachedTotalBytes);
   if (usage > 100) usage = 100;
   if (usage < 0) usage = 0;
-  
-  lv_bar_set_value(ui_sdbar, usage, LV_ANIM_OFF);
+
+  NomadUI_SetSdUsage(usage, cachedUsedBytes, cachedTotalBytes);
   sdbarDirty = false;
 }
 #include <string> // used by std::map key
@@ -204,7 +212,7 @@ struct AdminSettings {
   String adminPassword = "";
   String wifiSSID = "Jcorp_Nomad";
   String wifiPassword = "password";
-  int brightness = 230;
+  int brightness = 80;   // percent; the admin slider is 1..100
   bool autoGenerateMedia = false;
 };
 
@@ -248,12 +256,7 @@ void webLogf(const String& type, const char* format, ...) {
 
   webLog(String(buffer), type);
 }
-#define SD_CLK_PIN 14
-#define SD_CMD_PIN 15
-#define SD_D0_PIN 16
-#define SD_D1_PIN 18
-#define SD_D2_PIN 17
-#define SD_D3_PIN 21
+// SD_CLK_PIN / SD_CMD_PIN / SD_D0..D3_PIN come from board_config.h
 const char *INDEX_DIR = "/.system-index";   // on-SD folder for index files
 const size_t INDEX_WRITE_CHUNK = 4096;      // flush buffer when larger than this
 // Normalize path: ensure leading '/', remove trailing '/'
@@ -940,7 +943,7 @@ bool loadSettings() {
   settings.adminPassword = doc["adminPassword"] | "";
   settings.wifiSSID = doc["wifiSSID"] | "Jcorp_Nomad";
   settings.wifiPassword = doc["wifiPassword"] | "password";
-  settings.brightness = doc["brightness"] | 230;
+  settings.brightness = doc["brightness"] | 80;
   settings.autoGenerateMedia = doc["autoGenerateMedia"] | false;
 
   return true;
@@ -1026,12 +1029,13 @@ bool deleteRecursive(String path) {
 volatile bool sdErrorFlag            = false;      
 unsigned long sdErrorCooldownUntil   = 0;          
 
-bool tryRecoverSDCard() {                          
+bool tryRecoverSDCard() {
     Serial.println("[SD] Attempting recovery…");
     SD_MMC.end();          // unmount
     delay(1000);           // give hardware a breather
 
-    if (!SD_MMC.begin("/sdcard", true, false, SDMMC_FREQ_DEFAULT, 12)) {
+    NomadSdMountResult r = NomadSD_Mount(12);
+    if (!r.mounted) {
         Serial.println("[SD] Recovery failed.");
         return false;
     }
@@ -1056,8 +1060,11 @@ void RGB_SetColor(uint8_t r, uint8_t g, uint8_t b) {
     solidR = r;
     solidG = g;
     solidB = b;
-    currentLEDMode = 2; 
-    Set_Color(g, r, b);
+    currentLEDMode = 2;
+    // Set_Color() takes plain R, G, B - the driver handles the LED's own
+    // channel order. The old call passed (g, r, b), which made every solid
+    // colour picked in the admin page come out with red and green swapped.
+    Set_Color(r, g, b);
 }
 extern lv_obj_t *ui_wifi;
 extern lv_obj_t *ui_SDcard;
@@ -1082,20 +1089,17 @@ const unsigned long SD_SCAN_INTERVAL = 60000; // 60 seconds
 
 // Update the UI with the number of connected users
 void updateUI(int userCount) {
-    char buffer[10];
-    snprintf(buffer, sizeof(buffer), "%d", userCount);
-    lv_label_set_text(ui_userlabel, buffer);
+    NomadUI_SetUsers(userCount);
 }
 void updateToggleStatus() {
     bool currentWifiStatus = WiFi.softAPIP();
     if (currentWifiStatus != lastWifiStatus) {
+        NomadUI_SetWifiOk(currentWifiStatus);
         if (currentWifiStatus) {
-            lv_obj_add_state(ui_wifi, LV_STATE_CHECKED);
             if (!lastWifiStatus) {
                 webLog("[SYSTEM] WiFi AP verified successfully", "success");
             }
         } else {
-            lv_obj_clear_state(ui_wifi, LV_STATE_CHECKED);
             webLog("[SYSTEM] WiFi AP failure detected - attempting recovery", "error");
         }
         lastWifiStatus = currentWifiStatus;
@@ -1105,13 +1109,12 @@ void updateToggleStatus() {
 void updateSDStatus() {
     bool currentSDStatus = SD_MMC.cardType() != CARD_NONE;
     if (currentSDStatus != lastSDStatus) {
+        NomadUI_SetSdOk(currentSDStatus);
         if (currentSDStatus) {
-            lv_obj_add_state(ui_SDcard, LV_STATE_CHECKED);
             if (!lastSDStatus) {
                 webLog("[SYSTEM] SD card verified successfully", "success");
             }
         } else {
-            lv_obj_clear_state(ui_SDcard, LV_STATE_CHECKED);
             webLog("[SYSTEM] SD card failure detected - attempting recovery", "error");
         }
         lastSDStatus = currentSDStatus;
@@ -2439,6 +2442,8 @@ void applyWiFiSettings() {
   Serial.println(settings.wifiSSID);
   WiFi.softAP(settings.wifiSSID.c_str(), settings.wifiPassword.c_str());
   dnsServer.start(DNS_PORT, "*", WiFi.softAPIP());
+  NomadUI_SetSSID(settings.wifiSSID.c_str());
+  NomadUI_SetIP(WiFi.softAPIP().toString().c_str());
 }
 // Return number of connected stations on the softAP
 int getConnectedUserCount() {
@@ -2600,9 +2605,8 @@ void indexWorkerTask(void *param) {
 
         if (firstTimeIndexBuild) {
           // First-time index build complete - show message and reboot
-          lv_obj_clear_flag(ui_MediaGen, LV_OBJ_FLAG_HIDDEN);
-          lv_textarea_set_text(ui_MediaGen, "First-time index build complete!\n\nRebooting in 5 seconds...");
-          lv_timer_handler();
+          NomadUI_Message("First-time index build complete!\n\nRebooting in 5 seconds...");
+          NomadUI_Flush();
           Serial.println("[IndexWorker] First-time index complete - rebooting in 5 seconds");
           
           webLog("[IndexWorker] First-time setup completed - rebooting", "success");
@@ -2612,8 +2616,8 @@ void indexWorkerTask(void *param) {
           ESP.restart();
         } else {
           // Regular index update - show completion and trigger storage scan
-          lv_textarea_set_text(ui_MediaGen, "Filesystem update complete!\nUpdating storage info...");
-          lv_timer_handler();
+          NomadUI_Message("Filesystem update complete!\nUpdating storage info...");
+          NomadUI_Flush();
           Serial.println("[IndexWorker] Index complete, triggering storage scan");
 
           // NOW spawn storage scan AFTER indexing is complete
@@ -2936,9 +2940,8 @@ void bootCoordinatorTask(void *pv) {
   if (!SD_MMC.exists(INDEX_DIR)) {
     Serial.println("[BootCoord] Index directory missing - MUST create indexes (ignoring autoGenerateMedia setting)");
 
-    lv_obj_clear_flag(ui_MediaGen, LV_OBJ_FLAG_HIDDEN);
-    lv_textarea_set_text(ui_MediaGen, "First-time setup detected\nBuilding media indexes...\nThis will take a few minutes\n\nDevice will reboot when complete");
-    lv_timer_handler();
+    NomadUI_Message("First-time setup detected\nBuilding media indexes...\nThis takes a few minutes\n\nDevice reboots when done");
+    NomadUI_Flush();
     Serial.println("[BootCoord] LVGL screen updated with first-time setup message");
 
     ensureIndexDir();
@@ -3126,9 +3129,8 @@ bool checkAndHandleLegacyIndex() {
     Serial.println("[LEGACY] Found legacy media.json file - upgrading to v2 index system");
 
     // Display upgrade message on LVGL (this one also doesnt work, ill fix it later)
-    lv_obj_clear_flag(ui_MediaGen, LV_OBJ_FLAG_HIDDEN);
-    lv_textarea_set_text(ui_MediaGen, "Updating to v2...");
-    lv_timer_handler();
+    NomadUI_Message("Updating to v2...");
+    NomadUI_Flush();
 
     // Delete the legacy media.json file
     if (SD_MMC.remove("/media.json")) {
@@ -3161,9 +3163,8 @@ bool checkAndHandleLegacyIndex() {
 
   if (!hasAnyIndex) {
     Serial.println("[INDEX] No existing index files found - triggering full initial scan");
-    lv_obj_clear_flag(ui_MediaGen, LV_OBJ_FLAG_HIDDEN);
-    lv_textarea_set_text(ui_MediaGen, "Building initial index...");
-    lv_timer_handler();
+    NomadUI_Message("Building initial index...");
+    NomadUI_Flush();
     return true; // Indicates we need a full rebuild
   }
 
@@ -3198,32 +3199,26 @@ void setup() {
     Serial.begin(115200);
     delay(100);
     Serial.println("=== Booting Nomad (debug) ===");
-    pinMode(BOOT_BUTTON_PIN, INPUT_PULLUP);
+    NomadButton_Init();
 
     if (get_boot_mode() == USB_MODE) {
       clear_boot_mode();    // next boot will go back to MEDIA
       delay(500);
       Serial.println(">>> USB mode: mounting SD & starting MSC");
-      LCD_Init();
-      Lvgl_Init();
-      ui_init();       
+      NomadUI_Init();
       btStop(); //Stops bluetooth (dont need)
-      lv_scr_load(ui_Screen1);    
-      lv_obj_clear_flag(ui_MediaGen, LV_OBJ_FLAG_HIDDEN);
-      lv_textarea_set_text(ui_MediaGen, "USB Mass-Storage Mode");
-      lv_timer_handler();
+      NomadUI_Message("USB Mass-Storage Mode\n\nEject or press the button\nto return to media mode");
+      NomadUI_Flush();
       
       launch_usb_mode();
       return;
     }
 
 
-    LCD_Init();
-    Lvgl_Init();
-    ui_init();
-    lv_obj_clear_flag(ui_MediaGen, LV_OBJ_FLAG_HIDDEN);
-    lv_textarea_set_text(ui_MediaGen, "Booting...");
-    lv_timer_handler();
+    NomadUI_Init();
+    NomadHW_PrintBoardInfo(Serial);
+    NomadUI_Message("Booting...");
+    NomadUI_Flush();
     delay(200);
 
     Serial.begin(115200);
@@ -3237,23 +3232,27 @@ void setup() {
   
 
 // Initialize SD card with full diagnostics
+// Mount the SD card. NomadSD_Mount() walks 4-bit/40 MHz down to 1-bit/probe
+// speed until the card answers, so a marginal board still comes up instead of
+// hard-failing, and it never formats on error.
 Serial.println("Initializing SD Card...");
 
-// Test basic pin setup first
-Serial.println("Setting up MMC pins...");
-if (!SD_MMC.setPins(SD_CLK_PIN, SD_CMD_PIN, SD_D0_PIN, SD_D1_PIN, SD_D2_PIN, SD_D3_PIN)) {
-    Serial.println("ERROR: SDMMC Pin configuration failed!");
-    return;
-}
-
-if (!SD_MMC.begin("/sdcard", true, false, SDMMC_FREQ_DEFAULT, 12)) {
+NomadSdMountResult sdMount = NomadSD_Mount(12);
+if (!sdMount.mounted) {
     Serial.println("ERROR: SDMMC Card initialization failed.");
+    webLog("[SD] Card mount failed - check the card and the pins in board_config.h", "error");
+    NomadUI_Message("No SD card\n\nInsert a FAT32 card\nand reboot");
+    NomadUI_Flush();
+    NomadUI_SetSdOk(false);
     return;
 }
 
 Serial.println("SD Card initialized successfully!");
 
-    webLogf("success", "SD Card initialized successfully - Size: %.1f GB", (float)SD_MMC.cardSize() / (1024.0 * 1024.0 * 1024.0));
+    webLogf("success", "SD Card mounted (%s @ %lu MHz) - Size: %.1f GB",
+            sdMount.fourBit ? "4-bit" : "1-bit",
+            (unsigned long)(sdMount.freqHz / 1000000UL),
+            (float)sdMount.cardSizeBytes / (1024.0 * 1024.0 * 1024.0));
 
     // Initialize SD status for LVGL indicator
     cachedTotalBytes = SD_MMC.totalBytes();
@@ -3290,7 +3289,8 @@ Serial.println("SD Card initialized successfully!");
     Serial.printf("[SETTINGS] autoGenerateMedia = %s\n", settings.autoGenerateMedia ? "true" : "false");
     applyWiFiSettings();
     applyRGBSettings();
-    lv_label_set_text(ui_ssidlabel, settings.wifiSSID.c_str());
+    NomadUI_SetSSID(settings.wifiSSID.c_str());
+    NomadUI_SetIP(WiFi.softAPIP().toString().c_str());
     Serial.print("settings.brightness = ");
     Serial.println(settings.brightness);
     // Check for legacy one-time flag on SD
@@ -3370,10 +3370,11 @@ Serial.println("SD Card initialized successfully!");
 
     delay(2000);
 
-    attachInterrupt(BOOT_BUTTON_PIN, [](){
-      set_boot_mode(USB_MODE);
-      ESP.restart();
-    }, FALLING);
+    // The boot button is polled (see handleBootButton()) rather than wired to
+    // an interrupt: rebooting from inside an ISR is unsafe, and a bare FALLING
+    // edge fired on the slightest contact bounce or ESD, dropping the server
+    // into USB mode at random. Tap = next screen, hold = USB mass storage.
+
     // Start Captive DNS redirection
     dnsServer.start(DNS_PORT, "*", WiFi.softAPIP());
     //OPDS Endpoint
@@ -4327,9 +4328,8 @@ server.on("/settings", HTTP_POST, [](AsyncWebServerRequest *request){
   // Safe shutdown handler
   server.on("/shutdown", HTTP_GET, [](AsyncWebServerRequest *request) {
       // Display shutdown message on LVGL screen
-      lv_textarea_set_text(ui_MediaGen, "Shutting Down...");
-      lv_obj_clear_flag(ui_MediaGen, LV_OBJ_FLAG_HIDDEN);
-      lv_timer_handler(); // Force UI update
+      NomadUI_Message("Shutting Down...");
+      NomadUI_Flush(); // Force UI update
 
       // Send response to client before shutting down
       request->send(200, "text/plain", "Server is shutting down safely");
@@ -4718,19 +4718,13 @@ server.on("/settings", HTTP_POST, [](AsyncWebServerRequest *request){
       delay(80);
 
       Serial.println(">>> Preparing display to show FLASH mode message...");
-      LCD_Init();
-      Lvgl_Init();
-      ui_init();
+      NomadUI_Init();
       btStop(); // stop bluetooth tasks if applicable
 
-      lv_scr_load(ui_Screen1);
-      lv_obj_clear_flag(ui_MediaGen, LV_OBJ_FLAG_HIDDEN);
-      lv_textarea_set_text(ui_MediaGen, "Flashing Mode, Ready for Update");
+      NomadUI_Message("Flashing Mode\nReady for Update");
       // Give LVGL a few cycles to flush to the screen so the user sees the message
-      for (int i = 0; i < 6; ++i) {
-        lv_timer_handler();
-        delay(50);
-      }
+      NomadUI_Flush();
+      NomadUI_Flush();
 
   #if defined(ARDUINO_ARCH_ESP32)
       Serial.println(">>> Writing force-download flag and restarting (RTC_CNTL_FORCE_DOWNLOAD_BOOT).");
@@ -4751,16 +4745,11 @@ server.on("/settings", HTTP_POST, [](AsyncWebServerRequest *request){
   });
 
 
-// ─── USB‑mode switch: jump to USB MSC on Boot‑button press ───
-attachInterrupt(BOOT_BUTTON_PIN, [](){
-  set_boot_mode(USB_MODE);
-  esp_restart();            // actually reboot into USB mode
-}, FALLING);
+// ─── USB-mode switch is handled by handleBootButton(), polled from loop() ───
 // Start the web server
   server.begin();
-  lv_textarea_set_text(ui_MediaGen, "");
-  lv_obj_add_flag(ui_MediaGen, LV_OBJ_FLAG_HIDDEN);
-  lv_timer_handler();
+  NomadUI_ClearMessage();
+  NomadUI_Flush();
   updateToggleStatus(); // Reflect initial WiFi and SD status
   webLog("[SYSTEM] Web server started - ready to accept connections", "success");
   {
@@ -4774,7 +4763,7 @@ attachInterrupt(BOOT_BUTTON_PIN, [](){
 
         // RGB updates are time-sensitive for visual smoothness
         if (currentLEDMode == 1) {
-          RGB_Lamp_Loop(2);
+          RGB_Lamp_Loop(20);   // hue step every 20 ms -> ~5 s per full cycle
         }
 
 
@@ -4812,6 +4801,11 @@ attachInterrupt(BOOT_BUTTON_PIN, [](){
           lastSdbarUpdateLocal = now;
         }
 
+        static uint32_t lastStatsLocal = 0;
+        if (now - lastStatsLocal > 1000) {
+          refreshDeviceStats();
+          lastStatsLocal = now;
+        }
 
         updateClientCount();
 
@@ -4857,9 +4851,10 @@ attachInterrupt(BOOT_BUTTON_PIN, [](){
 void loop() {
     dnsServer.processNextRequest();
     Timer_Loop();
+    handleBootButton();
 
     if (currentLEDMode == 1) {
-        RGB_Lamp_Loop(2);
+        RGB_Lamp_Loop(20);
     }
     if (sdErrorFlag) {                                            
         if (millis() > sdErrorCooldownUntil && tryRecoverSDCard()) {
@@ -4892,6 +4887,37 @@ void loop() {
     }
     delay(5); // Prevent watchdog starvation
     updateClientCount();
+}
+
+// ─── Boot button ──────────────────────────────────────────────────────────
+// Tap  : next on-screen page (connection / system / storage)
+// Hold : reboot into USB mass-storage mode
+void handleBootButton() {
+    switch (NomadButton_Poll()) {
+        case NOMAD_BTN_SHORT:
+            NomadUI_NextPage();
+            break;
+
+        case NOMAD_BTN_LONG:
+            webLog("[SYSTEM] Boot button held - switching to USB mass storage", "info");
+            NomadUI_Message("Switching to\nUSB Mass-Storage...");
+            NomadUI_Flush();
+            set_boot_mode(USB_MODE);
+            delay(150);
+            esp_restart();
+            break;
+
+        default:
+            break;
+    }
+}
+
+// Feed the on-device system page. Cheap enough to run once a second.
+void refreshDeviceStats() {
+    NomadUI_SetSysStats((uint32_t)(ESP.getFreeHeap() / 1024),
+                        (uint32_t)(ESP.getFreePsram() / 1024),
+                        currentTempC,
+                        (uint32_t)(millis() / 1000UL));
 }
 
 

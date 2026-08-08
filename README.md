@@ -101,15 +101,41 @@ Nomad is now **stable** on the `main` branch with several new features and impro
 
 ---
 
+## Supported Boards
+
+Nomad runs on two boards today, selected by a single line in
+`firmware/JcorpNomadProject/board_config.h`:
+
+| Board | Screen | Notes |
+| --- | --- | --- |
+| **Pocket-Dongle-S3 0.96** (also LilyGO T-Dongle-S3 and clones) | 0.96" ST7735, 160x80 | USB-A stick, microSD in the plug, APA102 LED. **Default.** See [docs/PocketDongleS3.md](docs/PocketDongleS3.md) |
+| **Waveshare ESP32-S3-LCD-1.47** | 1.47" ST7789, 172x320 | The original Nomad board, WS2812 LED |
+
+```c
+#define NOMAD_BOARD NOMAD_BOARD_POCKET_DONGLE_S3
+// #define NOMAD_BOARD NOMAD_BOARD_WAVESHARE_LCD147
+```
+
+That switch picks the LCD controller and geometry, every pin, the backlight
+polarity, the LED backend and which on-device screen layout is compiled.
+Porting to a third board means copying one block in `board_config.h`.
+
+Not sure how your dongle is wired? Flash `firmware/NomadHardwareTest` first —
+it verifies the display, LED, button and SD pins, and sweeps the known
+alternative SD pin maps if the configured one does not mount.
+
+---
+
 ## Hardware Requirements
 
-- **Waveshare ESP32-S3 Dev Board (1.47" LCD version)**  
-  [Amazon Link](https://amzn.to/4ktB6oT)  
+- **An ESP32-S3 board from the table above**
+  - Pocket-Dongle-S3 0.96 / LilyGO T-Dongle-S3 (ESP32-S3 N16R8)
+  - or Waveshare ESP32-S3 Dev Board, 1.47" LCD version — [Amazon Link](https://amzn.to/4ktB6oT)
 
 - **FAT32 microSD card (16–64GB recommended)**  
   [Amazon Link](https://amzn.to/44tM1c4)  
 
-- **SD-Card Extender (optional, 3DP case compatible)**  
+- **SD-Card Extender (optional, 3DP case compatible — Waveshare build)**  
   [Amazon Link](https://amzn.to/45IWIJz)  
 
 - **USB power source**  
@@ -119,7 +145,7 @@ Nomad is now **stable** on the `main` branch with several new features and impro
 
 ## Software Requirements
 
-- Arduino IDE  
+- Arduino IDE with **esp32 core 3.x** by Espressif  
 - Fat32Format or equivalent  
 - SquareLine Studio (optional, for UI editing)
 
@@ -127,7 +153,10 @@ Nomad is now **stable** on the `main` branch with several new features and impro
 
 ## Quick Start
 
-1. Flash ESP32-S3 firmware from `/firmware/`.  
+1. Pick your board in `firmware/JcorpNomadProject/board_config.h`, then flash
+   the firmware from `/firmware/`. (Dongle builds: check the board settings in
+   [docs/PocketDongleS3.md](docs/PocketDongleS3.md) first — PSRAM must be
+   **OPI**.)  
 2. Format SD card as FAT32 and copy `/SD_Card_Template/` files.  
 3. Place media in `/Movies`, `/Shows`, `/Books`, `/Music`, `/Gallery`, `/Files`.  
 4. Insert SD card and power device via USB.  
@@ -136,6 +165,10 @@ Nomad is now **stable** on the `main` branch with several new features and impro
 7. Click the gear icon → Library Index → **Full Scan Now**.  
 8. Monitor Admin Console for progress; scan may take minutes.  
 9. Return to Menu page and enjoy your media!
+
+On the dongle build the boot button does double duty: **tap** it to cycle the
+screen between connection / system / storage pages, **hold** it for ~1.2 s to
+reboot as a plain USB drive for loading media.
 
 ---
 ```

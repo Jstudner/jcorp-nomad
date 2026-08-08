@@ -1,5 +1,6 @@
-ui_Screen1.c
 ui.c
+ui_Screen1.c
+ui_screen_mini.c
 ui_comp_hook.c
 ui_helpers.c
 ui_img_1472434861.c

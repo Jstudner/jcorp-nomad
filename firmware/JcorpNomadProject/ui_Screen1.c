@@ -3,6 +3,11 @@
 // LVGL version: 8.3.11
 // Project name: waveshare
 
+// 172x320 portrait layout. Compiled only for boards that select
+// NOMAD_UI_PORTRAIT_TALL; the 160x80 dongle uses ui_screen_mini.c instead.
+#include "board_config.h"
+#if NOMAD_UI_LAYOUT == NOMAD_UI_PORTRAIT_TALL
+
 #include "ui.h"
 
 lv_obj_t * ui_Screen1 = NULL;
@@ -168,3 +173,5 @@ void ui_Screen1_screen_destroy(void)
     ui_MediaGen = NULL;
 
 }
+
+#endif  // NOMAD_UI_LAYOUT == NOMAD_UI_PORTRAIT_TALL

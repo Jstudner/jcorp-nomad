@@ -3,13 +3,7 @@
 #include <cstring>
 #include "FS.h"
 #include "SD_MMC.h"
-
-#define SD_CLK_PIN    14
-#define SD_CMD_PIN    15 
-#define SD_D0_PIN     16
-#define SD_D1_PIN     18
-#define SD_D2_PIN     17 
-#define SD_D3_PIN     21 
+#include "board_config.h"   // SD_CLK_PIN / SD_CMD_PIN / SD_D0..D3_PIN live here now
 
 extern uint16_t SDCard_Size;
 extern uint16_t Flash_Size;

@@ -1,49 +1,105 @@
-#line 1 "C:\\Users\\jstud\\Downloads\\ESP32-S3-LCD-1.47-Demo\\Arduino\\examples\\LVGL_Arduino\\RGB_lamp.cpp"
 #include "RGB_lamp.h"
 
-uint16_t Time = 0;
-uint16_t Number = 0;
-uint8_t RGB_Data[192][3] = {
-  {64, 1, 0},  {63, 2, 0},  {62, 3, 0},  {61, 4, 0},  {60, 5, 0},  {59, 6, 0},  {58, 7, 0},  {57, 8, 0},
-  {56, 9, 0},  {55, 10, 0}, {54, 11, 0}, {53, 12, 0}, {52, 13, 0}, {51, 14, 0}, {50, 15, 0}, {49, 16, 0},
-  {48, 17, 0}, {47, 18, 0}, {46, 19, 0}, {45, 20, 0}, {44, 21, 0}, {43, 22, 0}, {42, 23, 0}, {41, 24, 0},
-  {40, 25, 0}, {39, 26, 0}, {38, 27, 0}, {37, 28, 0}, {36, 29, 0}, {35, 30, 0}, {34, 31, 0}, {33, 32, 0},
-  {32, 33, 0}, {31, 34, 0}, {30, 35, 0}, {29, 36, 0}, {28, 37, 0}, {27, 38, 0}, {26, 39, 0}, {25, 40, 0},
-  {24, 41, 0}, {23, 42, 0}, {22, 43, 0}, {21, 44, 0}, {20, 45, 0}, {19, 46, 0}, {18, 47, 0}, {17, 48, 0},
-  {16, 49, 0}, {15, 50, 0}, {14, 51, 0}, {13, 52, 0}, {12, 53, 0}, {11, 54, 0}, {10, 55, 0}, {9, 56, 0},
-  {8, 57, 0},  {7, 58, 0},  {6, 59, 0},  {5, 60, 0},  {4, 61, 0},  {3, 62, 0},  {2, 63, 0},  {1, 64, 0},
+static bool s_ledReady = false;
 
-  {0, 64, 1},  {0, 63, 2},  {0, 62, 3},  {0, 61, 4},  {0, 60, 5},  {0, 59, 6},  {0, 58, 7},  {0, 57, 8},
-  {0, 56, 9},  {0, 55, 10}, {0, 54, 11}, {0, 53, 12}, {0, 52, 13}, {0, 51, 14}, {0, 50, 15}, {0, 49, 16},
-  {0, 48, 17}, {0, 47, 18}, {0, 46, 19}, {0, 45, 20}, {0, 44, 21}, {0, 43, 22}, {0, 42, 23}, {0, 41, 24},
-  {0, 40, 25}, {0, 39, 26}, {0, 38, 27}, {0, 37, 28}, {0, 36, 29}, {0, 35, 30}, {0, 34, 31}, {0, 33, 32},
-  {0, 32, 33}, {0, 31, 34}, {0, 30, 35}, {0, 29, 36}, {0, 28, 37}, {0, 27, 38}, {0, 26, 39}, {0, 25, 40},
-  {0, 24, 41}, {0, 23, 42}, {0, 22, 43}, {0, 21, 44}, {0, 20, 45}, {0, 19, 46}, {0, 18, 47}, {0, 17, 48},
-  {0, 16, 49}, {0, 15, 50}, {0, 14, 51}, {0, 13, 52}, {0, 12, 53}, {0, 11, 54}, {0, 10, 55}, {0, 9, 56},
-  {0, 8, 57},  {0, 7, 58},  {0, 6, 59},  {0, 5, 60},  {0, 4, 61},  {0, 3, 62},  {0, 2, 63},  {0, 1, 64},
+// ------------------------------------------------------------- WS2812 ------
+#if NOMAD_LED_TYPE == NOMAD_LED_WS2812
 
-  {1, 0, 64},  {2, 0, 63},  {3, 0, 62},  {4, 0, 61},  {5, 0, 60},  {6, 0, 59},  {7, 0, 58},  {8, 0, 57},
-  {9, 0, 56},  {10, 0, 55}, {11, 0, 54}, {12, 0, 53}, {13, 0, 52}, {14, 0, 51}, {15, 0, 50}, {16, 0, 49},
-  {17, 0, 48}, {18, 0, 47}, {19, 0, 46}, {20, 0, 45}, {21, 0, 44}, {22, 0, 43}, {23, 0, 42}, {24, 0, 41},
-  {25, 0, 40}, {26, 0, 39}, {27, 0, 38}, {28, 0, 37}, {29, 0, 36}, {30, 0, 35}, {31, 0, 34}, {32, 0, 33},
-  {33, 0, 32}, {34, 0, 31}, {35, 0, 30}, {36, 0, 29}, {37, 0, 28}, {38, 0, 27}, {39, 0, 26}, {40, 0, 25},
-  {41, 0, 24}, {42, 0, 23}, {43, 0, 22}, {44, 0, 21}, {45, 0, 20}, {46, 0, 19}, {47, 0, 18}, {48, 0, 17},
-  {49, 0, 16}, {50, 0, 15}, {51, 0, 14}, {52, 0, 13}, {53, 0, 12}, {54, 0, 11}, {55, 0, 10}, {56, 0, 9},
-  {57, 0, 8},  {58, 0, 7},  {59, 0, 6},  {60, 0, 5},  {61, 0, 4},  {62, 0, 3},  {63, 0, 2},  {64, 0, 1}
-};
-// data range -> Red:0~255  Green:0~255  Blue:0~255
-void Set_Color(uint8_t Red,uint8_t Green,uint8_t Blue)                                            // Set RGB bead color
-{
-  neopixelWrite(PIN_NEOPIXEL, Red, Green, Blue);  
+void RGB_Init(void) {
+  s_ledReady = true;  // neopixelWrite() drives the RMT/bitbang itself
 }
-void RGB_Lamp_Loop(uint16_t Waiting)
-{ 
-  Time++;
-  if(Time == Waiting){
-    Time = 0;
-    Number++;
-    if(Number == 192)
-      Number = 0;
-    Set_Color( RGB_Data[Number][0]*3, RGB_Data[Number][1]*3, RGB_Data[Number][2]*3);  // Color
+
+static void led_write(uint8_t r, uint8_t g, uint8_t b) {
+  neopixelWrite(LED_PIN_DATA, r, g, b);
+}
+
+// ------------------------------------------------------------- APA102 ------
+#elif NOMAD_LED_TYPE == NOMAD_LED_APA102
+
+// APA102 is plain SPI without chip select, so bit-banging a handful of bytes is
+// simpler (and cheaper) than tying up a hardware SPI bus for one LED.
+static inline void apa_byte(uint8_t v) {
+  for (int8_t bit = 7; bit >= 0; --bit) {
+    digitalWrite(LED_PIN_DATA, (v >> bit) & 0x01);
+    digitalWrite(LED_PIN_CLOCK, HIGH);
+    digitalWrite(LED_PIN_CLOCK, LOW);
   }
+}
+
+void RGB_Init(void) {
+  if (s_ledReady) return;
+  pinMode(LED_PIN_DATA, OUTPUT);
+  pinMode(LED_PIN_CLOCK, OUTPUT);
+  digitalWrite(LED_PIN_DATA, LOW);
+  digitalWrite(LED_PIN_CLOCK, LOW);
+  s_ledReady = true;
+}
+
+static void led_write(uint8_t r, uint8_t g, uint8_t b) {
+  RGB_Init();
+
+  // Start frame: 32 zero bits.
+  for (uint8_t i = 0; i < 4; ++i) apa_byte(0x00);
+
+  // LED frame: 111 + 5-bit global current, then the pixel in BGR order.
+  apa_byte(0xE0 | (LED_APA102_LEVEL & 0x1F));
+  apa_byte(b);
+  apa_byte(g);
+  apa_byte(r);
+
+  // End frame: at least n/2 clocks. One LED, so a single byte is plenty; four
+  // keeps us comfortably inside spec.
+  for (uint8_t i = 0; i < 4; ++i) apa_byte(0xFF);
+}
+
+// --------------------------------------------------------------- none ------
+#else
+
+void RGB_Init(void) {
+  s_ledReady = true;
+}
+static void led_write(uint8_t r, uint8_t g, uint8_t b) {
+  (void)r;
+  (void)g;
+  (void)b;
+}
+
+#endif
+
+void Set_Color(uint8_t Red, uint8_t Green, uint8_t Blue) {
+  if (!s_ledReady) RGB_Init();
+  led_write(Red, Green, Blue);
+}
+
+// Hue (0..255) to RGB, fixed point, no float and no lookup table. Replaces the
+// old 576-byte ramp table and gives a smoother sweep.
+static void hue_to_rgb(uint8_t hue, uint8_t value, uint8_t *r, uint8_t *g, uint8_t *b) {
+  uint8_t region = hue / 43;         // 0..5
+  uint8_t remainder = (hue - region * 43) * 6;  // 0..255 within the region
+  uint8_t p = 0;
+  uint8_t q = (uint8_t)(((uint16_t)value * (255 - remainder)) >> 8);
+  uint8_t t = (uint8_t)(((uint16_t)value * remainder) >> 8);
+
+  switch (region) {
+    case 0:  *r = value; *g = t;     *b = p;     break;
+    case 1:  *r = q;     *g = value; *b = p;     break;
+    case 2:  *r = p;     *g = value; *b = t;     break;
+    case 3:  *r = p;     *g = q;     *b = value; break;
+    case 4:  *r = t;     *g = p;     *b = value; break;
+    default: *r = value; *g = p;     *b = q;     break;
+  }
+}
+
+void RGB_Lamp_Loop(uint16_t Waiting) {
+  static uint32_t lastStep = 0;
+  static uint8_t hue = 0;
+
+  if (Waiting == 0) Waiting = 1;
+  uint32_t now = millis();
+  if ((uint32_t)(now - lastStep) < Waiting) return;
+  lastStep = now;
+
+  uint8_t r, g, b;
+  hue_to_rgb(hue++, 160, &r, &g, &b);
+  Set_Color(r, g, b);
 }
