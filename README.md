@@ -141,6 +141,29 @@ There are a few community forks that target other ESP32 boards, but your mileage
 
 ---
 
+## Flash It From Your Browser
+
+If you would rather skip Arduino IDE entirely, **[nomadflash.jcorptech.net](https://nomadflash.jcorptech.net)** does the setup from a browser tab. The firmware is already compiled, so there is nothing to install and no library versions to match.
+
+It covers three things:
+
+- **Flash the firmware.** Plug Nomad into a USB port, pick a build, and it writes the bootloader, partition table and app in one image. Takes about a minute.
+- **Set up the SD card.** Copies the web interface onto the card and creates the media folders with the exact names the firmware looks for. There is an optional test set of placeholder content if you want to see every page working before you load your own media.
+- **Update an existing card.** Replaces only the interface files and leaves your media alone. (still wip)
+
+Both the main and experimental builds are there, and each is offered for both boards:
+
+- **USB-A** for the ESP32-S3-LCD-1.47
+- **USB-C** for the ESP32-S3-LCD-1.47B
+
+Pick the one matching the connector on your board. The two differ only in which pin drives the LCD backlight.
+
+Formatting the card is the one step it cannot do, because a web page has no access to drives or partitions. The site prints the exact command for Windows, macOS or Linux instead. This branch needs **FAT32**, and will not work with anything else.
+
+**Requires Chrome, Edge or Opera on a desktop.** It uses Web Serial and the File System Access API, which Firefox and Safari do not implement, and neither one works on iOS or Android.
+
+---
+
 ## Software Requirements
 
 - Arduino IDE
