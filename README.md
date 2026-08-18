@@ -208,8 +208,6 @@ Burgundy Wine, Teal Oasis
 
 Nomad is built specifically for the **Waveshare ESP32-S3 Dev Board (1.47" LCD version)**. Due to the number of low-level tricks used to squeeze this much functionality out of the hardware, it is difficult to get Nomad running on other boards.
 
-Both the **1.47** (USB-A) and **1.47B** (USB-C) variants of this board are supported out of the box. The default firmware targets the USB-A board. To build for the 1.47B / USB-C variant, add `-D BOARD_USB_C=1` to your Arduino IDE board build flags (or define it in your `platformio.ini` / compile options) **before** compiling. You can also set `#define BOARD_USB_C 1` directly in `Display_ST7789.h` before the header's include guards.
-
 There are a few community forks that target other ESP32 boards, but your mileage will vary. I'm also actively working on a **Nomad Lite** version with wider board compatibility, focused on basic streaming without all the advanced features.
 
 ---
@@ -227,6 +225,29 @@ There are a few community forks that target other ESP32 boards, but your mileage
 
 - **USB power source**
 - **Optional:** 3D-printed enclosure (STL files included)
+
+---
+
+## Flash It From Your Browser
+
+If you would rather skip Arduino IDE entirely, **[nomadflash.jcorptech.net](https://nomadflash.jcorptech.net)** does the setup from a browser tab. The firmware is already compiled, so there is nothing to install and no SdFat version to line up.
+
+It covers three things:
+
+- **Flash the firmware.** Plug Nomad into a USB port, pick a build, and it writes the bootloader, partition table and app in one image. Takes about a minute.
+- **Set up the SD card.** Copies the web interface onto the card and creates every media folder this branch uses, including Games, Maps, Cookbook and Workshop. There is an optional test set of placeholder content if you want to see every page working before you load your own media.
+- **Update an existing card.** Replaces only the interface files and leaves your media alone. (still WIP)
+
+Both the main and experimental builds are there, and each is offered for both boards:
+
+- **USB-A** for the ESP32-S3-LCD-1.47
+- **USB-C** for the ESP32-S3-LCD-1.47B
+
+Pick the one matching the connector on your board. The two differ only in which pin drives the LCD backlight, so flashing the wrong one boots fine but leaves the screen dark.
+
+Formatting is the one step it cannot do, because a web page has no access to drives or partitions. On this branch you usually do not need it, since exFAT, FAT32 and FAT16 cards all mount as they come. If a card does need formatting, the site prints the exact command for Windows, macOS or Linux.
+
+**Requires Chrome, Edge or Opera on a desktop.** It uses Web Serial and the File System Access API, which Firefox and Safari do not implement, and neither one works on iOS or Android.
 
 ---
 
