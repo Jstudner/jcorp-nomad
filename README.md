@@ -208,6 +208,8 @@ Burgundy Wine, Teal Oasis
 
 Nomad is built specifically for the **Waveshare ESP32-S3 Dev Board (1.47" LCD version)**. Due to the number of low-level tricks used to squeeze this much functionality out of the hardware, it is difficult to get Nomad running on other boards.
 
+Both the **1.47** (USB-A) and **1.47B** (USB-C) variants of this board are supported out of the box. The default firmware targets the USB-A board. To build for the 1.47B / USB-C variant, add `-D BOARD_USB_C=1` to your Arduino IDE board build flags (or define it in your `platformio.ini` / compile options) **before** compiling. You can also set `#define BOARD_USB_C 1` directly in `Display_ST7789.h` before the header's include guards.
+
 There are a few community forks that target other ESP32 boards, but your mileage will vary. I'm also actively working on a **Nomad Lite** version with wider board compatibility, focused on basic streaming without all the advanced features.
 
 ---

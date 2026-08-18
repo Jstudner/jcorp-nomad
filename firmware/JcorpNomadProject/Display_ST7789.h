@@ -11,7 +11,17 @@
 #define EXAMPLE_PIN_NUM_LCD_CS         42
 #define EXAMPLE_PIN_NUM_LCD_DC         41
 #define EXAMPLE_PIN_NUM_LCD_RST        39
+// Board-specific backlight pin: 48 for ESP32-S3-LCD-1.47 (USB-A), 46 for ESP32-S3-LCD-1.47B (USB-C).
+// Set to 1 for the standard USB-A board (pin 48), or 0 for the 1.47B / USB-C board (pin 46).
+#ifndef BOARD_USB_C
+#define BOARD_USB_C 0
+#endif
+
+#if BOARD_USB_C
+#define EXAMPLE_PIN_NUM_BK_LIGHT       46
+#else
 #define EXAMPLE_PIN_NUM_BK_LIGHT       48
+#endif
 #define Frequency       1000                    // PWM frequencyconst 
 #define Resolution      10                      
 
