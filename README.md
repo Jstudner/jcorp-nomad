@@ -8,10 +8,10 @@
 Stream movies, music, books, and shows anywhere - no internet required.</p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/branch-experimental-orange.svg" alt="Branch: Experimental" />
+  <img src="https://img.shields.io/badge/firmware-4.6-blue.svg" alt="Firmware: 4.6" />
   <img src="https://img.shields.io/badge/license-CC--BY--NC--SA%204.0-blue.svg" alt="License: CC BY-NC-SA 4.0" />
   <img src="https://img.shields.io/badge/platform-ESP32--S3-orange" alt="Platform: ESP32-S3" />
-  <img src="https://img.shields.io/badge/status-rough-red" alt="Status: Stable" />
+  <img src="https://img.shields.io/badge/status-beta-yellow" alt="Status: Beta" />
 </p>
 
 <p align="center">
@@ -21,11 +21,13 @@ Stream movies, music, books, and shows anywhere - no internet required.</p>
 
 ---
 
-> **Experimental Branch** - This is where new stuff lands before it's ready for main. Right now that means exFAT card support, offline maps with turn by turn directions, game ROMs and a shelf of built-in games, local multiplayer, TV support over DLNA, a WiFi Mode that joins your home network, offline translation, and recipe + 3D model libraries. Everything from Mk4 is still here and still works, this branch just adds on top of it.
+> **Firmware 4.6** - The biggest update since Mk4, and everything in it has come over from the experimental branch. exFAT card support, offline maps with turn by turn directions, game ROMs and a shelf of built-in games, local multiplayer, TV support over DLNA, a WiFi Mode that joins your home network, offline translation, and recipe + 3D model libraries. Everything from Mk4 is still here and still works, this adds on top of it.
 >
-> Fair warning, these features are rough. They work, I use them, but they haven't been through anywhere near the testing the main branch has. Expect bugs, expect things to change, and don't put this on a Nomad you're relying on. If you want something stable, use main.
+> Some of this is newer than the rest. The parts I'd call settled are exFAT, the reader and the media pages. Maps, WiFi Mode, DLNA and Translate work are all tested in full, but they have had less time in front of other people's hardware than the rest of the project. Known rough edges are listed near the bottom, everything works but some is getting more improvments so its user friendly. Maps in particular is tricky right now. 
 >
 > Firmware and the SD card template both change here, so you'll need to reflash and refresh your card files.
+>
+> Also making a push to migrate fully to exfat, will be keeping fat32 legacy support so yall dont have to reformat your cards, but some of the advanced features will only work on exfat.
 
 ---
 
@@ -47,7 +49,7 @@ I strongly recommend building your own Nomad. It's not a very difficult project,
 
 That said, I also won't say no to money. If you'd rather skip the DIY and get a ready-to-go unit, prebuilt Nomads are available at **[nomad.jcorptech.net](https://nomad.jcorptech.net)**.
 
-Every Nomad, whether you build it or buy it, runs the same open-source firmware and web interface. When new features and updates are released, you can always flash the latest code yourself to stay up to date. This project isn't going anywhere. 
+Every Nomad, whether you build it or buy it, runs the same open-source firmware and web interface. When new features and updates are released, you can always flash the latest code yourself to stay up to date. 
 
 ### Support Development
 
@@ -56,7 +58,7 @@ If you just want to support the project, donations are always appreciated:
 
 ---
 
-## What's New in Experimental
+## What's New in 4.6
 
 ### exFAT Support
 
@@ -77,9 +79,8 @@ The reason this took so long, the Arduino ESP32 core ships a prebuilt filesystem
 - Map regions live in `/Maps` and get browsed offline, with place search and real turn by turn directions (Drive and Walk)
 - Regions are prepped on your PC with Nomad Tools, which downloads the map picture and the road network for the areas you pick
 - Reads map data straight out of a packed archive instead of unpacking it onto the card, which keeps a region at roughly its download size instead of several times bigger
-- The Maps tile only shows up on the menu if you actually have a region on the card
 
-This one is the roughest of the bunch. It works, but it's slow, big regions take a while to draw and I'm still working on that.
+This one is the roughest of the bunch. It works, but it's slow, big regions take a while to draw. I'm still working on that, have a few ideas to improve the speed.
 
 ### WiFi Mode (join your home network)
 
@@ -95,7 +96,7 @@ Nomad now shows up as a media server on anything that speaks DLNA - smart TVs, V
 - Browse Movies, Shows, Music and Gallery straight from the TV, with cover art, and seeking works
 - On the TV side there's nothing to set up, it just appears in the device list
 - Works on the hotspot or in WiFi Mode; for Fire Sticks use WiFi Mode and the VLC app, since Fire OS breaks without internet now (so lame)
-- Toggle it off in the admin panel if you don't want the Nomad announcing itself / makes everything else a bit faster
+- Toggle it off in the admin panel if you don't want Nomad announcing itself / makes everything else a bit faster
 
 ### Offline Translation
 
@@ -103,15 +104,17 @@ A Translate page that works with zero internet. Two people can pass a phone back
 
 - Language packs live in `/Translate` on the card and are installed with Nomad Tools, which always grabs both directions of a pair
 - Translation runs in the browser of whoever connected, nothing heavy runs on the Nomad itself
-- Can be very slow to load the first time, but after that back and forth is fairly quick, and the info is cached so its quick if you load it again.  
+- will be very slow to load the first time, but after that back and forth is fairly quick, and the info is cached so its quick if you load it again.  
+- I will be working on a voice integration on device for this aswell, but most keyboards include it already so voice to voice should be possible too. 
 
 ### Cookbook & Workshop
 
-Two new library pages, both optional, both invisible until you enable them.
+Two new library pages, both optional, both disabled by default.
 
 - **Cookbook:** drop `.md`, `.cook` or `.json` recipe files into `/Cookbook` (photos work, same-name image convention). Recipes render with ingredient and step checklists you can tick off while cooking.
 - **Workshop:** drop `.stl`, `.3mf` or `.obj` files into `/Workshop` and preview them in 3D right in the browser. A README or notes file in a folder describes every model in it. The viewer is a few hundred lines of raw WebGL, not a bundled 3D engine, so it stays fast off the card.
 
+- I think these are kinda dumb... but I needed a clean number of pages so this is what we get..
 ### Game ROMs & Built-in Games
 
 - Drop ROMs into `/Games` and play them in the browser through EmulatorJS
@@ -126,6 +129,7 @@ Two new library pages, both optional, both invisible until you enable them.
 - One person makes a room, shares the 4 character code, the other joins from their own phone
 - Chess, Go, Connect Four and Tic-Tac-Toe all support it, the Whiteboard is just a shared freeform board
 - There are also "pass and play games" that only need one device, I will eventualy make this an option for all of the defaults. 
+- I plan to expand this so most games can run in pass and play or proper multi device mode. 
 
 ---
 
@@ -135,7 +139,6 @@ Two new library pages, both optional, both invisible until you enable them.
 - Browse and search full offline Wikipedia (and other ZIM archives like Gutenberg and TED) directly from the SD card
 - Search is fast even on massive archives, the companion [Nomad Tools](https://github.com/Jstudner/Nomad-Tools) app prebuilds a compact index on your PC, so the device never has to search the raw multi-gigabyte file itself
 - Embedded videos and epub books inside archives play/read right in the browser
-- Works with zero extra UI cost if you don't use it, no archives on the card means the feature stays completely out of the way
 - Currently tested with Gutenburg epubs, TedX Videos, and wikipedia from the tiny 0.8 file all the way to the 140gb maxi with images. 
 
 ### Redesigned Case
@@ -146,8 +149,6 @@ Two new library pages, both optional, both invisible until you enable them.
 - New case slides together **front-to-back** instead of the old top-to-bottom design
 - No more direct pressure on the screen, which was a common cause of cracked/broken screens on the old case
 - Buttons stay exposed on the outside, so you can still flash firmware or hit the boot button without disassembling anything
-
-- Based on a remix of [ESP32 C6 with LCD Screen Enclosure Case](https://makerworld.com/en/models/2121443-esp32-c6-with-lcd-screen-enclosure-case) on MakerWorld by [**Adrian**](https://makerworld.com/en/@user_1765744671), full credit to the original design this was built on
 
 ### Indexing & Stability
 - Root-caused and fixed a long-standing random reboot bug tied to files over 2GB, this was the actual cause of crashes on image-heavy Wikipedia pages and big movie scrubbing
@@ -180,15 +181,16 @@ Burgundy Wine, Teal Oasis
 ## Features
 
 - **exFAT & FAT32:** Any card format, auto detected at boot. Cards over 32GB and files over 4GB both work.
-- **WiFi Mode:** Join an existing WiFi network instead of running the hotspot, with automatic fallback so you can't lock yourself out. (rough)
-- **TV Support (DLNA):** Shows up as a media server for smart TVs, VLC, Kodi and friends, with cover art and seeking. (rough)
+- **WiFi Mode:** Join an existing WiFi network instead of running the hotspot, with automatic fallback so you can't lock yourself out.
+- **TV Support (DLNA):** Shows up as a media server for smart TVs, VLC, Kodi and friends, with cover art and seeking.
 - **Offline Encyclopedia:** ZIM archive support for offline Wikipedia and other offline wikis, with fast on-device search.
-- **Offline Maps:** Browsable map regions with place search and turn by turn directions, served straight off the card. (rough)
-- **Offline Translation:** In-browser translation between installed language pairs, no internet ever. (rough)
-- **Games:** Browser-based ROM playback through EmulatorJS, DOOM, plus ten built-in games. (rough)
-- **Local Multiplayer:** Two player game rooms over the Nomad's own Wi-Fi, no internet needed. (rough)
-- **Cookbook:** Recipe library with tick-off ingredient and step checklists. (rough)
-- **Workshop:** 3D-print model library with an in-browser STL/3MF/OBJ preview. (rough)
+- **Offline Maps:** Browsable map regions with place search and turn by turn directions, served straight off the card.
+- **Offline Translation:** In-browser translation between installed language pairs, no internet ever.
+- **Games:** Browser-based ROM playback through EmulatorJS, DOOM, plus ten built-in games.
+- **Local Multiplayer:** Two player game rooms over the Nomad's own Wi-Fi, no internet needed.
+- **Cookbook:** Recipe library with tick-off ingredient and step checklists.
+- **Workshop:** 3D-print model library with an in-browser STL/3MF/OBJ preview.
+- **Subtitles:** Sidecar subtitle files attach themselves to a video by filename, with selectable language tracks.
 - **Chat:** A simple local chat room for everyone connected to the Nomad.
 - **Admin Panel:** Full device controls, library indexing, Theme Customizer, menu page toggles, login-gated settings.
 - **File Browser:** Upload, rename, delete, download, and inline file editing. (Recommended to use a PC)
@@ -214,8 +216,9 @@ There are a few community forks that target other ESP32 boards, but your mileage
 
 ## Hardware Requirements
 
-- **Waveshare ESP32-S3 Dev Board (1.47" LCD version)**
-  [Amazon Link](https://amzn.to/4ktB6oT)
+- **Waveshare ESP32-S3 Dev Board (1.47" LCD version)** - [Amazon Link](https://amzn.to/4ktB6oT)
+
+- **or the ESP32-S3-LCD-1.47B** - the USB-C board. Same chip, same everything, the LCD backlight just moves from GPIO 48 to GPIO 46. Building it yourself, set `BOARD_USB_C` to 1 in `Display_ST7789.h`; flashing from the browser, pick the USB-C build. Get it wrong and it boots functional, just no screen output.
 
 - **microSD card, exFAT or FAT32 (16-128GB recommended, up to 2TB)**
   [Amazon Link](https://amzn.to/44tM1c4)
@@ -230,12 +233,12 @@ There are a few community forks that target other ESP32 boards, but your mileage
 
 ## Flash It From Your Browser
 
-If you would rather skip Arduino IDE entirely, **[nomadflash.jcorptech.net](https://nomadflash.jcorptech.net)** does the setup from a browser tab. The firmware is already compiled, so there is nothing to install and no SdFat version to line up.
+If you would rather skip Arduino IDE entirely, **[nomadflash.jcorptech.net](https://nomadflash.jcorptech.net)** does the setup from a browser tab. The firmware is already compiled, so there is nothing to install and no SdFat version to line up. This system will lag a bit behind on the latest version, but makes setup much easier for most casual users. 
 
 It covers three things:
 
-- **Flash the firmware.** Plug Nomad into a USB port, pick a build, and it writes the bootloader, partition table and app in one image. Takes about a minute.
-- **Set up the SD card.** Copies the web interface onto the card and creates every media folder this branch uses, including Games, Maps, Cookbook and Workshop. There is an optional test set of placeholder content if you want to see every page working before you load your own media.
+- **Flash the firmware.** Plug Nomad into a USB port, pick a build, and it writes the bootloader, partition table and app in one image. Takes less than a minute.
+- **Set up the SD card.** Copies the web interface onto the card and creates every media folder Nomad uses, including Games, Maps, Cookbook and Workshop. There is an optional test set of placeholder content if you want to see every page working before you load your own media.
 - **Update an existing card.** Replaces only the interface files and leaves your media alone. (still WIP)
 
 Both the main and experimental builds are there, and each is offered for both boards:
@@ -245,7 +248,7 @@ Both the main and experimental builds are there, and each is offered for both bo
 
 Pick the one matching the connector on your board. The two differ only in which pin drives the LCD backlight, so flashing the wrong one boots fine but leaves the screen dark.
 
-Formatting is the one step it cannot do, because a web page has no access to drives or partitions. On this branch you usually do not need it, since exFAT, FAT32 and FAT16 cards all mount as they come. If a card does need formatting, the site prints the exact command for Windows, macOS or Linux.
+Formatting is the one step it cannot do, because a web page has no access to drives or partitions. You usually do not need it, since exFAT, FAT32 and FAT16 cards all mount as they come. If a card does need formatting, the site prints the exact command for Windows, macOS or Linux.
 
 **Requires Chrome, Edge or Opera on a desktop.** It uses Web Serial and the File System Access API, which Firefox and Safari do not implement, and neither one works on iOS or Android.
 
@@ -253,9 +256,16 @@ Formatting is the one step it cannot do, because a web page has no access to dri
 
 ## Software Requirements
 
-- Arduino IDE
-- **SdFat library (2.3.0 or newer)**, from the Library Manager, required for exFAT support
+- Arduino IDE, with the **esp32 board package 3.3.3**
+- Arduino libraries, exact versions. These are what the shipped build compiles against, and mismatches here are the single most common build failure:
+  - `ArduinoJson` by Benoit Blanchon **7.3.0**
+  - `Async TCP` by ESP32Async **3.4.7**
+  - `ESP Async WebServer` by ESP32Async **3.7.1**
+  - `LVGL` by kisvegabor **8.4.0**
+  - `SdFat` by Bill Greiman **2.3.0** - this one is required for exFAT, it is not optional
 - SquareLine Studio (optional, for UI editing)
+
+If you would rather not line any of that up, use the browser flasher above.
 
 ---
 
@@ -418,10 +428,11 @@ favicon.ico
 
 ## Supported Formats
 
-- **Video:** `.mp4, .webm, .m4v, .mov, .mkv, .ts, .m2ts` 
-- **Audio:** `.mp3, .flac, .wav, .ogg, .aac, .m4a`
+- **Video:** `.mp4, .webm, .m4v` play everywhere. `.mkv, .avi, .mov` are listed and handed to the player too, but Nomad has no content type for them, so whether they play is down to your browser (Safari is usually fine with `.mov`, Chrome usually is not with `.mkv`). If a video lists but will not play, that is almost always this. Remux to `.mp4` and it will.
+- **Audio:** `.mp3, .flac, .wav, .ogg, .aac, .m4a`, plus `.opus` with the same browser caveat as above.
+- **Subtitles:** `.srt, .vtt, .ass, .ssa, .sub` - drop them next to the video with the same name. `Movie.srt` or `Movie.en.srt` both attach, language suffixes become selectable tracks, and `.srt` is converted to WebVTT on the fly because browsers render nothing for raw SRT.
 - **Books:** `.pdf, .epub, .cbz, .cbr` 
-- **Images:** `.jpg, .jpeg, .png` 
+- **Images:** `.jpg, .jpeg, .png, .webp, .gif, .bmp, .avif` 
 - **Archives:** `.zim` (offline Wikipedia and other ZIM-format wikis), needs special processing, you cant just drop a .zim in sadly. Prep them with [Nomad Tools](https://github.com/Jstudner/Nomad-Tools) first (still rough, but handles most common ZIMs)
 - **Games:** ROMs for the systems EmulatorJS supports (GB, GBC, GBA, NES, SNES, Genesis, and others), `.wad` files for DOOM, plus `.html` files for built-in games
 - **Maps:** map regions prepped with Nomad Tools, dropped into `/Maps`
@@ -431,9 +442,9 @@ favicon.ico
 
 ---
 
-## Nomad Tools (companion PC app)
+## Nomad Tools
 
-Some content needs a one-time prep step on your computer before the Nomad can use it, ZIM archives need a search index built, maps need downloading, translation packs need fetching. [Nomad Tools](https://github.com/Jstudner/Nomad-Tools) is a simple menu that does all of it. Windows and Linux (macOS untested).
+Some content needs a one-time prep step on your computer before Nomad can use it, ZIM archives need a search index built, maps need downloading, translation packs need fetching. [Nomad Tools](https://github.com/Jstudner/Nomad-Tools) is a simple menu that does all of it. Windows and Linux (macOS untested).
 
 Basic usage:
 
@@ -454,27 +465,17 @@ A good order for a fresh card: media and ZIMs first, optimize images, rebuild th
 
 ---
 
-
-## 3D Printed Case Files
-
-The Mk4 default case is a remix of [ESP32 C6 with LCD Screen Enclosure Case](https://makerworld.com/en/models/2121443-esp32-c6-with-lcd-screen-enclosure-case) on MakerWorld, credit to [**Adrian**](https://makerworld.com/en/@user_1765744671) for the original design. It's a front-to-back slide design that keeps pressure off the screen while still exposing the buttons for firmware access.
-
-- Mk4 case files: in this repo
-- Original Mk3 top/bottom case (still works, just more prone to screen pressure): [Thingiverse](https://www.thingiverse.com/thing:7223398)
-
----
-
 ## Known Rough Edges
 
-Since this is the experimental branch, here's what I already know isn't great:
+Everything here works, but these are the parts I already know aren't great:
 
 - **Maps are slow.** Big regions take a while to load and pan. It works, it's just not snappy yet, and that's the main thing I'm working on.
-- **WiFi Mode and DLNA are days old.** They work (tested with VLC on a Fire Stick, desktop VLC, and phones), but they haven't seen many routers or many TVs yet. If your TV can't find Nomad, tell me what TV it is and I will see what I can do.
-- **Set an admin password before using WiFi Mode.** On the hotspot only people you gave the password to can reach the admin panel. On your home network, everything on that network can.
+- **WiFi Mode and DLNA have seen few routers and few TVs.** They work (tested with VLC on a Fire Stick, desktop VLC, and phones), but there are a lot of both out there and I have tried a handful. If your TV can't find Nomad, tell me what TV it is and I will see what I can do.
+- **Some video containers list but won't play.** `.mkv`, `.avi` and `.mov` get served without a content type, so it comes down to what your browser will sniff and decode. Nothing is broken on the Nomad side.
+- **Set an admin password before using WiFi Mode.** On the hotspot only people you gave the password to can reach the admin panel. On your home network, everything on that network can. I dont hard gate this, but worth noting. 
 - **Free space on FAT32 cards can read slightly wrong.** SdFat doesn't update the counter FAT32 keeps for it, so the number drifts by however much Nomad itself writes. It fixes itself the next time you plug the card into a PC, and it doesn't affect your files at all. exFAT cards aren't affected.
-- **Multiplayer is polling based.** It's a room code and a refresh loop, not a live connection. Fine for turn based games, wouldn't hold up for anything realtime.
 - **EmulatorJS cores download on first play.** Once cached they're fine, but the first launch of a system pulls the core off the card and takes a moment.
-- Everything here has had a fraction of the testing main has. If something breaks, tell me, that's what this branch is for.
+- The newer features have had a fraction of the testing the core has. If something breaks, tell me. Issues and PRs are both welcome.
 
 ---
 
@@ -482,9 +483,13 @@ Since this is the experimental branch, here's what I already know isn't great:
 
 **Nomad Lite** - A stripped-down version of Nomad with wider board compatibility, focused on core streaming features. In active development now that Mk4 is out.
 
-**Nomad Manager** - A companion application for Nomad that integrates with Jellyfin to handle automated media downcoding and transfers, and builds the offline archive indexes used by the ZIM reader. Keep your Nomad stocked and ready to go without manual file management.
-
 **Gallion** - A larger-scale sibling to Nomad, built on more capable hardware. Gallion is designed to handle everything that couldn't fit on Nomad's current platform > ROM emulation, 4k video, and expanded media compatibility across the board. The current version is [here](https://github.com/Jstudner/Gallion).
+
+**ESP32-P4** - I have said for a long time that I don't want to switch hardware, as doing so would leave yall with a useless board. The S3 is the Nomad and it stays supported. That said, I have started slowly co-developing a P4 version alongside it, because the P4 brings two things the S3 can't: a radio module that is already FCC certified, which matters a lot for anything I sell, and considerably faster WiFi. 
+
+Two boards, if it works out. The **WIFI6** board is a stick, only a bit larger than the Nomad you have now. The **NANO** is noticeably bigger than either, but it adds an ethernet port with POE module support, and a USB port so storage can be expanded or replaced rather than living entirely on the SD card.
+
+None of this is a replacement announcement. It will be its own branch, the S3 keeps getting the same updates, just better speed and a few more features on the p4 branch. 
 
 ---
 
@@ -513,7 +518,6 @@ The ESP32-S3 provides enough performance to handle these requirements efficientl
 ## Credits
 
 Developed by **Jackson Studner (Jcorp Tech)**.
-Mk4 case design based on a remix of [**Adrian**](https://makerworld.com/en/@user_1765744671)'s [ESP32 C6 LCD Screen Enclosure Case](https://makerworld.com/en/models/2121443-esp32-c6-with-lcd-screen-enclosure-case) on MakerWorld.
 Inspired by open-source offline media projects. Contributions via PRs welcome.
 
 <p align="center">
