@@ -1633,10 +1633,9 @@ function findPreviewForResumeItem(item){
 
 /* Render resume area:
 */
-// The panel used to be switched on at the end of whichever branch ran, without
-// checking the branch had actually produced a card. An entry with no path clears
-// the length check at the top, then gets dropped by the filter below, and what was
-// left was a Resume heading sitting on the menu with nothing under it.
+// The panel was switched on at the end of whichever branch ran, without checking it
+// had produced a card. An entry with no path clears the length check at the top then
+// gets dropped by the filter, leaving a Resume heading with nothing under it.
 function showResumeIfFilled(){
   resumePanel.style.display = resumeList.children.length ? 'block' : 'none';
 }

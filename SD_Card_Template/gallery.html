@@ -15,10 +15,8 @@
   <script src="/theme-manager.js"></script>
   <style>
     /* Functional CSS: Gallery-specific layout and positioning */
-    /* 100vh on a phone is the LARGE viewport - it counts the strip behind the
-       collapsing address bar - so the page came out taller than the screen and the
-       pager sat just under the fold. dvh is the viewport you can actually see; vh
-       stays as the fallback. */
+    /* 100vh counts the strip behind the collapsing address bar, so the pager sat just
+       under the fold on a phone. dvh is what you can see. */
     body { display: flex; flex-direction: column; min-height: 100vh; min-height: 100dvh; padding: 0 .5rem; overflow-x: hidden; }
 
     header {

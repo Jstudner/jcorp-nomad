@@ -2,17 +2,11 @@
 //<!-- Version 4.6 -->
 //
 // ---------------- board variant: set it in Display_ST7789.h ----------------
-// USB-A, Waveshare ESP32-S3-LCD-1.47:  backlight GPIO 48, BOARD_USB_C 0 (default)
-// USB-C, Waveshare ESP32-S3-LCD-1.47B: backlight GPIO 46, BOARD_USB_C 1
-//
-// that pin is the only firmware-visible difference between the two boards, and this
-// file is byte-identical for both - checked against the flashing site's build tree.
-//
-// setting it here instead does nothing, and does it silently. the pin is used only in
-// Display_ST7789.cpp, which is its own translation unit, so a define in the sketch
-// never reaches it: with the define here Display_ST7789.cpp.o comes out identical to
-// an unflagged build, the board keeps GPIO 48 and the screen just stays dark. edit the
-// one line in Display_ST7789.h, or build with -DBOARD_USB_C=1.
+// USB-A 1.47 = backlight GPIO 48 (BOARD_USB_C 0), USB-C 1.47B = GPIO 46 (1). That pin
+// is the only firmware-visible difference; this file is the same for both.
+// Setting it here does nothing and says nothing: the pin is used in Display_ST7789.cpp,
+// its own translation unit, so a define in the sketch never reaches it and the board
+// keeps GPIO 48 with a dark screen.
 #include <Arduino.h>
 #include <WiFi.h>
 #include <esp_netif.h>
@@ -276,36 +270,19 @@ static inline size_t streamDmaFree() {
 // Only timed media is counted. Cover art and page assets come through the same handler
 // but are over in milliseconds and are not what holds memory.
 //
-// Capping this was tried once on the P4 and rejected, for two good reasons: it did not
-// prevent that board's panic (six concurrent responses still went down under twelve
-// offered), and a response that never finishes would hold its slot and eventually
-// refuse playback outright. Both objections still stand where they were made.
+// A cap was tried on the P4 and rejected: it did not stop that board's panic, and a
+// response that never finishes would hold its slot forever. Both still true there.
+// Here it is not preventing a panic - the S3 does not share the P4's slow-reader reset
+// - it is fixing a race. The DMA floor is sampled at the top of the handler and the
+// slot was not taken until ~470 lines later, so requests arriving together all cleared
+// the check before any had allocated: six max-rate readers took DMA free from 70 KB to
+// 20,624 B, well under the 48 KB floor meant to stop that. Reserving first fixes it;
+// the floor still reacts to whatever else is using memory.
 //
-// What changed is the board. nomadbench now shows the S3 does NOT share the P4's
-// slow-reader reset - four trickling readers over four runs, uptime unbroken every
-// time - so a cap here is not being asked to prevent a panic. It is being asked to fix
-// a plain race, which it can actually do:
+// The stuck-slot hazard is handled by MEDIA_SLOT_STALE_MS, which reclaims the
+// accounting and not the socket, so the worst case is over-admitting by one.
 //
-//   the DMA floor is sampled at the top of this handler and the slot is not taken until
-//   ~470 lines later, past the path normalise, the SD lookup, the 64-bit stat and the
-//   response build. Six requests arriving together therefore ALL pass the floor check
-//   before any of them has allocated a byte. Measured: six max-rate readers drove DMA
-//   free from 70 KB to 20,624 B, well under the 48 KB floor that was supposed to stop
-//   exactly that. Four readers, arriving a little apart, troughed at 58,740 B and one
-//   was correctly refused. Admission today depends on arrival timing, not on capacity.
-//
-// So the reservation is taken FIRST and atomically, and the floor check keeps its job
-// behind it. The count bounds the worst case deterministically; the floor still reacts
-// to whatever else on the board is using memory. Neither alone is sufficient.
-//
-// The stuck-slot hazard is answered rather than ignored: a slot older than
-// MEDIA_SLOT_STALE_MS is reclaimed. That reclaims the ACCOUNTING, not the socket, so
-// the worst case is over-admitting by one for a while - which is plainly better than
-// locking playback out forever, the failure the original objection warned about.
-//
-// MEDIA_SLOTS is 8 because 8 is the figure the MAX_CLIENTS note above already measured
-// as playing cleanly at 125 KB/s. This must not quietly lower a published claim: it
-// bounds a case that is currently unbounded, it does not take capacity away.
+// 8 because that is what the MAX_CLIENTS note above measured as playing cleanly.
 static const int MEDIA_SLOTS = 8;
 static const uint32_t MEDIA_SLOT_STALE_MS = 10UL * 60UL * 1000UL;
 static portMUX_TYPE mediaSlotMux = portMUX_INITIALIZER_UNLOCKED;
@@ -2685,9 +2662,8 @@ void handleRangeRequest(AsyncWebServerRequest *request) {
     }
   );
 
-  // beginResponse answers NULL on low heap, and dereferencing it panics async_tcp and
-  // takes the server down with it. closeStreamById gives back the handle this response
-  // would have owned, so a refused stream doesn't sit there until the LRU reaps it.
+  // beginResponse answers NULL on low heap and dereferencing it panics async_tcp.
+  // closeStreamById gives back the handle this response would have owned.
   if (!response) {
     Serial.printf("[Stream] beginResponse OOM for %s (heap=%u)\n",
                   filePath.c_str(), (unsigned)ESP.getFreeHeap());
@@ -6767,7 +6743,7 @@ server.on("/api/wifi-scan", HTTP_GET, [](AsyncWebServerRequest *request){
     const bool cardOk   = !sdErrorFlag;
     const bool indexing = indexingInProgress;
     const bool scanning = sdScanInProgress;
-    // This board has no on-device thumbnailer — that is the P4's nomadThumbsBusy().
+    // This board has no on-device thumbnailer - that is the P4's nomadThumbsBusy().
     // Covers are generated on a PC here, so there is never thumbnail work in flight.
     const bool thumbing = false;
     const bool busy     = indexing || scanning || thumbing;

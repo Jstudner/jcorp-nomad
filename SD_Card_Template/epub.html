@@ -99,11 +99,8 @@
         .reader-container {
             display: flex;
             flex-direction: column;
-            /* 100vh on a phone is the LARGE viewport: it includes the strip behind
-               the collapsing address bar, so the reader came out taller than the
-               screen and you could scroll down into empty space under it. dvh
-               tracks the viewport you can actually see. vh stays as the fallback
-               for anything that doesn't know dvh. */
+            /* 100vh on a phone counts the strip behind the collapsing address bar, so
+               the reader came out taller than the screen. dvh is what you can see. */
             height: 100vh;
             height: 100dvh;
             width: 100%;
@@ -177,10 +174,8 @@
             height: 100%;
         }
 
-        /* epub.js sizes its own container and iframe in pixels from whatever the box
-           measured when it started. If that measurement is stale - and on a phone it
-           is, because the address bar collapses after load - the iframe ends up wider
-           than the screen and you get a sideways scroll into blank page. Clamp it. */
+        /* epub.js sizes its iframe in pixels from a measurement that goes stale when the
+           address bar collapses, leaving it wider than the screen. Clamp it. */
         #epub-viewer .epub-container,
         #epub-viewer iframe {
             max-width: 100% !important;
@@ -691,15 +686,10 @@
             localStorage.setItem('nomad_epub_font_pct', epubFontSize);
         });
 
-        // epub.js measures the box once and then lays the book out in pixels, so it
-        // never notices the viewport changing underneath it. On a phone that happens
-        // on nearly every read: the address bar collapses a moment after load, and
-        // again on every rotate. The book kept its old size and the difference showed
-        // up as blank space below and beside the page that you could scroll into.
-        //
-        // visualViewport is the one that actually fires when the address bar slides
-        // away; window resize does not on iOS. Debounced because both can fire in
-        // bursts mid-scroll, and a resize re-lays out the whole chapter.
+        // epub.js measures the box once and lays the book out in pixels, so it never
+        // notices the viewport changing - and on a phone it does, every read, when the
+        // address bar collapses. visualViewport is the only event that fires for that on
+        // iOS. Debounced: a resize re-lays out the whole chapter.
         let resizeTimer = null;
         function refitReader() {
             clearTimeout(resizeTimer);
