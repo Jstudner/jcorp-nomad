@@ -218,7 +218,7 @@ There are a few community forks that target other ESP32 boards, but your mileage
 
 - **Waveshare ESP32-S3 Dev Board (1.47" LCD version)** - [Amazon Link](https://amzn.to/4ktB6oT)
 
-- **or the ESP32-S3-LCD-1.47B** - the USB-C board. Same chip, same everything, the LCD backlight just moves from GPIO 48 to GPIO 46. Building it yourself, set `BOARD_USB_C` to 1 in `Display_ST7789.h`; flashing from the browser, pick the USB-C build. Get it wrong and it boots functional, just no screen output.
+- **or the ESP32-S3-LCD-1.47B** - the USB-C board. Same chip, same everything, the LCD backlight just moves from GPIO 48 to GPIO 46. Building it yourself, set `BOARD_USB_C` to 1 in `Display_ST7789.h`; flashing from the browser, pick the USB-C build. Get it wrong and it boots functional, just no screen output. - [Amazon Link](https://link.amazon/B03vYZlXB)
 
 - **microSD card, exFAT or FAT32 (16-128GB recommended, up to 2TB)**
   [Amazon Link](https://amzn.to/44tM1c4)
