@@ -15,7 +15,11 @@
   <script src="/theme-manager.js"></script>
   <style>
     /* Functional CSS: Gallery-specific layout and positioning */
-    body { display: flex; flex-direction: column; min-height: 100vh; padding: 0 .5rem; overflow-x: hidden; }
+    /* 100vh on a phone is the LARGE viewport - it counts the strip behind the
+       collapsing address bar - so the page came out taller than the screen and the
+       pager sat just under the fold. dvh is the viewport you can actually see; vh
+       stays as the fallback. */
+    body { display: flex; flex-direction: column; min-height: 100vh; min-height: 100dvh; padding: 0 .5rem; overflow-x: hidden; }
 
     header {
       margin-left: -.5rem;
@@ -526,7 +530,11 @@ async function fetchIndexWithFallback(path){
       await new Promise(r=>setTimeout(r, 800*(i+1)));
       res = await fetch(apiUrl, { cache:'no-store', credentials:'same-origin' });
     }
-    if(res.ok){
+    // 202 falls inside Response.ok (200-299), so the "index is building" status object was
+    // being parsed as NDJSON: its {"status":"building"} line became the header, the sig
+    // check failed, and the page reported an empty gallery instead of a building one. The
+    // else-if below has been unreachable since it was written.
+    if(res.ok && res.status !== 202){
       const text = await res.text();
       const parsed = parseNDJSONWithHeader(text);
 
@@ -559,11 +567,13 @@ async function fetchIndexWithFallback(path){
             showGalleryMessage('Could not load gallery.');
           }
         }, 3000);
+        // only the polling branch returns - giving up should still try the fallback
+        // index files below rather than dead-ending on the message.
+        return { source: null, header: null, entries: [] };
       } else {
         console.warn('Gallery index still building after max polls; giving up.');
         showGalleryMessage('Gallery index is still building. Reload the page in a moment.');
       }
-      return { source: null, header: null, entries: [] };
     }
   }catch(e){
     console.error('Gallery index fetch error:', e);
@@ -781,14 +791,12 @@ function openModal(item){
   // videos get the same Plyr player the movies page uses
   let plyr = null;
   if (item.type === 'video' && window.Plyr) {
-    NomadPlyr.ready().then(() => {
-      if (gen !== modalGeneration) return;      // modal already moved on
-      try {
-        plyr = new Plyr(mediaEl, NomadPlyr.opts({
-          controls: ['play-large','play','progress','current-time','duration','mute','volume','fullscreen']
-        }));
-      } catch(e){ mediaEl.controls = true; }
-    });
+    NomadPlyr.create(mediaEl, {
+      controls: ['play-large','play','progress','current-time','duration','mute','volume','fullscreen']
+    }).then(p => {
+      if (gen !== modalGeneration) { try { p.destroy(); } catch(e){} return; }   // modal already moved on
+      plyr = p;
+    }).catch(() => { mediaEl.controls = true; });
   }
 
   modal._cleanup = ()=>{

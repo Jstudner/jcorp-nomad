@@ -1610,38 +1610,8 @@ async function collectResumeItems(){
     } catch(e){}
   }
 
-  const tryUrls = ['/resume.json','/.resume.json','/api/resume.json','/.system-resume.json','/resume.ndjson'];
-  for(const u of tryUrls){
-    try {
-      const controller = new AbortController();
-      const tid = setTimeout(()=>controller.abort(), 2000);
-      const r = await fetch(u, { cache: 'no-store', signal: controller.signal});
-      clearTimeout(tid);
-      if(!r.ok) continue;
-      const text = await r.text();
-      if(!text) continue;
-      if(text.trim().includes('\n')){
-        const arr = [];
-        const lines = text.split(/\r?\n/).map(l=>l.trim()).filter(Boolean);
-        for(const ln of lines){
-          const p = tryParseJSONSafe(ln);
-          if(p) arr.push(p);
-        }
-        if(arr.length){
-          const normalized = normalizeResumePayload(arr);
-          if(normalized && normalized.length) return normalized;
-        }
-      } else {
-        const j = tryParseJSONSafe(text);
-        if(j){
-          const normalized = normalizeResumePayload(j);
-          if(normalized && normalized.length) return normalized;
-        }
-      }
-    } catch(e){
-      // ignore
-    }
-  }
+  // resume state is browser-local only; the device has never served a resume file,
+  // and probing five names for one cost five round trips on every menu load
 
   return [];
 }
@@ -1663,6 +1633,14 @@ function findPreviewForResumeItem(item){
 
 /* Render resume area:
 */
+// The panel used to be switched on at the end of whichever branch ran, without
+// checking the branch had actually produced a card. An entry with no path clears
+// the length check at the top, then gets dropped by the filter below, and what was
+// left was a Resume heading sitting on the menu with nothing under it.
+function showResumeIfFilled(){
+  resumePanel.style.display = resumeList.children.length ? 'block' : 'none';
+}
+
 function renderResume(items){
   resumeList.innerHTML = '';
   // each render used to inject a <style> per scrolling title and never remove it, leaking one per render
@@ -1676,6 +1654,8 @@ function renderResume(items){
     updated: it.updated || (it.raw && (it.raw.updated||it.raw.ts)) || Date.now(),
     raw: it.raw || {},
   })).filter(x => x.path);
+
+  if(!normalized.length){ resumePanel.style.display = 'none'; return; }
 
   // enrich bucket hint
   normalized.forEach(n => {
@@ -1707,7 +1687,7 @@ function renderResume(items){
     const sec = document.createElement('div'); sec.className = 'resume-section';
     for(const it of picks) sec.appendChild(makeResumeNode(it, true));
     resumeList.appendChild(sec);
-    resumePanel.style.display = 'block';
+    showResumeIfFilled();
     return;
   }
 
@@ -1733,7 +1713,7 @@ function renderResume(items){
     }
   }
 
-  resumePanel.style.display = 'block';
+  showResumeIfFilled();
 }
 
 function makeResumeNode(it, compact=false, showMarqueeForShows=false){
