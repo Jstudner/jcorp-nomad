@@ -8,10 +8,10 @@
 Stream movies, music, books, and shows anywhere - no internet required.</p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/firmware-4.6-blue.svg" alt="Firmware: 4.6" />
+  <img src="https://img.shields.io/badge/branch-experimental-orange.svg" alt="Branch: Experimental" />
   <img src="https://img.shields.io/badge/license-CC--BY--NC--SA%204.0-blue.svg" alt="License: CC BY-NC-SA 4.0" />
   <img src="https://img.shields.io/badge/platform-ESP32--S3-orange" alt="Platform: ESP32-S3" />
-  <img src="https://img.shields.io/badge/status-beta-yellow" alt="Status: Beta" />
+  <img src="https://img.shields.io/badge/status-rough-red" alt="Status: Rough" />
 </p>
 
 <p align="center">
@@ -21,13 +21,13 @@ Stream movies, music, books, and shows anywhere - no internet required.</p>
 
 ---
 
-> **Firmware 4.6** - The biggest update since Mk4, and everything in it has come over from the experimental branch. exFAT card support, offline maps with turn by turn directions, game ROMs and a shelf of built-in games, local multiplayer, TV support over DLNA, a WiFi Mode that joins your home network, offline translation, and recipe + 3D model libraries. Everything from Mk4 is still here and still works, this adds on top of it.
+> **Experimental Branch** - This is where new stuff lands before it goes to main. Everything in 4.6 is here too, this just adds on top of it.
 >
-> Some of this is newer than the rest. The parts I'd call settled are exFAT, the reader and the media pages. Maps, WiFi Mode, DLNA and Translate work are all tested in full, but they have had less time in front of other people's hardware than the rest of the project. Known rough edges are listed near the bottom, everything works but some is getting more improvments so its user friendly. Maps in particular is tricky right now. 
+> What's new here is mostly under the hood: streaming holds up better when several people are pulling at once, direct links to a file actually stream instead of falling over, and a few mobile layout bugs are gone. There is also a flashing script that means you no longer have to unplug the board after every flash.
+>
+> Fair warning, this branch gets less testing than main. If something breaks, tell me, that is what this branch is for.
 >
 > Firmware and the SD card template both change here, so you'll need to reflash and refresh your card files.
->
-> Also making a push to migrate fully to exfat, will be keeping fat32 legacy support so yall dont have to reformat your cards, but some of the advanced features will only work on exfat.
 
 ---
 
@@ -55,6 +55,38 @@ Every Nomad, whether you build it or buy it, runs the same open-source firmware 
 
 If you just want to support the project, donations are always appreciated:  
 **[ko-fi.com/jcorptech](https://ko-fi.com/jcorptech)**
+
+---
+
+## What's New in Experimental
+
+### Streaming holds up under load
+
+The device turns people away properly now instead of quietly falling over.
+
+- When several devices pull at once, Nomad reserves a slot before it starts the work rather than checking free memory and hoping. It was checking at the top of the request and not committing until much later, so a burst of requests all passed the check before any of them had actually taken anything. Six at once could drive free memory from 70 KB down to 20 KB, under the floor that was meant to stop exactly that.
+- If it is genuinely full you now get a clean "busy, try again" instead of a stall, and the players handle that fine.
+- A stuck stream can't hold its slot forever, so one phone that walks out of range can't slowly eat the device.
+- **Hotspot goes from 8 devices to 10.** 8 was inherited from the Mk4 and was never actually measured, the radio driver allows 10.
+
+### Direct file links actually stream
+
+If something asked for `/Movies/film.mp4` straight, rather than going through the site, it got a whole-file response with no seeking and never counted towards the limits above. That is exactly what DLNA players, VLC and anything else external requests, so it was the one way to start a stream that bypassed everything. Those go through the proper handler now.
+
+### Mobile fixes
+
+- **The epub reader had dead space** below and beside the page you could scroll into. Two causes: the reader sized itself to the full screen height including the strip behind the address bar, and it never noticed the viewport changing when that bar collapsed or you rotated. Both fixed.
+- **The gallery's Prev/Next buttons sat just under the fold** on a phone. Same address bar problem.
+- **The Resume panel stayed on the menu with nothing in it** when there was nothing to resume.
+
+### Smaller things
+
+- `.avif` and `.bmp` images serve correctly now instead of downloading
+- Paths with doubled slashes fold properly, which is what made `/Archive` and `//Archive` behave differently
+- The `/config` folder is properly off limits no matter how the path is spelled
+- The health readout reports the memory the card actually needs, not just free heap
+- A game that survives the thinking state, a search index that updates, and 248 lines of dead code gone
+- **`tools/flash-nomad.sh`** - compiles, flashes and waits for the hotspot to come back. **No more unplugging the board after a flash.** The trick is resetting through the watchdog rather than the serial line, which the S3's USB port doesn't really have. `--usbc` builds for the 1.47B board.
 
 ---
 
@@ -467,7 +499,7 @@ A good order for a fresh card: media and ZIMs first, optimize images, rebuild th
 
 ## Known Rough Edges
 
-Everything here works, but these are the parts I already know aren't great:
+Since this is the experimental branch, here's what I already know isn't great:
 
 - **Maps are slow.** Big regions take a while to load and pan. It works, it's just not snappy yet, and that's the main thing I'm working on.
 - **WiFi Mode and DLNA have seen few routers and few TVs.** They work (tested with VLC on a Fire Stick, desktop VLC, and phones), but there are a lot of both out there and I have tried a handful. If your TV can't find Nomad, tell me what TV it is and I will see what I can do.
