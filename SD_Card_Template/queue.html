@@ -62,6 +62,24 @@ let originalQueue = [];
 let queueSortMode = 'added';
 let isQueueShuffled = false;
 
+// the list on screen can be sorted or shuffled but the player still works in the
+// order tracks were added. queueOrigIdx maps a row back to the player's index
+let queueOrigIdx = [];
+
+function buildView(){
+  const idxs = originalQueue.map((_, i) => i);
+  const nameOf = (i) => (originalQueue[i] && originalQueue[i].name) || '';
+  if(queueSortMode === 'asc'){
+    idxs.sort((a,b) => nameOf(a).localeCompare(nameOf(b), undefined, {numeric: true}));
+  } else if(queueSortMode === 'desc'){
+    idxs.sort((a,b) => nameOf(b).localeCompare(nameOf(a), undefined, {numeric: true}));
+  } else if(queueSortMode === 'shuffled'){
+    fisherYates(idxs);
+  }
+  queueOrigIdx = idxs;
+  queue = idxs.map(i => originalQueue[i]);
+}
+
 const queueListEl = document.getElementById('queueList');
 const queueCountEl = document.getElementById('queueCount');
 const clearQueueBtn = document.getElementById('clearQueueBtn');
@@ -91,10 +109,15 @@ function render(){
   emptyStateEl.style.display = 'none';
   clearQueueBtn.style.display = 'block';
   
+  // reordering only makes sense against the real order, and a sorted view
+  // would just snap back, so the arrows are off unless we are in added order
+  const canReorder = (queueSortMode === 'added');
+
   queue.forEach((track, idx) => {
+    const orig = queueOrigIdx.length ? queueOrigIdx[idx] : idx;
     const item = document.createElement('div');
     item.className = 'queue-item';
-    if(currentMode === 'queue' && idx === queueIndex) item.classList.add('current');
+    if(currentMode === 'queue' && orig === queueIndex) item.classList.add('current');
     
     const num = document.createElement('div');
     num.className = 'queue-num';
@@ -120,21 +143,21 @@ function render(){
     const upBtn = document.createElement('button');
     upBtn.className = 'queue-action-btn';
     upBtn.textContent = '▲';
-    upBtn.title = 'Move up';
-    if(idx === 0) upBtn.disabled = true;
+    upBtn.title = canReorder ? 'Move up' : 'Sort by Added order to reorder';
+    if(idx === 0 || !canReorder) upBtn.disabled = true;
     upBtn.onclick = (e) => {
       e.stopPropagation();
-      if(idx > 0) moveItem(idx, idx - 1);
+      if(canReorder && idx > 0) moveItem(queueOrigIdx[idx], queueOrigIdx[idx - 1]);
     };
     
     const downBtn = document.createElement('button');
     downBtn.className = 'queue-action-btn';
     downBtn.textContent = '▼';
-    downBtn.title = 'Move down';
-    if(idx === queue.length - 1) downBtn.disabled = true;
+    downBtn.title = canReorder ? 'Move down' : 'Sort by Added order to reorder';
+    if(idx === queue.length - 1 || !canReorder) downBtn.disabled = true;
     downBtn.onclick = (e) => {
       e.stopPropagation();
-      if(idx < queue.length - 1) moveItem(idx, idx + 1);
+      if(canReorder && idx < queue.length - 1) moveItem(queueOrigIdx[idx], queueOrigIdx[idx + 1]);
     };
     
     const removeBtn = document.createElement('button');
@@ -145,7 +168,7 @@ function render(){
       e.stopPropagation();
       window.parent.postMessage({
         type: 'REMOVE_FROM_QUEUE',
-        payload: { index: idx }
+        payload: { index: orig }
       }, '*');
     };
     
@@ -160,7 +183,7 @@ function render(){
     item.onclick = () => {
       window.parent.postMessage({
         type: 'PLAY_QUEUE',
-        payload: { startIndex: idx }
+        payload: { startIndex: orig }
       }, '*');
     };
     
@@ -184,46 +207,24 @@ window.addEventListener('message', (event) => {
     currentMode = payload.mode || 'playlist';
 
     // Apply current sort mode to new queue data
-    if(queueSortMode === 'added'){
-      queue = originalQueue.slice();
-    } else if(queueSortMode === 'asc'){
-      queue = originalQueue.slice().sort((a,b) => a.name.localeCompare(b.name, undefined, {numeric: true}));
-    } else if(queueSortMode === 'desc'){
-      queue = originalQueue.slice().sort((a,b) => b.name.localeCompare(a.name, undefined, {numeric: true}));
-    } else if(queueSortMode === 'shuffled'){
-      queue = originalQueue.slice();
-      fisherYates(queue);
-    }
+    buildView();
 
     render();
   }
 
   if(type === 'SHUFFLE'){
-    if(queueSortMode === 'shuffled'){
-      queue = originalQueue.slice();
-      queueSortMode = 'added';
-    } else {
-      queue = originalQueue.slice();
-      fisherYates(queue);
-      queueSortMode = 'shuffled';
-    }
+    queueSortMode = (queueSortMode === 'shuffled') ? 'added' : 'shuffled';
+    buildView();
     render();
   }
 
   if(type === 'SORT'){
     if(payload.mode === 'added'){
-      queue = originalQueue.slice();
       queueSortMode = 'added';
     } else {
-      const sortAsc = payload.ascending;
-      if(sortAsc){
-        queue = originalQueue.slice().sort((a,b) => a.name.localeCompare(b.name, undefined, {numeric: true}));
-        queueSortMode = 'asc';
-      } else {
-        queue = originalQueue.slice().sort((a,b) => b.name.localeCompare(a.name, undefined, {numeric: true}));
-        queueSortMode = 'desc';
-      }
+      queueSortMode = payload.ascending ? 'asc' : 'desc';
     }
+    buildView();
     render();
   }
 });

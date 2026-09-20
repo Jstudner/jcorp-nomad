@@ -1,0 +1,349 @@
+<!DOCTYPE html>
+<!-- Version 1, ported from Voyager -->
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no"/>
+<title>Nomad • Dots and Boxes</title>
+<link rel="icon" href="/favicon.ico" type="image/x-icon">
+<link rel="stylesheet" href="/master.css">
+<script src="/theme-boot.js"></script>
+<script src="/theme-manager.js"></script>
+<style>
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0}
+  body{
+    background:var(--bg,#f4f4f9);
+    color:var(--text,#333);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    -webkit-text-size-adjust:100%;
+    overflow-x:hidden;
+  }
+  .wrap{max-width:520px;margin:0 auto;padding:14px 12px 40px;}
+
+  /* Top bar */
+  .topbar{
+    display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin-bottom:14px;
+  }
+  .topbar h1{
+    font-size:19px;margin:0;flex:1 1 auto;min-width:120px;
+    white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+  }
+  .btn{
+    display:inline-flex;align-items:center;justify-content:center;
+    font:inherit;font-size:14px;line-height:1;
+    padding:9px 13px;border-radius:var(--radius,10px);
+    border:1px solid var(--line,#dcdce3);
+    background:var(--card,#fff);color:var(--text,#333);
+    text-decoration:none;cursor:pointer;white-space:nowrap;
+  }
+  .btn:active{transform:translateY(1px)}
+  .btn.primary{
+    background:var(--primary,#4f46e5);border-color:var(--primary,#4f46e5);color:#fff;
+  }
+  select.btn{-webkit-appearance:none;appearance:none;padding-right:26px;
+    background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='10' height='6'><path d='M0 0l5 6 5-6z' fill='%23888'/></svg>");
+    background-repeat:no-repeat;background-position:right 10px center;}
+
+  .controls{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:14px;align-items:center}
+  .controls label{font-size:13px;color:var(--muted,#777)}
+
+  /* Status line: player chips */
+  .status{
+    display:flex;flex-wrap:wrap;gap:8px;margin-bottom:14px;
+  }
+  .chip{
+    display:flex;align-items:center;gap:7px;
+    padding:7px 11px;border-radius:var(--radius,10px);
+    background:var(--card,#fff);border:1px solid var(--line,#dcdce3);
+    font-size:14px;line-height:1;opacity:.55;transition:opacity .12s;
+  }
+  .chip.active{opacity:1;box-shadow:0 0 0 2px var(--primary,#4f46e5) inset}
+  .chip .dot{width:13px;height:13px;border-radius:50%;flex:0 0 auto}
+  .chip .name{font-weight:600}
+  .chip .score{color:var(--muted,#777);font-variant-numeric:tabular-nums}
+
+  /* Board */
+  .boardcard{
+    background:var(--card,#fff);border:1px solid var(--line,#dcdce3);
+    border-radius:var(--radius,10px);padding:10px;
+    display:flex;justify-content:center;
+  }
+  svg#board{width:min(92vw,460px);height:auto;display:block;touch-action:manipulation}
+  .placeholder{stroke:var(--line,#dcdce3);opacity:.6}
+  .dotc{fill:var(--muted,#777)}
+  .boxlabel{fill:#fff;font-weight:700;font-family:inherit;text-anchor:middle;dominant-baseline:central;pointer-events:none}
+  .hit{fill:transparent;cursor:pointer}
+
+  /* Result banner */
+  .result{
+    margin-top:14px;padding:14px;border-radius:var(--radius,10px);
+    background:var(--card,#fff);border:1px solid var(--line,#dcdce3);
+    text-align:center;font-size:17px;font-weight:600;display:none;
+  }
+  .result.show{display:block}
+
+  /* Dark theme overrides driven by body.dark */
+  body.dark{background:var(--bg,#181820);color:var(--text,#e6e6ee)}
+  body.dark .btn{background:var(--card,#232330);color:var(--text,#e6e6ee);border-color:var(--line,#33333f)}
+  body.dark .btn.primary{color:#fff}
+  body.dark .chip,body.dark .boardcard,body.dark .result{background:var(--card,#232330);border-color:var(--line,#33333f)}
+</style>
+</head>
+<body>
+  <header>
+    <h1>Dots and Boxes</h1>
+    <a class="back-btn" href="/games">← Back to Games</a>
+  </header>
+
+<div class="wrap">
+  <div class="topbar">
+    </div>
+
+  <div class="controls">
+    <label for="pcount">Players</label>
+    <select id="pcount" class="btn">
+      <option value="2">2 players</option>
+      <option value="3">3 players</option>
+      <option value="4">4 players</option>
+    </select>
+    <button id="newgame" class="btn primary">New Game</button>
+  </div>
+
+  <div id="status" class="status"></div>
+
+  <div class="boardcard">
+    <svg id="board" xmlns="http://www.w3.org/2000/svg"></svg>
+  </div>
+
+  <div id="result" class="result"></div>
+</div>
+
+<script>
+(function(){
+  "use strict";
+  var SVGNS = "http://www.w3.org/2000/svg";
+
+  // Fixed player identity colors (accessible, stay constant across themes)
+  var COLORS = ["#e5484d","#3e63dd","#30a46c","#f5a623"];
+
+  // Board geometry
+  var DOTS = 5;            // dots per side => 4x4 boxes
+  var SP = 90;             // spacing between dots
+  var MARGIN = 45;         // outer margin
+  var INSET = 12;          // hit-rect inset from dots (keeps corners tap-free)
+  var HIT = 38;            // hit-rect thickness
+
+  // Game state
+  var numPlayers = 2;
+  var hEdges, vEdges;      // edge owners; -1 = undrawn.  hEdges[r][c], vEdges[r][c]
+  var boxes;               // box owners; -1 = unclaimed. boxes[r][c]
+  var scores;              // per-player box count
+  var current;             // index of player to move
+  var claimedCount;        // total boxes claimed
+  var gameOver;
+
+  var svg = document.getElementById("board");
+  var statusEl = document.getElementById("status");
+  var resultEl = document.getElementById("result");
+
+  function make(tag, attrs){
+    var el = document.createElementNS(SVGNS, tag);
+    for(var k in attrs){ el.setAttribute(k, attrs[k]); }
+    return el;
+  }
+  function dx(c){ return MARGIN + c*SP; }
+  function dy(r){ return MARGIN + r*SP; }
+
+  function newGame(){
+    numPlayers = parseInt(document.getElementById("pcount").value, 10) || 2;
+    var B = DOTS - 1;               // boxes per side
+    // horizontal edges: DOTS rows x (DOTS-1) cols
+    hEdges = [];
+    for(var r=0;r<DOTS;r++){ hEdges[r]=[]; for(var c=0;c<DOTS-1;c++) hEdges[r][c]=-1; }
+    // vertical edges: (DOTS-1) rows x DOTS cols
+    vEdges = [];
+    for(r=0;r<DOTS-1;r++){ vEdges[r]=[]; for(c=0;c<DOTS;c++) vEdges[r][c]=-1; }
+    // boxes: B x B
+    boxes = [];
+    for(r=0;r<B;r++){ boxes[r]=[]; for(c=0;c<B;c++) boxes[r][c]=-1; }
+    scores = [];
+    for(var p=0;p<numPlayers;p++) scores[p]=0;
+    current = 0;
+    claimedCount = 0;
+    gameOver = false;
+    resultEl.className = "result";
+    render();
+    renderStatus();
+  }
+
+  // Return true if the box at (br,bc) has all four sides drawn.
+  function boxComplete(br,bc){
+    return hEdges[br][bc]   !== -1 &&   // top
+           hEdges[br+1][bc] !== -1 &&   // bottom
+           vEdges[br][bc]   !== -1 &&   // left
+           vEdges[br][bc+1] !== -1;     // right
+  }
+
+  // Play an edge for the current player.
+  // type: "h" or "v".  Ignores already-drawn edges.
+  function playEdge(type, r, c){
+    if(gameOver) return;
+    if(type === "h"){
+      if(hEdges[r][c] !== -1) return;   // ignore taps on drawn edges
+      hEdges[r][c] = current;
+    } else {
+      if(vEdges[r][c] !== -1) return;
+      vEdges[r][c] = current;
+    }
+
+    // --- Box-completion + extra-turn logic ---
+    // An edge borders up to two boxes. Check each; any box whose 4th side we
+    // just drew is claimed by the current player. Completing >=1 box grants
+    // the SAME player another turn; completing none passes to the next player.
+    var B = DOTS - 1;
+    var completed = 0;
+    var adj = (type === "h")
+      ? [[r-1,c],[r,c]]     // horizontal edge: box above and box below
+      : [[r,c-1],[r,c]];    // vertical edge: box left and box right
+    for(var i=0;i<adj.length;i++){
+      var br = adj[i][0], bc = adj[i][1];
+      if(br<0||bc<0||br>=B||bc>=B) continue;   // off-board neighbour
+      if(boxes[br][bc] !== -1) continue;        // already claimed
+      if(boxComplete(br,bc)){
+        boxes[br][bc] = current;
+        scores[current]++;
+        claimedCount++;
+        completed++;
+      }
+    }
+    if(completed === 0){
+      // No box completed -> pass turn to next player (wrap around).
+      current = (current + 1) % numPlayers;
+    }
+    // else: current player keeps the turn (standard extra-turn rule).
+
+    if(claimedCount === B*B){ gameOver = true; }
+
+    render();
+    renderStatus();
+    if(gameOver) showResult();
+  }
+
+  function render(){
+    // Rebuild the SVG each move (board is small; keeps logic simple + correct).
+    while(svg.firstChild) svg.removeChild(svg.firstChild);
+    var W = MARGIN*2 + (DOTS-1)*SP;
+    svg.setAttribute("viewBox", "0 0 " + W + " " + W);
+    var B = DOTS - 1;
+    var r, c;
+
+    // 1) Claimed box fills + labels (bottom layer)
+    for(r=0;r<B;r++){ for(c=0;c<B;c++){
+      if(boxes[r][c] === -1) continue;
+      var col = COLORS[boxes[r][c]];
+      svg.appendChild(make("rect", {
+        x: dx(c)+3, y: dy(r)+3, width: SP-6, height: SP-6,
+        rx: 6, fill: col, "fill-opacity": "0.20"
+      }));
+      var t = make("text", {
+        x: dx(c)+SP/2, y: dy(r)+SP/2, "class": "boxlabel",
+        "font-size": 22, fill: col
+      });
+      t.textContent = "P" + (boxes[r][c]+1);
+      svg.appendChild(t);
+    }}
+
+    // 2) Placeholder lines for every edge (faint), then drawn lines in colour
+    for(r=0;r<DOTS;r++){ for(c=0;c<DOTS-1;c++){
+      appendEdge("h", r, c, hEdges[r][c]);
+    }}
+    for(r=0;r<DOTS-1;r++){ for(c=0;c<DOTS;c++){
+      appendEdge("v", r, c, vEdges[r][c]);
+    }}
+
+    // 3) Dots on top of the lines
+    for(r=0;r<DOTS;r++){ for(c=0;c<DOTS;c++){
+      svg.appendChild(make("circle", { cx: dx(c), cy: dy(r), r: 6, "class": "dotc" }));
+    }}
+
+    // 4) Transparent hit rectangles on the very top (only for undrawn edges)
+    for(r=0;r<DOTS;r++){ for(c=0;c<DOTS-1;c++){
+      if(hEdges[r][c] === -1 && !gameOver) appendHit("h", r, c);
+    }}
+    for(r=0;r<DOTS-1;r++){ for(c=0;c<DOTS;c++){
+      if(vEdges[r][c] === -1 && !gameOver) appendHit("v", r, c);
+    }}
+  }
+
+  function appendEdge(type, r, c, owner){
+    var x1,y1,x2,y2;
+    if(type === "h"){ x1=dx(c); y1=dy(r); x2=dx(c+1); y2=dy(r); }
+    else            { x1=dx(c); y1=dy(r); x2=dx(c);   y2=dy(r+1); }
+    if(owner === -1){
+      svg.appendChild(make("line", {
+        x1:x1,y1:y1,x2:x2,y2:y2,"class":"placeholder",
+        "stroke-width":4,"stroke-linecap":"round","stroke-dasharray":"2 8"
+      }));
+    } else {
+      svg.appendChild(make("line", {
+        x1:x1,y1:y1,x2:x2,y2:y2,
+        stroke:COLORS[owner],"stroke-width":7,"stroke-linecap":"round"
+      }));
+    }
+  }
+
+  function appendHit(type, r, c){
+    var rect;
+    if(type === "h"){
+      rect = make("rect", {
+        x: dx(c)+INSET, y: dy(r)-HIT/2, width: SP-2*INSET, height: HIT, "class":"hit"
+      });
+    } else {
+      rect = make("rect", {
+        x: dx(c)-HIT/2, y: dy(r)+INSET, width: HIT, height: SP-2*INSET, "class":"hit"
+      });
+    }
+    rect.addEventListener("click", function(){ playEdge(type, r, c); });
+    svg.appendChild(rect);
+  }
+
+  function renderStatus(){
+    statusEl.innerHTML = "";
+    for(var p=0;p<numPlayers;p++){
+      var chip = document.createElement("div");
+      chip.className = "chip" + (p === current && !gameOver ? " active" : "");
+      var dot = document.createElement("span");
+      dot.className = "dot"; dot.style.background = COLORS[p];
+      var name = document.createElement("span");
+      name.className = "name"; name.textContent = "P" + (p+1);
+      name.style.color = COLORS[p];
+      var score = document.createElement("span");
+      score.className = "score"; score.textContent = scores[p] + (scores[p]===1?" box":" boxes");
+      chip.appendChild(dot); chip.appendChild(name); chip.appendChild(score);
+      statusEl.appendChild(chip);
+    }
+  }
+
+  function showResult(){
+    var best = Math.max.apply(null, scores);
+    var winners = [];
+    for(var p=0;p<numPlayers;p++) if(scores[p] === best) winners.push(p);
+    var msg;
+    if(winners.length > 1){
+      msg = "Tie! " + winners.map(function(w){return "P"+(w+1);}).join(" & ") + " — " + best + " boxes each";
+    } else {
+      msg = "P" + (winners[0]+1) + " wins with " + best + " boxes!";
+    }
+    resultEl.textContent = msg;
+    resultEl.className = "result show";
+  }
+
+  document.getElementById("newgame").addEventListener("click", newGame);
+  document.getElementById("pcount").addEventListener("change", newGame);
+
+  newGame();
+})();
+</script>
+</body>
+</html>

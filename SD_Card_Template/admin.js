@@ -167,9 +167,9 @@ async function populateIndexScanDirDropdown() {
 }
 
 // polls /scan-status directly so it resolves promptly. two phases matter:
-// /generate-media returns as soon as the index is QUEUED, the worker flips
-// indexingInProgress a moment later. so wait for it to actually START, then finish -
-// else we'd see both flags false and return early (the old "totals before index" bug)
+// /generate-media returns as soon as the index is queued and the worker flips
+// indexingInProgress a moment later, so wait for it to actually start, then finish.
+// otherwise both flags read false and we return early with totals from before
 function fetchScanStatus() {
   return fetch('/scan-status').then(r => r.ok ? r.json() : null).catch(() => null);
 }
@@ -313,9 +313,8 @@ function setAdminToken(token) {
   }
 }
 
-// Use for any request that changes device state (restart, settings, LEDs, etc).
-// Attaches the admin session token and re-shows the auth overlay if the server
-// rejects it (e.g. the device rebooted and the token no longer exists).
+// use for any request that changes device state (restart, settings, LEDs). attaches
+// the admin session token and re-shows the auth overlay if the server rejects it
 async function adminFetch(url, opts = {}) {
   const headers = Object.assign({}, opts.headers || {});
   if (adminToken) headers['X-Admin-Token'] = adminToken;
@@ -332,7 +331,8 @@ async function adminFetch(url, opts = {}) {
 async function loadSettings() {
   console.log("loadSettings() fired");
   try {
-    const res = await fetch('/settings', { cache: 'no-store' });
+    // authed: the firmware only reveals the wifi password to the admin
+    const res = await adminFetch('/settings', { cache: 'no-store' });
     const s = await res.json();
     console.log("settings from backend:", s);
 
@@ -359,7 +359,7 @@ async function loadSettings() {
     if (s.wifiSSID !== undefined) {
       document.getElementById('ssid').value = s.wifiSSID;
     }
-    if (s.wifiPassword !== undefined) {
+    if (s.wifiPassword !== undefined && s.wifiPassword !== '__set__') {
       document.getElementById('wifi-password').value = s.wifiPassword;
     }
 
@@ -380,6 +380,14 @@ async function loadSettings() {
     if (s.flipScreen !== undefined) {
       document.getElementById('flip-screen').checked = !!s.flipScreen;
     }
+
+    // TV support (DLNA), default on when the firmware doesn't report it
+    const dlnaEl = document.getElementById('dlna-enabled');
+    if (dlnaEl) dlnaEl.checked = (s.dlnaEnabled !== undefined) ? !!s.dlnaEnabled : true;
+
+    // captive DNS mode (WiFi Mode popup checkbox), default targeted
+    const dnsEl = document.getElementById('wifi-dns-catchall');
+    if (dnsEl) dnsEl.checked = !!s.dnsCatchAll;
 
     // Check authentication
     if (typeof requireAdminAuth === 'function') {
@@ -408,7 +416,8 @@ async function saveSettings() {
       wifiPassword: wifiPassword,
       brightness: parseInt(document.getElementById('brightness').value),
       autoGenerateMedia: document.getElementById('auto-generate').checked,
-      flipScreen: document.getElementById('flip-screen').checked
+      flipScreen: document.getElementById('flip-screen').checked,
+      dlnaEnabled: document.getElementById('dlna-enabled') ? document.getElementById('dlna-enabled').checked : true
     };
 
     const res = await adminFetch('/settings', {
@@ -511,9 +520,11 @@ async function updateAdminPassword() {
   }
 
   try {
-    const hashedPw = await sha256Hex(newPw);
+    // store the password raw: the firmware compares login submissions directly against
+    // the stored value, and hashing only in secure contexts made the stored form depend
+    // on which browser changed it last
     const settingsUpdate = {
-      adminPassword: hashedPw
+      adminPassword: newPw
     };
 
     const res = await adminFetch('/settings', {
@@ -780,16 +791,214 @@ async function fetchSystemInfo() {
 // Admin bar functionality
 async function fetchAdminBar() {
   try {
-    const res = await fetch('/admin-status');
+    // authed: the firmware only reveals the wifi password to the admin
+    const res = await adminFetch('/admin-status');
     const data = await res.json();
 
     document.getElementById('bar-ssid').textContent = data.ssid || '—';
-    document.getElementById('bar-wifi-pass').textContent = data.wifiPassword || '—';
+
+    // in WiFi Mode (joined a home network) the hotspot password is meaningless;
+    // the address the router assigned is what someone at the device needs
+    const passBadge = document.getElementById('bar-wifi-pass');
+    const passLabel = passBadge ? passBadge.parentElement.querySelector('.label') : null;
+    if (data.wifiMode === 'sta') {
+      if (passLabel) passLabel.textContent = 'Address';
+      passBadge.textContent = data.ip || '—';
+    } else {
+      if (passLabel) passLabel.textContent = 'Password';
+      passBadge.textContent = (data.wifiPassword && data.wifiPassword !== '__set__') ? data.wifiPassword : '••••••';
+    }
+
     document.getElementById('bar-users').textContent =
       typeof data.users === 'number' ? `${data.users}` : '0';
 
   } catch (e) {
     console.error('Could not load admin bar:', e);
+  }
+}
+
+// ---------------- WiFi Mode popup ----------------
+// Joins Nomad to an existing network instead of running the hotspot. All state
+// lives on the device (/api/wifi-mode); this popup is just a remote control.
+let wifiScanTimer = null;
+let wifiStoredPasswordSet = false;
+
+function wifiSetStatus(text, cls) {
+  const box = document.getElementById('wifi-status');
+  const txt = document.getElementById('wifi-status-text');
+  if (!box || !txt) return;
+  box.classList.remove('online', 'warn');
+  if (cls) box.classList.add(cls);
+  txt.textContent = text;
+}
+
+async function openWifiModal() {
+  const overlay = document.getElementById('wifi-overlay');
+  overlay.classList.remove('hidden');
+  wifiSetStatus('Loading…', '');
+  try {
+    const res = await adminFetch('/api/wifi-mode', { cache: 'no-store' });
+    if (res.status === 404) {
+      wifiSetStatus('This firmware has no WiFi Mode support — flash the latest build first.', 'warn');
+      document.getElementById('wifi-connect-btn').disabled = true;
+      document.getElementById('wifi-disable-btn').disabled = true;
+      return;
+    }
+    if (!res.ok) throw new Error('status ' + res.status);
+    const s = await res.json();
+
+    document.getElementById('wifi-connect-btn').disabled = false;
+    document.getElementById('wifi-disable-btn').disabled = false;
+    wifiStoredPasswordSet = !!s.staPasswordSet;
+
+    const ssidEl = document.getElementById('wifi-sta-ssid');
+    if (!ssidEl.value && s.staSSID) ssidEl.value = s.staSSID;
+    document.getElementById('wifi-sta-persist').checked = !!s.staPersist;
+    const passEl = document.getElementById('wifi-sta-pass');
+    passEl.placeholder = wifiStoredPasswordSet ? '(saved — leave empty to keep)' : 'Leave empty for open networks';
+
+    if (s.mode === 'sta') {
+      wifiSetStatus(`Connected to "${s.staSSID}" — ${s.ip}/${s.cidr || '?'}${typeof s.rssi === 'number' ? ` (${s.rssi} dBm)` : ''}`, 'online');
+    } else if (s.staArmed) {
+      wifiSetStatus(`Hotspot mode — will try to join "${s.staSSID}" on next restart`, 'warn');
+    } else if (s.lastError) {
+      wifiSetStatus(`Hotspot mode — last join attempt failed: ${s.lastError}`, 'warn');
+    } else {
+      wifiSetStatus(`Hotspot mode ("${s.hotspotSSID}") — ${s.ip}`, '');
+    }
+  } catch (e) {
+    console.error('WiFi mode status failed:', e);
+    wifiSetStatus('Could not read WiFi status from the device.', 'warn');
+  }
+}
+
+function closeWifiModal() {
+  document.getElementById('wifi-overlay').classList.add('hidden');
+  if (wifiScanTimer) { clearTimeout(wifiScanTimer); wifiScanTimer = null; }
+}
+
+async function wifiPollScan() {
+  const listEl = document.getElementById('wifi-scan-list');
+  const scanBtn = document.getElementById('wifi-scan-btn');
+  try {
+    const res = await adminFetch('/api/wifi-scan', { cache: 'no-store' });
+    if (!res.ok) throw new Error('status ' + res.status);
+    const data = await res.json();
+    if (data.status === 'scanning') {
+      wifiScanTimer = setTimeout(wifiPollScan, 1200);
+      return;
+    }
+    scanBtn.disabled = false;
+    scanBtn.textContent = 'Scan for networks';
+    listEl.innerHTML = '';
+    const nets = data.networks || [];
+    if (!nets.length) {
+      listEl.innerHTML = '<div class="wifi-net-row" style="cursor:default;">No networks found</div>';
+    }
+    nets.forEach(n => {
+      const row = document.createElement('button');
+      row.type = 'button';
+      row.className = 'wifi-net-row';
+      const name = document.createElement('span');
+      name.textContent = n.ssid;
+      const meta = document.createElement('span');
+      meta.className = 'meta';
+      meta.textContent = `${n.secure ? '🔒 ' : ''}${n.rssi} dBm`;
+      row.appendChild(name);
+      row.appendChild(meta);
+      row.addEventListener('click', () => {
+        document.getElementById('wifi-sta-ssid').value = n.ssid;
+        document.getElementById('wifi-sta-pass').focus();
+      });
+      listEl.appendChild(row);
+    });
+    listEl.classList.remove('hidden');
+  } catch (e) {
+    console.error('WiFi scan failed:', e);
+    scanBtn.disabled = false;
+    scanBtn.textContent = 'Scan for networks';
+    addConsoleLog('WiFi scan failed', 'error');
+  }
+}
+
+async function wifiStartScan() {
+  const scanBtn = document.getElementById('wifi-scan-btn');
+  scanBtn.disabled = true;
+  scanBtn.textContent = 'Scanning… (playback may pause a moment)';
+  wifiPollScan();
+}
+
+async function wifiConnect() {
+  const ssid = document.getElementById('wifi-sta-ssid').value.trim();
+  const pass = document.getElementById('wifi-sta-pass').value;
+  const persist = document.getElementById('wifi-sta-persist').checked;
+
+  if (!ssid) { alert('Enter or pick a network name first.'); return; }
+  if (pass && (pass.length < 8 || pass.length > 63)) {
+    alert('WiFi passwords are 8-63 characters. Leave the field empty for an open network' +
+          (wifiStoredPasswordSet ? ' or to keep the saved password.' : '.'));
+    return;
+  }
+
+  const ok = confirm(
+    `⚠️ Nomad will restart and join "${ssid}".\n\n` +
+    `Its hotspot goes away while WiFi Mode is active. Connect this device to "${ssid}" ` +
+    `and open http://nomad.local — the Nomad screen shows the exact address.\n\n` +
+    (persist
+      ? 'Auto-reconnect is ON: it rejoins on every boot. Hold the side button during boot (or use this popup) to return to hotspot mode.\n\n'
+      : 'Auto-reconnect is OFF: unplugging and replugging returns it to hotspot mode.\n\n') +
+    'If the network can\'t be reached, Nomad falls back to hotspot mode by itself.\n\nProceed?'
+  );
+  if (!ok) return;
+
+  const body = { action: 'connect', ssid: ssid, persist: persist };
+  // empty field + a stored password = keep it (the device never echoes it back)
+  if (pass || !wifiStoredPasswordSet) body.password = pass;
+
+  try {
+    const res = await adminFetch('/api/wifi-mode', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({ body: JSON.stringify(body) })
+    });
+    const data = await res.json().catch(() => ({}));
+    if (res.ok) {
+      addConsoleLog(`WiFi Mode: restarting to join "${ssid}"`, 'info');
+      alert(`Nomad is restarting and joining "${ssid}".\n\nSwitch this device to that network, then open http://nomad.local or the address on the Nomad screen.`);
+      closeWifiModal();
+    } else {
+      alert('Could not switch WiFi mode: ' + (data.error || ('HTTP ' + res.status)));
+    }
+  } catch (e) {
+    addConsoleLog('WiFi mode change failed to send', 'error');
+    alert('Could not reach the device.');
+  }
+}
+
+async function wifiDisable() {
+  const ok = confirm('Return Nomad to hotspot mode?\n\nIf it is currently on your home network it will restart and bring the hotspot back.');
+  if (!ok) return;
+  try {
+    const res = await adminFetch('/api/wifi-mode', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({ body: JSON.stringify({ action: 'disable' }) })
+    });
+    const data = await res.json().catch(() => ({}));
+    if (res.ok) {
+      if (data.status === 'restarting') {
+        addConsoleLog('WiFi Mode disabled - device restarting into hotspot mode', 'info');
+        alert('Nomad is restarting in hotspot mode. Reconnect to its WiFi network in a moment.');
+        closeWifiModal();
+      } else {
+        addConsoleLog('WiFi Mode disabled', 'info');
+        wifiSetStatus('Hotspot mode — auto-reconnect turned off', '');
+      }
+    } else {
+      alert('Could not switch WiFi mode: ' + (data.error || ('HTTP ' + res.status)));
+    }
+  } catch (e) {
+    alert('Could not reach the device.');
   }
 }
 
@@ -841,7 +1050,7 @@ async function requireAdminAuth(passedSettings) {
   // Check if password is disabled
   if (!settings || !settings.hasOwnProperty('adminPassword') ||
       settings.adminPassword === null || settings.adminPassword === '' || settings.adminPassword === 'null') {
-    console.debug('requireAdminAuth: admin password explicitly disabled on server — skipping auth.');
+    console.debug('requireAdminAuth: admin password explicitly disabled on server, skipping auth.');
     overlay.classList.add('hidden');
     return;
   }
@@ -854,7 +1063,7 @@ async function requireAdminAuth(passedSettings) {
   }
 
   // Show auth overlay if password is set and no valid session token
-  console.debug('requireAdminAuth: admin password is set — showing auth overlay.');
+  console.debug('requireAdminAuth: admin password is set, showing auth overlay.');
   overlay.classList.remove('hidden');
   passwordInput.focus();
 
@@ -865,12 +1074,22 @@ async function requireAdminAuth(passedSettings) {
       if (!inputPw) return;
 
       try {
-        const hashedInput = await sha256Hex(inputPw);
-        const res = await fetch('/auth/login', {
+        // the firmware compares the submitted value directly against whatever
+        // /config/settings.json holds. this UI used to hash the password only when
+        // crypto.subtle existed, so cards can hold either plaintext or a sha256 hex.
+        // try raw first (current convention), then the hash
+        const attempt = (value) => fetch('/auth/login', {
           method: 'POST',
           headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-          body: new URLSearchParams({ 'body': JSON.stringify({ hash: hashedInput }) })
+          body: new URLSearchParams({ 'body': JSON.stringify({ hash: value }) })
         });
+        let res = await attempt(inputPw);
+        if (res.status === 401 && inputPw !== inputPw.trim()) {
+          res = await attempt(inputPw.trim());   // pasted passwords often carry stray whitespace
+        }
+        if (res.status === 401 && window.crypto && crypto.subtle) {
+          res = await attempt(await sha256Hex(inputPw.trim()));
+        }
 
         if (res.ok) {
           // Success - the server verified the password hash and issued a session token.
@@ -989,7 +1208,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         }
       } catch (err) {
         addConsoleLog('Device disconnected - shutdown in progress', 'warning');
-        alert('Device disconnected — shutdown likely in progress.');
+        alert('Device disconnected, shutdown likely in progress.');
       }
     });
   }
@@ -1030,6 +1249,37 @@ document.addEventListener('DOMContentLoaded', async () => {
     });
   }
 
+  // WiFi Mode popup
+  const wifiBtn = document.getElementById('btn-wifimode');
+  if (wifiBtn) wifiBtn.addEventListener('click', openWifiModal);
+  const wifiCloseBtn = document.getElementById('wifi-close-btn');
+  if (wifiCloseBtn) wifiCloseBtn.addEventListener('click', closeWifiModal);
+  const wifiScanBtn = document.getElementById('wifi-scan-btn');
+  if (wifiScanBtn) wifiScanBtn.addEventListener('click', wifiStartScan);
+  const wifiConnectBtn = document.getElementById('wifi-connect-btn');
+  if (wifiConnectBtn) wifiConnectBtn.addEventListener('click', wifiConnect);
+  const wifiDisableBtn = document.getElementById('wifi-disable-btn');
+  if (wifiDisableBtn) wifiDisableBtn.addEventListener('click', wifiDisable);
+  // click outside the panel closes the popup, like a modal should
+  const wifiOverlay = document.getElementById('wifi-overlay');
+  if (wifiOverlay) wifiOverlay.addEventListener('click', (e) => {
+    if (e.target === wifiOverlay) closeWifiModal();
+  });
+  // captive DNS mode saves immediately and applies live, no restart
+  const dnsCatchEl = document.getElementById('wifi-dns-catchall');
+  if (dnsCatchEl) dnsCatchEl.addEventListener('change', async () => {
+    try {
+      await adminFetch('/settings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: new URLSearchParams({ body: JSON.stringify({ dnsCatchAll: dnsCatchEl.checked }) })
+      });
+      addConsoleLog('Captive DNS: ' + (dnsCatchEl.checked ? 'catch-all (legacy)' : 'targeted'), 'info');
+    } catch (e) {
+      addConsoleLog('Failed to save DNS mode', 'error');
+    }
+  });
+
   // Temperature click to toggle units
   const tempBtn = document.getElementById('cpu-temp');
   if (tempBtn) {
@@ -1055,6 +1305,20 @@ document.addEventListener('DOMContentLoaded', async () => {
     flipToggle.addEventListener('change', () => {
       saveSettings();
       addConsoleLog(`Screen flipped ${flipToggle.checked ? '180° (upside-down mount)' : 'back to normal'}`, 'info');
+    });
+  }
+
+  // TV support toggle - firmware starts/stops SSDP announcements on save.
+  // TVs that already cached the entry can take a minute to drop it.
+  const dlnaToggle = document.getElementById('dlna-enabled');
+  if (dlnaToggle) {
+    dlnaToggle.addEventListener('change', () => {
+      saveSettings();
+      const msg = document.getElementById('dlna-msg');
+      if (msg) msg.textContent = dlnaToggle.checked
+        ? 'On. TVs on this WiFi should list "Nomad" as a media server within a minute or two.'
+        : 'Off. TVs may keep a stale entry until they refresh their source list.';
+      addConsoleLog(`TV support (DLNA) ${dlnaToggle.checked ? 'enabled' : 'disabled'}`, 'info');
     });
   }
 
@@ -1160,3 +1424,202 @@ function checkScreenSize() {
 
 window.addEventListener('resize', checkScreenSize);
 window.addEventListener('load', checkScreenSize);
+
+/* ================= UI configuration (/.system-ui.json) =================
+   Owned by the firmware since Mk4.6: GET/POST /api/ui-config. The POST is admin
+   authed and the firmware does the SD write on a background task, so saving cant
+   stall the web server (the old open /save path wrote on async_tcp and rebooted the
+   device when the card was nearly full). Same file, so menu.html reads it unchanged. */
+
+const UI_CFG_FILE = '/.system-ui.json';
+const UI_PAGES = [
+  ['movies',  'Movies'],  ['shows',    'Shows'],    ['music', 'Music'],
+  ['books',   'Books'],   ['gallery',  'Gallery'],  ['files', 'Files'],
+  ['games',   'Games'],   ['maps',     'Maps'],     ['archive', 'Archive'],
+  ['chat',    'Chat'],    ['translate','Translate'],
+  ['cookbook','Cookbook'], ['workshop', 'Workshop'],
+];
+let uiCfg = { hiddenPages: [], downloadsDisabled: false, uploadsDisabled: false, motd: '' };
+
+async function loadUiConfig() {
+  try {
+    // firmware endpoint first (RAM copy, always current), file as fallback
+    // so this page still works against an older firmware
+    let r = await fetch('/api/ui-config?_=' + Date.now(), { cache: 'no-store' });
+    let txt = r.ok ? await r.text() : '';
+    let parsed = null;
+    try { parsed = JSON.parse(txt); } catch (e) { parsed = null; }
+    if (!parsed) {
+      r = await fetch(UI_CFG_FILE + '?_=' + Date.now(), { cache: 'no-store' });
+      if (r.ok) { try { parsed = JSON.parse(await r.text()); } catch (e) {} }
+    }
+    if (parsed) uiCfg = Object.assign(uiCfg, parsed);
+  } catch (e) {}
+  const wrap = document.getElementById('ui-pages');
+  if (!wrap) return;
+  wrap.innerHTML = '';
+  for (const [key, label] of UI_PAGES) {
+    const row = document.createElement('div');
+    row.style.cssText = 'display:flex;align-items:center;justify-content:space-between;';
+    row.innerHTML = `
+      <label class="form-label" style="margin:0;">${label}</label>
+      <label class="toggle-switch">
+        <input type="checkbox" data-page="${key}" ${uiCfg.hiddenPages.includes(key) ? '' : 'checked'}>
+        <span class="slider"></span>
+      </label>`;
+    row.querySelector('input').addEventListener('change', savePageToggles);
+    wrap.appendChild(row);
+  }
+  const dl = document.getElementById('ui-downloads');
+  dl.checked = !uiCfg.downloadsDisabled;
+  dl.addEventListener('change', () => {
+    uiCfg.downloadsDisabled = !dl.checked;
+    saveUiConfig('ui-downloads-msg');
+  });
+  const ul = document.getElementById('ui-uploads');
+  ul.checked = !uiCfg.uploadsDisabled;
+  ul.addEventListener('change', () => {
+    uiCfg.uploadsDisabled = !ul.checked;
+    saveUiConfig('ui-downloads-msg');
+  });
+  document.getElementById('ui-motd').value = uiCfg.motd || '';
+}
+
+function savePageToggles() {
+  uiCfg.hiddenPages = [...document.querySelectorAll('#ui-pages input[data-page]')]
+    .filter(i => !i.checked).map(i => i.dataset.page);
+  saveUiConfig('ui-pages-msg');
+}
+
+function saveMotd() {
+  uiCfg.motd = document.getElementById('ui-motd').value.trim().slice(0, 120);
+  saveUiConfig('ui-community-msg');
+}
+
+async function saveUiConfig(msgId) {
+  const msg = document.getElementById(msgId);
+  const payload = JSON.stringify({ v: 1, hiddenPages: uiCfg.hiddenPages,
+    downloadsDisabled: !!uiCfg.downloadsDisabled,
+    uploadsDisabled: !!uiCfg.uploadsDisabled, motd: uiCfg.motd || '' });
+  try {
+    const res = await adminFetch('/api/ui-config', { method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({ body: payload }) });
+    if (msg) msg.textContent = res.ok ? 'Saved. Takes effect when pages reload.' : 'Save failed (' + res.status + ')';
+  } catch (e) {
+    if (msg) msg.textContent = 'Save failed: ' + e.message;
+  }
+}
+
+/* delete every file in a community dotfolder (chat / whiteboard state) */
+async function clearCommunityDir(dir, label) {
+  const msg = document.getElementById('ui-community-msg');
+  if (!confirm(`Clear the ${label} for everyone? This cannot be undone.`)) return;
+  let n = 0;
+  try {
+    const res = await fetch(`/listfiles?dir=${encodeURIComponent(dir)}&_=${Date.now()}`, { cache: 'no-store' });
+    if (res.ok) {
+      const arr = JSON.parse(await res.text());
+      for (const f of (Array.isArray(arr) ? arr : [])) {
+        if (f.isDir) continue;
+        const ok = await fetch('/delete', { method: 'POST',
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+          body: new URLSearchParams({ filename: `${dir}/${f.name}` }) });
+        if (ok.ok) n++;
+      }
+    }
+  } catch (e) {}
+  if (msg) msg.textContent = `${label} cleared (${n} file${n === 1 ? '' : 's'} removed).`;
+}
+const clearChatHistory = () => clearCommunityDir('/.chat', 'chat history');
+const clearWhiteboard  = () => clearCommunityDir('/.whiteboard', 'live whiteboard');
+
+loadUiConfig();
+
+/* ================= Library statistics =================
+   Counts computed client-side from the /.system-index NDJSON files. Bucket indexes
+   hold top-level rows, <Bucket>__<name>.nested.ndjson files hold each series or
+   album's flat descendant list, so counting extensions over both gives totals
+   without touching the firmware. */
+const STAT_EXTS = {
+  video: ['.mp4', '.mkv', '.webm', '.avi', '.mov', '.m4v'],
+  audio: ['.mp3', '.m4a', '.m4b', '.flac', '.wav', '.ogg', '.aac', '.opus'],
+  book:  ['.pdf', '.epub', '.cbz', '.cbr', '.azw3', '.mobi'],
+  image: ['.jpg', '.jpeg', '.png', '.webp', '.gif', '.bmp'],
+};
+function statExt(name) {
+  const m = String(name).toLowerCase().match(/\.[a-z0-9]+$/);
+  return m ? m[0] : '';
+}
+
+async function computeLibraryStats() {
+  const wrap = document.getElementById('lib-stats');
+  if (!wrap) return;
+  try {
+    const listRes = await fetch(`/listfiles?dir=${encodeURIComponent('/.system-index')}&_=${Date.now()}`, { cache: 'no-store' });
+    if (!listRes.ok) throw new Error('no index dir');
+    const files = (JSON.parse(await listRes.text()) || [])
+      .filter(f => !f.isDir && /\.ndjson$/.test(f.name)).map(f => f.name);
+
+    // group index files by bucket; fetch with limited concurrency
+    const byBucket = {};
+    for (const n of files) {
+      const bucket = n.split(/\.|__/)[0];
+      (byBucket[bucket] = byBucket[bucket] || []).push(n);
+    }
+    const rowsOf = async (name) => {
+      try {
+        const r = await fetch(`/.system-index/${encodeURIComponent(name)}?_=${Date.now()}`, { cache: 'no-store' });
+        if (!r.ok) return [];
+        return (await r.text()).split('\n').slice(1).filter(Boolean).map(l => {
+          try { return JSON.parse(l); } catch (e) { return null; }
+        }).filter(Boolean);
+      } catch (e) { return []; }
+    };
+    // strictly sequential with breathing room: the device serves these off the SD inside
+    // its network task, and bursts of parallel index fetches have starved its watchdog.
+    // slow and steady is fine for an admin statistics panel
+    const breather = () => new Promise(r => setTimeout(r, 150));
+    const bucketRows = async (bucket) => {
+      const out = [];
+      for (const name of (byBucket[bucket] || [])) {
+        out.push(...await rowsOf(name));
+        await breather();
+      }
+      return out;
+    };
+    const count = (rows, exts) => rows.filter(r => r.t === 'f' && exts.includes(statExt(r.n))).length;
+
+    const results = [];
+    for (const b of ['Movies', 'Shows', 'Music', 'Books', 'Gallery', 'Files', 'Games']) {
+      results.push(await bucketRows(b));
+    }
+    const [movies, shows, music, books, gallery, filesRows, games] = results;
+    const topDirs = (rows, bucket) => rows.filter(r =>
+      r.t === 'd' && (r.p.match(/\//g) || []).length === 2).length;
+
+    const stats = [
+      ['Movies',    count(movies, STAT_EXTS.video)],
+      ['Shows',     (byBucket['Shows'] || []).filter(n => n.includes('__')).length || topDirs(shows, 'Shows')],
+      ['Episodes',  count(shows, STAT_EXTS.video)],
+      ['Albums',    topDirs(music, 'Music')],
+      ['Songs',     count(music, STAT_EXTS.audio)],
+      ['Books',     count(books, STAT_EXTS.book)],
+      ['Audiobooks',count(books, STAT_EXTS.audio)],
+      ['Photos',    count(gallery, STAT_EXTS.image)],
+      ['Files',     filesRows.filter(r => r.t === 'f').length],
+      ['Games',     games.filter(r => r.t === 'f' && !STAT_EXTS.image.includes(statExt(r.n))).length],
+    ].filter(([, v]) => v > 0);
+
+    wrap.innerHTML = stats.length ? stats.map(([label, v]) => `
+      <div style="background: var(--bg); border: 1px solid var(--card-border, var(--line, #ddd)); border-radius: 8px; padding: 0.5rem; text-align: center;">
+        <div style="font-weight: 700; font-size: 1.05rem;">${v.toLocaleString()}</div>
+        <div style="font-size: 0.72rem; color: var(--muted);">${label}</div>
+      </div>`).join('')
+      : '<div style="grid-column:1/-1;font-size:0.85rem;color:var(--muted);">No library index yet. Run a scan below.</div>';
+  } catch (e) {
+    wrap.innerHTML = '<div style="grid-column:1/-1;font-size:0.85rem;color:var(--muted);">Library counts unavailable (' + e.message + ').</div>';
+  }
+}
+// delayed start so the admin page's initial settings/status fetches finish first
+setTimeout(computeLibraryStats, 2500);

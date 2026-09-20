@@ -4,7 +4,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <meta name="description" content="Jcorp Nomad — Theme Customization">
+  <meta name="description" content="Jcorp Nomad Theme Customization">
   <title>Nomad • Theme Customization</title>
   <link rel="icon" href="/favicon.ico" />
   <link rel="stylesheet" href="/master.css">
@@ -14,6 +14,9 @@
     const isDark = localStorage.getItem('nomad_dark_mode') === 'true';
     if (isDark) {
       document.documentElement.classList.add('dark');
+      new MutationObserver((m, o) => {
+        if (document.body) { document.body.classList.add('dark'); o.disconnect(); }
+      }).observe(document.documentElement, { childList: true });
       document.documentElement.classList.add('dark-mode');
     }
 

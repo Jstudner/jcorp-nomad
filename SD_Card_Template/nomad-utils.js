@@ -65,6 +65,77 @@ async function releaseWakeLock(){
   }
 }
 
+/* One directory listing, from whichever of the device's two sources can actually
+   answer for this folder.
+
+   /listfiles walks the card live, so it sees writes and deletions immediately, but
+   it builds its response in a fixed JSON buffer and marks itself truncated once a
+   folder overflows it. The NDJSON index has no such cap, but it is only as fresh as
+   the last index pass. So: take /listfiles when it came back whole, fall back to the
+   index when it didn't, and hand back the partial list (flagged) if there is no
+   index to fall back on.
+
+   Entries are { name, path, isDir, size }. */
+const NomadList = {
+  async _fetch503(url, tries = 3) {
+    for (let i = 0; i < tries; i++) {
+      const res = await fetch(url, { cache: 'no-store' });
+      if (res.status !== 503) return res;          // a busy card 503s right after boot
+      await new Promise(r => setTimeout(r, 700 * (i + 1)));
+    }
+    return fetch(url, { cache: 'no-store' });
+  },
+
+  /* encode a card path for a URL, per segment: encodeURI leaves # and ? alone,
+     so a file named "Cake #2.md" used to truncate at the hash */
+  encPath(p) { return String(p || '').split('/').map(encodeURIComponent).join('/'); },
+
+  async _viaListFiles(dir) {
+    const res = await this._fetch503('/listfiles?dir=' + encodeURIComponent(dir) + '&_=' + Date.now());
+    if (!res.ok) return null;
+    const arr = JSON.parse(await res.text());
+    if (!Array.isArray(arr)) return null;
+    return {
+      truncated: arr.some(f => f && f.truncated),
+      entries: arr.filter(f => f && f.name).map(f => {
+        const name = String(f.name).replace(/\/$/, '');
+        return { name, path: dir + '/' + name, isDir: !!f.isDir, size: +f.size || 0 };
+      }).filter(f => f.name)
+    };
+  },
+
+  async _viaIndex(dir) {
+    const res = await this._fetch503('/api/index?path=' + encodeURIComponent(dir));
+    // 202 is "no index yet, building one" and its body is a status object, not a listing
+    if (!res.ok || res.status === 202) return null;
+    const lines = (await res.text()).split('\n').filter(Boolean);
+    const out = [];
+    for (let i = 1; i < lines.length; i++) {       // line 0 is the index header
+      try {
+        const e = JSON.parse(lines[i]);
+        // the index writes the size as "sz"; every other reader in the app agrees
+        if (e && e.n) out.push({ name: e.n, path: e.p, isDir: e.t === 'd', size: +e.sz || 0 });
+      } catch (e) {}
+    }
+    return out.length ? out : null;
+  },
+
+  /* -> { entries, truncated, source }. entries is always an array, [] for an empty
+     or unreadable folder, so a caller can render its empty state either way. */
+  async dir(path) {
+    let lf = null;
+    try { lf = await this._viaListFiles(path); } catch (e) {}
+    if (lf && !lf.truncated) return { entries: lf.entries, truncated: false, source: 'listfiles' };
+
+    let idx = null;
+    try { idx = await this._viaIndex(path); } catch (e) {}
+    if (idx) return { entries: idx, truncated: false, source: 'index' };
+
+    if (lf) return { entries: lf.entries, truncated: lf.truncated, source: 'listfiles' };
+    return { entries: [], truncated: false, source: 'none' };
+  }
+};
+
 /* Subtitle support. Browsers only render WebVTT in <track> elements, so
    buildTracks() converts .srt to VTT client-side and passes .vtt through. */
 const NomadSubs = {
@@ -126,22 +197,81 @@ const NomadUI = {
   _cfg: null,
   async config(){
     if (this._cfg) return this._cfg;
+    // firmware's RAM copy first (always current), the file on the card as a
+    // fallback for older firmware
+    try {
+      const r = await fetch('/api/ui-config?_=' + Date.now(), { cache: 'no-store' });
+      if (r.ok) {
+        try { this._cfg = JSON.parse(await r.text()) || {}; return this._cfg; }
+        catch(e){ /* captive portal HTML from old firmware, use the file */ }
+      }
+    } catch(e){}
     try {
       const r = await fetch('/.system-ui.json?_=' + Date.now(), { cache: 'no-store' });
       this._cfg = r.ok ? (JSON.parse(await r.text()) || {}) : {};
     } catch(e){ this._cfg = {}; }
     return this._cfg;
   },
-  async hideDownloads(...els){
+  /* Downloads off is one rule for the whole site: <body class="nomad-no-dl"> plus a
+     stylesheet rule that hides anything marked data-dl. A class beats inline
+     display:none, which page CSS with !important used to override (that is how the
+     music player kept its download button), and it covers rows rendered later.
+     A page marks its download controls with data-dl, the older id list still works. */
+  async applyDownloadPolicy(...els){
     const cfg = await this.config();
-    if (cfg.downloadsDisabled) {
+    const off = !!cfg.downloadsDisabled;
+    const paint = () => {
+      if (!document.body) return;
+      document.body.classList.toggle('nomad-no-dl', off);
+      if (!document.getElementById('nomad-dl-style')) {
+        const st = document.createElement('style');
+        st.id = 'nomad-dl-style';
+        st.textContent = 'body.nomad-no-dl [data-dl]{display:none !important}';
+        document.head.appendChild(st);
+      }
       els.forEach(sel => {
         const el = typeof sel === 'string' ? document.getElementById(sel) : sel;
-        if (el) el.style.display = 'none';
+        if (el) el.setAttribute('data-dl', '');
       });
-      return true;
-    }
-    return false;
+    };
+    if (document.body) paint();
+    else document.addEventListener('DOMContentLoaded', paint);
+    return off;
+  },
+  // kept: pages already call this name
+  async hideDownloads(...els){ return this.applyDownloadPolicy(...els); },
+  // for code that builds a link and needs to know before rendering
+  async downloadsOff(){ return !!(await this.config()).downloadsDisabled; }
+};
+
+/* Plyr icons.
+
+   Plyr only injects its SVG sprite when iconUrl points at another origin (its CDN).
+   Served from our own card it instead writes <use href="/assets/plyr.svg#plyr-play">,
+   an external SVG reference browsers do not resolve, so every control came out blank.
+   Fetch the sprite once, inject it, and hand Plyr an empty iconUrl so its icons
+   reference the injected symbols instead of a file.
+
+   Usage: await NomadPlyr.ready(); new Plyr(el, NomadPlyr.opts({ controls: [...] })) */
+const NomadPlyr = {
+  _p: null,
+  ready(){
+    if (this._p) return this._p;
+    this._p = (async () => {
+      if (document.getElementById('sprite-plyr')) return;
+      const r = await fetch('/assets/plyr.svg', { cache: 'force-cache' });
+      if (!r.ok) throw new Error('sprite HTTP ' + r.status);
+      const svg = await r.text();
+      const box = document.createElement('div');
+      box.id = 'sprite-plyr';
+      box.setAttribute('hidden', '');
+      box.innerHTML = svg;
+      document.body.insertBefore(box, document.body.firstChild);
+    })().catch(e => { console.warn('[Plyr] sprite load failed', e); });
+    return this._p;
+  },
+  opts(extra){
+    return Object.assign({ iconUrl: '', loadSprite: false, blankVideo: '' }, extra || {});
   }
 };
 

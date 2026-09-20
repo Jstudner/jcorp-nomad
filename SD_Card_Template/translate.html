@@ -1,0 +1,813 @@
+<!DOCTYPE html>
+<!-- Version 5 -->
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<meta name="description" content="Jcorp Nomad Media Server - Offline Translation">
+<title>Nomad • Translate</title>
+<link rel="icon" href="favicon.ico" type="image/x-icon">
+<link rel="stylesheet" href="/master.css">
+<script src="/theme-boot.js"></script>
+<script src="/theme-manager.js"></script>
+<!-- Classic script, so it runs before the deferred module below and has
+     window.fetch patched in time. -->
+<script>
+  // Optional override for benchmarking the transfer: /translate.html?c=1
+  // Must run before nomad-xlate.js reads it.
+  (function(){ var m=/[?&]c=(\d+)/.exec(location.search);
+    if (m) window.NOMAD_XLATE_CONCURRENCY = +m[1]; })();
+</script>
+<script src="/assets/nomad-xlate.js?v=5"></script>
+<style>
+  html,body{height:100%}
+  body{display:flex;flex-direction:column;overflow:hidden}
+
+  /* ---- language bar ---- */
+  .langbar{display:flex;align-items:center;gap:8px;padding:10px 12px;
+    background:var(--card);border-bottom:1px solid var(--line);flex:0 0 auto}
+  .langbar select{flex:1;min-width:0;background:var(--bg);color:var(--text);
+    border:1px solid var(--card-border);border-radius:999px;padding:9px 14px;
+    font-size:.95rem;font-family:var(--font-secondary);cursor:pointer;
+    text-align:center;text-align-last:center}
+  .swap{flex:0 0 auto;width:40px;height:40px;border-radius:50%;border:none;
+    background:transparent;color:var(--primary);cursor:pointer;font-size:1.25rem;
+    display:flex;align-items:center;justify-content:center;transition:background .15s}
+  .swap:hover{background:rgba(0,123,255,.1)}
+  .swap:disabled{color:var(--muted);cursor:default;background:transparent}
+
+  /* ---- the two panels ---- */
+  .panes{flex:1;display:flex;min-height:0;background:var(--bg);position:relative}
+  .pane{flex:1;display:flex;flex-direction:column;min-width:0;position:relative;
+    background:var(--card)}
+  .pane + .pane{border-left:1px solid var(--line)}
+  /* the box being translated INTO is tinted, so it is obvious which way the
+     text is currently flowing without reading anything */
+  .pane.receiving{background:var(--bg)}
+
+  .pane-lang{flex:0 0 auto;padding:10px 18px 0;font-size:.75rem;
+    letter-spacing:.04em;text-transform:uppercase;color:var(--muted);
+    font-weight:var(--font-weight-semibold)}
+  .pane.receiving .pane-lang{color:var(--primary)}
+
+  .pane textarea{
+    flex:1;width:100%;box-sizing:border-box;border:none;outline:none;resize:none;
+    padding:10px 18px 8px;font-size:1.35rem;line-height:1.45;
+    font-family:var(--font-secondary);background:transparent;color:var(--text);
+    overflow-y:auto;min-height:0}
+  .pane textarea::placeholder{color:var(--muted)}
+
+  .pane-foot{flex:0 0 auto;display:flex;align-items:center;justify-content:space-between;
+    gap:8px;padding:6px 14px 12px;min-height:34px}
+  .count{font-size:.78rem;color:var(--muted)}
+  .icon-btn{border:none;background:transparent;color:var(--muted);cursor:pointer;
+    padding:6px 10px;border-radius:var(--radius-small);font-size:.85rem;
+    display:inline-flex;align-items:center;gap:6px;transition:background .15s,color .15s}
+  .icon-btn:hover{background:var(--line);color:var(--text)}
+  .icon-btn:disabled{opacity:.4;cursor:default;background:transparent}
+
+  .btn{background:var(--primary);color:var(--color-white);border:none;
+    border-radius:var(--radius-small);padding:12px 22px;font-size:.95rem;
+    cursor:pointer;font-family:var(--font-secondary);white-space:nowrap;
+    font-weight:var(--font-weight-semibold)}
+  .btn:disabled{opacity:.5;cursor:default}
+  .btn.ghost{background:transparent;color:var(--primary);
+    border:1px solid var(--primary)}
+
+  /* ---- setup screen ----
+     Covers the typing area until the pack is ready. a text box you can type into is a
+     promise that something will happen when you do. */
+  .setup{position:absolute;inset:0;z-index:50;background:var(--bg);
+    display:none;flex-direction:column;align-items:center;justify-content:center;
+    padding:26px 22px;text-align:center;overflow-y:auto}
+  .setup.open{display:flex}
+  .setup-inner{max-width:460px;width:100%}
+  .setup h2{margin:0 0 10px;font-size:1.25rem;color:var(--text);
+    font-weight:var(--font-weight-semibold)}
+  .setup p{margin:0 0 12px;font-size:.95rem;line-height:1.55;color:var(--muted)}
+  .setup p.lead{color:var(--text)}
+
+  .notice{display:flex;gap:10px;text-align:left;background:var(--card);
+    border:1px solid var(--card-border);border-left:4px solid var(--warning);
+    border-radius:var(--radius-medium);padding:12px 14px;margin:16px 0 20px}
+  .notice .ico{font-size:1.1rem;line-height:1.4}
+  .notice div{font-size:.9rem;line-height:1.5;color:var(--text)}
+
+  /* big honest percentage */
+  .pct{font-size:3.4rem;font-weight:var(--font-weight-bold);color:var(--primary);
+    line-height:1;margin:6px 0 4px;font-variant-numeric:tabular-nums}
+  .pct small{font-size:1.4rem;font-weight:var(--font-weight-medium)}
+  .track{height:12px;border-radius:999px;background:var(--line);overflow:hidden;
+    margin:16px 0 10px;border:1px solid var(--card-border)}
+  .track > i{display:block;height:100%;width:0;background:var(--primary);
+    border-radius:999px;transition:width .25s ease}
+  .figures{display:flex;justify-content:space-between;gap:12px;
+    font-size:.85rem;color:var(--muted);font-variant-numeric:tabular-nums}
+  .step{font-size:.85rem;color:var(--muted);margin-top:14px;
+    word-break:break-all}
+  .setup .warn{color:var(--danger)}
+  .setup .btn{margin-top:6px}
+  .setup .subtle{font-size:.82rem;margin-top:16px}
+
+  /* ---- ready strip along the bottom ---- */
+  .ready{flex:0 0 auto;padding:6px 14px;background:var(--card);
+    border-top:1px solid var(--line);font-size:.82rem;color:var(--muted);
+    display:none;align-items:center;justify-content:space-between;gap:12px}
+  .ready.open{display:flex}
+  .ready-right{display:flex;align-items:center;gap:6px;flex:0 0 auto}
+  #readyText{min-width:0}
+
+  /* stacked on phones, exactly like Google Translate */
+  @media (max-width:700px){
+    .panes{flex-direction:column}
+    .pane + .pane{border-left:none;border-top:1px solid var(--line)}
+    .pane textarea{font-size:1.15rem;padding:8px 14px 6px}
+    .pane-lang{padding:8px 14px 0}
+    #readyText{font-size:.78rem}
+    .pct{font-size:2.8rem}
+    .setup{padding:20px 16px}
+  }
+</style>
+</head>
+<body>
+  <header>
+    <h1>Translate</h1>
+    <a class="back-btn" href="/menu">← Back to Menu</a>
+  </header>
+
+  <div class="langbar">
+    <select id="srcLang" aria-label="Translate from"></select>
+    <button class="swap" id="swapBtn" title="Swap languages" aria-label="Swap languages">⇄</button>
+    <select id="tgtLang" aria-label="Translate into"></select>
+  </div>
+
+  <div class="panes">
+    <!-- Both boxes are real inputs. Whichever one you type in becomes the
+         source, so two people can pass the device back and forth without
+         touching the language pickers. -->
+    <div class="pane" id="paneA">
+      <div class="pane-lang" id="langLabelA"></div>
+      <textarea id="textA" placeholder="Type here" autocomplete="off"
+                autocapitalize="sentences" spellcheck="false"></textarea>
+      <div class="pane-foot">
+        <span class="count" id="countA"></span>
+        <button class="icon-btn" id="copyA" title="Copy this text" disabled>Copy</button>
+      </div>
+    </div>
+    <div class="pane" id="paneB">
+      <div class="pane-lang" id="langLabelB"></div>
+      <textarea id="textB" placeholder="Type here" autocomplete="off"
+                autocapitalize="sentences" spellcheck="false"></textarea>
+      <div class="pane-foot">
+        <span class="count" id="countB"></span>
+        <button class="icon-btn" id="copyB" title="Copy this text" disabled>Copy</button>
+      </div>
+    </div>
+
+    <!-- Sits inside .panes so it covers the typing area, not the header. -->
+    <div class="setup open" id="setup">
+      <div class="setup-inner">
+        <h2 id="setupTitle">Getting things ready</h2>
+        <p class="lead" id="setupLead">Checking which languages are on this Nomad.</p>
+
+        <div class="notice" id="setupNotice" style="display:none">
+          <span class="ico" aria-hidden="true">⚠️</span>
+          <div id="setupNoticeText"></div>
+        </div>
+
+        <div id="setupProgress" style="display:none">
+          <div class="pct" id="pct">0<small>%</small></div>
+          <div class="track"><i id="track"></i></div>
+          <div class="figures">
+            <span id="figDone">0 MB</span>
+            <span id="figLeft"></span>
+          </div>
+          <div class="step" id="stepText"></div>
+        </div>
+
+        <button class="btn" id="setupBtn" style="display:none"></button>
+        <p class="subtle" id="setupFoot"></p>
+      </div>
+    </div>
+  </div>
+
+  <div class="ready" id="ready">
+    <span id="readyText"></span>
+    <span class="ready-right">
+      <span class="count" id="timingNote"></span>
+      <button class="icon-btn" id="clearAll" title="Clear both boxes">Clear both</button>
+    </span>
+  </div>
+
+<script type="module">
+import { pipeline, env } from '/Translate/runtime/transformers.min.js';
+
+/* Environment. Every one of these matters on a Nomad:
+ *
+ *  - allowRemoteModels off: there is no internet. left on, a missing file turns into
+ *    a silent huggingface.co fetch that hangs until it times out.
+ *  - useBrowserCache off: http://192.168.4.1 is not a secure context so the Cache API
+ *    does not exist. nomad-xlate.js caches in IndexedDB instead.
+ *  - numThreads 1: WASM threads need SharedArrayBuffer, which also needs a secure
+ *    context. left on autodetect this can pick the threaded build and fail. */
+env.allowRemoteModels = false;
+env.allowLocalModels  = true;
+env.localModelPath    = '/Translate/models/';
+env.useBrowserCache   = false;
+env.backends.onnx.wasm.wasmPaths  = '/Translate/runtime/';
+env.backends.onnx.wasm.numThreads = 1;
+env.backends.onnx.wasm.proxy      = false;
+
+const MAX_CHARS = 480;   // model is trained at 512 tokens; stay under it
+
+const $ = id => document.getElementById(id);
+const srcSel = $('srcLang'), tgtSel = $('tgtLang');
+const boxA = $('textA'), boxB = $('textB');
+
+let manifest = null;
+let loading = false;
+/* Bumped whenever the language choice changes. A load started for an older choice
+ * checks this before landing, so it can never install its models under the new
+ * pair's name. */
+let loadGen = 0;
+
+/* Both directions load together so a conversation can go back and forth without
+ * waiting for a second model half way through. dir.ab translates the left box into
+ * the right, dir.ba goes the other way, either may be null when only one direction
+ * has a pack. */
+let dir = { ab: null, ba: null, packAB: null, packBA: null, key: '' };
+const pipeCache = new Map();   // model id -> loaded pipeline, reused on swap
+
+const fmtMB = b => (b / 1048576).toFixed(1) + ' MB';
+
+/* Rounded, friendly duration. Never says "0 minutes left". */
+function fmtTime(sec) {
+  if (!isFinite(sec) || sec <= 0) return '';
+  if (sec < 60) return 'about ' + Math.max(5, Math.round(sec / 5) * 5) + ' seconds';
+  const m = Math.round(sec / 60);
+  return 'about ' + m + (m === 1 ? ' minute' : ' minutes');
+}
+
+/* ---------------- the setup screen ----------------
+ * One function drives every pre-ready state, so the screen can never show a stale
+ * mix of two of them. */
+function setup(state, o) {
+  o = o || {};
+  const box = $('setup');
+  box.classList.add('open');
+  $('ready').classList.remove('open');
+
+  $('setupTitle').textContent = o.title || '';
+  $('setupLead').textContent = o.lead || '';
+  $('setupLead').className = 'lead' + (o.bad ? ' warn' : '');
+
+  $('setupNotice').style.display = o.notice ? 'flex' : 'none';
+  if (o.notice) $('setupNoticeText').textContent = o.notice;
+
+  $('setupProgress').style.display = (state === 'loading') ? 'block' : 'none';
+
+  if (o.button) {
+    $('setupBtn').style.display = '';
+    $('setupBtn').textContent = o.button;
+    $('setupBtn').disabled = false;
+    $('setupBtn').onclick = o.onClick;
+  } else {
+    $('setupBtn').style.display = 'none';
+    $('setupBtn').onclick = null;
+  }
+
+  $('setupFoot').textContent = o.foot || '';
+
+  // Typing is pointless until a model is loaded, so do not invite it.
+  boxA.disabled = boxB.disabled = true;
+}
+
+function setupDone(msg) {
+  $('setup').classList.remove('open');
+  $('ready').classList.add('open');
+  $('readyText').textContent = msg;
+  boxA.disabled = boxB.disabled = false;
+  applyDirectionUI();
+  (dir.ab ? boxA : boxB).focus();
+}
+
+function showProgress(done, total, label) {
+  const pct = total ? Math.min(100, (done / total) * 100) : 0;
+  $('pct').innerHTML = Math.floor(pct) + '<small>%</small>';
+  $('track').style.width = pct + '%';
+  $('figDone').textContent = fmtMB(done) + ' of ' + fmtMB(total);
+  $('figLeft').textContent = o_eta(done, total);
+  if (label) $('stepText').textContent = label;
+}
+
+/* Estimate from the rate actually achieved so far, not a guess. Stays quiet
+ * until there is enough data for the number to mean anything. */
+let rateT0 = 0, rateB0 = 0;
+function o_eta(done, total) {
+  if (!rateT0) return '';
+  const secs = (performance.now() - rateT0) / 1000;
+  const bytes = done - rateB0;
+  if (secs < 3 || bytes <= 0) return '';
+  const rate = bytes / secs;
+  const left = (total - done) / rate;
+  const t = fmtTime(left);
+  return t ? t + ' left' : '';
+}
+
+/* ---------------- manifest and pack choice ---------------- */
+
+async function loadManifest() {
+  // Plain fetch: the manifest is tiny and lives outside the managed prefixes.
+  // A busy card answers 503 briefly right after boot; retry, don't fail.
+  let res = await fetch('/Translate/manifest.json', { cache: 'no-store' });
+  for (let i = 0; i < 3 && res.status === 503; i++) {
+    await new Promise(r => setTimeout(r, 700 * (i + 1)));
+    res = await fetch('/Translate/manifest.json', { cache: 'no-store' });
+  }
+  if (!res.ok) throw new Error('HTTP ' + res.status);
+  const m = await res.json();
+
+  // v1 cards listed one way "pairs". Read them as single language packs so an
+  // older card keeps working after a frontend update.
+  if (!m.packs && Array.isArray(m.pairs)) {
+    m.packs = m.pairs.map(p => ({
+      id: p.model.split('/').pop(), model: p.model,
+      from: [p.from], to: [p.to], bytes: p.bytes, targetPrefix: false
+    }));
+  }
+  m.packs = m.packs || [];
+  m.names = m.names || {};
+  return m;
+}
+
+const nameOf = c => (manifest && manifest.names[c]) || c;
+
+function packFiles(pack) {
+  const base = '/Translate/models/' + pack.model;
+  return [
+    base + '/config.json',
+    base + '/tokenizer.json',
+    base + '/tokenizer_config.json',
+    base + '/generation_config.json',
+    base + '/onnx/encoder_model_quantized.onnx',
+    base + '/onnx/decoder_model_merged_quantized.onnx'
+  ];
+}
+
+/* Every pack that can do this direction. A dedicated English to Spanish model and a
+ * wide "English to Romance" bundle can both cover en to es, so prefer the narrower
+ * one. a model trained on one pair beats a bundle covering forty. */
+function packsFor(from, to) {
+  return manifest.packs
+    .filter(p => p.from.indexOf(from) >= 0 && p.to.indexOf(to) >= 0)
+    .sort((a, b) => (a.from.length + a.to.length) - (b.from.length + b.to.length));
+}
+
+function packFor(from, to) {
+  return packsFor(from, to)[0] || null;
+}
+
+function currentPack() {
+  return manifest ? packFor(srcSel.value, tgtSel.value) : null;
+}
+
+/* Multi-target models pick their output language from a token on the front of the
+ * input, not from anything in the model file. Without this an en to Romance pack
+ * answers in whatever language it feels like.
+ *
+ * The token is not always our language code: the Romance bundle wants two letter
+ * codes (>>es<<) while the mul bundle wants ISO 639-3 (>>spa<<), so a pack can carry
+ * a prefixMap and we use it when present. */
+function prepareInput(text, pack, to) {
+  if (!pack.targetPrefix) return text;
+  const tok = (pack.prefixMap && pack.prefixMap[to]) || to;
+  return '>>' + tok + '<< ' + text;
+}
+
+function allSources() {
+  const s = new Set();
+  manifest.packs.forEach(p => p.from.forEach(c => s.add(c)));
+  return [...s];
+}
+
+function targetsFor(from) {
+  const s = new Set();
+  manifest.packs.forEach(p => {
+    if (p.from.indexOf(from) >= 0) p.to.forEach(c => { if (c !== from) s.add(c); });
+  });
+  return [...s];
+}
+
+// English first, then alphabetical: it is the language everything pairs with.
+function sortLangs(codes) {
+  return codes.slice().sort((a, b) => {
+    if (a === 'en') return -1;
+    if (b === 'en') return 1;
+    return nameOf(a).localeCompare(nameOf(b));
+  });
+}
+
+function fillLangs() {
+  const froms = sortLangs(allSources());
+  srcSel.innerHTML = froms.map(c =>
+    `<option value="${c}">${nameOf(c)}</option>`).join('');
+  if (froms.indexOf('en') >= 0) srcSel.value = 'en';
+  syncTargets();
+}
+
+function syncTargets() {
+  const tos = sortLangs(targetsFor(srcSel.value));
+  const keep = tgtSel.value;
+  tgtSel.innerHTML = tos.map(c =>
+    `<option value="${c}">${nameOf(c)}</option>`).join('');
+  if (tos.indexOf(keep) >= 0) tgtSel.value = keep;
+  else if (tos.indexOf('en') >= 0 && srcSel.value !== 'en') tgtSel.value = 'en';
+}
+
+/* ---------------- model loading ---------------- */
+
+/* Both packs for the current language choice, deduplicated: a bundle can serve one
+ * direction while a dedicated model serves the other, and both directions
+ * occasionally resolve to the same model. */
+function currentPacks() {
+  const a = srcSel.value, b = tgtSel.value;
+  const ab = packFor(a, b), ba = packFor(b, a);
+  const list = [];
+  if (ab) list.push(ab);
+  if (ba && (!ab || ba.model !== ab.model)) list.push(ba);
+  return { ab, ba, list };
+}
+
+function packsBytes(list) {
+  return list.reduce((n, p) => n + (p.bytes || 0), 0);
+}
+
+function dirKey() { return srcSel.value + '>' + tgtSel.value; }
+
+async function refreshPairStatus() {
+  const { ab, ba, list } = currentPacks();
+  const a = srcSel.value, b = tgtSel.value;
+
+  if (!ab && !ba) {
+    setup('none', {
+      title: "That language pair isn't on this card",
+      lead: 'Pick a different pair, or add the pack with the Nomad card tools.',
+      bad: true
+    });
+    return;
+  }
+
+  // already loaded for exactly this choice
+  if (dir.key === dirKey() && (dir.ab || dir.ba)) {
+    setupDone(readyLine());
+    return;
+  }
+
+  const files = [].concat(...list.map(packFiles));
+  const st = await NomadXlate.status(files);
+  const total = packsBytes(list);
+  const both = !!(ab && ba);
+  const langs = nameOf(a) + ' and ' + nameOf(b);
+  const oneWayNote = both ? '' :
+    ' Only ' + nameOf(ab ? a : b) + ' into ' + nameOf(ab ? b : a) +
+    ' is available on this card, so this one goes one way.';
+
+  const fullyCached = files.every(f => st.files[f] && st.files[f].done);
+
+  if (fullyCached) {
+    setup('offer', {
+      title: 'Ready when you are',
+      lead: 'The ' + langs + ' packs are already saved here. They just need a moment to open.',
+      button: 'Open the language packs',
+      onClick: () => ensurePipelines(true)
+    });
+    return;
+  }
+
+  if (st.have > 0) {
+    setup('offer', {
+      title: 'Picking up where you left off',
+      lead: 'You have ' + fmtMB(st.have) + ' of the ' + langs + ' packs. Loading the '
+          + 'remaining ' + fmtMB(Math.max(0, total - st.have)) + '.',
+      notice: 'Keep this page open until it reaches 100 percent.',
+      button: 'Continue loading',
+      onClick: () => ensurePipelines(true),
+      foot: 'If it stops, it resumes from here — nothing is lost.'
+    });
+    return;
+  }
+
+  setup('offer', {
+    title: 'Set up ' + langs,
+    lead: 'This device needs its own copy of the ' + langs + ' packs — about '
+        + fmtMB(total) + '. Both directions load together, so you can type in either box '
+        + 'and hand the device back and forth.' + oneWayNote,
+    notice: 'This takes a few minutes. Keep this page open while it loads — you can stop '
+          + 'and come back later without losing progress.',
+    button: 'Start loading the language packs',
+    onClick: () => ensurePipelines(true)
+  });
+}
+
+function readyLine() {
+  const a = nameOf(srcSel.value), b = nameOf(tgtSel.value);
+  if (dir.ab && dir.ba) {
+    return 'Ready. Type in either box and it translates into the other — pass it back '
+         + 'and forth between ' + a + ' and ' + b + '.';
+  }
+  const from = dir.ab ? a : b, to = dir.ab ? b : a;
+  return 'Ready to translate ' + from + ' into ' + to
+       + '. This card only has that one direction, so the other box stays read only.';
+}
+
+async function ensurePipelines(userAsked) {
+  const { ab, ba, list } = currentPacks();
+  if ((!ab && !ba) || loading) return;
+  if (dir.key === dirKey() && (dir.ab || dir.ba)) return;
+  if (!userAsked) return;    // never start a big read on a keystroke
+
+  loading = true;
+  const myGen = ++loadGen;
+  dir = { ab: null, ba: null, packAB: ab, packBA: ba, key: '' };
+
+  const langs = nameOf(srcSel.value) + ' and ' + nameOf(tgtSel.value);
+
+  try {
+    const files = [].concat(...list.map(packFiles));
+    const total = packsBytes(list);
+    const t0 = performance.now();
+    rateT0 = 0; rateB0 = 0;
+
+    setup('loading', {
+      title: 'Loading ' + langs,
+      lead: 'Loading ' + (list.length > 1 ? 'both language packs' : 'the language pack')
+          + '. You can watch it go.',
+      notice: 'Keep this page open until it reaches 100 percent.'
+    });
+    showProgress(0, total || 1, 'Starting');
+
+    await NomadXlate.preload(files, (path, done, tot) => {
+      if (!rateT0 && done > 0) { rateT0 = performance.now(); rateB0 = done; }
+      showProgress(done, tot, 'Now loading ' + path.split('/').pop());
+    }, total);
+
+    const dl = (performance.now() - t0) / 1000;
+
+    setup('loading', {
+      title: 'Almost there',
+      lead: 'Everything is loaded. Starting the '
+          + (list.length > 1 ? 'translators' : 'translator')
+          + ' — a few more seconds.',
+      notice: 'Nearly done. Keep this page open just a moment longer.'
+    });
+    showProgress(total || 1, total || 1, 'Starting the translator');
+
+    // One pipeline per distinct model, cached so swapping back later is free.
+    for (const p of list) {
+      if (!pipeCache.has(p.model)) {
+        pipeCache.set(p.model, await pipeline('translation', p.model, { quantized: true }));
+      }
+    }
+    // The user may have picked a different pair while this loaded. The models
+    // are cached above either way, but they must not land under the new key.
+    if (myGen !== loadGen) return;
+    dir.ab = ab ? pipeCache.get(ab.model) : null;
+    dir.ba = ba ? pipeCache.get(ba.model) : null;
+    dir.key = dirKey();
+
+    setupDone(readyLine() + ' Loaded in ' + Math.round(dl) + ' seconds.');
+    applyDirectionUI();
+    if (boxA.value.trim()) translateFrom('a');
+  } catch (err) {
+    console.error('[translate] load failed', err);
+    if (myGen !== loadGen) return;   // stale load, the screen belongs to the new pair now
+    setup('error', {
+      title: 'That did not finish',
+      lead: 'Something went wrong while loading. Nothing you already loaded was '
+          + 'lost, so trying again carries on from where it stopped rather than '
+          + 'starting over.',
+      notice: 'If it keeps stopping, move closer to the Nomad. A weak WiFi signal '
+            + 'is the usual reason.',
+      bad: true,
+      button: 'Try again',
+      onClick: () => ensurePipelines(true),
+      foot: String(err && err.message || err)
+    });
+  } finally {
+    // a stale load must not clear the flag out from under a newer one
+    if (myGen === loadGen) loading = false;
+  }
+}
+
+/* ---------------- translating ----------------
+ * Either box can be the source. Typing in one translates into the other, and the
+ * receiving box is tinted so the direction is obvious. */
+
+let runId = 0, running = false, pendingFrom = null;
+/* The box the user touched last owns the conversation. Without this a debounced
+ * translation still queued from the other box lands a moment later and overwrites
+ * whatever is being typed now. */
+let activeBox = 'a';
+const timers = { a: null, b: null };
+
+function boxOf(which) { return which === 'a' ? boxA : boxB; }
+function otherOf(which) { return which === 'a' ? 'b' : 'a'; }
+
+function pipeFor(which) { return which === 'a' ? dir.ab : dir.ba; }
+function packForBox(which) { return which === 'a' ? dir.packAB : dir.packBA; }
+function targetLangOf(which) { return which === 'a' ? tgtSel.value : srcSel.value; }
+
+/* Mark which way text is flowing. Also stops the read only box from looking
+ * editable when this card only has one direction. */
+function applyDirectionUI(activeWhich) {
+  const canA = !!dir.ab, canB = !!dir.ba;   // can this box act as a source
+  boxA.readOnly = !canA;
+  boxB.readOnly = !canB;
+  boxA.placeholder = canA ? 'Type here' : 'Translation appears here';
+  boxB.placeholder = canB ? 'Type here' : 'Translation appears here';
+  $('langLabelA').textContent = nameOf(srcSel.value);
+  $('langLabelB').textContent = nameOf(tgtSel.value);
+  $('paneA').classList.toggle('receiving', activeWhich === 'b');
+  $('paneB').classList.toggle('receiving', activeWhich === 'a' || !activeWhich);
+  updateCounts();
+}
+
+function updateCounts() {
+  $('countA').textContent = boxA.value.length ? boxA.value.length + ' / ' + MAX_CHARS : '';
+  $('countB').textContent = boxB.value.length ? boxB.value.length + ' / ' + MAX_CHARS : '';
+  $('copyA').disabled = !boxA.value.trim();
+  $('copyB').disabled = !boxB.value.trim();
+}
+
+async function translateFrom(which) {
+  const src = boxOf(which), dst = boxOf(otherOf(which));
+  const text = src.value.trim();
+  const pipe = pipeFor(which), pack = packForBox(which);
+
+  if (which !== activeBox) return;   // superseded by the other box
+  if (!text) { dst.value = ''; $('timingNote').textContent = ''; updateCounts(); return; }
+  if (!pipe || !pack) return;
+
+  // Inference blocks inside WASM, so overlapping runs would stack up and make
+  // the page feel stuck. Keep one going and remember the latest request.
+  if (running) { pendingFrom = which; return; }
+  running = true;
+  const me = ++runId;
+
+  try {
+    const t0 = performance.now();
+    const input = prepareInput(text, pack, targetLangOf(which));
+    const out = await pipe(input, { max_new_tokens: 512 });
+    if (me !== runId || which !== activeBox) return;   // superseded
+    const translated = Array.isArray(out) ? out[0].translation_text : out.translation_text;
+    dst.value = translated;
+    $('timingNote').textContent = ((performance.now() - t0) / 1000).toFixed(1) + 's';
+    updateCounts();
+  } catch (err) {
+    console.error('[translate] failed', err);
+    dst.value = 'Could not translate that. ' + (err && err.message || '');
+    updateCounts();
+  } finally {
+    running = false;
+    if (pendingFrom) { const nxt = pendingFrom; pendingFrom = null; translateFrom(nxt); }
+  }
+}
+
+function takeOver(which) {
+  activeBox = which;
+  // drop anything the other box still had queued, or it will land on top of
+  // what is being typed here
+  clearTimeout(timers[otherOf(which)]);
+  timers[otherOf(which)] = null;
+  pendingFrom = null;
+  runId++;                       // invalidate any in flight run
+}
+
+function wireBox(which) {
+  const el = boxOf(which);
+  el.addEventListener('input', () => {
+    if (el.readOnly) return;
+    if (el.value.length > MAX_CHARS) el.value = el.value.slice(0, MAX_CHARS);
+    takeOver(which);
+    applyDirectionUI(which);
+    clearTimeout(timers[which]);
+    timers[which] = setTimeout(() => translateFrom(which), 450);
+  });
+  // Focusing a box is a clear signal of which way the user is about to go.
+  el.addEventListener('focus', () => {
+    if (el.readOnly) return;
+    takeOver(which);
+    applyDirectionUI(which);
+  });
+}
+wireBox('a');
+wireBox('b');
+
+async function copyText(el, btn) {
+  try {
+    // navigator.clipboard needs a secure context, which http://192.168.4.1 is
+    // not, so fall back to the old execCommand path.
+    if (navigator.clipboard && window.isSecureContext) {
+      await navigator.clipboard.writeText(el.value);
+    } else {
+      el.select();
+      document.execCommand('copy');
+      el.setSelectionRange(0, 0);
+    }
+    const was = btn.textContent;
+    btn.textContent = 'Copied';
+    setTimeout(() => { btn.textContent = was; }, 1200);
+  } catch (e) { console.warn('copy failed', e); }
+}
+$('copyA').addEventListener('click', () => copyText(boxA, $('copyA')));
+$('copyB').addEventListener('click', () => copyText(boxB, $('copyB')));
+
+$('clearAll').addEventListener('click', () => {
+  boxA.value = ''; boxB.value = '';
+  $('timingNote').textContent = '';
+  updateCounts();
+  (dir.ab ? boxA : boxB).focus();
+});
+
+/* The swap button just relabels the boxes and moves the text across. Both
+ * directions are already loaded, so there is nothing to wait for. */
+$('swapBtn').addEventListener('click', () => {
+  const a = srcSel.value, b = tgtSel.value;
+  if (!packFor(b, a)) return;
+
+  loadGen++; loading = false;   // abandon any load still in flight for the old orientation
+  srcSel.value = b; syncTargets(); tgtSel.value = a;
+
+  const textA = boxA.value;
+  boxA.value = boxB.value;
+  boxB.value = textA;
+
+  // the same two models, now pointing the other way
+  dir = { ab: dir.ba, ba: dir.ab, packAB: dir.packBA, packBA: dir.packAB, key: '' };
+  updateSwapState();
+
+  if (dir.ab || dir.ba) {
+    dir.key = dirKey();
+    activeBox = dir.ab ? 'a' : 'b';
+    applyDirectionUI();
+    setupDone(readyLine());
+    // no re-translation here on purpose. after the swap each box already holds the right
+    // text for its new language, what was the translation is now the original. running
+    // it through the model again would block for seconds and degrade the wording
+  } else {
+    refreshPairStatus();
+  }
+});
+
+function updateSwapState() {
+  $('swapBtn').disabled = !(manifest && packFor(tgtSel.value, srcSel.value));
+}
+
+srcSel.addEventListener('change', () => {
+  loadGen++;         // strand any load still running for the old pair
+  loading = false;   // switching pairs abandons any half-started load; don't let it wedge the buttons
+  syncTargets(); dir = { ab:null, ba:null, packAB:null, packBA:null, key:'' };
+  updateSwapState(); applyDirectionUI(); refreshPairStatus();
+});
+tgtSel.addEventListener('change', () => {
+  loadGen++;
+  loading = false;
+  dir = { ab:null, ba:null, packAB:null, packBA:null, key:'' };
+  updateSwapState(); applyDirectionUI(); refreshPairStatus();
+});
+
+/* ---------------- boot ---------------- */
+
+(async function boot() {
+  setup('checking', {
+    title: 'Getting things ready',
+    lead: 'Looking for the language packs stored on this Nomad.'
+  });
+  try {
+    manifest = await loadManifest();
+  } catch (err) {
+    setup('none', {
+      title: 'No languages are on this card yet',
+      lead: 'This Nomad does not have any translation packs installed. You can add '
+          + 'them to the card with the Nomad card tools, then come back here.',
+      bad: true
+    });
+    srcSel.disabled = tgtSel.disabled = true;
+    return;
+  }
+  if (!manifest.packs.length) {
+    setup('none', {
+      title: 'No languages are on this card yet',
+      lead: 'The translation folder is there but no language packs are in it yet.',
+      bad: true
+    });
+    srcSel.disabled = tgtSel.disabled = true;
+    return;
+  }
+  fillLangs();
+  updateSwapState();
+  await refreshPairStatus();
+})();
+</script>
+</body>
+</html>

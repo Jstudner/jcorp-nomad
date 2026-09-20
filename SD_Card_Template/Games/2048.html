@@ -1,0 +1,436 @@
+<!DOCTYPE html>
+<!-- Version 1, ported from Voyager -->
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no"/>
+<title>Nomad • 2048</title>
+<link rel="icon" href="/favicon.ico" type="image/x-icon">
+<link rel="stylesheet" href="/master.css">
+<script src="/theme-boot.js"></script>
+<script src="/theme-manager.js"></script>
+<style>
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0}
+  body{
+    background:var(--bg,#f4f4f9);
+    color:var(--text,#333);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    -webkit-text-size-adjust:100%;
+  }
+  .wrap{max-width:520px;margin:0 auto;padding:14px 12px 40px}
+
+  /* Top bar */
+  .topbar{
+    display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:16px;
+  }
+  .topbar h1{
+    font-size:1.5rem;margin:0;flex:1 1 auto;text-align:center;
+  }
+  .btn{
+    display:inline-block;padding:9px 14px;font-size:.95rem;line-height:1;
+    border:1px solid var(--line,#dcdce3);border-radius:var(--radius,10px);
+    background:var(--card,#fff);color:var(--text,#333);
+    text-decoration:none;cursor:pointer;font-family:inherit;
+  }
+  .btn:hover{border-color:var(--muted,#777)}
+  .btn-accent{
+    background:var(--primary,#4f46e5);border-color:var(--primary,#4f46e5);color:#fff;
+  }
+  .btn-accent:hover{background:var(--primary-dark,#3f37c9);border-color:var(--primary-dark,#3f37c9)}
+
+  /* Score row */
+  .scores{display:flex;justify-content:center;gap:12px;margin-bottom:14px}
+  .score-box{
+    background:var(--card,#fff);border:1px solid var(--line,#dcdce3);
+    border-radius:var(--radius,10px);padding:8px 18px;text-align:center;min-width:96px;
+  }
+  .score-box .label{
+    font-size:.7rem;text-transform:uppercase;letter-spacing:.08em;
+    color:var(--muted,#777);margin-bottom:2px;
+  }
+  .score-box .val{font-size:1.35rem;font-weight:700}
+
+  /* Board */
+  .board-shell{display:flex;justify-content:center}
+  .board{
+    position:relative;
+    width:min(92vw,460px);
+    aspect-ratio:1;
+    background:var(--line,#dcdce3);
+    border-radius:var(--radius,10px);
+    padding:2.5%;
+    display:grid;
+    grid-template-columns:repeat(4,1fr);
+    grid-template-rows:repeat(4,1fr);
+    gap:2.5%;
+    touch-action:none;
+    user-select:none;-webkit-user-select:none;
+  }
+  .cell{
+    background:var(--bg,#f4f4f9);
+    border-radius:calc(var(--radius,10px) * .7);
+    opacity:.55;
+  }
+  .tile{
+    position:absolute;
+    display:flex;align-items:center;justify-content:center;
+    border-radius:calc(var(--radius,10px) * .7);
+    font-weight:800;
+    color:#5a5347;
+    background:#e9e2d6;
+    transition:left .12s ease,top .12s ease,transform .09s ease;
+    will-change:left,top,transform;
+  }
+  .tile.pop{transform:scale(1.06)}
+  .tile span{line-height:1}
+
+  /* Tile colors by value, distinct in light and dark, bigger = darker */
+  .tile[data-v="2"]    {background:#eee4da;color:#6b6459}
+  .tile[data-v="4"]    {background:#ede0c8;color:#6b6459}
+  .tile[data-v="8"]    {background:#f2b179;color:#fff}
+  .tile[data-v="16"]   {background:#f59563;color:#fff}
+  .tile[data-v="32"]   {background:#f67c5f;color:#fff}
+  .tile[data-v="64"]   {background:#f65e3b;color:#fff}
+  .tile[data-v="128"]  {background:#edcf72;color:#fff}
+  .tile[data-v="256"]  {background:#edcc61;color:#fff}
+  .tile[data-v="512"]  {background:#edc850;color:#fff}
+  .tile[data-v="1024"] {background:var(--primary,#4f46e5);color:#fff}
+  .tile[data-v="2048"] {background:var(--primary-dark,#3f37c9);color:#fff}
+  .tile[data-v="big"]  {background:#2a2440;color:#fff}
+
+  /* Banner overlay */
+  .banner{
+    position:absolute;inset:0;display:none;flex-direction:column;
+    align-items:center;justify-content:center;gap:14px;
+    background:rgba(238,228,218,.78);
+    border-radius:var(--radius,10px);z-index:20;text-align:center;padding:16px;
+  }
+  body.dark .banner{background:rgba(20,18,30,.78)}
+  .banner.show{display:flex}
+  .banner .msg{font-size:2rem;font-weight:800;color:var(--text,#333)}
+  .banner .msg.win{color:var(--success,#3fa66a)}
+  .banner .msg.lose{color:var(--danger,#d94b4b)}
+  .banner .row{display:flex;gap:10px;flex-wrap:wrap;justify-content:center}
+
+  .hint{text-align:center;color:var(--muted,#777);font-size:.85rem;margin-top:16px}
+</style>
+</head>
+<body>
+  <header>
+    <h1>2048</h1>
+    <a class="back-btn" href="/games">← Back to Games</a>
+  </header>
+
+<div class="wrap">
+  <div class="topbar">
+    <button class="btn btn-accent" id="newGame">New Game</button>
+  </div>
+
+  <div class="scores">
+    <div class="score-box"><div class="label">Score</div><div class="val" id="score">0</div></div>
+    <div class="score-box"><div class="label">Best</div><div class="val" id="best">0</div></div>
+  </div>
+
+  <div class="board-shell">
+    <div class="board" id="board">
+      <!-- 16 background cells -->
+      <div class="cell"></div><div class="cell"></div><div class="cell"></div><div class="cell"></div>
+      <div class="cell"></div><div class="cell"></div><div class="cell"></div><div class="cell"></div>
+      <div class="cell"></div><div class="cell"></div><div class="cell"></div><div class="cell"></div>
+      <div class="cell"></div><div class="cell"></div><div class="cell"></div><div class="cell"></div>
+      <div class="banner" id="banner">
+        <div class="msg" id="bannerMsg"></div>
+        <div class="row" id="bannerRow"></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="hint">Swipe or use the arrow keys. Join tiles to reach <strong>2048</strong>.</div>
+</div>
+
+<script>
+(function(){
+  "use strict";
+
+  var SIZE = 4;
+  var BEST_KEY = 'nomadgame_2048_best';
+
+  var boardEl  = document.getElementById('board');
+  var scoreEl  = document.getElementById('score');
+  var bestEl   = document.getElementById('best');
+  var bannerEl = document.getElementById('banner');
+  var bannerMsg= document.getElementById('bannerMsg');
+  var bannerRow= document.getElementById('bannerRow');
+
+  var grid;        // SIZE x SIZE array of numbers (0 = empty)
+  var score = 0;
+  var best  = 0;
+  var won   = false;      // reached 2048 already
+  var keepGoing = false;  // player chose Continue after winning
+  var tileEls = {};       // id -> DOM element
+  var nextId = 1;
+
+  try { best = parseInt(localStorage.getItem(BEST_KEY), 10) || 0; } catch(e){ best = 0; }
+
+  // ---- helpers ------------------------------------------------------------
+  function emptyGrid(){
+    var g = [];
+    for(var r=0;r<SIZE;r++){ g.push([0,0,0,0]); }
+    return g;
+  }
+
+  // Each grid cell holds an id so we can move DOM tiles smoothly.
+  var ids;
+  function emptyIds(){
+    var g = [];
+    for(var r=0;r<SIZE;r++){ g.push([0,0,0,0]); }
+    return g;
+  }
+
+  function randomEmpty(){
+    var cells = [];
+    for(var r=0;r<SIZE;r++) for(var c=0;c<SIZE;c++) if(grid[r][c]===0) cells.push([r,c]);
+    if(!cells.length) return null;
+    return cells[Math.floor(Math.random()*cells.length)];
+  }
+
+  function spawn(){
+    var pos = randomEmpty();
+    if(!pos) return;
+    var val = Math.random() < 0.9 ? 2 : 4;
+    grid[pos[0]][pos[1]] = val;
+    ids[pos[0]][pos[1]]  = nextId++;
+  }
+
+  // ---- rendering ----------------------------------------------------------
+  // board inner area (inside 2.5% padding) split into 4 cols/rows with 2.5% gaps.
+  // each tile's left/top/size is a percentage of the board box
+  function metrics(){
+    var pad = 2.5, gap = 2.5;
+    var inner = 100 - pad*2;            // usable width %
+    var size  = (inner - gap*3) / 4;    // tile size %
+    return { pad:pad, gap:gap, size:size };
+  }
+  function posPct(i, m){ return m.pad + i*(m.size + m.gap); }
+
+  // Font as a fraction of tile width, shrinking as digit count grows.
+  function fontFrac(val){
+    var digits = String(val).length;
+    if(digits <= 2) return 0.46;
+    if(digits === 3) return 0.36;
+    if(digits === 4) return 0.30;
+    return 0.24;
+  }
+  function dataV(val){ return val <= 2048 ? String(val) : 'big'; }
+
+  function render(){
+    var m = metrics();
+    // Actual tile edge in px, derived from the rendered board width.
+    var tilePx = boardEl.clientWidth * (m.size / 100);
+    var seen = {};
+    for(var r=0;r<SIZE;r++){
+      for(var c=0;c<SIZE;c++){
+        var val = grid[r][c];
+        if(val===0) continue;
+        var id = ids[r][c];
+        seen[id] = true;
+        var el = tileEls[id];
+        if(!el){
+          el = document.createElement('div');
+          el.className = 'tile';
+          var sp = document.createElement('span');
+          el.appendChild(sp);
+          boardEl.appendChild(el);
+          tileEls[id] = el;
+        }
+        el.style.width  = m.size + '%';
+        el.style.height = m.size + '%';
+        el.style.left   = posPct(c, m) + '%';
+        el.style.top    = posPct(r, m) + '%';
+        el.setAttribute('data-v', dataV(val));
+        el.firstChild.textContent = val;
+        el.firstChild.style.fontSize = Math.max(10, tilePx * fontFrac(val)) + 'px';
+      }
+    }
+    // Remove DOM tiles no longer present.
+    for(var key in tileEls){
+      if(!seen[key]){
+        boardEl.removeChild(tileEls[key]);
+        delete tileEls[key];
+      }
+    }
+    scoreEl.textContent = score;
+    if(score > best){ best = score; try{ localStorage.setItem(BEST_KEY, String(best)); }catch(e){} }
+    bestEl.textContent = best;
+  }
+
+  // ---- move logic ---------------------------------------------------------
+  // extract a line in the direction of travel, compact and merge it, then write it
+  // back. 4 lines, each slid toward index 0:
+  //   left: rows left->right   right: rows reversed
+  //   up:   cols top->bottom   down:  cols reversed
+  // getLine returns [{v,id}] with the head of the line first (the edge tiles move to)
+  function getLine(dir, i){
+    var line = [];
+    for(var k=0;k<SIZE;k++){
+      var r,c;
+      if(dir==='left'){  r=i; c=k; }
+      else if(dir==='right'){ r=i; c=SIZE-1-k; }
+      else if(dir==='up'){ r=k; c=i; }
+      else { r=SIZE-1-k; c=i; }               // down
+      line.push({ v: grid[r][c], id: ids[r][c] });
+    }
+    return line;
+  }
+  function setLine(dir, i, line){
+    for(var k=0;k<SIZE;k++){
+      var r,c;
+      if(dir==='left'){  r=i; c=k; }
+      else if(dir==='right'){ r=i; c=SIZE-1-k; }
+      else if(dir==='up'){ r=k; c=i; }
+      else { r=SIZE-1-k; c=i; }
+      grid[r][c] = line[k].v;
+      ids[r][c]  = line[k].id;
+    }
+  }
+
+  // Collapse one line toward the head (index 0).
+  // Returns {line, moved, gained, madeWin}.
+  function collapse(line){
+    // 1) drop the zeros, keep only real tiles in order
+    var tiles = [];
+    for(var k=0;k<line.length;k++) if(line[k].v!==0) tiles.push(line[k]);
+
+    var out = [];
+    var gained = 0, madeWin = false;
+    for(var i=0;i<tiles.length;i++){
+      // 2) if this tile equals the next, they merge into one (double value).
+      //    Each tile may merge at most once: we skip the next tile after a merge.
+      if(i+1 < tiles.length && tiles[i].v === tiles[i+1].v){
+        var mv = tiles[i].v * 2;
+        out.push({ v: mv, id: tiles[i].id }); // reuse an id so it animates in place
+        gained += mv;
+        if(mv === 2048) madeWin = true;
+        i++; // consume the merged partner
+      } else {
+        out.push({ v: tiles[i].v, id: tiles[i].id });
+      }
+    }
+    // 3) pad the tail with empties back to full length.
+    while(out.length < SIZE) out.push({ v:0, id:0 });
+
+    // detect whether anything actually shifted or merged.
+    var moved = false;
+    for(var j=0;j<SIZE;j++){ if(out[j].v !== line[j].v){ moved = true; break; } }
+
+    return { line: out, moved: moved, gained: gained, madeWin: madeWin };
+  }
+
+  function move(dir){
+    // Ignore input while the win banner is up (until Continue) or after game over.
+    if(bannerEl.classList.contains('show')) return;
+    var anyMoved = false, anyWin = false;
+    for(var i=0;i<SIZE;i++){
+      var res = collapse(getLine(dir, i));
+      if(res.moved) anyMoved = true;
+      if(res.madeWin) anyWin = true;
+      score += res.gained;
+      setLine(dir, i, res.line);
+    }
+    if(anyMoved){
+      spawn();
+      render();
+      if(anyWin && !won){
+        won = true;
+        showBanner('You win!', 'win', true);
+      } else if(!hasMoves()){
+        showBanner('Game over', 'lose', false);
+      }
+    }
+  }
+
+  function hasMoves(){
+    for(var r=0;r<SIZE;r++) for(var c=0;c<SIZE;c++){
+      if(grid[r][c]===0) return true;
+      if(c+1<SIZE && grid[r][c]===grid[r][c+1]) return true;
+      if(r+1<SIZE && grid[r][c]===grid[r+1][c]) return true;
+    }
+    return false;
+  }
+
+  // ---- banner -------------------------------------------------------------
+  function showBanner(text, cls, isWin){
+    bannerMsg.textContent = text;
+    bannerMsg.className = 'msg ' + cls;
+    bannerRow.innerHTML = '';
+    if(isWin){
+      var cont = document.createElement('button');
+      cont.className = 'btn';
+      cont.textContent = 'Continue';
+      cont.addEventListener('click', function(){ keepGoing = true; hideBanner(); });
+      bannerRow.appendChild(cont);
+    }
+    var ng = document.createElement('button');
+    ng.className = 'btn btn-accent';
+    ng.textContent = 'New Game';
+    ng.addEventListener('click', newGame);
+    bannerRow.appendChild(ng);
+    bannerEl.classList.add('show');
+  }
+  function hideBanner(){ bannerEl.classList.remove('show'); }
+
+  // ---- lifecycle ----------------------------------------------------------
+  function newGame(){
+    grid = emptyGrid();
+    ids  = emptyIds();
+    score = 0; won = false; keepGoing = false;
+    // clear existing DOM tiles
+    for(var id in tileEls){ boardEl.removeChild(tileEls[id]); delete tileEls[id]; }
+    hideBanner();
+    spawn(); spawn();
+    render();
+  }
+
+  // ---- input: keyboard ----------------------------------------------------
+  var KEYMAP = {
+    ArrowUp:'up', ArrowDown:'down', ArrowLeft:'left', ArrowRight:'right',
+    w:'up', s:'down', a:'left', d:'right', W:'up', S:'down', A:'left', D:'right'
+  };
+  document.addEventListener('keydown', function(e){
+    var dir = KEYMAP[e.key];
+    if(dir){ e.preventDefault(); move(dir); }
+  });
+
+  // ---- input: touch swipe -------------------------------------------------
+  var tsx=0, tsy=0, tracking=false;
+  var MIN = 20; // min travel px for a swipe
+  boardEl.addEventListener('touchstart', function(e){
+    if(e.touches.length!==1) return;
+    tracking = true;
+    tsx = e.touches[0].clientX;
+    tsy = e.touches[0].clientY;
+  }, {passive:true});
+  boardEl.addEventListener('touchmove', function(e){
+    // prevent the page from scrolling while swiping over the board
+    e.preventDefault();
+  }, {passive:false});
+  boardEl.addEventListener('touchend', function(e){
+    if(!tracking) return;
+    tracking = false;
+    var t = e.changedTouches[0];
+    var dx = t.clientX - tsx, dy = t.clientY - tsy;
+    var ax = Math.abs(dx), ay = Math.abs(dy);
+    if(Math.max(ax,ay) < MIN) return;
+    if(ax > ay) move(dx>0 ? 'right' : 'left');
+    else        move(dy>0 ? 'down'  : 'up');
+  }, {passive:true});
+
+  document.getElementById('newGame').addEventListener('click', newGame);
+  window.addEventListener('resize', function(){ if(grid) render(); });
+
+  newGame();
+})();
+</script>
+</body>
+</html>

@@ -1,12 +1,19 @@
 // <!-- Version 4 -->
-/* runs in <head> before master.css paints so dark mode / saved theme apply on the
- * first paint instead of flashing default. localStorage only, no network.
+/* runs in <head> before master.css paints so dark mode and the saved theme apply on
+ * the first paint instead of flashing default. localStorage only, no network.
  * menu/theme-customization-ui/epub/pdf keep their own copy that also fetches
  * /.system-theme.json so the card's theme wins over a stale cache. */
 (function() {
   try {
     const isDark = localStorage.getItem('nomad_dark_mode') === 'true';
-    if (isDark) document.documentElement.classList.add('dark');
+    if (isDark) {
+      document.documentElement.classList.add('dark');
+      // master.css keys dark mode on body.dark and <body> doesnt exist yet while this runs
+      // in <head>. tag it the instant the parser creates it, otherwise dark pages flash light
+      new MutationObserver((m, o) => {
+        if (document.body) { document.body.classList.add('dark'); o.disconnect(); }
+      }).observe(document.documentElement, { childList: true });
+    }
 
     const saved = localStorage.getItem('nomad_custom_theme');
     if (saved) {

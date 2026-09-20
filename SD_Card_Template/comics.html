@@ -357,7 +357,7 @@
 <body>
 
     <div id="topbar">
-        <a id="back-btn" href="books.html">&#8592; Back</a>
+        <a id="back-btn" href="/books">&#8592; Back</a>
         <div id="comic-title">Loading…</div>
         <div id="page-indicator"></div>
         <div class="topbar-controls">
@@ -451,7 +451,7 @@
         const name = comicPath.split('/').pop();
         document.title = name + ' – Comic Reader';
         document.getElementById('comic-title').textContent = name;
-        document.getElementById('back-btn').href = 'books.html';
+        document.getElementById('back-btn').href = '/books';
 
         const savedMode = localStorage.getItem('nomad_comic_mode') || 'webtoon';
         const savedDirection = localStorage.getItem('nomad_comic_direction') || 'ltr';
@@ -509,8 +509,8 @@
     }
 
     // the central-dir local-header offset is exact per spec, so read a small chunk right
-    // there, check the signature/name, and use the LOCAL header's lengths. only fall back
-    // to a wide window scan (256KB+/file) if that direct read fails, for weird archives
+    // there, check the signature/name, and use the local header's lengths. only fall
+    // back to a wide window scan (256KB+/file) if that direct read fails
     async function locateEntryFast(fileUrl, fileSize, entry) {
         const headerSize = Math.min(fileSize - entry.hintOffset, 30 + entry.fileNameLength + 256);
         const resp = await serializeCBZFetch(fileUrl, {
@@ -899,22 +899,47 @@
     async function loadComicDirectory() {
         setStatus('Loading comic directory…');
 
-        const listUrl = '/list?dir=' + encodeURIComponent(comicPath);
-        const response = await fetch(listUrl);
-
-        if (!response.ok) {
-            throw new Error('Failed to load directory: ' + response.statusText);
+        // the firmware's NDJSON index first, then a live /listfiles scan. the old /list
+        // endpoint was Voyager-only, on the Nomad it fell through to the captive portal
+        let names = [];
+        const fetch503 = async (url) => {
+            let r = await fetch(url, { cache: 'no-store' });
+            for (let i = 0; i < 3 && r.status === 503; i++) {
+                await new Promise(w => setTimeout(w, 700 * (i + 1)));
+                r = await fetch(url, { cache: 'no-store' });
+            }
+            return r;
+        };
+        try {
+            const res = await fetch503('/api/index?path=' + encodeURIComponent(comicPath));
+            if (res.ok) {
+                const lines = (await res.text()).split('\n').filter(Boolean);
+                for (let i = 1; i < lines.length; i++) {   // line 0 is the header
+                    try {
+                        const e = JSON.parse(lines[i]);
+                        if (e && e.t === 'f' && e.n) names.push(e.n);
+                    } catch (e) {}
+                }
+            }
+        } catch (e) {}
+        if (!names.length) {
+            const res = await fetch503('/listfiles?dir=' + encodeURIComponent(comicPath) + '&_=' + Date.now());
+            if (!res.ok) {
+                throw new Error('Failed to load directory: HTTP ' + res.status);
+            }
+            const arr = JSON.parse(await res.text());
+            names = (Array.isArray(arr) ? arr : [])
+                .filter(f => !f.isDir)
+                .map(f => String(f.name || '').replace(/\/$/, ''));
         }
 
-        const data = await response.json();
-
         const imageExts = /\.(jpe?g|png|gif|webp|bmp|avif)$/i;
-        entries = data
-            .filter(item => item.t === 'f' && imageExts.test(item.n))
-            .map(item => ({
+        entries = names
+            .filter(n => imageExts.test(n))
+            .map(n => ({
                 type: 'direct',
-                path: comicPath + '/' + item.n,
-                filename: item.n
+                path: comicPath + '/' + n,
+                filename: n
             }))
             .sort((a, b) =>
                 a.filename.localeCompare(b.filename, undefined,
@@ -976,9 +1001,9 @@
 
     let observer = null;
 
-    // long comics crash low-memory devices if every decoded page stays resident.
-    // CBZ/folder pages re-fetch cheaply, so drop any page past UNLOAD_MARGIN and let it
-    // re-decode. RAR is excluded - the whole archive is already in memory anyway
+    // long comics crash low-memory devices if every decoded page stays resident. CBZ and
+    // folder pages re-fetch cheaply, so drop any page past UNLOAD_MARGIN and let it
+    // re-decode. RAR is excluded, the whole archive is already in memory anyway
     function unloadPage(idx) {
         const entry = entries[idx];
         const url = blobURLs[idx];
@@ -1278,7 +1303,8 @@
             if (e.key === 'ArrowRight' || e.key === 'ArrowDown') { e.preventDefault(); nextPage(); }
             if (e.key === 'ArrowLeft'  || e.key === 'ArrowUp')   { e.preventDefault(); prevPage(); }
         }
-        if (e.key === 'f' || e.key === 'F') toggleMode();
+        // no toggleMode in this build. calling it threw a ReferenceError on
+        // every "f" keypress, including while typing on the page.
     });
 
     let lastScrollY = 0;
