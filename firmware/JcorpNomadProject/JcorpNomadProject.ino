@@ -1,7 +1,22 @@
 // Jcorp Nomad Backend - exFAT edition
 //<!-- Version 4.6 -->
+//
+// ---------------- board variant: set it in Display_ST7789.h ----------------
+// USB-A, Waveshare ESP32-S3-LCD-1.47:  backlight GPIO 48, BOARD_USB_C 0 (default)
+// USB-C, Waveshare ESP32-S3-LCD-1.47B: backlight GPIO 46, BOARD_USB_C 1
+//
+// that pin is the only firmware-visible difference between the two boards, and this
+// file is byte-identical for both - checked against the flashing site's build tree.
+//
+// setting it here instead does nothing, and does it silently. the pin is used only in
+// Display_ST7789.cpp, which is its own translation unit, so a define in the sketch
+// never reaches it: with the define here Display_ST7789.cpp.o comes out identical to
+// an unflagged build, the board keeps GPIO 48 and the screen just stays dark. edit the
+// one line in Display_ST7789.h, or build with -DBOARD_USB_C=1.
 #include <Arduino.h>
 #include <WiFi.h>
+#include <esp_netif.h>
+#include <esp_heap_caps.h>
 #include <AsyncTCP.h>
 #include <ESPAsyncWebServer.h>
 // NomadSD replaces SD_MMC: same pins and peripheral, SdFat underneath, so exFAT,
@@ -203,6 +218,21 @@ static std::map<uint32_t, StreamHandle> streamingFiles;
 static std::map<String, uint32_t> streamPathIndex;
 static SemaphoreHandle_t streamingFilesMutex = NULL;
 static const int MAX_CONCURRENT_STREAMS = 8;
+
+// close a handle we opened but never sent, so it doesn't leak until the LRU gets it
+static void closeStreamById(uint32_t streamId) {
+  if (!streamId) return;
+  bool locked = (!streamingFilesMutex) ||
+                (xSemaphoreTake(streamingFilesMutex, pdMS_TO_TICKS(300)) == pdTRUE);
+  if (!locked) return;
+  auto it = streamingFiles.find(streamId);
+  if (it != streamingFiles.end()) {
+    streamPathIndex.erase(it->second.path);
+    it->second.file.close();
+    streamingFiles.erase(it);
+  }
+  if (streamingFilesMutex) xSemaphoreGive(streamingFilesMutex);
+}
 
 static uint64_t cachedTotalBytes = 0;
 static uint64_t cachedUsedBytes = 0;
@@ -1510,8 +1540,10 @@ bool tryRecoverSDCard() {
         return ok;
     }
 
-    // couldnt get the stream map (something wedged holding it), remount under sdMutex alone
-    if (sdMutex) xSemaphoreTake(sdMutex, pdMS_TO_TICKS(3000));
+    // couldnt get the stream map (something wedged holding it), remount under sdMutex alone.
+    // give back only what we took - releasing a mutex we don't hold frees it under its owner
+    bool sdTaken = (!sdMutex) || (xSemaphoreTake(sdMutex, pdMS_TO_TICKS(3000)) == pdTRUE);
+    if (!sdTaken) Serial.println("[SD] Recovery: sdMutex timeout, remounting without it.");
     SD_MMC.end();
     delay(1000);
     bool ok = mountSDCard();
@@ -2306,7 +2338,7 @@ void handleRangeRequest(AsyncWebServerRequest *request) {
   AsyncWebServerResponse *response = request->beginResponse(
     mimeType,
     contentLength,
-    [streamId, streamPos](uint8_t *buffer, size_t maxLen, size_t index) -> size_t {
+    [streamId, streamPos, filePath, startByte](uint8_t *buffer, size_t maxLen, size_t index) -> size_t {
       // busy mutex isnt end-of-data: returning 0 truncates the response, TRY_AGAIN retries later
       if (streamingFilesMutex && xSemaphoreTake(streamingFilesMutex, pdMS_TO_TICKS(150)) != pdTRUE) {
         return RESPONSE_TRY_AGAIN;
@@ -2314,8 +2346,34 @@ void handleRangeRequest(AsyncWebServerRequest *request) {
 
       auto it = streamingFiles.find(streamId);
       if (it == streamingFiles.end()) {
-        xSemaphoreGive(streamingFilesMutex);
-        return 0;
+        // evicted mid-send. returning 0 would look like end-of-body and truncate
+        // the response (browser sees NS_ERROR_NET_RESET), so reopen and resume.
+        bool sdHeld = (!sdMutex) || (xSemaphoreTake(sdMutex, pdMS_TO_TICKS(1000)) == pdTRUE);
+        if (!sdHeld) {
+          xSemaphoreGive(streamingFilesMutex);
+          return RESPONSE_TRY_AGAIN;
+        }
+        // ported to NomadSD: open() takes a path and answers bool, and the handle is a
+        // NomadFile64, not an fs::File - main's version was written against SD_MMC.
+        // built in place because a StreamHandle owns its file and cannot be copied.
+        StreamHandle &sh = streamingFiles[streamId];
+        if (!sh.file.open(filePath.c_str())) {
+          streamingFiles.erase(streamId);
+          if (sdMutex) xSemaphoreGive(sdMutex);
+          xSemaphoreGive(streamingFilesMutex);
+          Serial.printf("[Stream] Reopen failed for #%u (%s) - truncating\n",
+                        streamId, filePath.c_str());
+          return 0;  // genuinely unrecoverable
+        }
+        sh.file.seek(startByte + index);
+        sh.path = filePath;
+        sh.lastActivity = millis();
+        sh.lastEndByte = startByte + index;
+        streamPathIndex[filePath] = streamId;
+        if (sdMutex) xSemaphoreGive(sdMutex);
+        Serial.printf("[Stream] Reopened #%u at %lu (evicted mid-send): %s\n",
+                      streamId, (unsigned long)(startByte + index), filePath.c_str());
+        it = streamingFiles.find(streamId);
       }
 
       NomadFile64 &file = it->second.file;
@@ -2344,6 +2402,17 @@ void handleRangeRequest(AsyncWebServerRequest *request) {
       return sdBusy ? RESPONSE_TRY_AGAIN : bytesRead;
     }
   );
+
+  // beginResponse answers NULL on low heap, and dereferencing it panics async_tcp and
+  // takes the server down with it. closeStreamById gives back the handle this response
+  // would have owned, so a refused stream doesn't sit there until the LRU reaps it.
+  if (!response) {
+    Serial.printf("[Stream] beginResponse OOM for %s (heap=%u)\n",
+                  filePath.c_str(), (unsigned)ESP.getFreeHeap());
+    closeStreamById(streamId);
+    request->send(503, "text/plain", "Server low on memory - retry");
+    return;
+  }
 
   if (rangeHeader.length() > 0 || forcedPartial) {
     // forcedPartial: no Range was sent but the file is too big for one body, so
@@ -4619,6 +4688,13 @@ void serveProtectedFile(AsyncWebServerRequest *request, const String& filePath) 
     String mime = getMimeType(filePath);
     AsyncWebServerResponse *response = request->beginResponse(SD_MMC, filePath, mime);
     releaseSd();
+    // same NULL check as the streaming path: a failed allocation here used to panic
+    if (!response) {
+        Serial.printf("[Static] beginResponse OOM for %s (heap=%u)\n",
+                      filePath.c_str(), (unsigned)ESP.getFreeHeap());
+        request->send(503, "text/plain", "Server low on memory - retry");
+        return;
+    }
     // pages themselves are never cached: a stale page kept serving old bugs
     // for 10 minutes after every update. JS/CSS stay cached and use ?v= tags.
     if (mime == "text/html") response->addHeader("Cache-Control", "no-cache");
@@ -5318,7 +5394,14 @@ Serial.println("SD Card initialized successfully!");
             url.startsWith("/Movies") || url.startsWith("/Music") || url.startsWith("/Books") ||
             url.startsWith("/Shows") || url.startsWith("/Archive") || url.startsWith("/Games") ||
             url.startsWith("/Maps")) {
-            
+
+            // ex-serveStatic buckets: route them through handleRangeRequest so reads
+            // stay under sdMutex. Only these two - root pages must serve during indexing.
+            if (url.startsWith("/Gallery/") || url.startsWith("/Files/")) {
+                handleRangeRequest(request);
+                return;
+            }
+
             // Handle as file request with SD mutex protection
             String filePath = url;
             if (!filePath.startsWith("/")) filePath = "/" + filePath;
@@ -5390,10 +5473,8 @@ Serial.println("SD Card initialized successfully!");
       request->send(r);
     }
 });
-    server.serveStatic("/Gallery", SD_MMC, "/Gallery")
-          .setCacheControl("max-age=86400");
-    server.serveStatic("/Files", SD_MMC, "/Files")
-          .setCacheControl("max-age=86400");
+    // /Gallery and /Files were serveStatic mounts - the only SD reads with no
+    // sdMutex, no busy-503 and no OOM guard. Now handled in onNotFound instead.
 server.on(
   "/upload", HTTP_POST,
   // Final response when upload is complete
@@ -5608,6 +5689,8 @@ server.on("^\\/Archive\\/.*$", HTTP_ANY, [](AsyncWebServerRequest *request){
   Serial.printf("[ARCHIVE ROUTE ANY] delegating to handleRangeRequest for %s (method=%d)\n", request->url().c_str(), request->method());
   handleRangeRequest(request);
 });
+// NOTE: the regex routes above need ASYNCWEBSERVER_REGEX, which this build doesn't
+// define - they never match, so /Books and /Archive fall through to onNotFound.
 
 
 server.on("/save", HTTP_POST, [](AsyncWebServerRequest *request){

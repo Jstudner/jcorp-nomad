@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- Version 4 -->
+<!-- Version 4.1 -->
 <html lang="en">
 <head>
 <meta charset="utf-8"/>
@@ -464,8 +464,9 @@ async function buildFromIndexes(root){
     }
   }
 
-  // attach language-suffixed subtitles (Movie.en.srt) to their video's group. the
-  // suffix makes their basename differ, so they land in a video-less group of their own
+  // Attach language-suffixed subtitles (Movie.en.srt) to their video's group:
+  // the suffix makes their basename differ, so they land in a video-less group
+  // of their own and would otherwise be dropped.
   for(const [k,v] of map.entries()){
     if(v.files.some(x => isVideoName(x.name))) continue;
     const subsOnly = v.files.filter(x => isSubtitleName(x.name));
@@ -1204,5 +1205,4 @@ NomadUI.applyDownloadPolicy('downloadButton');
 </script>
 </body>
 </html>
-
 

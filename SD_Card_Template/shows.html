@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- Version 4 -->
+<!-- Version 4.1 -->
 <html lang="en">
 <head>
 <meta charset="utf-8" />
@@ -445,6 +445,12 @@ function saveResumeEntryByKey(key, entry, purgeOtherNonCompleted = true){
   }
 }
 
+/* Capped: while a reindex runs the firmware 503s every media request device-wide,
+   so an uncapped reindex -> retry -> reindex loop takes down playback on every
+   page (not just this one) until reboot. One attempt per page load. */
+const MAX_REINDEX_ATTEMPTS = 1;
+let reindexAttempts = 0;
+
 async function loadLibrary(){
   try {
     const { header, entries } = await fetchIndex(ROOT_PATH);
@@ -740,8 +746,9 @@ function loadSeriesEpisodes(show){
     const entries = [];
     const showEntries = show.entries || [];
 
-    // sidecar subtitles: collected per directory, matched to an episode when the
-    // subtitle's basename starts with the episode file's (Ep1.en.srt next to Ep1.mp4)
+    // Sidecar subtitles: collect per directory, matched to an episode when the
+    // subtitle's basename starts with the episode file's basename
+    // (Ep1.srt / Ep1.en.srt next to Ep1.mp4).
     const isSubName = (n) => SUB_EXTS.includes(ext(n));
     const subsInDir = new Map();
     const addSub = (n, p) => {
@@ -1833,6 +1840,5 @@ NomadUI.applyDownloadPolicy('downloadButton');
 
 </body>
 </html>
-
 
 

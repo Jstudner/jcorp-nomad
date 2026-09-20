@@ -246,10 +246,11 @@ let sortMode = localStorage.getItem('nomadGallery.sort') || sortSelect.value;
 
 /* ---------- THUMBNAIL QUEUE & DEDUPE ---------- */
 // Images go through this queue too, not just videos. There is no device-side
-// thumbnailing, so an image thumb pulls the full original off the card. A gallery of
-// a few hundred photos firing those in parallel outruns the firmware's 8 concurrent
-// streams and its ~60KB of internal heap: responses get truncated mid-body and every
-// thumb falls back to the white placeholder.
+// thumbnailing, so an image thumb pulls the FULL original off the SD card. A
+// gallery of a few hundred photos firing those in parallel outruns the
+// firmware's 8 concurrent streams and its ~60KB of internal heap: responses get
+// truncated mid-body (NS_ERROR_NET_RESET) and every thumb falls back to the
+// white placeholder. Sequential + paced keeps us under that ceiling.
 const thumbQueue = [];           // { item, imgEl, spinner, kind }
 const thumbPending = new Set();  // dedupe by path
 let thumbWorkerRunning = false;
@@ -644,8 +645,9 @@ function createCard(item){
     card._thumbJob = { item, imgEl: thumb, spinner, kind: 'video' };
     cardObserver.observe(card);
   } else {
-    // image: same observer and queue as video. this used to fire its own unthrottled
-    // fetch per card at creation time, so a full page of photos starved the server
+    // image: same observer + queue as video. previously this fired its own
+    // unthrottled fetch per card at creation time, so a full page of photos hit
+    // the server all at once and starved it.
     thumb.src = WHITE_SVG;
     card._thumbJob = { item, imgEl: thumb, spinner, kind: 'image' };
     cardObserver.observe(card);
