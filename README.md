@@ -21,9 +21,9 @@ Stream movies, music, books, and shows anywhere - no internet required.</p>
 
 ---
 
-> **Experimental Branch** - This is where new stuff lands before it goes to main. Everything in 4.6 is here too, this just adds on top of it.
+> **Experimental Branch** - This is where new stuff lands before it goes to main. Everything on main is here too, this just adds on top of it.
 >
-> This update is 4.8, and it's a big one. While a lot of it is under the hood (several people streaming at once holds up a lot better now), there's also a lot of new stuff on the pages, Watch Together, a rebuilt admin panel, firmware updates without a cable, offline archives served by the Nomad itself, and rebuilt maps. The full list is below.
+> This update is 4.8, and it's a big one (The usual). While a lot of it is under the hood (several people streaming at once holds up a lot better now), there's also a lot of new stuff on the pages, Watch Together, a rebuilt admin panel, firmware updates without a PC, offline archives served by Nomad itself (which means every format works), and rebuilt maps. The full list is below.
 >
 > Fair warning, this branch gets less testing than main. If something breaks, tell me, that is what this branch is for.
 >
@@ -33,7 +33,7 @@ Stream movies, music, books, and shows anywhere - no internet required.</p>
 
 ## What is Nomad
 
-Jcorp Nomad is an open-source offline media server designed for travel, remote work, classrooms, camping, and more. It runs entirely on an ESP32-S3, creates a local Wi-Fi hotspot, and serves media through a browser interface. Multiple users can access separate media streams simultaneously, all without internet access.
+Jcorp Nomad is an open-source offline media server designed for travel, remote work, classrooms, camping, and more. It's the size of a USB drive and plugs straight into a USB port for power. It runs entirely on an ESP32-S3, creates a local Wi-Fi hotspot, and serves media through a browser interface. Multiple users can access separate media streams simultaneously, all without internet access.
 
 This project is compact, easy to modify, and includes optional 3D-printable hardware. Both firmware and web interface are fully open-source.
 
@@ -43,7 +43,7 @@ This project is compact, easy to modify, and includes optional 3D-printable hard
 
 ### Build It Yourself (Recommended)
 
-I strongly recommend building your own Nomad. It's not a very difficult project, if you can follow instructions and plug in a USB cable, you can do it. The parts are cheap, widely available, and the whole build takes under an hour. See Hardware Requirements and Quick Start below. If nothing else please check out the DIY option before purchasing. 
+I strongly recommend building your own Nomad. It's not a very difficult project, if you can follow instructions and plug in a USB drive, you can do it. The parts are cheap, widely available, and the whole build takes under an hour. See Hardware Requirements and Quick Start below. If nothing else please check out the DIY option before purchasing. 
 
 ### Buy a Prebuilt
 
@@ -58,15 +58,13 @@ If you just want to support the project, donations are always appreciated:
 
 ---
 
-## What's New in Experimental
+## What's New in 4.8
 
-### New in 4.8
-
-- **Several people at once:** Four films play smooth at the same time in my testing now, and pages don't come back half loaded when the Nomad is busy, they just take a second longer. Uploads pick up where they left off if the connection drops, and big downloads actually finish.
-- **Archives served by the Nomad:** Wikipedia and the other ZIM archives are served by the Nomad itself now, so they work on every phone without any setup on the phone side.
+- **Several people at once:** Four films play smooth at the same time in my testing now, and pages don't come back half loaded when Nomad is busy, they just take a second longer. Uploads pick up where they left off if the connection drops, and big downloads actually finish. This testing is done in a college dorm, so better results can be had camping / in the wild with less network traffic. 
+- **Archives served by Nomad:** Wikipedia and the other ZIM archives are served by Nomad itself now, so they work on every phone without any setup on the phone side.
 - **Maps rebuilt:** Vector map packs, turn by turn with voice and rerouting, search for addresses and coordinates, Nearby for things like hospitals, water and gas, and it follows your theme. Phones too old for the full map get a basic one instead.
 - **Admin panel redone:** Split into sections, a sign in where the password never gets sent over the air (and more than one device can stay signed in), switches per page for what people can see, download or upload, Activity to see and stop what's playing, card health, and a WiFi QR code.
-- **Firmware updates without a cable:** From a file or straight from the flasher site. Only signed builds are accepted, and if a new build doesn't start right it goes back to the old one on its own.
+- **Firmware updates without a PC:** From a file or straight from the flasher site. Only signed builds are accepted, and if a new build doesn't start right it goes back to the old one on its own.
 - **Watch Together:** One person hosts, everyone else joins with a code, and you can vote on what to watch.
 - **Movies & Shows:** Simpler resume, progress on every episode, Up next, seek previews, and subtitles that stay on through episode changes.
 - **Music:** Now playing, no gap between songs, a sleep timer and sound settings.
@@ -74,9 +72,8 @@ If you just want to support the project, donations are always appreciated:
 - **Gallery & Files:** A proper photo viewer with folders and thumbnails, and Files can open docs, slides and sheets.
 - **Games:** Gzipped ROMs start in about half the time, and there's a Toolkit with some everyday tools.
 - **Translate:** A conversation mode for going back and forth.
-- **Chat:** Kept by the Nomad now, so messages don't get lost or show up out of order.
-- **Safe mode and a support file:** If it crashes a few times in a row it starts in safe mode, and the admin panel can save a support file you can send me when something goes wrong.
-- **Security:** Guests can't get at the settings, the interface files or the card's top folders anymore, no matter how the path is spelled.
+- **Chat:** Kept by Nomad now, so messages don't get lost or show up out of order.
+- **Safe mode and a support file:** If it crashes a few times in a row it starts in safe mode, and the admin panel can save a support file you can send me when troubleshooting.
 
 ### Streaming holds up under load
 
@@ -84,8 +81,8 @@ When too many people connect at once, Nomad now says it's busy instead of stalli
 
 - When several devices pull at once, Nomad now reserves a slot before it starts the work. Before, it checked free memory at the start of a request but didn't use it until much later, so a burst of requests could all pass the check together. Six at once could take free memory from 70 KB down to 20 KB, below the limit that was supposed to prevent that.
 - If it is actually full you get a "busy, try again" instead of a stall, and the players handle that fine.
-- A stuck stream gives its slot back after a while, so a phone that walks out of range doesn't keep it.
-- **Hotspot goes from 8 devices to 10.** 8 was inherited from the Mk4 and was never actually measured, the radio driver allows 10.
+- A stuck stream gives its slot back after a while, so a phone that walks out of range doesn't keep it locked up. 
+- **Hotspot goes from 8 devices to 10.** 8 was inherited from the Mk4 and was never actually measured, the radio driver allows 10 so I am using all the slots now. 
 
 ### Direct file links actually stream
 
@@ -93,9 +90,8 @@ If something asked for `/Movies/film.mp4` directly instead of going through the 
 
 ### Mobile fixes
 
-- **The epub reader had dead space** below and beside the page you could scroll into. The reader sized itself to the full screen height, including the strip behind the address bar, and it didn't notice the screen changing size when that bar collapsed or you rotated. Both are fixed.
-- **The gallery's Prev/Next buttons sat just under the fold** on a phone. Same address bar problem.
-- **The Resume panel stayed on the menu with nothing in it** when there was nothing to resume.
+- General cleanup of controls and new vector icons to make everything a bit more clean looking and fit on small screens
+- Updated resume section to fit better on mobile and handle more items without breaking.
 
 ### Smaller things
 
@@ -103,158 +99,37 @@ If something asked for `/Movies/film.mp4` directly instead of going through the 
 - Paths with doubled slashes fold properly, which is what made `/Archive` and `//Archive` behave differently
 - The `/config` folder is properly off limits no matter how the path is spelled
 - The health readout reports the memory the card actually needs, not just free heap
-- A game no longer gets stuck while it's thinking, the search index updates properly, and 248 lines of dead code are gone
+- A game no longer gets stuck while it's thinking, the search index updates properly, and 248 lines of dead code that got leftover in the last push are gone
 - **`tools/flash-nomad.sh`** - compiles, flashes and waits for the hotspot to come back. **No more unplugging the board after a flash.** It resets through the watchdog instead of the serial line, since the S3's USB port can't really do that. `--usbc` builds for the 1.47B board.
-
----
-
-## What's New in 4.6
-
-### exFAT Support
-
-This is the big one, and it's the thing people have been asking for the longest. FAT32 has been Nomad's biggest limitation since day one, cards over 32GB needed a reformat first, and no single file could go over 4GB, which is why large ZIMs had to be split into parts. exFAT fixes both of those.
-
-- Cards mount as **exFAT, FAT32 or FAT16**, auto detected at boot, nothing for you to configure
-- SDXC cards (anything over 32GB) work exactly as they come out of the package, no reformat step at all
-- Single files can go over 4GB now, so a full size Wikipedia can sit on the card as one file instead of split parts
-- Old FAT32 cards keep working exactly like they always did, this is additive, not a migration
-- Writing to a nearly full card is a lot less likely to stall out, that was behind a lot of the upload and save timeouts
-
-The reason this took so long, the Arduino ESP32 core ships a prebuilt filesystem library with exFAT compiled out of it, and there is no way to turn it back on from a sketch. The fix was to stop using it entirely and swap in SdFat, which brings its own filesystem code. Everything else in the firmware talks to it the same way it always did.
-
-**You'll need the SdFat library installed** from the Arduino Library Manager before this will compile.
-
-### Offline Maps
-
-- Map regions live in `/Maps` and get browsed offline, with place search and real turn by turn directions (Drive and Walk)
-- Regions are prepped on your PC with Nomad Tools, which downloads the map picture and the road network for the areas you pick
-- Reads map data straight out of a packed archive instead of unpacking it onto the card, which keeps a region at roughly its download size instead of several times bigger
-
-This one is the roughest of the bunch. It works, but it's slow, big regions take a while to draw. I'm still working on that, have a few ideas to improve the speed.
-
-### WiFi Mode (join your home network)
-
-Instead of running its own hotspot, Nomad can now join a WiFi network you already have and serve everything to that network, the browser interface, DLNA, all of it. Your phone stays on your normal internet-connected WiFi and Nomad is just another device on it. This is also the fix for TV devices like Fire Sticks that refuse to do anything on a network with no internet.
-
-- Set it up from the admin panel: **WiFi Mode** button in the top bar opens a popup with a network scanner, password field, and an auto-reconnect option
-- The captive portal turns itself off in this mode (hijacking DNS on someone's home network is uhh.. lets say frowned upon), and the screen shows the IP address the router assigned instead of a hotspot name
-
-### TV Support (DLNA)
-
-Nomad now shows up as a media server on anything that speaks DLNA - smart TVs, VLC, Kodi, Roku Media Player.
-
-- Browse Movies, Shows, Music and Gallery straight from the TV, with cover art, and seeking works
-- On the TV side there's nothing to set up, it just appears in the device list
-- Works on the hotspot or in WiFi Mode; for Fire Sticks use WiFi Mode and the VLC app, since Fire OS breaks without internet now (so lame)
-- Toggle it off in the admin panel if you don't want Nomad announcing itself / makes everything else a bit faster
-
-### Offline Translation
-
-A Translate page that works with zero internet. Two people can pass a phone back and forth and each type in their own language.
-
-- Language packs live in `/Translate` on the card and are installed with Nomad Tools, which always grabs both directions of a pair
-- Translation runs in the browser of whoever connected, nothing heavy runs on the Nomad itself
-- will be very slow to load the first time, but after that back and forth is fairly quick, and the info is cached so its quick if you load it again.  
-- I will be working on a voice integration on device for this aswell, but most keyboards include it already so voice to voice should be possible too. 
-
-### Cookbook & Workshop
-
-Two new library pages, both optional, both disabled by default.
-
-- **Cookbook:** drop `.md`, `.cook` or `.json` recipe files into `/Cookbook` (photos work, same-name image convention). Recipes render with ingredient and step checklists you can tick off while cooking.
-- **Workshop:** drop `.stl`, `.3mf` or `.obj` files into `/Workshop` and preview them in 3D right in the browser. A README or notes file in a folder describes every model in it. The viewer is a few hundred lines of plain WebGL instead of a full 3D engine, so it loads fast off the card.
-
-- I think these are kinda dumb... but I needed a clean number of pages so this is what we get..
-### Game ROMs & Built-in Games
-
-- Drop ROMs into `/Games` and play them in the browser through EmulatorJS
-- Ships with Go, Chess, Connect Four, Tic-Tac-Toe, 2048, Minesweeper, Snake, Crazy Eights, Dots and Boxes, and a shared Whiteboard, all just plain HTML files
-- Also ships with **DOOM** - Freedoom (a free replacement for the game data) is included, and any `.wad` you drop in `/Games` runs through the same engine (this is here so I can say it runs doom, you must keep this on the card it is load bearing.. I swear lol)
-- Cover art works the same as everywhere else, drop an image with the same name next to the file
-- Add or remove games by adding or deleting files, there's nothing to configure, this works for the inbuilt games aswell. 
-
-### Local Multiplayer
-
-- Two player game rooms for multidevice use. 
-- One person makes a room, shares the 4 character code, the other joins from their own phone
-- Chess, Go, Connect Four and Tic-Tac-Toe all support it, the Whiteboard is just a shared freeform board
-- There are also "pass and play games" that only need one device, I will eventualy make this an option for all of the defaults. 
-- I plan to expand this so most games can run in pass and play or proper multi device mode. 
-
----
-
-## Mk4 Highlights
-
-### Offline Wikipedia & Archive Support (ZIM)
-- Browse and search full offline Wikipedia (and other ZIM archives like Gutenberg and TED) directly from the SD card
-- Search is fast even on massive archives, the companion [Nomad Tools](https://github.com/Jstudner/Nomad-Tools) app prebuilds a compact index on your PC, so the device never has to search the raw multi-gigabyte file itself
-- Embedded videos and epub books inside archives play/read right in the browser
-- Currently tested with Gutenburg epubs, TedX Videos, and wikipedia from the tiny 0.8 file all the way to the 140gb maxi with images. 
-
-### Redesigned Case
-<p align="center">
-  <img src="NomadMk4Explode.png" alt="Nomad Mk4 exploded case view" width="700">
-</p>
-
-- New case slides together **front-to-back** instead of the old top-to-bottom design
-- No more direct pressure on the screen, which was a common cause of cracked/broken screens on the old case
-- Buttons stay exposed on the outside, so you can still flash firmware or hit the boot button without disassembling anything
-
-### Indexing & Stability
-- Root-caused and fixed a long-standing random reboot bug tied to files over 2GB, this was the actual cause of crashes on image-heavy Wikipedia pages and big movie scrubbing
-- Fixed a heap-corruption crash that could hit when indexing and refreshing SD totals at the same time
-- Boot-time indexing now only re-scans when files have actually changed, instead of a full scan on every boot
-- Removed the screens loading spinner that was silently forcing a full-screen redraw every loop, pulling it out made the whole device noticeably more stable
-
-### Reader & Memory Improvements
-- Comic and PDF readers now free old pages from memory as you scroll, fixing crashes on long comics and scanned PDFs
-- PDF viewer shows a real loading percentage instead of a blank screen
-- Cleaned out a bunch of dead code and unused libraries that were loading on every Books page
-
-### UI & Admin Updates
-- Unified header and button styling across pages so themes apply consistently everywhere
-- Fixed several dark mode readability bugs (unreadable resume text, buttons that ignored custom themes, etc.)
-- Admin panel settings are now gated behind a login
-- Fixed a stuck brightness slider caused by an out-of-range default value
-
-### Default Themes (28)
-
-Default Blue, Forest Night, Cherry Blossom, Mocha Latte, Ocean Depths,
-Autumn Leaves, Lavender Fields, Sunset Horizon, Coral Reef, Mountain Mist,
-Jade Garden, Desert Sand, Arctic Aurora, DeLorean, Midnight Code, 90s Retro,
-Mint Breeze, Rose Gold, Crimson Night, Emerald Dream, Royal Purple,
-Copper Sunset, Sapphire Sea, Peach Cream, Slate Storm, Lime Zest,
-Burgundy Wine, Teal Oasis
 
 ---
 
 ## Features
 
 - **exFAT & FAT32:** Any card format, auto detected at boot. Cards over 32GB and files over 4GB both work.
-- **WiFi Mode:** Join an existing WiFi network instead of running the hotspot, with automatic fallback so you can't lock yourself out.
+- **WiFi Mode:** Join an existing WiFi network instead of running the hotspot, with automatic fallback so you can't lock yourself out. Also the fix for TV sticks that won't do anything on a network with no internet.
 - **TV Support (DLNA):** Shows up as a media server for smart TVs, VLC, Kodi and friends, with cover art and seeking.
-- **Offline Encyclopedia:** ZIM archive support for offline Wikipedia and other offline wikis, with fast on-device search.
-- **Offline Maps:** Browsable map regions with place search and turn by turn directions, served straight off the card.
-- **Offline Translation:** In-browser translation between installed language pairs, no internet ever.
-- **Games:** Browser-based ROM playback through EmulatorJS, DOOM, plus ten built-in games.
-- **Local Multiplayer:** Two player game rooms over the Nomad's own Wi-Fi, no internet needed.
+- **Offline Encyclopedia:** ZIM archives (Wikipedia, Gutenberg, TED and others) served by Nomad itself, with fast search.
+- **Offline Maps:** Vector map packs with place search, Nearby, and turn by turn directions with voice and rerouting.
+- **Offline Translation:** In-browser translation between installed language pairs, with a conversation mode, no internet ever.
+- **Games:** ROMs play in the browser through EmulatorJS (the cores ship on the card), plus ten built-in games and DOOM (this is here so I can say it runs doom, you must keep this on the card it is load bearing.. I swear lol)
+- **Local Multiplayer:** Two player game rooms over Nomad's own WiFi, no internet needed.
+- **Watch Together:** Pick something as a group and everyone watches it at the same moment.
+- **Chat:** A simple local chat room for everyone connected to Nomad.
 - **Cookbook:** Recipe library with tick-off ingredient and step checklists.
 - **Workshop:** 3D-print model library with an in-browser STL/3MF/OBJ preview.
 - **Subtitles:** Sidecar subtitle files attach themselves to a video by filename, with selectable language tracks.
-- **Chat:** A simple local chat room for everyone connected to the Nomad.
-- **Watch Together:** Pick something as a group and everyone watches it at the same moment.
-- **Firmware Updates:** Update from the admin panel with a signed build, no cable needed, and it rolls back on its own if the new one fails.
-- **Admin Panel:** Full device controls, library indexing, Theme Customizer, menu page toggles, login-gated settings.
+- **Firmware Updates:** Update from the admin panel with a signed build, no PC needed, and it rolls back on its own if the new one fails.
+- **Admin Panel:** Device controls, library indexing, per page switches, Activity, card health, themes and a WiFi QR code, behind a sign in.
+- **Themes:** 28 built in, plus a Theme Customizer for making your own.
 - **File Browser:** Upload, rename, delete, download, and inline file editing. (Recommended to use a PC)
 - **Global Search:** Quickly find media across all categories from the Menu page.
-- **Music Player:** Seamless background playback with subdirectory playlists and a dynamic Queue.
-- **Movies & Shows:** Plyr-integrated playback with season/special folder support.
-- **Digital Library:** EPUB support, PDF handling, and a dedicated Comic/Webtoon reader.
-- **Resume Tracking:** Saves playback progress for Movies, Shows, and certain Books.
-- **Gallery & Files:** Dedicated pages for image viewing, video clips, and general file sharing.
-- **Captive Portal:** Automatic login/redirection for easy access.
-- **Persistent Settings:** Themes and system configurations saved across reboots.
-- **Mobile-Friendly UI:** Fully responsive design optimized for handheld offline streaming.
+- **Music Player:** Background playback with no gap between songs, subdirectory playlists and a Queue.
+- **Movies & Shows:** Season and special folder support, Up next, seek previews and resume on every episode.
+- **Digital Library:** EPUB, PDF, a Comic/Webtoon reader, audiobooks, and read aloud for e-books.
+- **Gallery & Files:** Photo viewer with folders and thumbnails, and Files opens docs, slides and sheets.
+- **Captive Portal:** Joining the hotspot opens Nomad on its own.
+- **Mobile-Friendly UI:** Built for phones first.
 
 ---
 
@@ -262,7 +137,7 @@ Burgundy Wine, Teal Oasis
 
 Nomad is built specifically for the **Waveshare ESP32-S3 Dev Board (1.47" LCD version)**. Due to the number of low-level tricks used to squeeze this much functionality out of the hardware, it is difficult to get Nomad running on other boards.
 
-There are a few community forks that target other ESP32 boards, but your mileage will vary. I'm also actively working on a **Nomad Lite** version with wider board compatibility, focused on basic streaming without all the advanced features.
+There are a few community forks that target other ESP32 boards, but your mileage will vary. I'm also actively working on a **Nomad Lite** version with wider board compatibility, focused on basic streaming without all the advanced features. There's also an [ESP32-P4 branch](https://github.com/Jstudner/jcorp-nomad/tree/esp32-p4) for two of Waveshare's P4 boards, see What's Next.
 
 ---
 
@@ -270,7 +145,7 @@ There are a few community forks that target other ESP32 boards, but your mileage
 
 - **Waveshare ESP32-S3 Dev Board (1.47" LCD version)** - [Amazon Link](https://amzn.to/4ktB6oT)
 
-- **or the ESP32-S3-LCD-1.47B** - the USB-C board. Same chip, same everything, the LCD backlight just moves from GPIO 48 to GPIO 46. Building it yourself, set `BOARD_USB_C` to 1 in `Display_ST7789.h`; flashing from the browser, pick the USB-C build. Get it wrong and it boots functional, just no screen output.
+- **or the ESP32-S3-LCD-1.47B** - the USB-C board. Same chip, same everything, the LCD backlight just moves from GPIO 48 to GPIO 46. If you build it yourself, set `BOARD_USB_C` to 1 in `Display_ST7789.h`. If you flash from the browser, pick the USB-C build. Get it wrong and it boots functional, just no screen output.
 
 - **microSD card, exFAT or FAT32 (16-128GB recommended, up to 2TB)**
   [Amazon Link](https://amzn.to/44tM1c4)
@@ -278,8 +153,16 @@ There are a few community forks that target other ESP32 boards, but your mileage
 - **SD-Card Extender (optional, 3DP case compatible)**
   [Amazon Link](https://amzn.to/45IWIJz)
 
-- **USB power source**
+- **A USB port to plug it into** (a computer, a power bank or a USB wall plug)
 - **Optional:** 3D-printed enclosure (STL files included)
+
+### Case
+
+<p align="center">
+  <img src="NomadMk4Explode.png" alt="Nomad Mk4 exploded case view" width="700">
+</p>
+
+The case slides together **front-to-back**, so there's no direct pressure on the screen, which was a common cause of cracked screens on the old top-to-bottom case. The buttons stay exposed on the outside, so you can still flash firmware or hit the boot button without taking it apart.
 
 ---
 
@@ -313,7 +196,7 @@ Formatting is the one step it cannot do, because a web page has no access to dri
   - `ArduinoJson` by Benoit Blanchon **7.3.0**
   - `Async TCP` by ESP32Async **3.4.7**
   - `ESP Async WebServer` by ESP32Async **3.7.1**
-  - `LVGL` by kisvegabor **8.4.0**
+  - `LVGL` by kisvegabor **8.3.10**
   - `SdFat` by Bill Greiman **2.3.0** - this one is required for exFAT, it is not optional
 - SquareLine Studio (optional, for UI editing)
 
@@ -323,58 +206,22 @@ If you would rather not line any of that up, use the browser flasher above.
 
 ## Quick Start
 
-1. Flash ESP32-S3 firmware from `/firmware/`.
+1. Flash the ESP32-S3 firmware from `/firmware/` (or use the browser flasher above).
 2. Copy `/SD_Card_Template/` files onto the card. Any exFAT or FAT32 card works as-is, you only need to format if the card is brand new or broken.
 3. Place media in `/Movies`, `/Shows`, `/Books`, `/Music`, `/Gallery`, `/Files`, `/Games`, `/Cookbook`, `/Workshop`. (ZIMs, Maps and Translate packs get prepped with Nomad Tools, see below.)
-4. Insert SD card and power device via USB.
+4. Insert the SD card and plug Nomad into a USB port.
 5. Connect to Wi-Fi `Jcorp_Nomad` with password: `password`.
 6. Open the browser interface.
-7. Click the gear icon → Library Index → **Full Scan Now**.
-8. Monitor Admin Console for progress; scan may take minutes.
+7. Open the admin panel (gear icon) → **Library index** → **Start scan**.
+8. The first scan may take a few minutes on a big card.
 9. Return to Menu page and enjoy your media!
-10. Optional: to serve your home network (and TVs) instead of running a hotspot, open Admin → **WiFi Mode** and join your network from there.
+10. Optional: to serve your home network (and TVs) instead of running a hotspot, open the admin panel → **WiFi Mode** and join your network from there.
 
 ---
 
-## Key Improvements
-
-1. **Faster & More Reliable Indexing**
-   - Non-blocking, background indexing for large libraries.
-   - Safe on power loss; partial indexes remain intact.
-   - Auto-updates changes; frontend detects updates automatically.
-   - Boot-time indexing now only triggers on an actual file change, not every boot.
-
-2. **Resume Functionality**
-   - Movies and Shows track playback progress.
-   - Options for **Play from Start** or **Resume**.
-   - Menu displays last three movies/shows; mobile shows most recent.
-
-3. **Dark Mode**
-   - Toggleable across all pages from the menu.
-   - Consistent theme tokens across pages, no more mismatched dark colors.
-
-4. **Admin Page**
-   - Full device control: shutdown, restart, flash mode, Wi-Fi, RGB LEDs, brightness, credentials, indexing, and file management.
-   - Login-gated settings so changes require the admin password.
-   - Safe shutdown option for SD card health.
-   - Real-time system console feedback.
-
-5. **Stability Improvements**
-   - Fixed frontend NDJSON sync issues.
-   - Crash recovery on large indexes.
-   - Fixed a random-reboot bug tied to files over 2GB.
-   - Dynamic LCD brightness adjustment.
-   - Streaming stability enhancements.
-
-6. **Improved Library Support**
-   - Supports deeper folder structures for Shows and Music.
-   - Flexible organization; media files can be nested at any level.
-
----
+## Folder Structure
 
 ```
-Folder Structure
-
 /Movies
     Interstellar.mp4
     Interstellar.jpg
@@ -457,37 +304,21 @@ Folder Structure
     /.nomad-zim
         (search index, built by Nomad Tools)
 
-index.html
-appleindex.html
-menu.html
-movies.html
-shows.html
-books.html
-music.html
-gallery.html
-files.html
-archive.html
-games.html
-maps.html
-translate.html
-cookbook.html
-workshop.html
-Logo.png
-favicon.ico
+(plus the web interface files from SD_Card_Template, in the card's root)
 ```
 
 ---
 
 ## Supported Formats
 
-- **Video:** `.mp4, .webm, .m4v` play everywhere. `.mkv, .avi, .mov` are listed and handed to the player too, but Nomad has no content type for them, so whether they play is down to your browser (Safari is usually fine with `.mov`, Chrome usually is not with `.mkv`). If a video lists but will not play, that is almost always this. Remux to `.mp4` and it will.
+- **Video:** `.mp4, .webm, .m4v` play everywhere. `.mkv, .avi, .mov` are listed too, but whether they play is down to your browser (Safari is usually fine with `.mov`, Chrome usually is not with `.mkv`). Remux to `.mp4`, or run **Fix videos** in Nomad Tools.
 - **Audio:** `.mp3, .flac, .wav, .ogg, .aac, .m4a`, plus `.opus` with the same browser caveat as above.
 - **Subtitles:** `.srt, .vtt, .ass, .ssa, .sub` - drop them next to the video with the same name. `Movie.srt` or `Movie.en.srt` both attach, language suffixes become selectable tracks, and `.srt` is converted to WebVTT on the fly because browsers render nothing for raw SRT.
 - **Books:** `.pdf, .epub, .cbz, .cbr` 
 - **Images:** `.jpg, .jpeg, .png, .webp, .gif, .bmp, .avif` 
 - **Archives:** `.zim` (offline Wikipedia and other ZIM-format wikis), needs special processing, you cant just drop a .zim in sadly. Prep them with [Nomad Tools](https://github.com/Jstudner/Nomad-Tools) first (still rough, but handles most common ZIMs)
 - **Games:** ROMs for the systems EmulatorJS supports (GB, GBC, GBA, NES, SNES, Genesis, and others), `.wad` files for DOOM, plus `.html` files for built-in games
-- **Maps:** map regions prepped with Nomad Tools, dropped into `/Maps`
+- **Maps:** map packs from Nomad Tools, dropped into `/Maps`
 - **Recipes:** `.md`, `.cook`, or `.json` files in `/Cookbook`
 - **3D Models:** `.stl`, `.3mf`, `.obj` in `/Workshop`
 - **Translation:** language packs installed into `/Translate` with Nomad Tools
@@ -506,14 +337,18 @@ Basic usage:
 
 What the menu covers:
 
-- **Add ZIM archives** - copies Wikipedia/Gutenberg/etc. onto the card and builds the search index. Adds to what's there, never wipes your existing archives, and splits oversized files automatically.
-- **Optimize cover images** - shrinks Movie/Show/Book covers so pages load fast on the device.
-- **Rebuild media index** - refreshes the library listing after you've added or removed files from the PC.
-- **Download offline maps** - grabs map tiles for an area you pick, with a size estimate and free-space check before anything downloads.
-- **Build a routing map** - maps plus the road network and place search, for turn by turn directions. Pick from ready-made areas (any US state, big regions, or the whole country) and they join into one map. US only for now
-- **Add translation languages** - installs offline translation packs, always both directions of a pair. Comes in collections (`starter`, `traveler`, `europe`, `asia`, `world`) or single languages. (I recomend just grabbing all as its less than 4GB)
+- **Add media** and **Check the card** - copies your stuff onto the card, or checks a card you filled yourself.
+- **Add ZIM archives** and **Speed up archives** - Wikipedia, Gutenberg and so on with their search index, and reworked so they load faster.
+- **Pictures** - Gallery previews, covers for books that don't have one, and smaller covers.
+- **Fix videos** - finds videos that won't play, play without sound or are slow to start, and fixes them.
+- **Subtitles** - pulls text subtitles out of your videos, and can make seek previews.
+- **Speed up games** - compresses ROMs so each one starts in about half the time.
+- **Rebuild the media index** - after you've added or removed files from the PC.
+- **Map packs** - ready made maps by area with turn by turn directions and place search, or build them yourself from the newest OpenStreetMap data.
+- **Translation languages** - offline translation packs, always both directions of a pair. (I recomend just grabbing all as its less than 4GB)
+- **Format a card** - exFAT, Linux only.
 
-A good order for a fresh card: media and ZIMs first, optimize images, rebuild the index last. Maps and languages can be added any time.
+A good order for a fresh card: media and ZIMs first, then Pictures, rebuild the index last. Maps and languages can be added any time.
 
 ---
 
@@ -521,12 +356,12 @@ A good order for a fresh card: media and ZIMs first, optimize images, rebuild th
 
 Since this is the experimental branch, here's what I already know isn't great:
 
-- **Maps are slow.** Big regions take a while to load and pan. It works, it's just not snappy yet, and that's the main thing I'm working on.
+- **Maps are new.** They were rebuilt for 4.8 and have only been tested on a handful of packs. Long routes take a few seconds to work out on the device.
 - **WiFi Mode and DLNA have seen few routers and few TVs.** They work (tested with VLC on a Fire Stick, desktop VLC, and phones), but there are a lot of both out there and I have tried a handful. If your TV can't find Nomad, tell me what TV it is and I will see what I can do.
-- **Some video containers list but won't play.** `.mkv`, `.avi` and `.mov` get served without a content type, so it comes down to what your browser will sniff and decode. Nothing is broken on the Nomad side.
+- **Some video containers list but won't play.** `.mkv`, `.avi` and `.mov` get served without a content type, so it comes down to what your browser will sniff and decode. Nothing is broken on Nomad's side.
 - **Set an admin password before using WiFi Mode.** On the hotspot only people you gave the password to can reach the admin panel. On your home network, everything on that network can. I dont hard gate this, but worth noting. 
 - **Free space on FAT32 cards can read slightly wrong.** SdFat doesn't update the counter FAT32 keeps for it, so the number drifts by however much Nomad itself writes. It fixes itself the next time you plug the card into a PC, and it doesn't affect your files at all. exFAT cards aren't affected.
-- **EmulatorJS cores download on first play.** Once cached they're fine, but the first launch of a system pulls the core off the card and takes a moment.
+- **The first game on each system takes a moment.** Its emulator core loads off the card the first time, after that it's cached.
 - The newer features have had a fraction of the testing the core has. If something breaks, tell me. Issues and PRs are both welcome.
 
 ---
@@ -537,11 +372,11 @@ Since this is the experimental branch, here's what I already know isn't great:
 
 **Gallion** - A larger-scale sibling to Nomad, built on more capable hardware. Gallion is designed to handle everything that couldn't fit on Nomad's current platform > ROM emulation, 4k video, and expanded media compatibility across the board. The current version is [here](https://github.com/Jstudner/Gallion).
 
-**ESP32-P4** - I have said for a long time that I don't want to switch hardware, as doing so would leave yall with a useless board. The S3 is the Nomad and it stays supported. That said, I have started slowly co-developing a P4 version alongside it, because the P4 brings two things the S3 can't: a radio module that is already FCC certified, which matters a lot for anything I sell, and considerably faster WiFi. 
+**ESP32-P4** - I have said for a long time that I don't want to switch hardware, as doing so would leave yall with a useless board. The S3 is Nomad and it stays supported. That said, I have been co-developing a P4 version alongside it, because the P4 brings two things the S3 can't: a radio module that is already FCC certified, which matters a lot for anything I sell, and considerably faster WiFi. 
 
-Two boards, if it works out. The **WIFI6** board is a stick, only a bit larger than the Nomad you have now. The **NANO** is noticeably bigger than either, but it adds an ethernet port with POE module support, and a USB port so storage can be expanded or replaced rather than living entirely on the SD card.
+It has its own branch now, [esp32-p4](https://github.com/Jstudner/jcorp-nomad/tree/esp32-p4), on two boards. The **WIFI6** board is a stick, only a bit larger than your current Nomad. The **NANO** is noticeably bigger than either, but it adds an ethernet port with POE module support, and a USB port so storage can be expanded or replaced rather than living entirely on the SD card.
 
-None of this is a replacement announcement. It will be its own branch, the S3 keeps getting the same updates, just better speed and a few more features on the p4 branch. 
+None of this is a replacement announcement. It's its own branch, the S3 keeps getting the same updates, just better speed and a few more features on the p4 branch. 
 
 ---
 
