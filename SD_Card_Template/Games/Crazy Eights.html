@@ -7,8 +7,8 @@
 <title>Nomad • Crazy Eights</title>
 <link rel="icon" href="/favicon.ico" type="image/x-icon">
 <link rel="stylesheet" href="/master.css">
-<script src="/theme-boot.js"></script>
-<script src="/theme-manager.js"></script>
+<script src="/theme-boot.js?v=5"></script>
+<script src="/theme-manager.js?v=5"></script>
 <style>
   *{box-sizing:border-box}
   html,body{margin:0;padding:0}
@@ -21,7 +21,6 @@
   }
   .wrap{max-width:520px;margin:0 auto;padding:14px 12px 30px}
 
-  /* ---- Top bar ---- */
   .topbar{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:14px}
   .topbar h1{font-size:1.4rem;margin:0;flex:1 1 auto;text-align:center}
   .btn{
@@ -41,7 +40,6 @@
     background:var(--card,#fff);color:var(--text,#333);
   }
 
-  /* ---- Player count chips ---- */
   .players{display:flex;flex-wrap:wrap;gap:8px;justify-content:center;margin-bottom:10px}
   .chip{
     background:var(--card,#fff);border:1px solid var(--line,#dcdce3);border-radius:999px;
@@ -50,7 +48,6 @@
   .chip.cur{border-color:var(--primary,#4f46e5);box-shadow:0 0 0 1px var(--primary,#4f46e5);font-weight:700}
   .chip .n{color:var(--muted,#777);font-weight:400}
 
-  /* ---- Center table ---- */
   .table{display:flex;justify-content:center;align-items:flex-start;gap:16px;flex-wrap:wrap;margin:4px 0}
   .pile{display:flex;flex-direction:column;align-items:center;gap:6px}
   .pile-card{cursor:default}
@@ -72,7 +69,7 @@
   .turn-label{text-align:center;font-weight:700;font-size:1.05rem;margin:10px 0 2px}
   .hand-hint{text-align:center;color:var(--muted,#777);font-size:.85rem;min-height:1.2em;margin-bottom:2px}
 
-  /* ---- Playing cards (always white face so they read in light & dark) ---- */
+  /* cards always have a white face, so they read in light and dark */
   .card{
     position:relative;flex:0 0 auto;
     width:54px;height:78px;border-radius:7px;
@@ -96,7 +93,7 @@
   }
   .card.back::after{content:"";position:absolute;inset:5px;border:2px solid rgba(255,255,255,.55);border-radius:4px}
 
-  /* ---- Current player's hand: horizontally SCROLLABLE row ---- */
+  /* the hand scrolls sideways; the page never does */
   .hand-wrap{max-width:100%}
   .hand{
     display:flex;gap:8px;overflow-x:auto;overflow-y:hidden;
@@ -110,7 +107,6 @@
   @keyframes shake{0%,100%{transform:translateX(0)}25%{transform:translateX(-3px)}75%{transform:translateX(3px)}}
   .hand-empty{color:var(--muted,#777);text-align:center;padding:20px 0}
 
-  /* ---- Overlays ---- */
   .overlay{
     position:fixed;inset:0;z-index:50;display:none;
     flex-direction:column;align-items:center;justify-content:center;gap:18px;
@@ -183,7 +179,7 @@
     <div class="hand" id="hand"></div>
   </div>
 
-  <!-- Handoff / privacy screen (opaque, hides previous player's hand) -->
+  <!-- Handoff screen, opaque so the last player's hand stays hidden -->
   <div class="overlay" id="handoff">
     <div class="ov-suits">♠ <span class="r">♥</span> <span class="r">♦</span> ♣</div>
     <div class="ov-title" id="handoffTitle">Pass the device</div>
@@ -194,7 +190,7 @@
   <!-- Suit picker (shown after playing an 8) -->
   <div class="overlay modal" id="suitpick">
     <div class="sheet">
-      <div class="sheet-title">You played an 8 — choose a suit</div>
+      <div class="sheet-title">Choose a suit</div>
       <div class="suit-picker">
         <button class="suitbtn black" data-s="S">♠</button>
         <button class="suitbtn red"   data-s="H">♥</button>
@@ -219,7 +215,6 @@
   var SUITS = ['S','H','D','C'];
   var RANKS = ['A','2','3','4','5','6','7','8','9','10','J','Q','K'];
 
-  // ---- DOM refs -----------------------------------------------------------
   var playersEl   = document.getElementById('players');
   var stockEl     = document.getElementById('stock');
   var stockCountEl= document.getElementById('stockCount');
@@ -237,7 +232,6 @@
   var winnerEl    = document.getElementById('winner');
   var winTitleEl  = document.getElementById('winTitle');
 
-  // ---- Game state ---------------------------------------------------------
   var numPlayers = 2;
   var hands = [];        // hands[p] = array of {r,s}
   var stock = [];        // face-down draw pile (top = last)
@@ -249,7 +243,6 @@
   var lastNote = '';     // short note shown on the next handoff screen
   var hintTimer = null;
 
-  // ---- Small helpers ------------------------------------------------------
   function suitChar(s){ return s==='S'?'♠':s==='H'?'♥':s==='D'?'♦':'♣'; }
   function isRed(s){ return s==='H' || s==='D'; }
   function playerName(i){ return 'Player '+(i+1); }
@@ -263,8 +256,7 @@
     return a;
   }
 
-  // A card is playable if its suit matches the current suit, its rank matches
-  // the discard top's rank, or it is an 8 (8s are wild).
+  // playable: same suit as the current suit, same rank as the discard top, or an 8
   function isPlayable(card){
     var top = discardTop();
     return card.r==='8' || card.s===currentSuit || card.r===top.r;
@@ -273,10 +265,8 @@
     for(var i=0;i<hands[p].length;i++){ if(isPlayable(hands[p][i])) return true; }
     return false;
   }
-  // Can we still draw? (stock has cards, or the discard can be reshuffled)
   function canDraw(){ return stock.length>0 || discard.length>1; }
 
-  // ---- Card element (CSS + Unicode pips, no images) -----------------------
   function makeCardEl(card, faceDown, lg){
     var el = document.createElement('div');
     el.className = 'card' + (lg?' lg':'');
@@ -292,13 +282,11 @@
     return el;
   }
 
-  // ---- Draw / reshuffle ---------------------------------------------------
-  // returns one card from the stock, or null if none can be produced. when the stock
-  // is empty the discard pile is reshuffled back into it, keeping the current top in
-  // place. if the discard is just that one card there is nothing to reshuffle
+  // one card from the stock, or null. an empty stock is refilled from the discard,
+  // all but its top card
   function drawOne(){
     if(stock.length===0){
-      if(discard.length<=1) return null;      // nothing to recycle
+      if(discard.length<=1) return null;
       var top = discard[discard.length-1];
       var rest = discard.slice(0, discard.length-1);
       discard = [top];
@@ -308,11 +296,9 @@
     return stock.pop();
   }
 
-  // ---- Overlay show/hide --------------------------------------------------
   function showOv(el){ el.classList.add('show'); }
   function hideOv(el){ el.classList.remove('show'); }
 
-  // ---- Rendering (play phase) --------------------------------------------
   function renderPlayers(){
     playersEl.innerHTML = '';
     for(var p=0;p<numPlayers;p++){
@@ -350,7 +336,7 @@
   function updateHint(){
     var hint;
     if(!handHasPlayable(current)){
-      hint = canDraw() ? 'No playable card — tap the draw pile.' : 'No moves available.';
+      hint = canDraw() ? 'No playable card. Tap the draw pile.' : 'No moves available.';
     } else {
       hint = 'Tap a highlighted card to play' + (canDraw()?', or tap the draw pile.':'.');
     }
@@ -369,9 +355,8 @@
     updateHint();
   }
 
-  // ---- Turn / handoff flow ------------------------------------------------
   function advanceTurn(){
-    current = (current + 1) % numPlayers;   // wrap 1..N -> 1
+    current = (current + 1) % numPlayers;
     startHandoff();
   }
   function startHandoff(){
@@ -381,8 +366,7 @@
     buildHandoffSummary();
     showOv(handoffEl);
   }
-  // Even on the handoff screen we always surface: whose turn, other players'
-  // COUNTS, the current suit, and the discard top.
+  // the handoff screen shows card counts, the current suit and the discard top, never a hand
   function buildHandoffSummary(){
     handoffSum.innerHTML = '';
     var row = document.createElement('div'); row.className='sum-row';
@@ -408,9 +392,9 @@
     hideOv(handoffEl);
     phase = 'play';
     render();
-    // Start-of-turn edge case: no playable card AND nothing left to draw -> pass.
+    // nothing to play and nothing to draw at the start of a turn: pass
     if(!handHasPlayable(current) && !canDraw()){
-      passTurn(playerName(current) + ' had no playable card and could not draw — passed.');
+      passTurn(playerName(current) + ' had no playable card and passed.');
     }
   }
   function passTurn(note){
@@ -420,7 +404,6 @@
     advanceTurn();
   }
 
-  // ---- Playing a card -----------------------------------------------------
   function attemptPlay(idx, el){
     if(phase!=='play') return;
     var card = hands[current][idx];
@@ -437,46 +420,41 @@
     lastNote = playerName(current) + ' played ' + card.r + suitChar(card.s) + '.';
     render();
 
-    // Win the instant your hand is empty (suit choice is moot on a final 8).
+    // an empty hand wins at once, even on a final 8
     if(hands[current].length===0){ return showWinner(playerName(current)+' wins!', true); }
 
     if(card.r==='8'){
-      // 8 is wild: the player picks the new current suit before play continues.
       phase = 'suitpick';
       showOv(suitpickEl);
       return;
     }
-    // Any other card sets the current suit to its own suit.
     currentSuit = card.s;
     advanceTurn();
   }
   function chooseSuit(s){
-    currentSuit = s;                 // apply the 8's chosen suit
+    currentSuit = s;
     hideOv(suitpickEl);
     advanceTurn();
   }
 
-  // ---- Drawing (turn action) ---------------------------------------------
   function drawAction(){
     if(phase!=='play') return;
     var card = drawOne();
     if(card===null){
-      // Stock empty and discard can't be recycled.
-      if(handHasPlayable(current)){ flashHint('Stock is empty — you must play a card.'); return; }
+      // stock empty and the discard can't be recycled
+      if(handHasPlayable(current)){ flashHint('Draw pile is empty. Play a card.'); return; }
       passTurn(playerName(current) + ' could not play and passed.');
       return;
     }
     hands[current].push(card);
     render();
-    flashHint('Drew ' + card.r + suitChar(card.s) + (isPlayable(card)?' — playable!':'.'));
-    // Keep drawing one at a time; if the stock is exhausted with nothing to
-    // play, the turn passes.
+    flashHint('Drew ' + card.r + suitChar(card.s) + (isPlayable(card)?', playable!':'.'));
+    // one card per tap; with the stock gone and nothing to play, the turn passes
     if(!handHasPlayable(current) && !canDraw()){
-      passTurn(playerName(current) + ' drew but still could not play — passed.');
+      passTurn(playerName(current) + ' drew, could not play and passed.');
     }
   }
 
-  // ---- Winner / stalemate -------------------------------------------------
   function showWinner(text, isWin){
     phase = 'won';
     winTitleEl.textContent = text;
@@ -484,13 +462,11 @@
     hideOv(handoffEl); hideOv(suitpickEl);
     showOv(winnerEl);
   }
-  function showStalemate(){ showWinner('No one can play — it’s a draw.', false); }
+  function showStalemate(){ showWinner('No one can play. It’s a draw.', false); }
 
-  // ---- New game -----------------------------------------------------------
   function newGame(){
     numPlayers = parseInt(pcountSel.value,10) || 2;
 
-    // Build + shuffle a standard 52-card deck.
     var deck = [];
     for(var si=0;si<SUITS.length;si++)
       for(var ri=0;ri<RANKS.length;ri++)
@@ -498,7 +474,7 @@
     shuffle(deck);
     stock = deck;
 
-    // Deal: 7 each for 2 players, 5 each for 3-4 players.
+    // 7 cards each for 2 players, 5 for 3-4
     var per = (numPlayers===2) ? 7 : 5;
     hands = [];
     for(var p=0;p<numPlayers;p++) hands.push([]);
@@ -506,8 +482,7 @@
       for(var q=0;q<numPlayers;q++)
         hands[q].push(stock.pop());
 
-    // flip one card to start the discard pile. an 8 just takes its own suit as the
-    // current suit, no forced pick at the start
+    // an 8 turned up to start the discard keeps its own suit, no pick
     var starter = stock.pop();
     discard = [starter];
     currentSuit = starter.s;
@@ -519,7 +494,6 @@
     startHandoff();
   }
 
-  // ---- Wiring -------------------------------------------------------------
   document.getElementById('newGame').addEventListener('click', newGame);
   pcountSel.addEventListener('change', newGame);
   document.getElementById('readyBtn').addEventListener('click', onReady);

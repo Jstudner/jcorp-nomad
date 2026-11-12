@@ -17,20 +17,19 @@
 
   var ZIM_MAGIC = 0x44D495A;
   var COMP_NONE = 0, COMP_NONE2 = 1, COMP_XZ = 4, COMP_ZSTD = 5;
-  // 8KB reads, kept above the firmware's 2048-byte probe threshold on purpose. the
-  // probe path frees its heap buffer immediately and corrupts under rapid tiny reads,
-  // so anything over 2048 takes the safe streaming path instead
+  // 8KB reads, keep this above the firmware's 2048-byte probe threshold. the probe
+  // path corrupts under rapid tiny reads, anything over 2048 takes the streaming path
   var BLOCK_SIZE = 8192;
-  var BLOCK_CACHE_MAX = 128;      // ~1MB of index blocks. big enough that one article's
-                                  // whole lookup set stays cached, so later images need zero device reads
+  var BLOCK_CACHE_MAX = 512;      // ~4MB of index blocks. a wiki page with 60 images looks up
+                                  // 60 urls, they all need to stay cached
   var CLUSTER_CACHE_MAX = 16;      // decompressed clusters (can be ~2MB each)
-  var DIRENT_CACHE_MAX = 512;
+  var DIRENT_CACHE_MAX = 2048;
   var MAX_CLUSTER_BYTES = 96 * 1024 * 1024;  // big enough for a ZIM-embedded video/epub blob's cluster
 
   var textEncoder = new TextEncoder();
   var textDecoder = new TextDecoder('utf-8');
 
-  /* ---------------- byte helpers ---------------- */
+  /* byte helpers */
 
   function readU16(b, o) { return b[o] | (b[o + 1] << 8); }
   function readU32(b, o) { return (b[o] | (b[o + 1] << 8) | (b[o + 2] << 16) | (b[o + 3] << 24)) >>> 0; }
@@ -51,7 +50,7 @@
     return true;
   }
 
-  // NUL-terminated string starting at `start`; returns {str, bytes, end}.
+  // NUL-terminated string starting at `start`, returns {str, bytes, end}.
   // end === -1 means no terminator inside the buffer (caller must re-read bigger).
   function readCStr(buf, start) {
     var end = start;
@@ -61,7 +60,7 @@
     return { str: textDecoder.decode(bytes), bytes: bytes, end: end + 1 };
   }
 
-  /* ---------------- shared fetch queue ---------------- */
+  /* shared fetch queue */
 
   function FetchQueue(concurrency) {
     this.concurrency = concurrency || 2;
@@ -92,7 +91,7 @@
   // handle, two in-flight requests seek it under each other and crash the device
   var sharedQueue = new FetchQueue(1);
 
-  /* ---------------- HTTP byte source (split-aware) ---------------- */
+  /* HTTP byte source (split-aware) */
 
   // parts: [{path:'/Archive/foo.zimaa', size:123}, ...] in order.
   // opts.via: read prefix. on-device this MUST be '/media?file='. fetching a .zim by
@@ -202,7 +201,7 @@
     return chain.then(function () { return written === length ? out : out.slice(0, written); });
   };
 
-  /* ---------------- small LRU map ---------------- */
+  /* small LRU map */
 
   function lruSet(map, key, value, max) {
     if (map.has(key)) map.delete(key);
@@ -217,7 +216,7 @@
     return v;
   }
 
-  /* ---------------- ZimArchive ---------------- */
+  /* ZimArchive */
 
   // source: {size, read(offset,len)->Promise<Uint8Array>}
   // opts.decompressors: { xz: (u8)->Promise<u8>|u8, zstd: (u8)->Promise<u8>|u8 }
@@ -232,12 +231,13 @@
     this._clusters = new Map();   // decompressed cluster cache
     this._titleIndex = null;      // {mode:'v1-raw'|'v1-mem'|'header', ...}
     this._inflightBlocks = new Map();
+    this._inflightClusters = new Map();
   }
 
-  /* ----- cached small reads ----- */
+  /* cached small reads */
 
   // Read `length` bytes at `offset` through the aligned block cache.
-  // Only for small index-ish reads; clusters go direct.
+  // Only for small index-ish reads, clusters go direct.
   ZimArchive.prototype._readAt = function (offset, length) {
     var self = this;
     var firstBlock = Math.floor(offset / BLOCK_SIZE);
@@ -280,7 +280,7 @@
     return p;
   };
 
-  /* ----- open / header ----- */
+  /* open / header */
 
   // full open: header + mime list + title index. needed for live title search.
   // on-device we avoid this for big ZIMs, see openHeaderOnly() below
@@ -338,7 +338,7 @@
     });
   };
 
-  /* ----- dirents ----- */
+  /* dirents */
 
   ZimArchive.prototype._readDirent = function (offset) {
     var cached = lruGet(this._dirents, offset);
@@ -402,7 +402,7 @@
     });
   };
 
-  /* ----- URL lookup (binary search over URL pointer list) ----- */
+  /* URL lookup (binary search over URL pointer list) */
 
   // findByUrl('C', 'Albert_Einstein') -> dirent or null
   ZimArchive.prototype.findByUrl = function (ns, url) {
@@ -430,7 +430,7 @@
   // when given, pick the right duplicate.
   ZimArchive.prototype.findByTitle = function (title, cluster, blob) {
     var self = this;
-    // header-only opens never touched the title listing; bring it up on demand
+    // header-only opens never touched the title listing, bring it up on demand
     if (!this._titleIndex) {
       return this._initTitleIndex().then(function () {
         return self.findByTitle(title, cluster, blob);
@@ -441,7 +441,7 @@
     var want = textEncoder.encode(title);
     var target = want;
     if (headerMode) {
-      // header lists key on (namespace, title); probe the content namespaces
+      // header lists key on (namespace, title), probe the content namespaces
       target = new Uint8Array(want.length + 1);
       target[0] = 'A'.charCodeAt(0);
       target.set(want, 1);
@@ -471,7 +471,7 @@
     });
   };
 
-  /* ----- blob / cluster access ----- */
+  /* blob / cluster access */
 
   // Locate a blob's raw file position if (and only if) its cluster is
   // uncompressed. Returns {offset, size} or null if the cluster is compressed.
@@ -503,9 +503,22 @@
     });
   };
 
+  // a page's stylesheet, scripts and icons often share one cluster and are asked for
+  // together, so they share one read too
   ZimArchive.prototype._readCluster = function (clusterNumber) {
     var cached = lruGet(this._clusters, clusterNumber);
     if (cached) return Promise.resolve(cached);
+    var inflight = this._inflightClusters.get(clusterNumber);
+    if (inflight) return inflight;
+    var self = this;
+    var p = this._fetchCluster(clusterNumber);
+    var done = function () { self._inflightClusters.delete(clusterNumber); };
+    p.then(done, done);
+    this._inflightClusters.set(clusterNumber, p);
+    return p;
+  };
+
+  ZimArchive.prototype._fetchCluster = function (clusterNumber) {
     var self = this;
     return this._clusterExtent(clusterNumber).then(function (ext) {
       if (ext.size > MAX_CLUSTER_BYTES) throw new Error('Cluster too large: ' + ext.size);
@@ -553,8 +566,8 @@
     var cached = lruGet(this._clusters, clusterNumber);
     if (cached) return Promise.resolve(fromCluster(cached));
     // uncompressed cluster: read only this blob's bytes. images live in uncompressed
-    // ~2MB clusters, pulling the whole thing for a ~10KB thumb was 200x the data and
-    // rebooted the ESP32. compressed clusters (text) still need the full extent
+    // ~2MB clusters and pulling a whole one for a ~10KB thumb can reboot the ESP32.
+    // compressed clusters (text) still need the full extent
     return this._locateRawBlob(clusterNumber, blobNumber).then(function (raw) {
       if (raw) return self.src.read(raw.offset, raw.size);
       return self._readCluster(clusterNumber).then(fromCluster);
@@ -581,7 +594,7 @@
     });
   };
 
-  /* ----- title index ----- */
+  /* title index */
 
   // prefer X/listing/titleOrdered/v1 (modern ZIMs, random-access in place if
   // uncompressed), else fall back to the header title pointer list
@@ -609,7 +622,7 @@
   };
 
   // Header title pointer list fallback (pre-v1-listing ZIMs). Modern files
-  // set titlePtrPos to 0xFFFFFFFFFFFFFFFF ("absent"); guard against using it.
+  // set titlePtrPos to 0xFFFFFFFFFFFFFFFF ("absent"), don't use it then.
   ZimArchive.prototype._headerTitleIndex = function () {
     var p = this.header.titlePtrPos;
     if (!p || p + this.header.entryCount * 4 > this.src.size) {
@@ -631,7 +644,7 @@
   };
 
   // Sort key of the i-th title-ordered entry, as bytes.
-  // v1 lists sort by title alone; the header list sorts by (ns, title).
+  // v1 lists sort by title alone, the header list sorts by (ns, title).
   ZimArchive.prototype._titleKeyAt = function (i) {
     var headerMode = this._titleIndex.mode === 'header';
     return this._direntByTitleIndex(i).then(function (e) {
@@ -672,7 +685,7 @@
     return out;
   }
 
-  // only tiny archives (a 7-video TED collection) get a full in-memory title table.
+  // only tiny archives (a few videos) get a full in-memory title table.
   // it is one dirent read per title, way too slow over the network for anything bigger
   var SMALL_ARCHIVE_MAX_TITLES = 256;
 
@@ -758,7 +771,7 @@
           return self._titleKeyAt(i).then(function (r) {
             if (!startsWithBytes(r.key, prefixBytes)) return Promise.resolve(); // left the prefix range
             var e = r.entry;
-            // Header mode walks all namespaces; only article-ish ones matter.
+            // Header mode walks all namespaces, only article-ish ones matter.
             if (!headerMode || e.namespace === 'A' || e.namespace === 'C') {
               var k = e.namespace + '/' + e.url;
               if (!seen[k]) {
@@ -776,7 +789,7 @@
     return runProbe(0, 0).then(function () { return results; });
   };
 
-  /* ----- convenience ----- */
+  /* convenience */
 
   ZimArchive.prototype.getMainPage = function () {
     var self = this;
@@ -818,7 +831,7 @@
     return this.findByUrl(path.substring(0, slash), path.substring(slash + 1));
   };
 
-  /* ---------------- archive list helper ---------------- */
+  /* archive list helper */
 
   // Fetches the device's advanced-content manifest. Returns [] on failure.
   function fetchArchiveList(url) {
@@ -832,9 +845,8 @@
       .catch(function () { return []; });
   }
 
-  /* ---------------- preindexed search (NomadArchiveIndex) ---------------- */
-  //
-  // searches the sidecar index built on a PC by nomad-manager's zim_indexer.js. the
+  /* preindexed search (NomadArchiveIndex) */
+  // searches the sidecar index built on a PC by Nomad-Tools' zim_indexer.js. the
   // device never binary-searches a multi-GB ZIM: a query is the skip table (fetched
   // once, in RAM) plus one small range read of words.dat.
   //   words.dat : sorted  word \t title \t archiveIdx \t cluster \t blob
@@ -856,11 +868,11 @@
     return this.via ? this.via + encodeURIComponent(p) : p;
   };
 
-  // fetch a URL under one timeout - the timer has to survive until the BODY is read,
+  // fetch a URL under one timeout. the timer has to survive until the BODY is read,
   // or a huge streamed body never trips it. returns { ok, status, text(), json() }
   NomadArchiveIndex.prototype._fetch = function (url, range, timeoutMs) {
     // same sharedQueue as ZIM reads so a search and an image are never in flight at
-    // once - the firmware keeps one archive handle and they'd fight over it
+    // once, the firmware keeps one archive handle and they'd fight over it
     return sharedQueue.run(function () {
       var ctl = (typeof AbortController !== 'undefined') ? new AbortController() : null;
       var timer = ctl ? setTimeout(function () { ctl.abort(); }, timeoutMs || 20000) : null;
@@ -949,7 +961,7 @@
     if (q.length < 2) return Promise.resolve([]);
     var qWords = q.split(/[^a-z0-9]+/).filter(function (w) { return w.length >= 2; });
     if (!qWords.length) return Promise.resolve([]);
-    // single word matches that word; multi-word matches the full query as a title
+    // single word matches that word, multi-word matches the full query as a title
     // prefix, so "world war" hits "world war ii" not any title with "war"
     var multi = qWords.length > 1;
     var normQuery = qWords.join(' ');
@@ -990,7 +1002,7 @@
             if (!word) continue;
             if (word < primary) continue;                 // not there yet
             if (word.indexOf(primary) !== 0) { passedPrefix = true; break; } // past the prefix
-            // keep all matches, dedup AFTER ranking - redirects point at the same
+            // keep all matches, dedup AFTER ranking. redirects point at the same
             // article and we want the best title to win, not whichever sorts first
             cands.push({ title: f[1], archiveIdx: +f[2], cluster: +f[3], blob: +f[4] });
             if (cands.length >= CAP) return;
@@ -1031,7 +1043,7 @@
         glist.sort(function (a, b) { return scoreOf(a.list[0]) - scoreOf(b.list[0]); });
 
         // Round-robin across libraries so EVERY library with a match is
-        // represented - otherwise Wikipedia's size buries the smaller ZIMs.
+        // represented, otherwise Wikipedia's size buries the smaller ZIMs.
         var out = [], pos = {}, remaining = true;
         while (out.length < limit && remaining) {
           remaining = false;
@@ -1186,7 +1198,7 @@
     baseUrl = stripNsPrefix(baseUrl);
     return this._zim(archiveIdx, decompressors).then(function (zim) {
       // Candidate paths, most-specific first: resolved-against-article, raw ref,
-      // decoded, and basename - covers root-relative and subdir article layouts.
+      // decoded, and basename. covers root-relative and subdir article layouts.
       var raw = (resourceUrl || '').split('#')[0].split('?')[0];
       var cands = [resolveZimPath(baseUrl, resourceUrl), raw.replace(/^\.?\//, '')];
       try { cands.push(decodeURIComponent(cands[0])); } catch (e) {}
@@ -1324,7 +1336,7 @@
     rel = (rel || '').split('#')[0].split('?')[0];
     if (rel.charAt(0) === '/') {
       rel = rel.replace(/^\/+/, '');
-      // zimit archives root everything under the site's host name; a
+      // zimit archives root everything under the site's host name, so a
       // root-relative link inside such a page means "under that host"
       var host = (baseUrl || '').split('/')[0];
       if (host && host.indexOf('.') > 0) return host + '/' + rel;

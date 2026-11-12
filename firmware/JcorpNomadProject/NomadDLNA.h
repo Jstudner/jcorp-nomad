@@ -1,10 +1,8 @@
-// NomadDLNA.h - real DLNA/UPnP MediaServer for Jcorp Nomad.
+// NomadDLNA.h - DLNA/UPnP MediaServer for Jcorp Nomad.
 //
-// The old /dlna endpoints were HTTP only, and no TV ever asked for them because DLNA
-// discovery starts with SSDP: a UDP multicast M-SEARCH on 239.255.255.250:1900. This
-// module answers those, serves a proper device description, and implements the
-// ContentDirectory Browse action fed by the NDJSON indexes already on the card.
-// Streaming rides the proven /media range endpoint.
+// DLNA discovery starts with SSDP (a UDP multicast M-SEARCH on 239.255.255.250:1900).
+// This answers M-SEARCH, serves the device description and implements ContentDirectory
+// Browse from the NDJSON indexes on the card. Streaming uses the /media range endpoint.
 //
 // Tested targets: DLNA player TVs (Samsung/LG/Sony), Roku Media Player, VLC, Kodi.
 

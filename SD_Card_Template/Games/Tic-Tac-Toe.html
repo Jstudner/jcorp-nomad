@@ -7,8 +7,8 @@
 <title>Nomad • Tic-Tac-Toe</title>
 <link rel="icon" href="favicon.ico" type="image/x-icon">
 <link rel="stylesheet" href="/master.css">
-<script src="/theme-boot.js"></script>
-<script src="/theme-manager.js"></script>
+<script src="/theme-boot.js?v=5"></script>
+<script src="/theme-manager.js?v=5"></script>
 <script src="/assets/mp-client.js"></script>
 <style>
   main{max-width:520px;margin:0 auto;padding:14px}
@@ -104,7 +104,7 @@ function updateStatus(){
   } else if (over){
     statusEl.textContent = "It's a draw!";
   } else if (!MP.room.joined){
-    statusEl.textContent = `Share the code and wait for a second player… (you are ${mySymbol()})`;
+    statusEl.textContent = `Waiting for a second player… (you are ${mySymbol()})`;
   } else if (MP.myTurn()){
     statusEl.textContent = `Your turn (${mySymbol()})`;
     statusEl.classList.add('hot');
@@ -133,8 +133,8 @@ function onUpdate(stateStr){
   render();
 }
 
-/* Rematch in the same room, same code, no resharing. The firmware alternates
-   who goes first; the other player picks the fresh board up from the poll. */
+/* Rematch in the same room. The firmware alternates who goes first, and the other
+   player gets the fresh board from the poll. */
 async function playAgain(){
   try {
     await MP.reset(JSON.stringify({ b: '---------' }));

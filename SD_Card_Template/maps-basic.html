@@ -1,0 +1,365 @@
+<!DOCTYPE html>
+<!-- Version 6 -->
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/>
+<meta name="description" content="Jcorp Nomad Media Server – Offline Maps">
+<title>Nomad • Maps (basic)</title>
+<link rel="icon" href="favicon.ico" type="image/x-icon">
+<link rel="stylesheet" href="/master.css">
+<link rel="stylesheet" href="/assets/leaflet/leaflet.css">
+<script src="/theme-boot.js?v=5"></script>
+<script src="/theme-manager.js?v=5"></script>
+<script src="/assets/leaflet/leaflet.js"></script>
+<script src="/assets/maps/pmtiles.js"></script>
+<script src="/assets/maps/nomad-overzoom.js"></script>
+<script src="/assets/leaflet/protomaps-leaflet.js"></script>
+<style>
+  /* Fallback for phones without WebGL2 or module scripts: the same map packs drawn without
+     WebGL. No directions or search. */
+  html,body{height:100%;margin:0;overflow:hidden}
+  body{background:var(--bg)}
+  #map{position:fixed;inset:0;background:var(--bg)}
+  .leaflet-container{background:var(--bg);font-family:var(--font-primary)}
+  .top{position:fixed;left:0;right:0;top:0;z-index:1000;padding:max(8px,env(safe-area-inset-top)) 10px 0;pointer-events:none}
+  .bar{pointer-events:auto;display:flex;align-items:center;gap:4px;max-width:560px;box-sizing:border-box;background:var(--card);
+    color:var(--text);border:1px solid var(--card-border);border-radius:var(--radius-large);box-shadow:var(--shadow-medium);padding:2px 6px 2px 2px}
+  .bar .t{flex:1;min-width:0;font-weight:var(--font-weight-bold);padding:0 4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .bar .t small{display:block;font-weight:400;color:var(--muted);font-size:.74rem}
+  .bar select{max-width:46vw;background:var(--bg);color:var(--text);border:1px solid var(--card-border);
+    border-radius:var(--radius-medium);padding:6px 8px;font-size:.88rem}
+  .ib{background:none;border:none;color:var(--text);width:40px;height:40px;border-radius:50%;display:flex;align-items:center;
+    justify-content:center;cursor:pointer;flex:0 0 auto;padding:0;text-decoration:none;font-size:1.3rem}
+  .fab{position:fixed;right:12px;bottom:calc(36px + env(safe-area-inset-bottom));z-index:1000;width:46px;height:46px;border-radius:50%;
+    border:1px solid var(--card-border);background:var(--card);color:var(--primary);box-shadow:var(--shadow-medium);
+    display:flex;align-items:center;justify-content:center;cursor:pointer}
+  .leaflet-top{top:calc(62px + env(safe-area-inset-top))}
+  .leaflet-bar a{background:var(--card);color:var(--text);border-color:var(--card-border)}
+  .leaflet-control-attribution{background:var(--card)!important;color:var(--muted)}
+  .leaflet-control-attribution a{color:var(--muted)}
+  .leaflet-control-scale-line{background:var(--card);color:var(--text);border-color:var(--text)}
+  .leaflet-popup-content-wrapper,.leaflet-popup-tip{background:var(--card);color:var(--text);box-shadow:var(--shadow-large)}
+  .leaflet-popup-content{margin:12px 14px;font-size:.9rem}
+  .pop b{display:block;margin-bottom:2px}
+  .pop .co{color:var(--muted);font-size:.82rem;margin-bottom:8px}
+  .pop .row{display:flex;gap:6px}
+  .pop button{flex:1;padding:6px 10px;border:1px solid var(--card-border);background:var(--bg);color:var(--text);
+    border-radius:var(--radius-medium);cursor:pointer;font-size:.84rem;font-weight:var(--font-weight-semibold)}
+  .pop button.primary{background:var(--primary);border-color:var(--primary);color:var(--header-text)}
+  .pin{width:14px;height:14px;border-radius:50%;border:2.5px solid #fff;box-shadow:0 1px 5px rgba(0,0,0,.5);background:var(--warning)}
+  .me{width:16px;height:16px;border-radius:50%;border:3px solid #fff;background:var(--primary);box-shadow:0 0 0 6px var(--primary-alpha-30)}
+  .toast{position:fixed;left:50%;bottom:calc(100px + env(safe-area-inset-bottom));transform:translateX(-50%);z-index:1500;
+    background:var(--card);color:var(--text);border:1px solid var(--card-border);border-radius:var(--radius-large);
+    padding:10px 16px;font-size:.88rem;max-width:min(88vw,460px);text-align:center;box-shadow:var(--shadow-large);
+    opacity:0;pointer-events:none;transition:opacity .2s;box-sizing:border-box}
+  .toast.show{opacity:1}
+  #empty{position:fixed;inset:0;display:none;flex-direction:column;align-items:center;justify-content:center;gap:10px;
+    padding:24px;text-align:center;color:var(--muted);background:var(--bg);z-index:1200;line-height:1.45}
+  #empty b{color:var(--text);font-size:1.05rem}
+  #empty a{color:var(--primary)}
+  /* location help: above Leaflet's panes (~400) and controls (~1000) */
+  .gps-modal{display:none;position:fixed;inset:0;background:var(--overlay-modal);z-index:5000;overflow-y:auto;padding:16px}
+  .gps-modal.open{display:flex}
+  .gps-modal .content{background:var(--card);color:var(--text);border:1px solid var(--card-border);border-radius:var(--radius-large);
+    max-width:480px;width:100%;box-sizing:border-box;margin:auto;padding:16px}
+  .gps-modal h2{margin:0 0 .4rem;font-size:1.1rem}
+  .gps-modal ol{padding-left:1.2rem;margin:.5rem 0}
+  .gps-modal li{margin:.45rem 0;font-size:.92rem;line-height:1.45}
+  .gps-modal code{background:var(--bg);border:1px solid var(--card-border);border-radius:6px;padding:2px 6px;font-size:.85em;word-break:break-all}
+  .gps-modal .note{color:var(--muted);font-size:.85rem;margin-top:.6rem}
+  .gps-modal button{margin-top:12px;width:100%;background:var(--primary);color:var(--header-text);border:none;
+    border-radius:var(--radius-medium);padding:10px;cursor:pointer;font-size:.95rem}
+</style>
+</head>
+<body>
+  <div id="map"></div>
+  <div class="top"><div class="bar">
+    <a class="ib" href="/menu" aria-label="Back to the menu">&#8249;</a>
+    <div class="t">Maps<small>Basic</small></div>
+    <select id="packSel" aria-label="Maps shown"></select>
+  </div></div>
+  <button class="fab" id="locBtn" aria-label="Show your location" title="Show your location">
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="7"/><line x1="12" y1="1" x2="12" y2="5"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="1" y1="12" x2="5" y2="12"/><line x1="19" y1="12" x2="23" y2="12"/></svg>
+  </button>
+  <div class="toast" id="toast" role="status"></div>
+  <div id="empty"></div>
+
+  <div class="gps-modal" id="gpsModal">
+    <div class="content">
+      <h2>Use this phone's location</h2>
+      <p style="margin:.3rem 0;font-size:.92rem">Browsers only share location with pages they trust. Tap the map to read coordinates any time.</p>
+      <p style="margin:.6rem 0 .2rem;font-size:.92rem"><b>Chrome:</b> allow this address once:</p>
+      <ol>
+        <li>Open <code>chrome://flags/#unsafely-treat-insecure-origin-as-secure</code> in a new tab</li>
+        <li>Put <code id="gpsOrigin">http://192.168.4.1</code> in the box</li>
+        <li>Set it to <b>Enabled</b>, tap <b>Relaunch</b>, and come back</li>
+      </ol>
+      <p class="note">iPhone: location isn't available.</p>
+      <button onclick="document.getElementById('gpsModal').classList.remove('open')">Close</button>
+    </div>
+  </div>
+
+<script>
+'use strict';
+var $ = function (id) { return document.getElementById(id); };
+var map = null, layer = null, packs = [], rasters = [], blocks = new Map(), blockSpec = null, choice = 'all';
+var toastT = null;
+function toast(msg, ms) {
+  var t = $('toast'); t.textContent = msg; t.classList.add('show');
+  clearTimeout(toastT); toastT = setTimeout(function () { t.classList.remove('show'); }, ms || 3000);
+}
+function esc(s) { return String(s).replace(/[&<>"]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; }); }
+function showEmpty(html) { var E = $('empty'); E.style.display = 'flex'; E.innerHTML = html; }
+var media = function (p) { return location.origin + '/media?file=' + encodeURIComponent(p); };
+
+function fetchJSON(url, tries) {
+  tries = tries || 4;
+  var wait = 400;
+  function go(i) {
+    return fetch(url, { cache: 'no-cache' }).then(function (r) {
+      if (r.ok) return r.json();
+      if (r.status !== 503 || i >= tries - 1) throw new Error('HTTP ' + r.status);
+      return new Promise(function (ok) { setTimeout(ok, wait *= 1.8); }).then(function () { return go(i + 1); });
+    });
+  }
+  return go(0);
+}
+
+/* Packs are read the way nomad-maps.js reads them. */
+function loadPacks() {
+  return fetchJSON('/api/maps-list').then(function (j) {
+    var list = j.regions || [];
+    return Promise.all(list.map(function (r) {
+      return fetchJSON(r.manifest).then(function (m) { return [r, m]; }).catch(function () { return null; });
+    }));
+  }).then(function (all) {
+    all.forEach(function (it) {
+      if (!it) return;
+      var r = it[0], m = it[1], base = r.manifest.replace(/manifest\.json$/, '');
+      if (m.type === 'pack') packs.push({ id: m.id || r.id, name: m.name || r.id, base: base, man: m });
+      else if (m.tilePath && m.type !== 'streetzim' && !m.app) rasters.push({ id: m.id || r.id, name: m.name || r.id, base: base, man: m });
+    });
+    var area = function (b) { return (b[2] - b[0]) * (b[3] - b[1]); };
+    packs.sort(function (a, b) { return ((b.man.maxZoom || 0) - (a.man.maxZoom || 0)) || (area(a.man.bounds) - area(b.man.bounds)); });
+    packs.forEach(function (p) {
+      if (p.man.map) p.pm = new pmtiles.PMTiles(new pmtiles.FetchSource(media(p.base + p.man.map.file)));
+      if (p.man.cover) p.cover = new Set(p.man.cover.tiles.map(function (t) { return t[0] + '/' + t[1]; }));
+      var bl = p.man.blocks;
+      if (!bl) return;
+      blockSpec = { zoom: bl.zoom, minZoom: bl.minZoom, maxZoom: Math.max(bl.maxZoom, blockSpec ? blockSpec.maxZoom : 0), dir: bl.dir };
+      bl.tiles.forEach(function (t) {
+        var key = t[0] + '/' + t[1];
+        var b = blocks.get(key) || { path: bl.dir + '/' + bl.zoom + '/' + t[0] + '/' + t[1] + '.pmtiles', packs: new Set(), pm: null, maxZoom: 0 };
+        b.packs.add(p.id); b.maxZoom = Math.max(b.maxZoom, bl.maxZoom); blocks.set(key, b);
+      });
+    });
+  });
+}
+function activePacks() {
+  if (choice === 'all') return packs;
+  var want = new Set([choice]);
+  Array.from(want).forEach(function (id) {
+    var p = packs.find(function (q) { return q.id === id; });
+    ((p && p.man.requires) || []).forEach(function (r) { want.add(r); });
+  });
+  return packs.filter(function (p) { return want.has(p.id); });
+}
+// one pack chosen: the packs under it fill in only the zooms above it
+function packMaxZoom(p) {
+  var z = p.man.maxZoom || 0;
+  if (choice === 'all' || p.id === choice) return z;
+  var sel = packs.find(function (q) { return q.id === choice; });
+  var top = sel ? ((sel.man.blocks ? sel.man.blocks.minZoom : sel.man.minZoom) || 0) : 0;
+  return top ? Math.min(z, top - 1) : z;
+}
+function lonLatTile(lng, lat, z) {
+  var n = Math.pow(2, z), r = lat * Math.PI / 180;
+  return [Math.floor((lng + 180) / 360 * n), Math.floor((1 - Math.log(Math.tan(r) + 1 / Math.cos(r)) / Math.PI) / 2 * n)];
+}
+function covers(p, lng, lat) { if (!p.cover) return true; var t = lonLatTile(lng, lat, p.man.cover.zoom); return p.cover.has(t[0] + '/' + t[1]); }
+function tileBox(z, x, y) {
+  var n = Math.pow(2, z), lon = function (xx) { return xx / n * 360 - 180; };
+  var lat = function (yy) { return Math.atan(Math.sinh(Math.PI * (1 - 2 * yy / n))) * 180 / Math.PI; };
+  return [lon(x), lat(y + 1), lon(x + 1), lat(y)];
+}
+function hits(b, t) { return !(t[2] < b[0] || t[0] > b[2] || t[3] < b[1] || t[1] > b[3]); }
+function blockAt(z, x, y) {
+  if (!blockSpec || z < blockSpec.minZoom || z > blockSpec.maxZoom) return null;
+  var k = z - blockSpec.zoom, b = blocks.get((x >> k) + '/' + (y >> k));
+  if (!b || z > b.maxZoom || (choice !== 'all' && !b.packs.has(choice))) return null;
+  if (!b.pm) b.pm = new pmtiles.PMTiles(new pmtiles.FetchSource(media(b.path)));
+  return b;
+}
+function tileData(z, x, y, signal) {
+  var tb = tileBox(z, x, y), list = [], b = blockAt(z, x, y);
+  if (b) list.push(b.pm);
+  activePacks().forEach(function (p) {
+    if (p.pm && z >= (p.man.minZoom || 0) && z <= packMaxZoom(p) && hits(p.man.bounds, tb)) list.push(p.pm);
+  });
+  function next(i) {
+    if (i >= list.length) return Promise.resolve(null);
+    return list[i].getZxy(z, x, y, signal).then(function (r) { return r && r.data ? r.data : next(i + 1); },
+      function (e) { if (e && e.name === 'AbortError') throw e; return next(i + 1); });
+  }
+  return next(0);
+}
+// the deepest zoom the chosen maps have here (and a little past it, made from the tile above)
+function detailAt(lng, lat) {
+  var best = 0;
+  activePacks().forEach(function (p) {
+    var b = p.man.bounds;
+    if (!p.pm || lng < b[0] || lng > b[2] || lat < b[1] || lat > b[3]) return;
+    var z = covers(p, lng, lat) ? p.man.maxZoom : (p.man.cover && p.man.cover.elsewhere) || 0;
+    best = Math.max(best, Math.min(z, packMaxZoom(p)));
+  });
+  if (blockSpec) {
+    var t = lonLatTile(lng, lat, blockSpec.zoom), bb = blocks.get(t[0] + '/' + t[1]);
+    if (bb && (choice === 'all' || bb.packs.has(choice))) best = Math.max(best, bb.maxZoom);
+  }
+  return best;
+}
+/* What protomaps-leaflet reads tiles from: anything with getZxy() (its PMTiles source). */
+var source = {
+  url: 'nomad-packs',
+  getZxy: function (z, x, y, signal) {
+    return tileData(z, x, y, signal).then(function (data) {
+      if (data) return { data: data };
+      var dz = 1;
+      function up() {
+        if (dz > 2 || z - dz < 0 || !window.NomadOverzoom) return undefined;
+        var d = dz;
+        return tileData(z - d, x >> d, y >> d, signal).then(function (p) {
+          if (p) return { data: NomadOverzoom.child(new Uint8Array(p), d, x - ((x >> d) << d), y - ((y >> d) << d)) };
+          dz++; return up();
+        });
+      }
+      return up();
+    });
+  },
+};
+
+function isDark() { return document.body.classList.contains('dark') || document.documentElement.classList.contains('dark'); }
+function draw() {
+  if (layer) { map.removeLayer(layer); layer = null; }
+  var r = rasters.find(function (x) { return 'raster:' + x.id === choice; });
+  if (r) {
+    var m = r.man, b = L.latLngBounds([m.bounds[1], m.bounds[0]], [m.bounds[3], m.bounds[2]]);
+    layer = L.tileLayer(r.base + m.tilePath, { minZoom: m.minZoom || 0, maxZoom: m.maxZoom || 12, bounds: b, attribution: m.attribution || '' }).addTo(map);
+    map.fitBounds(b);
+    return;
+  }
+  if (!window.protomapsL) { toast("This phone can't draw the newer map packs. Image maps still open."); return; }
+  layer = protomapsL.leafletLayer({ url: source, flavor: isDark() ? 'dark' : 'light', lang: 'en', maxDataZoom: 14,
+    attribution: '<a href="https://protomaps.com">Protomaps</a> © <a href="https://openstreetmap.org/copyright">OpenStreetMap</a>' });
+  layer.addTo(map);
+  if (choice !== 'all') {
+    var p = packs.find(function (q) { return q.id === choice; });
+    if (p) map.fitBounds([[p.man.bounds[1], p.man.bounds[0]], [p.man.bounds[3], p.man.bounds[2]]]);
+  }
+}
+// past the detail the maps have here the map would go blank: ease back
+var warned = 0;
+function clampZoom() {
+  if (!packs.length || choice.indexOf('raster:') === 0) return;
+  var c = map.getCenter(), d = detailAt(c.lng, c.lat), lim = d >= 14 ? 19 : d ? d + 2 : 3;
+  if (map.getZoom() > lim) {
+    map.setZoom(lim);
+    if (Date.now() - warned > 4000) { warned = Date.now(); toast('More detail here needs a map pack for this area.'); }
+  }
+}
+
+/* Waypoints: the same list the full map keeps. */
+var PINS = 'nomad-maps-pins', pinLayer = null;
+function readPins() { try { return JSON.parse(localStorage.getItem(PINS) || '[]') || []; } catch (e) { return []; } }
+function writePins(l) { try { localStorage.setItem(PINS, JSON.stringify(l)); } catch (e) {} }
+function fmt(lat, lon) { return lat.toFixed(5) + ', ' + lon.toFixed(5); }
+function drawPins() {
+  if (pinLayer) pinLayer.remove();
+  pinLayer = L.layerGroup().addTo(map);
+  readPins().forEach(function (p) {
+    L.marker([p.lat, p.lon], { icon: L.divIcon({ className: '', html: '<div class="pin"></div>', iconSize: [14, 14] }) })
+      .addTo(pinLayer).on('click', function () { pinPopup(p); });
+  });
+}
+function pinPopup(p) {
+  var box = document.createElement('div'); box.className = 'pop';
+  box.innerHTML = '<b>' + esc(p.name) + '</b><div class="co">Waypoint · ' + fmt(p.lat, p.lon) + '</div><div class="row"><button data-a="rn">Rename</button><button data-a="rm">Remove</button></div>';
+  var pop = L.popup().setLatLng([p.lat, p.lon]).setContent(box).openOn(map);
+  box.querySelector('[data-a="rn"]').onclick = function () {
+    var v = prompt('Name this waypoint', p.name); if (v === null || !v.trim()) return;
+    writePins(readPins().map(function (x) { return x.lat === p.lat && x.lon === p.lon ? { name: v.trim().slice(0, 60), lat: x.lat, lon: x.lon } : x; }));
+    map.closePopup(pop); drawPins();
+  };
+  box.querySelector('[data-a="rm"]').onclick = function () {
+    writePins(readPins().filter(function (x) { return !(x.lat === p.lat && x.lon === p.lon); }));
+    map.closePopup(pop); drawPins();
+  };
+}
+function tapPopup(ll) {
+  var box = document.createElement('div'); box.className = 'pop';
+  box.innerHTML = '<b>Dropped pin</b><div class="co">' + fmt(ll.lat, ll.lng) + '</div><div class="row"><button class="primary" data-a="save">Save waypoint</button></div>';
+  var pop = L.popup().setLatLng(ll).setContent(box).openOn(map);
+  box.querySelector('[data-a="save"]').onclick = function () {
+    var l = readPins(), nm = 'Waypoint ' + (l.length + 1);
+    l.push({ name: nm, lat: ll.lat, lon: ll.lng }); writePins(l);
+    map.closePopup(pop); drawPins(); toast('Saved as “' + nm + '”');
+  };
+}
+
+var meMarker = null;
+$('locBtn').onclick = function () {
+  if (!window.isSecureContext || !navigator.geolocation) { $('gpsOrigin').textContent = location.origin; $('gpsModal').classList.add('open'); return; }
+  toast('Finding your location…', 8000);
+  navigator.geolocation.getCurrentPosition(function (pos) {
+    var ll = [pos.coords.latitude, pos.coords.longitude];
+    if (meMarker) meMarker.remove();
+    meMarker = L.marker(ll, { icon: L.divIcon({ className: '', html: '<div class="me"></div>', iconSize: [16, 16] }) }).addTo(map);
+    toast('You are at ' + fmt(ll[0], ll[1]), 4000);
+    map.setView(ll, Math.max(map.getZoom(), 14));
+  }, function (err) {
+    toast(err.code === 1 ? 'Location is blocked for this page: allow it in the browser\'s site settings.'
+      : 'No location fix yet. It can take a minute, and is quicker outdoors.', 5000);
+  }, { enableHighAccuracy: true, timeout: 20000 });
+};
+
+loadPacks().then(function () {
+  if (!packs.length && !rasters.length) {
+    showEmpty('<b>No maps on this card yet</b><span>Add map packs with Nomad-Tools.</span><a href="/menu">Back to the menu</a>');
+    return;
+  }
+  if (!packs.length) choice = 'raster:' + rasters[0].id;
+  var sel = $('packSel');
+  sel.innerHTML = (packs.length ? '<option value="all">All maps</option>' + packs.map(function (p) { return '<option value="' + esc(p.id) + '">' + esc(p.name) + '</option>'; }).join('') : '')
+    + rasters.map(function (r) { return '<option value="raster:' + esc(r.id) + '">' + esc(r.name) + ' (image map)</option>'; }).join('');
+  sel.value = choice;
+  sel.style.display = packs.length + rasters.length > 1 ? '' : 'none';
+  sel.onchange = function () { choice = sel.value; draw(); };
+  map = L.map('map', { zoomControl: false, worldCopyJump: true, minZoom: 2 });
+  L.control.zoom({ position: 'topright' }).addTo(map);
+  L.control.scale({ imperial: true, position: 'bottomleft' }).addTo(map);
+  var last = null; try { last = JSON.parse(localStorage.getItem('nomad-maps-view')); } catch (e) {}
+  if (last && last.c) map.setView([last.c[1], last.c[0]], Math.round(last.z));
+  else {
+    var small = packs.slice().sort(function (a, b) { return (a.man.bounds[2] - a.man.bounds[0]) * (a.man.bounds[3] - a.man.bounds[1]) - (b.man.bounds[2] - b.man.bounds[0]) * (b.man.bounds[3] - b.man.bounds[1]); })[0];
+    var bb = small ? small.man.bounds : rasters[0].man.bounds;
+    map.fitBounds([[bb[1], bb[0]], [bb[3], bb[2]]]);
+  }
+  draw();
+  drawPins();
+  map.on('click', function (e) { tapPopup(e.latlng); });
+  map.on('moveend', function () {
+    clampZoom();
+    var c = map.getCenter();
+    try { localStorage.setItem('nomad-maps-view', JSON.stringify({ c: [c.lng, c.lat], z: map.getZoom() })); } catch (e) {}
+  });
+  toast('This phone can\'t run the full Maps.', 5000);
+}).catch(function (e) {
+  var m = String((e && e.message) || e);
+  showEmpty('<b>Can\'t load the maps</b><span>' + (/fetch|network|load failed/i.test(m) || e instanceof TypeError
+    ? 'Lost touch with Nomad. Check this phone is still on Nomad\'s WiFi, then try again.'
+    : 'Something went wrong (' + esc(m) + ').') + '</span><a href="" onclick="location.reload();return false">Try again</a>');
+});
+</script>
+</body>
+</html>

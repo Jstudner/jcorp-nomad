@@ -8,17 +8,16 @@
   <title>Nomad • Games</title>
   <link rel="icon" href="favicon.ico" type="image/x-icon">
   <link rel="stylesheet" href="/master.css">
-  <script src="/theme-boot.js"></script>
-  <script src="/theme-manager.js"></script>
+  <script src="/theme-boot.js?v=5"></script>
+  <script src="/theme-manager.js?v=5"></script>
+  <script src="/nomad-utils.js?v=49"></script>
   <style>
-    /* Functional CSS: Games-specific layout */
     body {
       display: flex;
       flex-direction: column;
       min-height: 100vh;
     }
-    /* Toolbar / grid / card layout mirrors movies.html so the library behaves
-       identically across pages (sticky offsets, mobile columns, cover fallbacks). */
+    /* Toolbar, grid and cards match movies.html. */
     .toolbar {
       padding: .6rem 1rem;
       display: flex;
@@ -40,7 +39,7 @@
       background: var(--card);
       color: var(--text);
     }
-    .toolbar select, .toolbar .view-btn {
+    .toolbar select {
       padding: .48rem .7rem;
       border: 1px solid var(--line);
       background: var(--card);
@@ -48,11 +47,6 @@
       border-radius: var(--radius);
       font-size: 0.9rem;
       cursor: pointer;
-    }
-    .view-btn.active {
-      background: var(--primary);
-      color: var(--color-white);
-      border-color: var(--primary-dark);
     }
     main { flex: 1; display: flex; flex-direction: column; max-width: 1200px; width: 100%; margin: 0 auto; padding: 1rem; }
     .grid-wrapper { flex: 1; overflow-y: auto; padding-bottom: 12px; }
@@ -67,9 +61,9 @@
     .media-grid.large  .media-card { max-width: 220px; }
 
     @media (max-width:600px) {
-      .media-grid.small  { grid-template-columns: repeat(2, 1fr); }
+      .media-grid.small  { grid-template-columns: repeat(4, 1fr); }
       .media-grid.medium { grid-template-columns: repeat(3, 1fr); }
-      .media-grid.large  { grid-template-columns: repeat(4, 1fr); }
+      .media-grid.large  { grid-template-columns: repeat(2, 1fr); }
     }
 
     .thumb-wrapper { position: relative; display: flex; align-items: center; justify-content: center;
@@ -81,24 +75,36 @@
       color: var(--thumb-title, var(--text)); pointer-events: none; padding: 6px; }
     .media-thumb { width: 100%; height: 100%; object-fit: cover; position: absolute; top: 0; left: 0;
       z-index: 1; opacity: 0; transition: opacity .35s ease; }
-    /* name lives in the artwork (or as the no-image fallback text); the row
+    /* name lives in the artwork (or as the no-image fallback text). the row
        under the card only labels the type */
     .meta { padding: 6px 4px 0; text-align: center; }
     .meta small { display: block; font-size: .72rem; color: var(--muted); }
-    /* EmulatorJS replaces the #emu element with its own container and sizes it to the
-       parent, so the explicit size must live on this wrapper and never on #emu itself.
-       a rule on #emu dies with the replacement and the game area collapses to zero
-       height, which looks like an invisible start button. */
+    /* EmulatorJS replaces #emu with its own container sized to the parent, so the size
+       lives on this wrapper. A rule on #emu is lost and the game area collapses to zero
+       height, which looks like a missing Start button. */
     #emuWrap {
       display: none;
       width: 100%;
-      height: 60vh;          /* placeholder; startGame() fits it to the space below the exit bar */
+      height: 60vh;          /* placeholder, startGame() fits it to the space below the exit bar */
       min-height: 300px;
       background: #000;
       border-radius: var(--radius);
       overflow: hidden;
       position: relative;
     }
+    .note { grid-column: 1 / -1; text-align: center; color: var(--muted); }
+    /* phones: the console filter gets the room its names need */
+    @media (max-width: 600px) {
+      body .toolbar #consoleSelect { flex: 1 1 auto; min-width: 0; }
+      body .toolbar #sortSelect, body .toolbar #sizeSelect { flex: 0 0 auto; }
+    }
+    /* Recently played: one short row above the grid, per phone */
+    #recent { margin: 0 0 1rem; }
+    #recent[hidden] { display: none; }
+    #recent h2 { font-size: .95rem; margin: 0 0 .5rem; color: var(--muted); font-weight: 600; }
+    .recent-row { display: flex; gap: .6rem; overflow-x: auto; padding-bottom: .3rem; scrollbar-width: thin; }
+    .recent-row .media-card { flex: 0 0 96px; max-width: 96px; margin: 0; }
+    .recent-row .fallback-text { font-size: .72rem; }
     footer {
       text-align: center;
       padding: 1rem 0;
@@ -114,37 +120,33 @@
   </header>
 
   <div class="toolbar">
-    <input id="searchInput" type="search" placeholder="Search games…" aria-label="Search games">
+    <input id="searchInput" type="search" placeholder="Search" aria-label="Search games">
+    <!-- filled from the games on the card -->
     <select id="consoleSelect" aria-label="Filter by console">
       <option value="">All Consoles</option>
-      <option value="nes">NES</option>
-      <option value="snes">SNES</option>
-      <option value="gba">GBA</option>
-      <option value="gb">GB</option>
-      <option value="gbc">GBC</option>
-      <option value="n64">N64</option>
-      <option value="genesis">Genesis</option>
-      <option value="sms">Master System</option>
-      <option value="psx">PlayStation</option>
     </select>
     <select id="sortSelect" aria-label="Sort games">
       <option value="nameAsc">A → Z</option>
       <option value="nameDesc">Z → A</option>
     </select>
-    <div style="display:flex;gap:.5rem;">
-      <button class="view-btn" data-size="small" title="Compact view">🔳</button>
-      <button class="view-btn active" data-size="medium" title="Comfort view">🔲</button>
-      <button class="view-btn" data-size="large" title="Gallery view">⬜</button>
-    </div>
+    <select id="sizeSelect" aria-label="Card size">
+      <option value="small">Small</option>
+      <option value="medium">Medium</option>
+      <option value="large">Large</option>
+    </select>
   </div>
 
   <main>
     <div class="grid-wrapper">
+      <section id="recent" hidden aria-labelledby="recentTitle">
+        <h2 id="recentTitle">Recently played</h2>
+        <div class="recent-row" id="recentRow"></div>
+      </section>
       <div id="grid" class="media-grid medium"></div>
       <div id="emuBar" style="display:none;align-items:center;justify-content:space-between;gap:.75rem;flex-wrap:wrap;padding:.4rem .75rem;background:var(--card);border:1px solid var(--line);border-radius:var(--radius);margin-bottom:.5rem;">
         <strong id="emuTitle" style="font-size:.95rem;"></strong>
         <span id="emuStatus" style="flex:1 1 100%;order:3;font-size:.78rem;color:var(--muted);"></span>
-        <button onclick="location.reload()" style="background:transparent;border:1px solid var(--line);color:var(--text);border-radius:var(--radius);padding:.35rem .9rem;cursor:pointer;font-size:.85rem;">Exit Game</button>
+        <button id="exitGame" style="background:transparent;border:1px solid var(--line);color:var(--text);border-radius:var(--radius);padding:.35rem .9rem;cursor:pointer;font-size:.85rem;">Exit Game</button>
       </div>
       <div id="emuWrap"><div id="emu"></div></div>
     </div>
@@ -177,63 +179,96 @@
     const searchInput   = document.getElementById('searchInput');
     const consoleSelect = document.getElementById('consoleSelect');
     const sortSelect    = document.getElementById('sortSelect');
-    const viewButtons   = document.querySelectorAll('.view-btn');
+    const sizeSelect    = document.getElementById('sizeSelect');
 
     let games         = [];   // ROM entries
     let builtins      = [];   // built-in .html games shipped in /Games (delete the file -> card disappears)
     let filtered      = [];
     let debounceTimer = null;
     let currentSize   = localStorage.getItem('nomadGamesSize') || 'medium';
+    let running       = null; // the game on screen, once one is started
+    const RECENT_KEY  = 'nomad:games:recent:v1';   // ROM paths, newest first, per phone
 
-    // Built-ins pin to the top of the grid in this order; anything else
+    // Built-ins pin to the top of the grid in this order. Anything else
     // (a user-added .html) follows alphabetically. Keys = lowercase filename minus .html.
-    const BUILTIN_ORDER = ['go', 'connect four', 'chess', 'tic-tac-toe', 'whiteboard',
+    const BUILTIN_ORDER = ['watch together', 'toolkit', 'go', 'connect four', 'chess', 'tic-tac-toe', 'whiteboard',
                            'dots and boxes', 'crazy eights', '2048', 'minesweeper', 'snake'];
 
+    // what the filter and the card badge call each system, in the filter's order
+    const CONSOLE_LABEL = { nes: 'NES', snes: 'SNES', n64: 'N64', gb: 'Game Boy', gbc: 'Game Boy Color', gba: 'GBA',
+                            genesis: 'Genesis', sms: 'Master System', psx: 'PlayStation', prboom: 'DOOM' };
+    const BADGE = { gb: 'GB', gbc: 'GBC', psx: 'PS1' };
+
     function setViewSize(size) {
+      if (!['small', 'medium', 'large'].includes(size)) size = 'medium';
       currentSize = size;
       grid.className = `media-grid ${size}`;
-      viewButtons.forEach(b => b.classList.toggle('active', b.dataset.size === size));
+      sizeSelect.value = size;
       localStorage.setItem('nomadGamesSize', size);
     }
     setViewSize(currentSize);
-    viewButtons.forEach(b => b.addEventListener('click', () => setViewSize(b.dataset.size)));
+    sizeSelect.addEventListener('change', () => setViewSize(sizeSelect.value));
 
+    /* Which emulator a ROM needs. The extension says it for most files. A "Title (USA).zip",
+       a PS1 .bin or anything else the extension doesn't settle goes by the folder it sits in
+       (/Games/SNES/..., /Games/N64/..., /Games/PS1/...). */
+    const EXT_CORE = {
+      nes: 'nes', fds: 'nes', sfc: 'snes', smc: 'snes', gba: 'gba', gb: 'gb', gbc: 'gbc',
+      n64: 'n64', z64: 'n64', v64: 'n64', gen: 'genesis', md: 'genesis', smd: 'genesis', sms: 'sms',
+      psx: 'psx', ps1: 'psx', pbp: 'psx', chd: 'psx',
+      // real DOOM: the prboom libretro core runs .wad files directly
+      // (prboom.wad is embedded in the core, only the game wad is needed)
+      wad: 'prboom', iwad: 'prboom'
+    };
+    // containers and disc images: only the folder can say what is inside
+    const CONTAINER = ['zip', '7z', 'rar', 'bin', 'iso', 'img'];
+    const FOLDER_CORE = {
+      nes: 'nes', famicom: 'nes', nintendoentertainmentsystem: 'nes',
+      snes: 'snes', supernintendo: 'snes', superfamicom: 'snes', sfc: 'snes', supernes: 'snes',
+      n64: 'n64', nintendo64: 'n64',
+      gb: 'gb', gameboy: 'gb', gbc: 'gbc', gameboycolor: 'gbc', gameboycolour: 'gbc', gba: 'gba', gameboyadvance: 'gba',
+      genesis: 'genesis', megadrive: 'genesis', segagenesis: 'genesis', segamegadrive: 'genesis', md: 'genesis',
+      sms: 'sms', mastersystem: 'sms', segamastersystem: 'sms',
+      psx: 'psx', ps1: 'psx', ps: 'psx', playstation: 'psx', playstation1: 'psx', sonyplaystation: 'psx',
+      doom: 'prboom'
+    };
+    function folderCore(path) {
+      const dirs = path.split('/').slice(2, -1).reverse();   // nearest folder first, /Games itself left out
+      for (const d of dirs) {
+        const c = FOLDER_CORE[d.toLowerCase().replace(/[^a-z0-9]/g, '')];
+        if (c) return c;
+      }
+      return '';
+    }
     function deriveCore(path) {
       const filename = path.split('/').pop().toLowerCase();
       const parts = filename.split('.');
       let ext = parts.pop();
-      if (['zip','iso','bin','7z','rar'].includes(ext) && parts.length) ext = parts.pop();
-      switch (ext) {
-        case 'nes':   return 'nes';
-        case 'sfc': case 'smc': return 'snes';
-        case 'gba':   return 'gba';
-        case 'gb':    return 'gb';
-        case 'gbc':   return 'gbc';
-        case 'n64':   return 'n64';
-        case 'gen': case 'md': return 'genesis';
-        case 'sms':   return 'sms';
-        case 'psx': case 'ps1': return 'psx';
-        // real DOOM: the prboom libretro core runs .wad files directly
-        // (prboom.wad is embedded in the core, only the game wad is needed)
-        case 'wad': case 'iwad': return 'prboom';
-        default:      return '';
-      }
+      if (CONTAINER.includes(ext) && parts.length > 1 && EXT_CORE[parts[parts.length - 1]]) ext = parts.pop();
+      if (EXT_CORE[ext]) return EXT_CORE[ext];
+      if (!CONTAINER.includes(ext)) return '';
+      const core = folderCore(path);
+      // a loose .bin/.iso is a disc only in a disc system's folder, and only its first track
+      if (['bin', 'iso', 'img'].includes(ext) && core !== 'psx' && core !== 'genesis') return '';
+      if (/\(track 0*([2-9]|\d\d+)\)/.test(filename)) return '';
+      return core;
     }
+
+    function noteHTML(text) { return `<p class="note">${text}</p>`; }
 
     async function init(attempt = 0) {
       try {
-        // Games bucket NDJSON index (media.json is only a bucket-count summary now)
-        let res  = await fetch('/api/index?path=/Games', { cache: 'no-store' });
+        // Games bucket NDJSON index (media.json is only a bucket-count summary)
+        let res  = await fetch('/api/index?path=/Games', { cache: 'no-cache' });
         // 503 means the SD is busy for a moment, not that the index is missing
         for (let i = 0; i < 3 && res.status === 503; i++) {
           await new Promise(r => setTimeout(r, 800 * (i + 1)));
-          res = await fetch('/api/index?path=/Games', { cache: 'no-store' });
+          res = await fetch('/api/index?path=/Games', { cache: 'no-cache' });
         }
         if (res.status === 202) {
           // firmware is building the index right now, wait and retry
           if (attempt < 8) {
-            grid.innerHTML = '<p style="grid-column:1/-1;text-align:center;color:#666;">Building game index…</p>';
+            grid.innerHTML = noteHTML('Building game index…');
             setTimeout(() => init(attempt + 1), 4000);
             return;
           }
@@ -249,22 +284,30 @@
 
         const IMG_RE  = /\.(jpe?g|png|webp|gif|bmp)$/i;
         const HTML_RE = /\.html?$/i;
-        const files  = entries.filter(e => e.t === 'f');
-        const covers = new Map();
+        // Nomad-Tools' Speed up games keeps ROMs gzipped (Game.gba.gz). Nomad sends that file
+        // when Game.gba is asked for and the browser unpacks it, so the game keeps its name.
+        const files  = entries.filter(e => e.t === 'f' && e.p).map(e =>
+          /\.gz$/i.test(e.n) && deriveCore(e.p.slice(0, -3)) ? { ...e, n: e.n.slice(0, -3), p: e.p.slice(0, -3) } : e);
+        // cover art beside the ROM, by the name without its extension. one in the same folder
+        // wins over a same-named one elsewhere
+        const covers = new Map(), coversByName = new Map();
         for (const f of files) {
-          if (IMG_RE.test(f.n)) covers.set(f.n.replace(/\.[^/.]+$/, '').toLowerCase(), f.p);
+          if (!IMG_RE.test(f.n)) continue;
+          covers.set(f.p.replace(/\.[^/.]+$/, '').toLowerCase(), f.p);
+          const k = f.n.replace(/\.[^/.]+$/, '').toLowerCase();
+          if (!coversByName.has(k)) coversByName.set(k, f.p);
         }
 
         // built-in games: any .html in /Games renders as a card and opens like a page. cover
         // art uses the same sidecar convention as ROMs (Go.png next to Go.html)
         builtins = files
-          .filter(f => HTML_RE.test(f.n))
+          .filter(f => HTML_RE.test(f.n) && f.p.split('/').length === 3)
           .map(f => {
             const base = f.n.replace(/\.[^/.]+$/, '');
             const pin  = BUILTIN_ORDER.indexOf(base.toLowerCase());
             return {
               name:  base.replace(/[_]+/g, ' ').trim() || f.n,
-              cover: covers.get(base.toLowerCase()) || 'placeholder.jpg',
+              cover: coversByName.get(base.toLowerCase()) || 'placeholder.jpg',
               file:  f.p,
               builtin: true,
               pin:   pin < 0 ? BUILTIN_ORDER.length : pin
@@ -275,22 +318,38 @@
         games = files
           .filter(f => !IMG_RE.test(f.n) && !HTML_RE.test(f.n) && deriveCore(f.p))
           .map(f => {
-            const base = f.n.replace(/\.[^/.]+$/, '');
+            // Zelda.nes.zip is Zelda, with the cover Zelda.jpg
+            const base = f.n.replace(/\.[^/.]+$/, '').replace(/\.(nes|fds|sfc|smc|gba|gbc|gb|n64|z64|v64|gen|md|smd|sms|psx|ps1|pbp|chd|cue)$/i, '');
+            const dir = f.p.slice(0, f.p.lastIndexOf('/') + 1);
             return {
               name:  base.replace(/[_\.]+/g, ' ').trim() || f.n,
               // no sidecar art -> no img; the card shows its name as text
               // fallback, same as movies/shows
-              cover: covers.get(base.toLowerCase()) || null,
+              cover: covers.get((dir + base).toLowerCase()) || coversByName.get(base.toLowerCase()) || null,
               file:  f.p,
-              core:  deriveCore(f.p)
+              core:  deriveCore(f.p),
+              size:  f.sz || 0     // what the first start downloads (the gzipped size, if it is)
             };
           });
 
+        buildConsoleFilter();
         applyFilters();
+        playFromHash();
       } catch (err) {
         console.error('Failed to load Games index:', err);
-        grid.innerHTML = '<p style="grid-column:1/-1;text-align:center;color:#666;">Could not load games.</p>';
+        grid.innerHTML = noteHTML('Could not load games.');
       }
+    }
+
+    // only the systems that have games on this card
+    function buildConsoleFilter() {
+      const keep = consoleSelect.value;
+      const have = new Set(games.map(g => g.core));
+      const order = Object.keys(CONSOLE_LABEL);
+      const cores = [...have].sort((a, b) => order.indexOf(a) - order.indexOf(b));
+      consoleSelect.innerHTML = '<option value="">All Consoles</option>' +
+        cores.map(c => `<option value="${c}">${escapeHtml(CONSOLE_LABEL[c] || c.toUpperCase())}</option>`).join('');
+      consoleSelect.value = have.has(keep) ? keep : '';
     }
 
     function applyFilters() {
@@ -313,10 +372,55 @@
       render();
     }
 
+    const badgeFor = (game) => BADGE[game.core] || (game.core === 'prboom' ? 'DOOM' : game.core.toUpperCase());
+
+    // same card structure as movies.html: 2/3 thumb with centered name as the
+    // fallback, image fades in on load and yields back to text on error
+    function makeCard(item, badge, onClick) {
+      const card = document.createElement('div');
+      card.className = 'media-card';
+      const imgHTML = item.cover
+        ? `<img class="media-thumb" loading="lazy" alt="${escapeHtml(item.name)}">`
+        : '';
+      card.innerHTML = `
+        <div class="thumb-wrapper">
+          <span class="fallback-text">${escapeHtml(item.name)}</span>
+          ${imgHTML}
+        </div>
+        <div class="meta">
+          <small>${badge}</small>
+        </div>`;
+      const img = card.querySelector('img');
+      const fallback = card.querySelector('.fallback-text');
+      if (img) {
+        img.onload  = () => { img.style.opacity = '1'; if (fallback) fallback.style.display = 'none'; };
+        img.onerror = () => { img.style.display = 'none'; if (fallback) fallback.style.display = 'block'; };
+        NomadImages.observe(img, encodeURI(item.cover));   // a few covers at a time, near the viewport
+      }
+      card.onclick = onClick;
+      return card;
+    }
+
+    /* Recently played, per phone: the last few ROMs started here, newest first. Shown only
+       on the plain list, a search or a console filter is looking for something else. */
+    function recentPaths() { const v = NomadPrefs.get(RECENT_KEY, []); return Array.isArray(v) ? v : []; }
+    function noteRecent(game) {
+      NomadPrefs.set(RECENT_KEY, [game.file, ...recentPaths().filter(p => p !== game.file)].slice(0, 8));
+    }
+    function renderRecent() {
+      const box = document.getElementById('recent'), row = document.getElementById('recentRow');
+      row.innerHTML = '';
+      const list = searchInput.value.trim() || consoleSelect.value ? [] :
+        recentPaths().map(p => games.find(g => g.file === p)).filter(Boolean);
+      box.hidden = !list.length;
+      list.forEach(g => row.appendChild(makeCard(g, badgeFor(g), () => startGame(g))));
+    }
+
     function render() {
       grid.innerHTML = '';
       grid.className = `media-grid ${currentSize}`;
       emuWrap.style.display = 'none';
+      renderRecent();
 
       // Built-ins pin to the top (own order, unaffected by the sort dropdown).
       // A console filter hides them; the search box still matches their names.
@@ -325,59 +429,59 @@
         builtins.filter(b => b.name.toLowerCase().includes(txt));
 
       if (!shownBuiltins.length && !filtered.length) {
-        grid.innerHTML = '<p style="grid-column:1/-1;text-align:center;color:#666;">No games found.</p>';
+        grid.innerHTML = noteHTML('No games found.');
         return;
       }
-
-      // same card structure as movies.html: 2/3 thumb with centered name as the
-      // fallback, image fades in on load and yields back to text on error
-      const makeCard = (item, badge, onClick) => {
-        const card = document.createElement('div');
-        card.className = 'media-card';
-        const imgHTML = item.cover
-          ? `<img class="media-thumb" loading="lazy" src="${encodeURI(item.cover)}" alt="${escapeHtml(item.name)}">`
-          : '';
-        card.innerHTML = `
-          <div class="thumb-wrapper">
-            <span class="fallback-text">${escapeHtml(item.name)}</span>
-            ${imgHTML}
-          </div>
-          <div class="meta">
-            <small>${badge}</small>
-          </div>`;
-        const img = card.querySelector('img');
-        const fallback = card.querySelector('.fallback-text');
-        if (img) {
-          img.onload  = () => { img.style.opacity = '1'; if (fallback) fallback.style.display = 'none'; };
-          img.onerror = () => { img.style.display = 'none'; if (fallback) fallback.style.display = 'block'; };
-        }
-        card.onclick = onClick;
-        return card;
-      };
 
       shownBuiltins.forEach(b => {
         grid.appendChild(makeCard(b, 'Built-in', () => { location.href = encodeURI(b.file); }));
       });
-      filtered.forEach((game, idx) => {
-        const badge = game.core === 'prboom' ? 'DOOM' : game.core.toUpperCase();
-        grid.appendChild(makeCard(game, badge, () => startGame(idx)));
+      filtered.forEach(game => {
+        grid.appendChild(makeCard(game, badgeFor(game), () => startGame(game)));
       });
     }
 
-    function startGame(idx) {
-      const game = filtered[idx];
-      grid.parentElement.scrollTo({ top: 0 });
-      grid.style.display = 'none';
+    /* /games#play=<rom path>, from the menu's search: start that game as if its card was
+       tapped. EmulatorJS still shows its own Start button, which is the tap a browser wants
+       before it plays sound. */
+    function playFromHash() {
+      const m = location.hash.match(/^#play=(.+)$/);
+      if (!m) return;
+      let want;
+      try { want = normalizePath(decodeURIComponent(m[1])); } catch (e) { return; }
+      history.replaceState(history.state, '', location.pathname + location.search);
+      const game = games.find(g => g.file === want || g.file + '.gz' === want);
+      if (game) startGame(game);
+    }
 
-      // Slim exit bar: EmulatorJS can't be cleanly torn down and restarted in
-      // one page lifetime, so Exit reloads back to the grid.
+    /* Leaving a game. EmulatorJS can't be torn down and started again in one page
+       lifetime, so it reloads back to the grid. From the Exit button, the history step
+       the game added is taken off first, so Back afterwards leaves the page as usual. */
+    function exitGame() {
+      if (!NomadBack.isOpen('game')) { location.reload(); return; }
+      const t = setTimeout(() => location.reload(), 700);
+      window.addEventListener('popstate', () => { clearTimeout(t); location.reload(); }, { once: true });
+      NomadBack.done('game');
+    }
+    document.getElementById('exitGame').addEventListener('click', exitGame);
+
+    function startGame(game) {
+      if (running) return;
+      running = game;
+      noteRecent(game);
+      // the phone's Back leaves the game for the list, not the page
+      NomadBack.open('game', () => location.reload());
+      grid.parentElement.scrollTo({ top: 0 });
+      window.scrollTo({ top: 0 });
+      grid.style.display = 'none';
+      document.getElementById('recent').hidden = true;
+
       const bar = document.getElementById('emuBar');
       bar.style.display = 'flex';
       document.getElementById('emuTitle').textContent = game.name;
 
-      // reclaim phone space and fit the player exactly to the viewport below the exit bar,
-      // so EmulatorJS's bottom-anchored Start button is on-screen (a fixed vh height
-      // pushed it below the fold)
+      // fit the player to the space below the exit bar. a fixed vh height pushes
+      // EmulatorJS's bottom-anchored Start button off screen
       document.querySelector('.toolbar').style.display = 'none';
       emuWrap.style.display = 'block';
       emuWrap.innerHTML = '<div id="emu"></div>';
@@ -403,12 +507,17 @@
       // stable per-game save/state key even if the file is renamed later
       window.EJS_gameID     = game.file;
 
-      // On-device diagnostics: phones have no console, so mirror the emulator's
-      // lifecycle + any errors into the exit bar's status line.
+      // phones have no console, so emulator progress and errors go to the exit bar
       const emuStatus = document.getElementById('emuStatus');
       const setStatus = (msg) => { emuStatus.textContent = msg; };
       setStatus('Loading emulator…');
       window.EJS_ready = () => setStatus('Ready. Tap Start Game');
+      // after Start the emulator fetches the game, which the first time is the whole ROM
+      document.addEventListener('click', (ev) => {
+        if (!ev.target.closest || !ev.target.closest('.ejs_start_button')) return;
+        const mb = game.size ? ' (' + (game.size / 1e6).toFixed(1) + ' MB)' : '';
+        setStatus('Starting. The first time, this downloads the game' + mb + '.');
+      }, true);
       window.EJS_onGameStart = () => setStatus('');
       window.addEventListener('error', (ev) => {
         if (ev.message) setStatus('Error: ' + String(ev.message).slice(0, 140));
@@ -421,24 +530,22 @@
         setStatus('Error: ' + args.map(String).join(' ').slice(0, 140));
         origConsoleError(...args);
       };
-      // stall watchdog: if the emulator exists but hasn't started long after
-      // launch, say so instead of sitting on a blank screen
+      // say so when the emulator has not started long after launch
       let stallTicks = 0;
       const stallTimer = setInterval(() => {
         if (window.EJS_emulator && window.EJS_emulator.started) { clearInterval(stallTimer); return; }
         if (++stallTicks >= 4 && !emuStatus.textContent.startsWith('Error')) {
-          setStatus('Still loading after ' + (stallTicks * 10) + 's. Core/ROM download may be stalled. ' +
-            'If this is the WiFi sign-in window, open the page in your real browser instead.');
+          setStatus('Still loading after ' + (stallTicks * 10) + 's. The download may have stalled. ' +
+            'In the WiFi sign-in window? Open this page in your browser instead.');
         }
       }, 10000);
 
       const loader = document.createElement('script');
-      // vendored EmulatorJS keeps the loader inside data/ (this path being wrong
-      // was the original Gallion "emulator backend broke" bug)
+      // vendored EmulatorJS keeps the loader inside data/
       loader.src = '/EmulatorJS/data/loader.js';
       loader.onerror = () => {
         emuWrap.innerHTML = '<p style="color:#fff;text-align:center;padding-top:2rem;">' +
-          'EmulatorJS failed to load (/EmulatorJS/data/loader.js missing on card).</p>';
+          'Emulator not found on the card (/EmulatorJS/data/loader.js).</p>';
       };
       document.body.appendChild(loader);
     }

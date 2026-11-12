@@ -1,36 +1,33 @@
 // <!-- Version 5 -->
 /* nomad-xlate.js - fetch model files for offline translation off the card.
  *
- * transformers.js wants to fetch model files as plain URLs. Two things stop that
- * working on a Nomad:
+ * transformers.js wants to fetch model files as plain URLs. Two problems on Nomad:
  *
  *   1. A plain GET under /Translate/** falls through to the firmware's onNotFound
- *      whole-file response, which ignores Range and streams the entire file. A
- *      57 MB decoder as one un-resumable stream wedges the async web server.
- *      Reads go through GET /media?file=<urlencoded path> instead, which maps to
- *      handleRangeRequest and honours Range. Same rule as nomad-zim.js.
+ *      whole-file response, which ignores Range. A 57 MB decoder in one stream
+ *      wedges the async web server. Reads go through GET /media?file=<urlencoded
+ *      path> instead, which maps to handleRangeRequest and honours Range. Same rule
+ *      as nomad-zim.js.
  *
- *   2. http://192.168.4.1 is not a secure context, so the Cache API is absent and
- *      transformers.js's own caching silently no-ops. IndexedDB is available on
- *      insecure origins, so the cache is built here instead.
+ *   2. http://192.168.4.1 isn't a secure context, so there's no Cache API and
+ *      transformers.js's own caching does nothing. IndexedDB works on insecure
+ *      origins, so the cache lives there.
  *
  * So: intercept fetch, pull each file as a series of Range reads, store the chunks
- * in IndexedDB as they land, and answer from IndexedDB after that. Chunk level
- * storage is what makes a download resumable, a drop at 90% costs one chunk.
+ * in IndexedDB as they land, and answer from IndexedDB after that. Storing by chunk
+ * makes a download resumable, a drop at 90% costs one chunk.
  *
- * Requests are issued one at a time on purpose. handleRangeRequest keeps a single
- * reused file handle per path, so two in-flight requests to the same file seek each
- * other's handle out from under them. Same reason nomad-zim.js pins FetchQueue to 1.
+ * Never two requests to the same file at once. handleRangeRequest keeps one reused
+ * file handle per path, two in-flight requests to it seek each other's handle out
+ * from under them. Same reason nomad-zim.js pins FetchQueue to 1.
  */
 (function () {
   'use strict';
 
   var VIA = '/media?file=';
 
-  /* 1 MiB matches the firmware's tuned MAX_REQ_BYTES on exFAT. Device benchmark
-   * (zimbench.html): ~24 ms fixed overhead per request, throughput flattens at
-   * ~625-784 KB/s by 256 KB. Bigger chunks only buy back request overhead: 114 MB
-   * costs ~114 requests at 1 MiB versus ~456 at 256 KB. Past 1 MiB there is nothing
+  /* 1 MiB matches the firmware's MAX_REQ_BYTES on exFAT. Each request has a fixed
+   * overhead, so bigger chunks mean fewer requests, but past 1 MiB there's nothing
    * left to win and each retry gets more expensive. */
   var CHUNK = 1048576;
 
@@ -101,7 +98,6 @@
     });
   }
 
-  /* ---------------- range reads ---------------- */
 
   // total file size out of a 206's Content-Range ("bytes a-b/TOTAL"). chunk 0 carries
   // this, so there is no separate size probe
@@ -114,10 +110,9 @@
     return null;
   }
 
-  /* Self-check on the one rule that can corrupt reads on the device: never two
-   * in-flight requests for the same path (the firmware reuses one file handle per
-   * path). Counted here rather than server-side, where keep-alive makes the request
-   * window ambiguous. `samePathViolations` must stay 0. */
+  /* Self-check: never two in-flight requests for the same path (the firmware reuses
+   * one file handle per path). Counted here because keep-alive makes the request
+   * window hard to tell server-side. `samePathViolations` must stay 0. */
   var live = {};
   var diag = { maxPerPath: 0, maxPaths: 0, samePathViolations: 0, requests: 0 };
 
@@ -143,8 +138,8 @@
     function go() {
       attempt++;
       var ctl = (typeof AbortController !== 'undefined') ? new AbortController() : null;
-      // A 1 MiB chunk at the device's ~0.6-0.8 MB/s needs well over a second;
-      // 45 s leaves room for a slow card without hanging the UI forever.
+      // a 1 MiB chunk takes well over a second on the device, 45 s leaves room for
+      // a slow card without hanging the UI forever
       var timer = ctl ? setTimeout(function () { ctl.abort(); }, 45000) : null;
       liveEnter(path);
       return fetch(url, {
@@ -166,30 +161,24 @@
       }).catch(function (err) {
         if (timer) clearTimeout(timer);
         if (attempt > RETRIES) throw err;
-        // Back off a little: a failure here usually means the server is busy
-        // with another read, not that the file is bad.
+        // back off a little, a failure here usually means the server is busy
+        // with another read
         return new Promise(function (r) { setTimeout(r, 250 * attempt); }).then(go);
       });
     }
     return go();
   }
 
-  /* ---------------- per-file transfer, resumable ----------------
+  /* Per-file transfer, resumable.
    *
-   * Chunks within one file stay strictly sequential: handleRangeRequest keeps a
-   * single reused handle per path, so two in-flight requests for the same file seek
-   * each other's handle out from under them.
+   * Chunks within one file stay sequential, handleRangeRequest keeps a single
+   * reused handle per path.
    *
-   * Different files are fetched concurrently, up to FILE_CONCURRENCY. Separate paths
-   * mean separate handles, and this is where the speed comes from: the device reads a
-   * chunk off the card and then sends it over WiFi as two serial phases, so with one
-   * request in flight the radio idles during every SD read and the card idles during
-   * every send. A second file fills those gaps. Measured single-stream throughput was
-   * ~439 KB/s against ~784 KB/s of raw SD read, and that gap is the un-overlapped send.
+   * Different files run concurrently, up to FILE_CONCURRENCY. The device reads a
+   * chunk off the card and then sends it, so a second file fills the gaps.
    *
-   * Kept low on purpose. Each in-flight request is another async_tcp connection and
-   * the web stack is the part most prone to wedging under load. 2 recovers most of the
-   * overlap, 8 would be a gamble.
+   * Keep it low. Each in-flight request is another async_tcp connection, and the
+   * web stack is the part most likely to wedge under load.
    */
   var FILE_CONCURRENCY = (typeof window !== 'undefined' &&
                           +window.NOMAD_XLATE_CONCURRENCY > 0)
@@ -236,7 +225,7 @@
   function pullFile(path, meta, onProgress) {
     var m = meta && meta.size
       ? meta
-      : null;   // size still unknown; chunk 0 will tell us
+      : null;   // size still unknown, chunk 0 will tell us
 
     function loop(i) {
       if (m && i >= m.chunks) {
@@ -245,7 +234,7 @@
       }
       var idx = i;
       var key = path + '#' + idx;
-      // Skip chunks a previous attempt already stored - the resume path.
+      // Skip chunks a previous attempt already stored (the resume path).
       return idbGet('chunks', key).then(function (have) {
         if (have && m) {
           if (onProgress) onProgress(Math.min((idx + 1) * CHUNK, m.size), m.size, true);
@@ -261,8 +250,8 @@
             m = { size: size, chunkSize: CHUNK, chunks: Math.ceil(size / CHUNK) || 1, done: false };
           }
           var want = Math.min(start + CHUNK, m.size) - start;
-          // A short body means the device cut the stream; retry rather than
-          // silently cache a truncated chunk.
+          // A short body means the device cut the stream. retry, don't cache
+          // a truncated chunk.
           if (got.buf.byteLength !== want) {
             throw new Error('short read on ' + path + ' chunk ' + idx +
                             ': got ' + got.buf.byteLength + ' want ' + want);
@@ -298,7 +287,6 @@
     });
   }
 
-  /* ---------------- fetch interception ---------------- */
 
   var MIME = {
     onnx: 'application/octet-stream',
@@ -342,10 +330,10 @@
 
   /* Offline guard.
    *
-   * There is no internet on a Nomad, so any request that leaves this origin is a bug
-   * that presents as a hang until it times out. transformers.js is configured with
-   * allowRemoteModels=false, but that is one library's setting and only covers model
-   * files. This blocks the whole class at the fetch layer and says so loudly.
+   * There's no internet on Nomad, so any request that leaves this origin is a bug
+   * that looks like a hang until it times out. transformers.js has
+   * allowRemoteModels=false, but that only covers its model files. This blocks
+   * every off-origin request at the fetch layer and logs an error.
    */
   function isOffOrigin(url) {
     try {
@@ -364,7 +352,7 @@
       return Promise.reject(new Error('offline: refused off-device request to ' + url));
     }
 
-    // Never intercept our own range reads - that would recurse forever.
+    // Never intercept our own range reads, that would recurse forever.
     if (url.indexOf(VIA) === 0 || url.indexOf('/media?file=') !== -1) {
       return origFetch(input, init);
     }
@@ -377,25 +365,24 @@
               ' in ' + (CHUNK / 1024) + ' KiB chunks, ' + FILE_CONCURRENCY +
               ' files at a time, cached in IndexedDB. Off-device requests are blocked.');
 
-  /* ---------------- public API ---------------- */
 
   window.NomadXlate = {
     CHUNK_BYTES: CHUNK,
     FILE_CONCURRENCY: FILE_CONCURRENCY,
 
-    // diag.samePathViolations must be 0; anything else means the device is
+    // diag.samePathViolations must be 0, anything else means the device is
     // being asked to serve one file from two places at once.
     diag: diag,
 
     onProgress: function (cb) { progressCb = cb; },
 
-    // Pull a whole file set up front so the UI can show one honest progress bar,
-    // instead of transformers.js pulling them mid-load with no feedback.
+    // Pull a whole file set up front so the UI can show one progress bar, instead of
+    // transformers.js pulling files mid-load with no feedback.
     //
-    // Every file is started at once, the FILE_CONCURRENCY semaphore inside fetchFile
-    // decides how many actually run. Progress is aggregated across all of them, and
-    // `expected` lets the bar be truthful before the not-yet-started sizes are known
-    // (otherwise the total keeps growing and the percentage walks backwards).
+    // Every file starts at once, the FILE_CONCURRENCY semaphore in fetchFile decides
+    // how many actually run. `expected` gives the bar its total before the
+    // not-yet-started sizes are known (otherwise the total keeps growing and the
+    // percentage walks backwards).
     preload: function (paths, cb, expected) {
       var sizes = {};
       paths.forEach(function (p) { sizes[p] = { done: 0, total: 0 }; });
@@ -417,8 +404,8 @@
 
     // How much of a file set is already on this device, without downloading.
     //
-    // `have` counts stored chunks of half-finished files too. counting only completed
-    // files makes an interrupted download at 90% report zero, and the UI then offers a
+    // `have` counts stored chunks of half-finished files too. counting only finished
+    // files makes a download interrupted at 90% report zero, and the UI then offers a
     // full re-download instead of a resume.
     status: function (paths) {
       var out = { cached: 0, have: 0, known: 0, files: {} };
@@ -432,7 +419,7 @@
           out.known += m.size;
           if (m.done) { out.cached += m.size; out.have += m.size; return next(); }
           return countChunks(p).then(function (n) {
-            // last chunk may be short; close enough for a progress figure
+            // last chunk may be short, close enough for a progress figure
             out.have += Math.min(n * m.chunkSize, m.size);
             return next();
           });

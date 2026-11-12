@@ -7,8 +7,8 @@
 <title>Nomad • Minesweeper</title>
 <link rel="icon" href="/favicon.ico" type="image/x-icon">
 <link rel="stylesheet" href="/master.css">
-<script src="/theme-boot.js"></script>
-<script src="/theme-manager.js"></script>
+<script src="/theme-boot.js?v=5"></script>
+<script src="/theme-manager.js?v=5"></script>
 <style>
   *{box-sizing:border-box}
   html,body{margin:0;padding:0}
@@ -26,7 +26,6 @@
   /* the shared Nomad header spans the page even inside this centered flex body */
   header{align-self:stretch;width:100%}
 
-  /* ---- Top bar ---- */
   .topbar{
     width:min(94vw,520px);
     display:flex;
@@ -79,7 +78,6 @@
     align-items:center;
   }
 
-  /* ---- Status bar ---- */
   .statusbar{
     width:min(94vw,520px);
     display:flex;
@@ -112,7 +110,6 @@
     -webkit-tap-highlight-color:transparent;
   }
 
-  /* ---- Board ---- */
   #board{
     width:min(94vw,520px);
     display:grid;
@@ -151,7 +148,7 @@
   .cell.mine.triggered{background:#8a1f1f;color:#fff}
   .cell.flag{background:var(--bg,#f4f4f9)}
 
-  /* Classic number colors (with readable dark-mode tweaks) */
+  /* classic number colors, adjusted to read in dark mode */
   .n1{color:#1976d2}
   .n2{color:#388e3c}
   .n3{color:#d32f2f}
@@ -206,20 +203,18 @@
 
 <div id="board" aria-label="Minesweeper board"></div>
 
-<div class="hint">Tap to reveal · long-press or right-click to flag · toggle 🚩 for flag mode</div>
+<div class="hint">Long-press or right-click to flag</div>
 
 <script>
 (function(){
   "use strict";
 
-  // ---- Difficulty presets ----
   var LEVELS = {
     easy:   {cols:9,  rows:9,  mines:10},
     medium: {cols:12, rows:12, mines:25},
     hard:   {cols:16, rows:16, mines:45}
   };
 
-  // ---- DOM refs ----
   var boardEl   = document.getElementById('board');
   var mineCntEl = document.getElementById('mineCount');
   var timerEl   = document.getElementById('timer');
@@ -228,7 +223,6 @@
   var flagBtn   = document.getElementById('flagToggle');
   var newBtn    = document.getElementById('newGame');
 
-  // ---- Game state ----
   var cols, rows, mineTotal;
   var cells;            // flat array of cell objects
   var els;             // flat array of DOM elements (parallel to cells)
@@ -239,11 +233,9 @@
   var flagMode = false;
   var timer = 0, timerId = null;
 
-  // ---- Helpers ----
   function idx(c, r){ return r * cols + c; }
   function inBounds(c, r){ return c >= 0 && c < cols && r >= 0 && r < rows; }
 
-  // Iterate the 8 neighbors of (c,r)
   function forNeighbors(c, r, fn){
     for(var dr=-1; dr<=1; dr++){
       for(var dc=-1; dc<=1; dc++){
@@ -254,7 +246,6 @@
     }
   }
 
-  // ---- Timer ----
   function startTimer(){
     if(timerId) return;
     timerId = setInterval(function(){
@@ -270,7 +261,6 @@
     mineCntEl.textContent = mineTotal - flagsPlaced;
   }
 
-  // ---- Build a fresh board ----
   function newGame(){
     var cfg = LEVELS[diffEl.value] || LEVELS.easy;
     cols = cfg.cols; rows = cfg.rows; mineTotal = cfg.mines;
@@ -287,7 +277,6 @@
     faceEl.textContent = '🙂';
     updateMineDisplay();
 
-    // Render the grid
     boardEl.style.gridTemplateColumns = 'repeat(' + cols + ', 1fr)';
     boardEl.innerHTML = '';
     var frag = document.createDocumentFragment();
@@ -305,24 +294,20 @@
     boardEl.appendChild(frag);
   }
 
-  // ---- Safe-first-click mine placement ----
-  // Mines are generated AFTER the first reveal. We forbid mines on the
-  // clicked cell AND its neighbors, so the first tap always opens a 0 and
-  // flood-fills a comfortable starting area.
+  // mines go down after the first reveal and never on that cell or its neighbors,
+  // so the first tap always opens an area
   function placeMines(safeC, safeR){
     var forbidden = {};
     forbidden[idx(safeC, safeR)] = true;
     forNeighbors(safeC, safeR, function(nc, nr, ni){ forbidden[ni] = true; });
 
-    // If the board is too small to keep the whole neighborhood clear,
-    // fall back to only protecting the clicked cell itself.
+    // too few free cells: protect only the tapped cell
     var freeCells = cols * rows - Object.keys(forbidden).length;
     if(freeCells < mineTotal){
       forbidden = {};
       forbidden[idx(safeC, safeR)] = true;
     }
 
-    // Shuffle-free random placement: pick random cells until we hit the count.
     var placed = 0;
     while(placed < mineTotal){
       var i = Math.floor(Math.random() * cols * rows);
@@ -331,7 +316,6 @@
       placed++;
     }
 
-    // Precompute adjacent-mine counts for every cell.
     for(var r=0; r<rows; r++){
       for(var c=0; c<cols; c++){
         var i = idx(c, r);
@@ -343,7 +327,6 @@
     }
   }
 
-  // ---- Rendering a single cell's current state ----
   function paint(i){
     var cell = cells[i], el = els[i];
     el.className = 'cell';
@@ -365,10 +348,7 @@
     }
   }
 
-  // ---- Flood fill ----
-  // Iterative BFS: revealing a 0 opens all its neighbors; any neighbor that
-  // is also a 0 gets queued so its neighbors open too, until the numbered
-  // border is reached. Flagged cells are never auto-opened.
+  // iterative BFS out from a 0 to the numbered border; flagged cells stay shut
   function floodFill(startI){
     var stack = [startI];
     while(stack.length){
@@ -388,13 +368,11 @@
     }
   }
 
-  // ---- Reveal action ----
   function reveal(i){
     if(over) return;
     var cell = cells[i];
     if(cell.revealed || cell.flagged) return;
 
-    // First reveal: place mines now (guaranteeing this cell is safe) + start timer.
     if(!started){
       placeMines(cell.c, cell.r);
       started = true;
@@ -408,7 +386,7 @@
     }
 
     if(cell.adj === 0){
-      floodFill(i);      // open the whole empty region
+      floodFill(i);
     } else {
       cell.revealed = true;
       revealedCount++;
@@ -418,7 +396,6 @@
     checkWin();
   }
 
-  // ---- Flag action ----
   function toggleFlag(i){
     if(over) return;
     var cell = cells[i];
@@ -429,12 +406,10 @@
     updateMineDisplay();
   }
 
-  // ---- End states ----
   function lose(){
     over = true;
     stopTimer();
     faceEl.textContent = '💥';
-    // Reveal every mine.
     for(var i=0; i<cells.length; i++){
       if(cells[i].mine){
         cells[i].revealed = true;
@@ -444,12 +419,10 @@
   }
 
   function checkWin(){
-    // Win = every non-mine cell has been revealed.
     if(revealedCount === cols * rows - mineTotal && !over){
       over = true;
       stopTimer();
       faceEl.textContent = '😎';
-      // Auto-flag any remaining mines for a tidy finish.
       for(var i=0; i<cells.length; i++){
         if(cells[i].mine && !cells[i].flagged){
           cells[i].flagged = true;
@@ -461,7 +434,6 @@
     }
   }
 
-  // ---- Input handling ----
   var pressTimer = null;
   var longPressed = false;
 
@@ -473,23 +445,21 @@
     return isNaN(i) ? -1 : i;
   }
 
-  // Primary tap/click: reveal, or flag when flag-mode is on.
   boardEl.addEventListener('click', function(e){
-    if(longPressed){ longPressed = false; return; } // consumed by long-press
+    if(longPressed){ longPressed = false; return; } // the long-press already flagged it
     var i = cellIndexFromEvent(e);
     if(i < 0) return;
     if(flagMode) toggleFlag(i);
     else reveal(i);
   });
 
-  // Desktop right-click flags.
   boardEl.addEventListener('contextmenu', function(e){
     e.preventDefault();
     var i = cellIndexFromEvent(e);
     if(i >= 0) toggleFlag(i);
   });
 
-  // Long-press (~450ms) flags regardless of flag-mode.
+  // long-press (~450ms) flags in either mode
   boardEl.addEventListener('touchstart', function(e){
     var i = cellIndexFromEvent(e);
     if(i < 0) return;
@@ -507,7 +477,6 @@
   boardEl.addEventListener('touchmove', cancelPress);
   boardEl.addEventListener('touchcancel', function(){ cancelPress(); longPressed = false; });
 
-  // ---- Buttons ----
   faceEl.addEventListener('click', newGame);
   newBtn.addEventListener('click', newGame);
   diffEl.addEventListener('change', newGame);
@@ -518,7 +487,6 @@
     flagBtn.classList.toggle('active', flagMode);
   });
 
-  // ---- Boot ----
   newGame();
 })();
 </script>

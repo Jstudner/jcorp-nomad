@@ -6,7 +6,7 @@
 #include <ArduinoJson.h>
 #include "NomadSD.h"
 
-// the sketch aliases SD_MMC to the SdFat shim; do the same here
+// the sketch aliases SD_MMC to the SdFat shim, do the same here
 #define SD_MMC NomadSD
 
 // helpers that live in the sketch
@@ -28,7 +28,7 @@ static char s_uuid[48] = "";
 static const char *ST_ROOT = "upnp:rootdevice";
 static const char *ST_MS   = "urn:schemas-upnp-org:device:MediaServer:1";
 static const char *ST_CDS  = "urn:schemas-upnp-org:service:ContentDirectory:1";
-static const char *SSDP_SERVER = "FreeRTOS/10 UPnP/1.0 JcorpNomad/4.6";
+static const char *SSDP_SERVER = "FreeRTOS/10 UPnP/1.0 JcorpNomad/4.8";
 
 // one flags string everywhere. OP=01 = byte seek, and the LG-required
 // realTimeInfo header is added by handleRangeRequest on the stream itself.
@@ -48,7 +48,7 @@ static const char *deviceUUID() {
   return s_uuid;
 }
 
-/* ---------------- SSDP ---------------- */
+// SSDP
 
 static void ssdpSendTo(const String &msg, IPAddress ip, uint16_t port) {
   s_ssdp.writeTo((const uint8_t *)msg.c_str(), msg.length(), ip, port);
@@ -173,7 +173,7 @@ bool dlnaIsEnabled() {
   return s_enabled;
 }
 
-/* ---------------- device + service descriptions ---------------- */
+// device + service descriptions
 
 static void sendDeviceXml(AsyncWebServerRequest *request) {
   String xml =
@@ -270,7 +270,7 @@ static const char CMS_SCPD[] PROGMEM =
   "</serviceStateTable>"
   "</scpd>";
 
-/* ---------------- ContentDirectory Browse ---------------- */
+// ContentDirectory Browse
 
 struct BucketDef { const char *id; const char *title; bool video; bool audio; bool image; };
 static const BucketDef BUCKETS[] = {
@@ -340,7 +340,7 @@ static String didlItem(const String &path, const String &name, const String &par
                "\" restricted=\"1\"><dc:title>" + xmlEscape(title) +
                "</dc:title><upnp:class>" + upnpClassFor(mime) + "</upnp:class>";
   // same-named .jpg sidecar poster (web UI convention). emitted without an
-  // exists() so browsing costs no extra SD stats - a 404'd art fetch just
+  // exists() so browsing costs no extra SD stats. A 404'd art fetch just
   // leaves the client's generic icon
   if (mime.startsWith("video/")) {
     int adot = path.lastIndexOf('.');
@@ -415,6 +415,19 @@ static bool browseDir(const String &dirPath, const BucketDef *b, const String &c
   if (sdMutex && xSemaphoreTake(sdMutex, pdMS_TO_TICKS(1500)) != pdTRUE) return false;
 
   File f = SD_MMC.open(indexFile, FILE_READ);
+
+  // No per-folder index? Read the bucket's own index and keep the entries under this
+  // path. /Shows/* and /Music/* fold onto their bucket root (those indexes are
+  // recursive), so Shows__Foo.nested.ndjson never exists. A prefix filter over the
+  // bucket index gives exactly the folder's subtree.
+  String prefixFilter;
+  if (!f && !bucketRoot) {
+    int cut = dirPath.indexOf('/', 1);
+    String bucket = (cut > 0) ? dirPath.substring(0, cut) : dirPath;
+    f = SD_MMC.open(String(INDEX_DIR) + "/" + bucket.substring(1) + ".index.ndjson", FILE_READ);
+    if (f) prefixFilter = dirPath + "/";
+  }
+
   if (!f) {
     if (sdMutex) xSemaphoreGive(sdMutex);
     // no index yet reads as an empty folder, not an error
@@ -423,10 +436,42 @@ static bool browseDir(const String &dirPath, const BucketDef *b, const String &c
     return true;
   }
 
+  // Buffered line reader.
+  //
+  // Every browse re-reads the whole index on the async server task, the same one the
+  // media fills run on, so the scan stalls playback. readStringUntil() is a byte at a
+  // time and way too slow for that, 512-byte blocks are much faster. Don't hand sdMutex
+  // back mid-scan: the reader and the fills are the same task, so yielding only adds
+  // stall. Keep the scan short.
   bool headerSkipped = false;
   uint32_t match = 0;
-  while (f.available()) {
-    String line = f.readStringUntil('\n');
+  uint8_t rbuf[512];
+  size_t rlen = 0, rpos = 0;
+  String line;
+  line.reserve(256);
+  auto nextLine = [&](String &out) -> bool {
+    out = "";
+    for (;;) {
+      if (rpos >= rlen) {
+        int n = f.read(rbuf, sizeof(rbuf));
+        if (n <= 0) return out.length() > 0;   // trailing line with no newline
+        rlen = (size_t)n;
+        rpos = 0;
+      }
+      size_t seg = rpos;
+      while (rpos < rlen && rbuf[rpos] != '\n') rpos++;
+      if (rpos > seg) {
+        char tmp[sizeof(rbuf) + 1];
+        size_t len = rpos - seg;
+        memcpy(tmp, rbuf + seg, len);
+        tmp[len] = '\0';
+        out += tmp;
+      }
+      if (rpos < rlen) { rpos++; return true; }  // consumed the newline
+    }
+  };
+
+  while (nextLine(line)) {
     line.trim();
     if (!line.length()) continue;
     if (!headerSkipped) { headerSkipped = true; continue; }
@@ -440,6 +485,8 @@ static bool browseDir(const String &dirPath, const BucketDef *b, const String &c
     const char *p = doc["p"] | "";
     if (!n[0]) continue;
     String full = p[0] ? String(p) : dirPath + "/" + n;
+    // Only set when falling back to the bucket index: keep this folder's subtree.
+    if (prefixFilter.length() && !full.startsWith(prefixFilter)) continue;
 
     if (t[0] == 'd') {
       if (match >= start && returned < want) {
@@ -472,7 +519,7 @@ static void handleBrowse(AsyncWebServerRequest *request, const String &body) {
   String flag = soapTag(body, "BrowseFlag");
   uint32_t start = (uint32_t)strtoul(soapTag(body, "StartingIndex").c_str(), nullptr, 10);
   uint32_t want = (uint32_t)strtoul(soapTag(body, "RequestedCount").c_str(), nullptr, 10);
-  // 0 means "everything"; cap so one response can't eat the heap. TVs page.
+  // 0 means "everything", cap so one response can't eat the heap. TVs page.
   if (want == 0 || want > 30) want = 30;
   bool metadata = flag.equals("BrowseMetadata");
 
@@ -529,9 +576,9 @@ static void handleBrowse(AsyncWebServerRequest *request, const String &body) {
   soapOk(request, ST_CDS, "Browse", args);
 }
 
-/* ---------------- HTTP routes ---------------- */
+// HTTP routes
 
-// SOAP bodies arrive through the body callback; keep them bounded. Uses a
+// SOAP bodies arrive through the body callback, keep them bounded. Uses a
 // malloc'd buffer because the library free()s _tempObject if the client
 // disconnects mid request.
 static void collectBody(AsyncWebServerRequest *request, uint8_t *data, size_t len, size_t index, size_t total) {
@@ -616,8 +663,8 @@ void dlnaRegisterRoutes(AsyncWebServer &server) {
       }
     }, NULL, collectBody);
 
-  // No eventing. Answer politely so a TV's SUBSCRIBE attempt does not hang;
-  // players work fine without change notifications from a read only server.
+  // No eventing. Answer anyway so a TV's SUBSCRIBE attempt doesn't hang.
+  // Players work fine without change notifications from a read only server.
   server.on("/dlna/event/cds", HTTP_ANY, [](AsyncWebServerRequest *request) {
     AsyncWebServerResponse *r = request->beginResponse(200, "text/plain", "");
     r->addHeader("SID", "uuid:nomad-noevents");

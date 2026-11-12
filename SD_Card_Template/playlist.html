@@ -6,23 +6,24 @@
 <meta name="viewport" content="width=device-width,initial-scale=1" />
 <title>Playlists</title>
 <link rel="stylesheet" href="master.css">
-<script src="/theme-boot.js"></script>
-<script src="/nomad-utils.js"></script>
-<script src="theme-manager.js"></script>
+<script src="/theme-boot.js?v=5"></script>
+<script src="/nomad-icons.js?v=1"></script>
+<script src="/nomad-utils.js?v=49"></script>
+<script src="theme-manager.js?v=5"></script>
 <style>
 body{margin:0;padding:0;background:var(--bg);font-family:Inter,Arial,sans-serif;}
-.toolbar{background:var(--card);padding:.6rem 14px;display:flex;gap:.6rem;align-items:center;border-bottom:1px solid var(--black-alpha-4);position:sticky;top:0;z-index:55;flex-wrap:wrap;}
+.toolbar{background:var(--card);padding:.45rem 10px;display:flex;gap:.6rem;align-items:center;border-bottom:1px solid var(--black-alpha-4);position:sticky;top:0;z-index:55;flex-wrap:wrap;}
 .search-wrap{display:flex;flex:1;gap:12px;align-items:center;}
-.toolbar input[type="search"]{flex:1;padding:.56rem .8rem;border-radius:12px;border:1px solid var(--black-alpha-6);background:var(--card);font-size:0.95rem;color:var(--text);}
+.toolbar input[type="search"]{flex:1;min-width:0;padding:.45rem .75rem;border-radius:12px;border:1px solid var(--black-alpha-6);background:var(--card);font-size:0.95rem;color:var(--text);}
 .playlist-count{color:var(--muted);font-weight:700;font-size:0.95rem;margin-left:auto;}
-main{padding:14px;max-width:1100px;margin:0 auto;padding-bottom:20px;}
+main{padding:8px;max-width:1100px;margin:0 auto;padding-bottom:16px;}
 .playlists{display:flex;flex-direction:column;gap:12px;}
 .playlist{background:var(--card);border-radius:12px;border:1px solid var(--black-alpha-6);overflow:hidden;box-shadow:var(--shadow);}
 .playlist-header{display:flex;align-items:center;gap:12px;padding:14px;cursor:pointer;user-select:none;background:linear-gradient(to right, var(--primary-alpha-5), transparent);}
 .playlist-header:hover{background:var(--primary-alpha-5);}
 .playlist-header .name{font-weight:800;flex:1;color:var(--text);}
 .playlist-header .count{color:var(--muted);font-weight:700;}
-.playlist-header .icon{transition:transform 0.2s;color:var(--muted);font-size:0.8rem;}
+.playlist-header .icon{transition:transform 0.2s;color:var(--muted);display:flex;}
 .playlist-header.open .icon{transform:rotate(90deg);}
 .playlist-body{display:none;padding:10px;border-top:1px solid var(--black-alpha-6);background:var(--primary-alpha-5);}
 .playlist-body.open{display:block;}
@@ -42,6 +43,11 @@ main{padding:14px;max-width:1100px;margin:0 auto;padding-bottom:20px;}
 .track.playing .meta{color:var(--white-alpha-80);}
 .add-queue-btn{padding:4px 8px;background:var(--card);border:1px solid var(--black-alpha-10);border-radius:6px;font-size:0.85rem;font-weight:700;color:var(--primary);cursor:pointer;transition:all .15s;}
 .add-queue-btn:hover{background:var(--primary);color:var(--color-white);transform:scale(1.05);}
+.pl-acts{display:flex;gap:6px;flex-shrink:0;}
+.pl-act{width:32px;height:32px;border-radius:50%;border:1px solid var(--black-alpha-10);background:var(--card);color:var(--primary);
+  display:inline-grid;place-items:center;cursor:pointer;padding:0;transition:background .15s,color .15s;}
+.pl-act:hover{background:var(--primary);color:var(--color-white);border-color:transparent;}
+.folder .pl-act{width:28px;height:28px;}
 .track.playing .add-queue-btn{background:var(--white-alpha-20);color:var(--color-white);border-color:var(--white-alpha-30);}
 </style>
 </head>
@@ -49,7 +55,7 @@ main{padding:14px;max-width:1100px;margin:0 auto;padding-bottom:20px;}
 
 <div class="toolbar">
   <div class="search-wrap">
-    <input id="search" type="search" placeholder="Search playlists…">
+    <input id="search" type="search" placeholder="Search">
   </div>
   <div id="playlistCount" class="playlist-count">0 playlists</div>
 </div>
@@ -94,31 +100,7 @@ function prettify(n){
   return s;
 }
 
-async function fetchIndex(path){
-  const url = `${INDEX_ENDPOINT}?path=${encodeURIComponent(normalizePath(path))}`;
-  // a busy card answers 503 briefly right after boot; retry, don't fail
-  let res = await fetch(url, { cache: 'no-store' });
-  for(let i=0;i<3 && res.status===503;i++){
-    await new Promise(r=>setTimeout(r, 700*(i+1)));
-    res = await fetch(url, { cache: 'no-store' });
-  }
-  if(!res.ok) throw new Error('index fetch failed '+res.status);
-  const text = await res.text();
-  const lines = text.split('\n').filter(Boolean);
-  const header = lines.length ? (()=>{ try{ return JSON.parse(lines[0]); }catch(e){return null;} })() : null;
-  const entries = [];
-  for(let i=1;i<lines.length;i++){
-    try{
-      entries.push(JSON.parse(lines[i]));
-    }catch(e){
-      const idx = lines[i].indexOf('{');
-      if(idx>=0){
-        try{ entries.push(JSON.parse(lines[i].slice(idx))); }catch(_){}
-      }
-    }
-  }
-  return { header, entries };
-}
+async function fetchIndex(path){ return NomadIndex.fetch(path); }   // shared reader, nomad-utils.js
 
 function addTrackToMap(mapRef, fullPath){
   const normalized = normalizePath(fullPath);
@@ -216,6 +198,8 @@ async function scanLibrary(){
       }
     }
   }catch(err){
+    // index still being built (202): try again shortly rather than showing nothing
+    if(NomadIndex.isBuilding(err) && (window.__idxRetries = (window.__idxRetries||0) + 1) <= 10){ setTimeout(scanLibrary, 3000); return; }
     console.warn('[Playlists] index failed', err);
   }
   
@@ -267,6 +251,28 @@ function gatherDirect(dirPath){
   return arr;
 }
 
+// Play and Shuffle for a whole folder: the playlist, the artist with all their albums, or one album
+const SVG_SHUFFLE = '<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="16 3 21 3 21 8"></polyline><line x1="4" y1="20" x2="21" y2="3"></line><polyline points="21 16 21 21 16 21"></polyline><line x1="15" y1="15" x2="21" y2="21"></line><line x1="4" y1="4" x2="9" y2="9"></line></svg>';
+function folderActions(name, getTracks){
+  const acts = document.createElement('div');
+  acts.className = 'pl-acts';
+  const mk = (html, label, shuffle) => {
+    const b = document.createElement('button');
+    b.type = 'button'; b.className = 'pl-act'; b.innerHTML = html;
+    b.title = label; b.setAttribute('aria-label', `${label}: ${name}`);
+    b.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const tracks = getTracks().slice();
+      if(!tracks.length) return;
+      if(shuffle) fisherYates(tracks);
+      window.parent.postMessage({ type: 'PLAY_PLAYLIST', payload: { tracks, startIndex: 0 } }, location.origin);
+    });
+    return b;
+  };
+  acts.append(mk(NomadIcons.svg('play', 14), 'Play all', false), mk(SVG_SHUFFLE, 'Shuffle', true));
+  return acts;
+}
+
 function render(){
   playlistsEl.innerHTML = '';
   if(!topPlaylists.length){
@@ -299,7 +305,7 @@ function render(){
     
     const icon = document.createElement('span');
     icon.className = 'icon';
-    icon.textContent = '▶';
+    icon.innerHTML = NomadIcons.svg('chevron-right', 16);
     
     const name = document.createElement('div');
     name.className = 'name';
@@ -312,6 +318,7 @@ function render(){
     header.appendChild(icon);
     header.appendChild(name);
     header.appendChild(count);
+    header.appendChild(folderActions(info.name, () => gatherRecursive(path)));
     
     const body = document.createElement('div');
     body.className = 'playlist-body';
@@ -372,6 +379,7 @@ function renderPlaylistBody(topPath, bodyEl){
       
       folderEl.appendChild(nameDiv);
       folderEl.appendChild(metaDiv);
+      folderEl.appendChild(folderActions(childName, () => gatherDirect(childPath)));
       card.appendChild(folderEl);
       
       folderEl.addEventListener('click', (ev)=> {
@@ -402,7 +410,7 @@ function renderPlaylistBody(topPath, bodyEl){
           const queueBtn = document.createElement('button');
           queueBtn.className = 'add-queue-btn';
           const inQueue = queuePaths.has(t.path);
-          queueBtn.textContent = inQueue ? '✓' : '+';
+          queueBtn.innerHTML = NomadIcons.svg(inQueue ? 'check' : 'plus', 16);
           queueBtn.title = inQueue ? 'In queue' : 'Add to queue';
           if(inQueue){
             queueBtn.style.opacity = '0.5';
@@ -414,7 +422,7 @@ function renderPlaylistBody(topPath, bodyEl){
               window.parent.postMessage({
                 type: 'ADD_TO_QUEUE',
                 payload: t
-              }, '*');
+              }, location.origin);
             }
           };
           
@@ -432,7 +440,7 @@ function renderPlaylistBody(topPath, bodyEl){
                 tracks: playlist,
                 startIndex: idx >= 0 ? idx : 0
               }
-            }, '*');
+            }, location.origin);
           });
           
           subDiv.appendChild(tr);
@@ -467,7 +475,7 @@ function renderPlaylistBody(topPath, bodyEl){
       const queueBtn = document.createElement('button');
       queueBtn.className = 'add-queue-btn';
       const inQueue = queuePaths.has(t.path);
-      queueBtn.textContent = inQueue ? '✓' : '+';
+      queueBtn.innerHTML = NomadIcons.svg(inQueue ? 'check' : 'plus', 16);
       queueBtn.title = inQueue ? 'In queue' : 'Add to queue';
       if(inQueue){
         queueBtn.style.opacity = '0.5';
@@ -479,7 +487,7 @@ function renderPlaylistBody(topPath, bodyEl){
           window.parent.postMessage({
             type: 'ADD_TO_QUEUE',
             payload: t
-          }, '*');
+          }, location.origin);
         }
       };
       
@@ -497,7 +505,7 @@ function renderPlaylistBody(topPath, bodyEl){
             tracks: playlist,
             startIndex: idx >= 0 ? idx : 0
           }
-        }, '*');
+        }, location.origin);
       });
       
       bodyEl.appendChild(tr);
@@ -512,8 +520,7 @@ function renderPlaylistBody(topPath, bodyEl){
   }
 }
 
-// debounced like movies and shows. render() walks playlists recursively, so
-// this did a full rebuild on every keystroke.
+// debounced: render() walks playlists recursively
 let _searchDebounce = null;
 searchEl.addEventListener('input', () => {
   clearTimeout(_searchDebounce);
@@ -521,7 +528,10 @@ searchEl.addEventListener('input', () => {
 });
 
 window.addEventListener('message', (event) => {
-  const { type, payload } = event.data;
+  // only the player page talks to this frame
+  if (event.origin !== location.origin || !event.data || typeof event.data !== 'object') return;
+  const { type } = event.data;
+  const payload = event.data.payload || {};
 
   if(type === 'PLAYBACK_UPDATE'){
     currentPlayingPath = payload.currentTrack ? payload.currentTrack.path : null;

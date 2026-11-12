@@ -1,12 +1,12 @@
 /* Version 4 - Nomad 3D model viewer.
 
-   Parses STL / OBJ / 3MF and draws them with raw WebGL. No three.js: everything on
-   the Nomad works off the card with no internet, and a general purpose 3D engine is
-   a megabyte of code to do what a part preview needs about three hundred lines for.
+   Parses STL / OBJ / 3MF and draws them with raw WebGL. No three.js, a general purpose
+   3D engine is a megabyte of code for what a part preview does in about three hundred
+   lines.
 
    Meshes come out as flat triangle soup, no index buffer. Printable models are
-   faceted anyway (STL has one normal per facet) so there is nothing to gain by
-   welding vertices, and skipping it keeps parsing linear.
+   faceted anyway (STL has one normal per facet), so welding vertices gains nothing
+   and skipping it keeps parsing linear.
 
    Usage:
      const mesh = await NomadModel.load('/Workshop/bracket.stl', p => {...});
@@ -17,10 +17,10 @@
   'use strict';
 
   // past this the vertex arrays need more memory than a phone browser will reliably
-  // hand out. better to say so than to be killed mid-parse with no explanation
+  // hand out. stop with an error instead of getting killed mid-parse
   const MAX_TRIANGLES = 1200000;
 
-  /* ---- small vector / matrix helpers (column-major, as WebGL wants) ---- */
+  // vector / matrix helpers, column-major as WebGL wants
 
   function mat4Perspective(fovy, aspect, near, far) {
     const f = 1 / Math.tan(fovy / 2), nf = 1 / (near - far);
@@ -54,11 +54,10 @@
     ]);
   }
 
-  /* ---- mesh assembly ---- */
 
   /* Growable triangle sink. Parsers push raw vertices, this works out the bounding
-     box as it goes and fills in a face normal for any triangle whose format did not
-     supply one (most OBJ files, and every degenerate facet in the wild). */
+     box as it goes and fills in a face normal for any triangle whose format didn't
+     supply one (most OBJ files, and degenerate STL facets). */
   function MeshBuilder(estimatedTriangles) {
     const cap = Math.max(3, (estimatedTriangles || 1024) * 3);
     this.pos = new Float32Array(cap * 3);
@@ -77,7 +76,7 @@
     this.pos = p; this.nrm = n;
   };
 
-  /* one triangle. nx/ny/nz optional - omitted means "work it out from the
+  /* one triangle. nx/ny/nz optional, omitted means "work it out from the
      winding", which is what STL asks for when its stored normal is zero */
   MeshBuilder.prototype.tri = function (ax, ay, az, bx, by, bz, cx, cy, cz, nx, ny, nz) {
     if (this.count / 3 >= MAX_TRIANGLES) return false;
@@ -140,12 +139,10 @@
     };
   };
 
-  /* ---- STL ---- */
 
-  /* Binary or ASCII? In a binary STL the triangle count at byte 80 has to account for
-     the file's exact length, which is decisive whenever it holds. Plenty of binary
-     files also start with the word "solid", so the leading text is only consulted
-     when the arithmetic does not settle it. */
+  /* Binary or ASCII? In a binary STL the triangle count at byte 80 has to match the
+     file's exact length. Plenty of binary files also start with the word "solid", so
+     the leading text is only checked when the length doesn't settle it. */
   function stlIsBinary(buf) {
     if (buf.byteLength < 84) return false;
     const tris = new DataView(buf).getUint32(80, true);
@@ -178,8 +175,8 @@
 
   function parseSTLAscii(text) {
     const mb = new MeshBuilder(2048);
-    // one pass over the numbers, rather than a regex per facet: same result,
-    // and it doesn't fall over on the many hand-written variants of the format
+    // one pass over the numbers instead of a regex per facet, it copes with the
+    // many hand-written variants of the format
     const facetRe = /facet[\s\S]*?endfacet/gi;
     const numRe = /-?[\d.]+(?:[eE][-+]?\d+)?/g;
     let m;
@@ -198,7 +195,6 @@
     return parseSTLAscii(new TextDecoder().decode(buf));
   }
 
-  /* ---- OBJ ---- */
 
   function parseOBJ(text) {
     const vx = [], vn = [];
@@ -221,7 +217,7 @@
         const parts = line.slice(sp + 1).trim().split(/\s+/);
         if (parts.length < 3) continue;
 
-        // "v", "v/vt", "v//vn", "v/vt/vn"; indices are 1-based and may be
+        // "v", "v/vt", "v//vn", "v/vt/vn". indices are 1-based and may be
         // negative (counting back from the end of the list so far)
         const idx = parts.map(tok => {
           const bits = tok.split('/');
@@ -249,7 +245,6 @@
     return mb.finish('units');
   }
 
-  /* ---- 3MF ---- */
 
   function loadScriptOnce(src) {
     loadScriptOnce._p = loadScriptOnce._p || {};
@@ -266,9 +261,8 @@
   }
 
   /* A 3MF is a zip with an XML mesh inside. Objects are placed on the plate by
-     <build><item>, each with an optional 4x3 row-major transform, which is what puts a
-     multi-part plate together instead of stacking every part on the origin. Nested
-     <components> are not followed, those objects still draw at their own origin. */
+     <build><item>, each with an optional 4x3 row-major transform. Nested <components>
+     aren't followed, those objects still draw at their own origin. */
   async function parse3MF(buf) {
     if (!global.unzipit) await loadScriptOnce('/assets/unzipit.min.js');
     if (!global.unzipit) throw new Error('3MF support needs /assets/unzipit.min.js on the card');
@@ -349,7 +343,6 @@
     return mb.finish(units);
   }
 
-  /* ---- loading ---- */
 
   const SUPPORTED = ['stl', 'obj', '3mf'];
 
@@ -358,12 +351,11 @@
     return m ? m[1] : '';
   }
 
-  /* Fetch with byte progress where the server gives a length. Model files are the
-     biggest thing this page reads off the card, and over the Nomad's own wifi a 30 MB
-     STL is a real wait. a silent one looks like a hang. */
+  /* Fetch with byte progress where the server gives a length. a 30 MB STL over the
+     Nomad's wifi takes a while, and with no progress it looks like a hang. */
   async function fetchBuffer(url, onProgress) {
-    // the caller passes a ready URL (workshop uses /media?file=<encoded>);
-    // re-encoding here turned the escapes into %25 and made every load a 404
+    // the caller passes a ready URL (workshop uses /media?file=<encoded>). don't
+    // re-encode it, the escapes turn into %25 and every load 404s
     const res = await fetch(url, { cache: 'no-store' });
     if (!res.ok) throw new Error('could not read the file (HTTP ' + res.status + ')');
 
@@ -395,7 +387,6 @@
     return await parse3MF(buf);
   }
 
-  /* ---- viewer ---- */
 
   const VERT_SRC = `
     attribute vec3 aPos;
@@ -411,10 +402,9 @@
       gl_Position = uProj * p;
     }`;
 
-  /* Two soft lights plus a rim, deliberately matte. A printable part is read for its
-     shape, so the shading is there to make edges and overhangs legible rather than to
-     look like a render. gl_FrontFacing flips the normal on back faces because inverted
-     facets are common in downloaded STLs and an unlit black patch reads as a hole. */
+  /* Two soft lights plus a rim, kept matte so edges and overhangs are easy to read.
+     gl_FrontFacing flips the normal on back faces because inverted facets are common
+     in downloaded STLs and an unlit black patch looks like a hole. */
   const FRAG_SRC = `
     precision mediump float;
     varying vec3 vNormal;
@@ -480,8 +470,8 @@
     this.posBuf = gl.createBuffer();
     this.nrmBuf = gl.createBuffer();
 
-    // depth only. Back-face culling stays off on purpose - see FRAG_SRC: models
-    // with inverted facets would otherwise come out full of holes.
+    // depth only. back-face culling stays off (see FRAG_SRC), models with
+    // inverted facets would come out full of holes
     gl.enable(gl.DEPTH_TEST);
 
     this._bindInput();
@@ -561,8 +551,8 @@
   };
 
   /* Drag to orbit, wheel or pinch to zoom, two fingers or right-drag to pan. Pointer
-     events cover mouse and touch together, and touch-action:none on the canvas is what
-     stops a drag from scrolling the page instead. */
+     events cover mouse and touch together, and touch-action:none on the canvas stops
+     a drag from scrolling the page. */
   Viewer.prototype._bindInput = function () {
     const c = this.canvas, self = this;
     const active = new Map();

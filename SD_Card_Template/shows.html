@@ -5,13 +5,15 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width,initial-scale=1" />
 <title>Nomad • Shows</title>
-<link rel="stylesheet" href="assets/plyr.css" />
+<link rel="stylesheet" href="/assets/plyr.css" />
 <link rel="stylesheet" href="/master.css">
-<script src="/theme-boot.js"></script>
-<script src="/nomad-utils.js"></script>
+<script src="/theme-boot.js?v=5"></script>
+<script src="/nomad-icons.js?v=1"></script>
+<script src="/assets/nomad-marks.js?v=1"></script>
+<script src="/nomad-utils.js?v=49"></script>
 <script>document.addEventListener('DOMContentLoaded', () => NomadPlyr.ready());</script>
-<script src="assets/plyr.min.js"></script>
-<script src="/theme-manager.js"></script>
+<script src="/assets/plyr.min.js"></script>
+<script src="/theme-manager.js?v=5"></script>
 <style>
   /* Functional CSS: Shows-specific layout and Plyr.js customization */
   :root{
@@ -46,9 +48,9 @@
   .media-grid.large  {grid-template-columns:repeat(auto-fill,minmax(220px,1fr));}
 
   @media (max-width:600px){
-    .media-grid.small  {grid-template-columns:repeat(2,1fr);}
+    .media-grid.small  {grid-template-columns:repeat(4,1fr);}
     .media-grid.medium {grid-template-columns:repeat(3,1fr);}
-    .media-grid.large  {grid-template-columns:repeat(4,1fr);}
+    .media-grid.large  {grid-template-columns:repeat(2,1fr);}
   }
 
   /* cards */
@@ -60,10 +62,14 @@
   .thumb-wrapper{position:relative;display:flex;align-items:center;justify-content:center;background:var(--thumb-bg);color:var(--thumb-text);font-size:0.9rem;text-align:center;width:100%;aspect-ratio:2/3;overflow:hidden;}
   .fallback-text{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;z-index:2;text-align:center;font-weight:700;color:var(--thumb-title);pointer-events:none;padding:6px}
   .media-thumb{display:block;width:100%;height:100%;object-fit:cover;position:absolute;top:0;left:0;z-index:1;opacity:0;transition:opacity .35s ease;}
-  .badge-resume{position:absolute;left:50%;transform:translateX(-50%);bottom:8px;background:rgba(0,0,0,0.6);color:#fff;padding:6px 10px;border-radius:999px;font-weight:700;font-size:12px;z-index:4;display:block;min-width:40px;max-width:85%;overflow:hidden}
-  .marquee{display:block;white-space:nowrap;overflow:hidden;position:relative;height:18px}
-  .m-inner{display:inline-block;white-space:nowrap}
-  .m-inner span{display:inline-block;padding-right:40px}
+  /* episode, time left and a bar: two lines cut with an ellipsis to fit the smallest card */
+  .badge-resume{position:absolute;left:50%;transform:translateX(-50%);bottom:8px;background:rgba(0,0,0,0.6);color:#fff;padding:5px 9px 6px;border-radius:10px;font-weight:700;font-size:12px;line-height:1.25;z-index:4;display:block;min-width:40px;max-width:85%;overflow:hidden;text-align:center}
+  .badge-resume .br-line{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .badge-resume .br-sub{font-weight:500;font-size:.92em;opacity:.85}
+  .badge-resume .br-bar{display:block;height:3px;margin-top:4px;border-radius:2px;background:rgba(255,255,255,.3);overflow:hidden}
+  .badge-resume .br-bar i{display:block;height:100%;background:var(--primary);border-radius:2px}
+  .badge-resume.br-done{display:flex;align-items:center;gap:4px;border-radius:999px}
+  .media-grid.small .badge-resume{font-size:10px;padding:4px 6px 5px;max-width:92%}
 
   .card-body{display:none}
 
@@ -92,13 +98,21 @@
   #actionModal .modal-content{display:flex;flex-direction:column;gap:10px}
   #actionModal .modal-content h2{margin:0;font-size:1.15rem;font-weight:700}
   #actionSub{font-size:0.9rem;color:var(--muted)}
-  /* episode picker's Resume/Close buttons live in .episode-modal, which the rules above
-     never covered, so they were unreadable in dark. token colors flip on their own */
+  /* episode picker's Resume/Close buttons live in .episode-modal. token colors so they read in dark mode too */
   .episode-modal button.secondary{background:transparent;color:var(--primary);border:1px solid var(--primary);width:100%;font-weight:700}
   .episode-modal button.cancel{background:var(--card);color:var(--text);border:1px solid var(--line);width:100%}
   .episode-list{max-height:60vh;overflow-y:auto;text-align:left;padding:6px}
   .episode-list .ep-row{display:flex;align-items:center;gap:6px;padding:6px;border-bottom:1px solid var(--line)}
   .episode-list .ep-row button{flex:1;background:var(--primary);border:0;color:var(--color-white);text-align:center;padding:8px;border-radius:var(--radius);cursor:pointer;font-weight:700;font-size:0.95rem}
+  /* how far along each episode is. currentColor, so it reads on the light and dark buttons alike */
+  .episode-list .ep-row button{position:relative;overflow:hidden;display:flex;align-items:center;gap:8px;text-align:left;min-height:40px}
+  .ep-row .ep-name{flex:1;min-width:0}
+  .ep-row .ep-state{flex:none;display:inline-flex;align-items:center;gap:3px;font-size:.78rem;font-weight:600;opacity:.85;white-space:nowrap}
+  .ep-row .ep-bar{position:absolute;left:0;right:0;bottom:0;height:3px}
+  .ep-row .ep-bar::before{content:'';position:absolute;inset:0;background:currentColor;opacity:.25}
+  .ep-row .ep-bar i{position:relative;display:block;height:100%;background:currentColor}
+  .ep-row.watched .ep-name{opacity:.7}
+  #episodeResumeBanner .banner-done{display:flex;align-items:center;justify-content:center;gap:6px;font-weight:600;opacity:.8}
   .season-toggle{display:flex;align-items:center;justify-content:space-between;padding:8px;background:var(--primary);color:var(--color-white);border-radius:var(--radius);margin:6px 0;cursor:pointer;font-weight:700}
   .season-content{padding-left:6px;padding-right:6px;margin-bottom:6px}
 
@@ -117,30 +131,27 @@
     transition:filter .18s ease;
   }
   .video-actions button:hover{ filter:brightness(0.96); }
-  .plyr {
-    --plyr-color-main: var(--primary);
-    --plyr-video-controls-background: var(--overlay-video);
-    border-radius: var(--radius);
-    width: 100%;
-  }
-  .plyr__video-wrapper {
-    width: 100%;
-  }
-  .plyr--fullscreen {
-    background: var(--color-black);
-  }
-  .plyr--fullscreen video {
-    max-height: 100% !important;
-    max-width: 100% !important;
-    width: 100%;
-    height: 100%;
-    object-fit: contain;
-  }
-  @media (max-width: 768px) {
-    .plyr__volume {
-      display: none !important;
-    }
-  }
+  .video-actions button:disabled{ opacity:.55; cursor:default; filter:none; font-size:.8rem; padding:10px 4px; white-space:nowrap; }
+  /* Up next: the countdown has its own line so a long title can't push it out */
+  .up-next{ position:absolute; right:16px; bottom:72px; z-index:5; width:min(300px, calc(100% - 32px));
+    display:flex; align-items:center; gap:4px; padding:8px 8px 8px 10px; border-radius:12px; overflow:hidden;
+    background:rgba(12,16,24,.86); color:#fff; box-shadow:0 6px 20px rgba(0,0,0,.45); backdrop-filter:blur(6px); -webkit-backdrop-filter:blur(6px); }
+  .up-next[hidden]{ display:none; }
+  .up-next button{ border:0; background:none; color:inherit; font:inherit; cursor:pointer; }
+  .up-next .un-go{ flex:1; min-width:0; display:flex; align-items:center; gap:10px; padding:0; text-align:left; }
+  .up-next .un-play{ flex:none; width:32px; height:32px; border-radius:50%; display:grid; place-items:center;
+    background:var(--primary); color:#fff; font-size:.72rem; padding-left:2px; transition:transform .15s; }
+  .up-next .un-go:hover .un-play, .up-next .un-go:focus-visible .un-play{ transform:scale(1.08); }
+  .up-next .un-txt{ min-width:0; display:flex; flex-direction:column; gap:1px; line-height:1.25; }
+  .up-next .un-when{ font-size:.72rem; opacity:.75; white-space:nowrap; }
+  .up-next .un-name{ font-size:.86rem; font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .up-next .un-code{ font-weight:500; opacity:.7; margin-right:6px; }
+  .up-next .un-x{ flex:none; width:26px; height:26px; border-radius:50%; display:grid; place-items:center; align-self:flex-start;
+    font-size:1rem; line-height:1; opacity:.6; transition:opacity .15s, background .15s; }
+  .up-next .un-x:hover, .up-next .un-x:focus-visible{ opacity:1; background:rgba(255,255,255,.14); }
+  .up-next .un-bar{ position:absolute; left:0; right:0; bottom:0; height:3px; background:var(--primary); transform-origin:left; opacity:.9; }
+  .video-actions .marks-b{ background:transparent; color:var(--text); border:1px solid var(--line, rgba(0,0,0,.15)); position:relative; }
+  .video-actions .marks-b.has-marks::after{ content:''; position:absolute; top:6px; right:8px; width:7px; height:7px; border-radius:50%; background:#ffd400; }
   .video-title{font-weight:700;color:var(--color-white);margin:0; text-align:center; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:100%}
   body.dark .back-btn { background: var(--white-alpha-12); color: var(--color-white); }
   body.dark .view-btn.active { border-color: var(--primary); }
@@ -153,14 +164,16 @@
   </header>
 
   <div class="toolbar" role="region" aria-label="toolbar">
-    <input id="searchInput" type="search" placeholder="Search shows…" aria-label="Search shows">
+    <input id="searchInput" type="search" placeholder="Search" aria-label="Search shows">
     <select id="sortSelect" aria-label="Sort shows">
       <option value="nameAsc">A → Z</option>
       <option value="nameDesc">Z → A</option>
     </select>
-    <button class="view-btn" data-size="small" title="Compact view" aria-pressed="false">🔳</button>
-    <button class="view-btn active" data-size="medium" title="Comfort view" aria-pressed="true">🔲</button>
-    <button class="view-btn" data-size="large" title="Gallery view" aria-pressed="false">⬜</button>
+    <div class="view-group">
+      <button class="view-btn" data-size="small" title="Compact view" aria-pressed="false">🔳</button>
+      <button class="view-btn active" data-size="medium" title="Comfort view" aria-pressed="true">🔲</button>
+      <button class="view-btn" data-size="large" title="Gallery view" aria-pressed="false">⬜</button>
+    </div>
   </div>
 
   <main>
@@ -182,7 +195,9 @@
     <div class="modal-content" role="document">
       <h2 id="actionTitle">Play / Download</h2>
       <div id="actionSub"></div>
-      <button id="playButton">Play (from start)</button>
+      <button id="resumeEpButton" style="display:none">Resume</button>
+      <button id="playButton">Play</button>
+      <button id="togetherButton" class="secondary">Watch together</button>
       <button id="downloadButton" class="cancel" data-dl>Download</button>
       <button id="actionCloseBtn" class="cancel">Cancel</button>
     </div>
@@ -196,6 +211,7 @@
       </div>
       <div class="video-actions">
         <button id="videoCloseBtn">Close</button>
+        <button id="videoMarksBtn" class="marks-b" aria-label="Bookmarks and notes">Bookmarks</button>
         <button id="videoNextBtn">Next</button>
       </div>
     </div>
@@ -216,7 +232,6 @@ const VIDEO_EXTS = ['.mp4','.mkv','.avi','.mov','.webm','.m4v'];
 const IMAGE_EXTS = ['.jpg','.jpeg','.png','.webp','.avif'];
 const SUB_EXTS = ['.srt','.vtt','.ass','.ssa','.sub'];
 
-/* ---------------- THEME ---------------- */
 const THEME_KEY = 'nomad_dark_mode';
 
 function applyThemeFlag(dark){
@@ -283,7 +298,7 @@ function applyThemeFlag(dark){
       b.style.color = '#fff';
     });
 
-    // modal bg + text (action modal uses theme-token CSS now, so its excluded here)
+    // modal bg + text (action modal uses theme-token CSS, so it's excluded here)
     document.querySelectorAll('.episode-modal-content, .video-modal-content').forEach(el => {
       if(dark){
         el.style.background = '#071722';
@@ -328,12 +343,13 @@ function applyThemeFlag(dark){
       }
     });
 
-    // cancel/secondary buttons are theme-token CSS now (works for dynamic buttons too), no JS pass needed
+    // cancel/secondary buttons are styled by theme-token CSS (dynamic ones too), no JS pass needed
 
     // Video player and title
     const videoEl = document.getElementById('videoPlayer');
     if(videoEl){
-      videoEl.style.background = dark ? '#000' : '#fff';
+      // black in both themes, it shows around a picture that doesn't fill the box
+      videoEl.style.background = '#000';
       videoEl.style.outline = dark ? 'none' : '1px solid rgba(0,0,0,0.06)';
     }
     const videoTitleEl = document.getElementById('videoTitle');
@@ -352,12 +368,8 @@ function applyThemeFlag(dark){
 }
 
 // bootstrap from storage
-try {
-  const stored = localStorage.getItem(THEME_KEY);
-  applyThemeFlag(stored === 'true');
-} catch(e){
-  applyThemeFlag(false);
-}
+applyThemeFlag(window.nomadIsDark ? nomadIsDark() : false);
+window.addEventListener('nomad-dark', (ev) => applyThemeFlag(ev.detail));
 
 // sync across tabs when menu toggles theme
 window.addEventListener('storage', (ev) => {
@@ -372,7 +384,7 @@ window.addEventListener('storage', (ev) => {
     const gridNode = document.getElementById('grid');
     if(!gridNode) return;
     const obs = new MutationObserver(() => {
-      applyThemeFlag(localStorage.getItem(THEME_KEY) === 'true');
+      applyThemeFlag(document.body.classList.contains('dark'));
     });
     obs.observe(gridNode, { childList: true, subtree: true });
   } catch(e){
@@ -392,6 +404,8 @@ let pathIndexMap = {};        // normalized path -> index
 let currentEpisode = null;
 let currentEpisodeIndex = -1;
 let autosaveTimer = null;
+let mediaReadyFor = null;     // the episode path the player has really loaded (saves wait for it)
+let openGen = 0;              // which openVideo call is current
 let rootSig = null;
 // Bounds the "index is building" wait so it cannot poll forever.
 let _buildingRetries = 0;
@@ -403,6 +417,8 @@ function isVideoName(n){ return VIDEO_EXTS.includes(ext(n)); }
 function isImageName(n){ return IMAGE_EXTS.includes(ext(n)); }
 function fileUrl(path){ const p = normalizePath(path); return isVideoName(p) ? `${MEDIA_ENDPOINT}?file=${encodeURIComponent(p)}` : encodeURI(p); }
 function formatTime(sec){ if(!sec||!isFinite(sec)) return '0:00'; sec=Math.floor(sec); const h=Math.floor(sec/3600), m=Math.floor((sec%3600)/60), s=sec%60; if(h) return `${h}:${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`; return `${m}:${String(s).padStart(2,'0')}`; }
+// numbers compare as numbers, so "10" sorts after "2"
+const byName = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' });
 function prettify(filename){ const n = filename.replace(/\.[^/.]+$/,''); let t = n.replace(/[_\.]+/g,' ').trim(); t = t.replace(/\s*\(?\d{4}\)?\s*$/,'').trim(); return t || filename; }
 
 /* Resume store helpers (fileKey like movies) */
@@ -410,31 +426,20 @@ function readResume(){ try{ return JSON.parse(localStorage.getItem(RESUME_KEY)||
 function writeResume(v){ try{ localStorage.setItem(RESUME_KEY, JSON.stringify(v)); }catch(e){ /* ignore */ } }
 function fileKey(path, sz=0, mt=0){ return `${normalizePath(path)}|${sz||0}|${mt||0}`; }
 
-/* Save a single resume entry */
+/* Save a single resume entry. A finished episode saves again when it's watched again. */
 function saveResumeEntryByKey(key, entry, purgeOtherNonCompleted = true){
   try{
     const store = readResume();
+    const pathOnly = normalizePath(key.split('|')[0] || '');
+    const showDir = purgeOtherNonCompleted ? findShowDirForEpisodePath(pathOnly) : null;
 
-    if(store[key] && store[key].completed) return;
-
-    if(purgeOtherNonCompleted){
-      const pathOnly = (key.split('|')[0] || '');
-      const showDir = findShowDirForEpisodePath(pathOnly);
-      if(showDir){
-        const normShow = normalizePath(showDir);
-        for(const k of Object.keys(store)){
-          const p = (k.split('|')[0] || '');
-          if(!p) continue;
-          const normP = normalizePath(p);
-          // skip the current key
-          if(k === key) continue;
-          // if entry is under the same show dir and is not completed, remove it
-          if(normP === normShow || normP.startsWith(normShow + '/')){
-            if(store[k] && store[k].completed) continue;
-            delete store[k];
-          }
-        }
-      }
+    for(const k of Object.keys(store)){
+      if(k === key) continue;
+      const normP = normalizePath(k.split('|')[0] || '');
+      // the same file under an older key (size or date changed) would shadow this one
+      if(normP === pathOnly){ delete store[k]; continue; }
+      // one place per show: the half-watched hold of any other episode goes, like NomadProgress
+      if(showDir && normP.startsWith(showDir + '/') && !(store[k] && store[k].completed)) delete store[k];
     }
 
     // set the new/updated entry and persist
@@ -445,9 +450,8 @@ function saveResumeEntryByKey(key, entry, purgeOtherNonCompleted = true){
   }
 }
 
-/* Capped: while a reindex runs the firmware 503s every media request device-wide,
-   so an uncapped reindex -> retry -> reindex loop takes down playback on every
-   page (not just this one) until reboot. One attempt per page load. */
+/* Not used right now. Keep any reindex retry capped: while a reindex runs the firmware
+   503s every media request. */
 const MAX_REINDEX_ATTEMPTS = 1;
 let reindexAttempts = 0;
 
@@ -455,8 +459,7 @@ async function loadLibrary(){
   try {
     const { header, entries } = await fetchIndex(ROOT_PATH);
 
-    // no usable index nearly always just means /Shows is empty. this used to POST
-    // /api/reindex and retry every 3s from every phone with no limit
+    // no usable index nearly always means /Shows is empty
     if(!header){
       console.warn('No index header for /Shows, treating as empty');
       shows = [];
@@ -474,48 +477,21 @@ async function loadLibrary(){
     checkIndex();
   } catch(err){
     if(err && err.message === 'INDEX_BUILDING') {
-      // Retry while it builds, but not forever. A build that never finishes
-      // should not leave every phone polling the device.
+      // capped so a build that never finishes doesn't leave every phone polling
       if(_buildingRetries < _MAX_BUILDING_RETRIES){
         _buildingRetries++;
-        gridEl.innerHTML = '<p style="grid-column:1/-1;text-align:center;color:var(--primary-dark);">Building shows index, please wait...</p>';
+        gridEl.innerHTML = '<p style="grid-column:1/-1;text-align:center;color:var(--primary-dark);">Building shows index…</p>';
         setTimeout(() => loadLibrary(), 3000);
       } else {
-        gridEl.innerHTML = '<p style="grid-column:1/-1;text-align:center;color:var(--primary-dark);">Index is still building. Pull to refresh to try again.</p>';
+        gridEl.innerHTML = '<p style="grid-column:1/-1;text-align:center;color:var(--primary-dark);">Index is still building. Refresh to try again.</p>';
       }
       return;
     }
     console.error('loadLibrary failed', err);
-    gridEl.innerHTML = '<p style="grid-column:1/-1;text-align:center;color:var(--primary-dark);">Could not load library.</p>';
+    gridEl.innerHTML = '<p style="grid-column:1/-1;text-align:center;color:var(--primary-dark);">Couldn\'t load shows. Refresh to try again.</p>';
   }
 }
 
-/* tolerant matching for resume (exact fileKey -> path-only -> basename) */
-function findResumeForPath(episodeOrPath){
-  const store = readResume();
-  const norm = normalizePath(typeof episodeOrPath === 'string' ? episodeOrPath : (episodeOrPath.path || ''));
-  const size = episodeOrPath && episodeOrPath.sz ? (episodeOrPath.sz) : 0;
-  const mt = episodeOrPath && episodeOrPath.mt ? (episodeOrPath.mt) : 0;
-  const exact = fileKey(norm, size, mt);
-  if(store[exact]) return { key: exact, entry: store[exact] };
-
-  for(const k of Object.keys(store)){
-    const p = (k.split('|')[0] || '');
-    if(normalizePath(p) === norm) return { key: k, entry: store[k] };
-  }
-  for(const k of Object.keys(store)){
-    const p = (k.split('|')[0] || '').replace(/^\//,'');
-    if(p === norm.replace(/^\//,'')) return { key: k, entry: store[k] };
-  }
-  const base = norm.split('/').pop().toLowerCase();
-  for(const k of Object.keys(store)){
-    const p = (k.split('|')[0] || '').toLowerCase();
-    if(p.split('/').pop() === base) return { key: k, entry: store[k] };
-  }
-  return null;
-}
-// --- Helpers to update a single show's badge without re-rendering the whole grid ---
-// Stops poster flashing bug
 function findShowDirForEpisodePath(path){
   if(!path) return null;
   const norm = normalizePath(path);
@@ -527,131 +503,156 @@ function findShowDirForEpisodePath(path){
   }
   return null;
 }
+function showForPath(path){
+  const d = findShowDirForEpisodePath(path);
+  return (d && shows.find(s => normalizePath(s.dir) === d)) || currentShow;
+}
 
-function updateShowBadge(showDir){
+/* What this phone knows about each episode, by path: { pos, dur, done, updated }.
+   One read of the store for a whole list instead of one per row. A place saved in the
+   credits counts as finished too. */
+function resumeMap(){
+  const m = new Map();
+  for(const [k, e] of Object.entries(readResume())){
+    if(!e) continue;
+    const p = normalizePath(k.split('|')[0] || '');
+    const prev = m.get(p);
+    if(prev && prev.updated >= (e.updated || 0)) continue;
+    const pos = +e.position || 0, dur = +e.duration || 0;
+    m.set(p, { pos, dur, updated: e.updated || 0, done: !!e.completed || (pos > 0 && NomadProgress.isFinished(pos, dur)) });
+  }
+  return m;
+}
+function epState(ep, map){ return ep && ep.path ? ((map || resumeMap()).get(normalizePath(ep.path)) || null) : null; }
+// started and not finished: worth a Resume
+function hasPlace(s){ return !!s && !s.done && s.pos > 1; }
+function placeLeft(s){ return s.dur > 0 ? NomadProgress.timeLeft(s.dur - s.pos) : `At ${formatTime(s.pos)}`; }
+
+// "S01E03 - Prisoners of Love" -> { code: 'S1 E3', title: 'Prisoners of Love' }, and the
+// same for "Adventure Time S01E03 Prisoners of Love" (the show's name is said elsewhere)
+function epCode(ep){
+  const name = (ep && ep.name) || '';
+  const m = name.match(/^(?:.*?[\s._-])?S(\d+)\s*E(\d+)\s*[-–:.]?\s*(.*)$/i);
+  return m ? { code: `S${+m[1]} E${+m[2]}`, title: m[3] || '' } : { code: '', title: name };
+}
+function epShort(ep){ const c = epCode(ep); return c.code || c.title; }
+// "Adventure Time · S1 E3 Prisoners of Love", for Continue and the lock screen
+function progressTitle(ep){
+  const s = showForPath(ep.path), c = epCode(ep);
+  return [s && s.name, [c.code, c.title].filter(Boolean).join(' ')].filter(Boolean).join(' · ');
+}
+
+/* Where you are in a show, for its card and the top of its episode list:
+   resume  the episode you're partway through
+   next    the one after the last you finished
+   done    every episode finished
+   null    nothing watched yet */
+function showPlace(show, map){
+  if(!show) return null;
+  if(!show._loaded) loadSeriesEpisodes(show);
+  const eps = show.episodes || [];
+  if(!eps.length) return null;
+  map = map || resumeMap();
+  let last = null, lastI = -1, all = true;
+  eps.forEach((ep, i) => {
+    const s = epState(ep, map);
+    if(!s || !s.done) all = false;
+    if(s && (!last || s.updated > last.updated)){ last = s; lastI = i; }
+  });
+  if(!last) return null;
+  if(all) return { kind: 'done' };
+  if(hasPlace(last)) return { kind: 'resume', ep: eps[lastI], s: last };
+  for(let i = last.done ? lastI + 1 : lastI; i < eps.length; i++){
+    const s = epState(eps[i], map);
+    if(!s || !s.done) return { kind: 'next', ep: eps[i], s };
+  }
+  return null;
+}
+
+/* the card's label: "S1 E3" over "12 min left" and a thin bar, cut with an ellipsis when long */
+function createShowBadge(place){
+  if(!place) return null;
+  const b = document.createElement('div'); b.className = 'badge-resume';
+  const line = (cls, text) => { const s = document.createElement('span'); s.className = 'br-line' + (cls ? ' ' + cls : ''); s.textContent = text; b.appendChild(s); };
+  if(place.kind === 'done'){
+    b.classList.add('br-done');
+    b.innerHTML = NomadIcons.svg('check', 13);
+    line('', 'Watched');
+    b.title = 'Watched';
+  } else if(place.kind === 'resume'){
+    const left = placeLeft(place.s);
+    line('', epShort(place.ep)); line('br-sub', left);
+    const bar = document.createElement('span'); bar.className = 'br-bar';
+    const fill = document.createElement('i'); fill.style.width = (place.s.dur > 0 ? Math.round(100 * place.s.pos / place.s.dur) : 0) + '%';
+    bar.appendChild(fill); b.appendChild(bar);
+    b.title = `Continue ${epShort(place.ep)} · ${left}`;
+  } else {
+    line('', epShort(place.ep)); line('br-sub', 'Up next');
+    b.title = `Up next ${epShort(place.ep)}`;
+  }
+  b.setAttribute('aria-label', b.title);
+  return b;
+}
+
+function updateShowBadge(showDir, map){
   try {
     if(!showDir) return;
     const normDir = normalizePath(showDir);
-    // find the card element for this show
     const card = Array.from(gridEl.querySelectorAll('.media-card')).find(c => normalizePath(c.dataset.dir || '') === normDir);
-    if(!card) return;
-
-    // find thumb wrapper
-    const thumb = card.querySelector('.thumb-wrapper');
+    const thumb = card && card.querySelector('.thumb-wrapper');
     if(!thumb) return;
-
-    // remove existing marquee/resume badges 
-    const existing = thumb.querySelectorAll('.badge-resume, .marquee');
-    existing.forEach(n => n.remove());
-
-    // find the show object
     const show = shows.find(s => normalizePath(s.dir) === normDir);
-    if(!show) return;
-
-    // If fully completed, show Completed marquee
-    if(show._loaded && isShowFullyCompleted(show)){
-      thumb.appendChild(createMarqueeElement('Completed'));
-      return;
-    }
-
-    // Otherwise show most recent resume if available
-    const showResume = findResumeForShowDir(show.dir);
-    if(showResume && showResume.entry && !showResume.entry.completed && (showResume.entry.position && showResume.entry.position > 0)){
-      const label = (showResume.entry.title && showResume.entry.title.length) ? showResume.entry.title : (showResume.path || '').split('/').pop();
-      const txt = `${label} • ${formatTime(showResume.entry.position)}`;
-      thumb.appendChild(createMarqueeElement(txt));
-    }
+    const badge = createShowBadge(showPlace(show, map));
+    const old = thumb.querySelector('.badge-resume');
+    // the same label again: leave the DOM alone (this runs every few seconds while playing)
+    if(old && badge && old.title === badge.title && old.innerHTML === badge.innerHTML) return;
+    if(old) old.remove();
+    if(badge) thumb.appendChild(badge);
   } catch(e){
     console.warn('updateShowBadge failed', e);
   }
 }
 
-/* find most recent resume entry under a show dir (for badge); returns latest entry under that dir */
-function findResumeForShowDir(showDir){
-  const store = readResume();
-  const normShow = normalizePath(showDir || '');
-  let best = null;
-  for(const [k,v] of Object.entries(store)){
-    const p = (k.split('|')[0] || '');
-    if(!p) continue;
-    const normP = normalizePath(p);
-    if(normP === normShow || normP.startsWith(normShow + '/')){
-      if(!best || (v.updated || 0) > (best.entry.updated || 0)){
-        best = { key: k, entry: v, path: normP };
-      }
-    }
-  }
-  return best;
-}
+/* Start over: forget the place here and in Continue */
 function clearResumeForPath(path){
   const store = readResume();
   const norm = normalizePath(path);
   let changed = false;
   for(const k of Object.keys(store)){
-    const p = (k.split('|')[0] || '');
-    if(normalizePath(p) === norm || p.replace(/^\//,'') === norm.replace(/^\//,'')){
-      delete store[k];
-      changed = true;
-    }
+    if(normalizePath(k.split('|')[0] || '') === norm){ delete store[k]; changed = true; }
   }
   if(changed) writeResume(store);
+  NomadProgress.clear(norm);
 }
 
-/* check if a show is fully completed (only if episodes are loaded) */
-function isShowFullyCompleted(show){
-  if(!show || !show._loaded || !Array.isArray(show.episodes) || show.episodes.length === 0) return false;
-  const store = readResume();
-  for(const ep of show.episodes){
-    const key = fileKey(ep.path, ep.sz||0, ep.mt||0);
-    if(!store[key] || !store[key].completed) return false;
+/* The one place an episode's progress is written: its exact place in nomad:watch:v1 (what this
+   page resumes from) and how far along it is in NomadProgress (what Continue shows). Both drop
+   the other episodes' half-watched holds, so starting the next episode clears the last one's. */
+function recordProgress(ep, pos, dur){
+  if(!ep || !ep.path || !(dur > 0) || !isFinite(pos)) return;
+  dur = Math.floor(dur);
+  pos = Math.max(0, Math.min(dur, Math.floor(pos)));
+  const key = fileKey(ep.path, ep.sz || 0, ep.mt || 0);
+  const info = { k: 'episode', t: progressTitle(ep), g: findShowDirForEpisodePath(ep.path) || undefined };
+  if(NomadProgress.isFinished(pos, dur)){
+    saveResumeEntryByKey(key, { completed: true, position: 0, duration: dur, updated: Date.now(), title: ep.name || '' }, true);
+    NomadProgress.finish(ep.path, info);
+    // the menu's Continue can't work out what follows, so it's told: the next episode, "Up next"
+    const i = findIndexForPathOrBasename(ep.path);
+    const nxt = (i !== undefined && i !== null && i + 1 < flattenedEpisodes.length) ? flattenedEpisodes[i + 1] : null;
+    const had = nxt && NomadProgress.get(nxt.path);
+    if(nxt && info.g && !(had && (had.done || had.p))) NomadProgress.note(nxt.path, { k: 'episode', t: progressTitle(nxt), g: info.g, p: null, l: 'Up next' });
+  } else {
+    saveResumeEntryByKey(key, { position: pos, duration: dur, updated: Date.now(), title: ep.name || '' }, true);
+    NomadProgress.note(ep.path, Object.assign(info, { p: pos / dur, l: NomadProgress.timeLeft(dur - pos), done: false }));
   }
-  return true;
+  const map = resumeMap();
+  if(info.g) updateShowBadge(info.g, map);
+  refreshEpisodeMarks(map);
 }
 
 /* fetch NDJSON index */
-async function fetchIndex(path){
-  const url = `${INDEX_ENDPOINT}?path=${encodeURIComponent(normalizePath(path))}&_=${Date.now()}`;
-  let res = await fetch(url, { cache: 'no-store' });
-
-  // 503 means the SD is busy for a moment, not that the index is missing
-  for(let i=0; i<3 && res.status===503; i++){
-    await new Promise(r=>setTimeout(r, 800*(i+1)));
-    res = await fetch(url, { cache: 'no-store' });
-  }
-
-  if(res.status === 202) {
-    // Server is building index - throw a specific error that can be caught
-    throw new Error('INDEX_BUILDING');
-  }
-
-  if(!res.ok) throw new Error('index fetch failed '+res.status);
-  const text = await res.text();
-
-  // split into lines (handle CRLF), ignore blank lines
-  const lines = text.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
-
-  // parse each line to JSON
-  const parsed = [];
-  for(const ln of lines){
-    try {
-      parsed.push(JSON.parse(ln));
-    } catch(e){
-      // keep parsing others and warn in console
-      console.warn('index parse failed for line:', ln);
-    }
-  }
-  let header = null;
-  let entries = [];
-
-  if(parsed.length > 0 && parsed[0] && typeof parsed[0] === 'object' && parsed[0].sig){
-    header = parsed[0];
-    entries = parsed.slice(1);
-  } else {
-    entries = parsed;
-  }
-
-  return { header, entries };
-}
+async function fetchIndex(path){ return NomadIndex.fetch(path); }   // shared reader, nomad-utils.js
 
 
 /* Build shows list */
@@ -667,8 +668,6 @@ function buildShowsFromIndexes(data, root = '/Shows'){
     if(!dirChildren.has(parentPath)) dirChildren.set(parentPath, []);
     dirChildren.get(parentPath).push(e);
   }
-
-  // Function to recursively build entries for a directory
 
   // Function to recursively build entries for a directory
   function getEntriesForDir(dirPath){
@@ -733,7 +732,7 @@ function buildShowsFromIndexes(data, root = '/Shows'){
         episodes: null
     });
   }
-  out.sort((a,b)=> a.name.localeCompare(b.name));
+  out.sort((a,b)=> byName.compare(a.name, b.name));
   return out;
 }
 
@@ -788,15 +787,15 @@ function loadSeriesEpisodes(show){
           }
         }
 
-        children.sort((a,b) => a.name.localeCompare(b.name));
+        children.sort((a,b) => byName.compare(a.name, b.name));
 
         // Add the season directory with its episodes
         entries.push({ type:'d', name: e.n, path: seasonPath, children });
       }
     }
 
-    // Sort entries alphabetically
-    entries.sort((A,B) => String(A.name || '').toLowerCase().localeCompare(String(B.name || '').toLowerCase()));
+    // Sort entries in natural order: Season 2 before Season 10, Episode 9 before Episode 10
+    entries.sort((A,B) => byName.compare(String(A.name || ''), String(B.name || '')));
 
     // Create flattened episode list
     const flat = [];
@@ -850,22 +849,13 @@ function ensureFlattenedForCurrentShow(){
 /* UI render helpers */
 const gridEl = document.getElementById('grid');
 
-function createMarqueeElement(text){
-  const badge = document.createElement('div'); badge.className='badge-resume';
-  const marquee = document.createElement('div'); marquee.className='marquee';
-  const inner = document.createElement('div'); inner.className='m-inner';
-  const s1 = document.createElement('span'); s1.textContent = text;
-  const s2 = document.createElement('span'); s2.textContent = text;
-  inner.appendChild(s1); inner.appendChild(s2); marquee.appendChild(inner); badge.appendChild(marquee);
-  requestAnimationFrame(()=>{ const w = inner.getBoundingClientRect().width || (text.length*8); inner.style.animation = `scroll ${Math.max(6,Math.min(28,w/30))}s linear infinite`; });
-  return badge;
-}
 
 /* Render grid */
 function renderGrid(){
   gridEl.className = `media-grid ${currentSize}`;
   const frag = document.createDocumentFragment();
   if(filtered.length === 0){ gridEl.innerHTML = '<p style="grid-column:1/-1;text-align:center;color:var(--primary-dark);">No shows found.</p>'; return; }
+  const map = resumeMap();
   for(const show of filtered){
     const card = document.createElement('div'); card.className='media-card';
     // helpful hook for single-card updates:
@@ -875,24 +865,17 @@ function renderGrid(){
     const fallback = document.createElement('span'); fallback.className='fallback-text'; fallback.textContent = show.name;
     thumb.appendChild(fallback);
 
-    // If all episodes are completed, show only "Completed"
-    if(show._loaded && isShowFullyCompleted(show)){
-      thumb.appendChild(createMarqueeElement('Completed'));
-    } else {
-      // otherwise show most recent resume info if any
-      const showResume = findResumeForShowDir(show.dir);
-      if(showResume && showResume.entry && !showResume.entry.completed && (showResume.entry.position && showResume.entry.position > 0)){
-        const label = (showResume.entry.title && showResume.entry.title.length) ? showResume.entry.title : (showResume.path || '').split('/').pop();
-        const txt = `${label} • ${formatTime(showResume.entry.position)}`;
-        thumb.appendChild(createMarqueeElement(txt));
-      }
-    }
+    // where you are in it: the episode to continue, the next one, or Watched
+    const badge = createShowBadge(showPlace(show, map));
+    if(badge) thumb.appendChild(badge);
 
     if(show.cover){
-      const img = document.createElement('img'); img.className='media-thumb'; img.loading='lazy'; img.alt = show.name; img.src = `${MEDIA_ENDPOINT}?file=${encodeURIComponent(show.cover)}`;
+      const img = document.createElement('img'); img.className='media-thumb'; img.loading='lazy'; img.alt = show.name;
       img.onload = ()=>{ img.style.opacity='1'; if(fallback) fallback.style.display='none'; };
       img.onerror = ()=>{ img.style.display='none'; if(fallback) fallback.style.display='block'; };
       thumb.appendChild(img);
+      // src assigned by NomadImages: a few covers at a time, only near the viewport
+      NomadImages.observe(img, `${MEDIA_ENDPOINT}?file=${encodeURIComponent(show.cover)}`);
     }
     card.appendChild(thumb);
     card.addEventListener('click', ()=> openEpisodeModal(show));
@@ -932,6 +915,7 @@ const episodeCloseBtn = document.getElementById('episodeCloseBtn');
 const actionModal = document.getElementById('actionModal');
 const actionTitle = document.getElementById('actionTitle');
 const actionSub = document.getElementById('actionSub');
+const resumeEpButton = document.getElementById('resumeEpButton');
 const playButton = document.getElementById('playButton');
 const downloadButton = document.getElementById('downloadButton');
 const actionCloseBtn = document.getElementById('actionCloseBtn');
@@ -942,13 +926,25 @@ const videoTitle = document.getElementById('videoTitle');
 const videoCloseBtn = document.getElementById('videoCloseBtn');
 const videoNextBtn = document.getElementById('videoNextBtn');
 
-function closeEpisodeModal(){ episodeModal.style.display='none'; episodeResumeBanner.style.display='none'; episodeResumeBanner.innerHTML=''; }
+// the phone's Back closes these instead of leaving the page (NomadBack, nomad-utils.js)
+function closeEpisodeModal(){ episodeModal.style.display='none'; episodeResumeBanner.style.display='none'; episodeResumeBanner.innerHTML=''; NomadBack.done('episodes'); }
 episodeModal.addEventListener('click', (e)=>{ if(e.target===episodeModal) closeEpisodeModal(); });
 episodeCloseBtn.addEventListener('click', closeEpisodeModal);
 
-function closeActionModal(){ actionModal.style.display='none'; }
+/* The episode popup and the player take turns on one Back entry ('sheet'). Going from one to
+   the other hands it over. Dropping one history entry and adding another in the same moment
+   loses one of them, and then Back leaves the page. */
+function closeActionModal(handOver){ actionModal.style.display='none'; if(!handOver) NomadBack.done('sheet'); }
+function closeSheet(){ if(videoModal.style.display === 'flex') closeVideo(true); else closeActionModal(); }
+// bookmarks and notes by time in the episode, kept on this phone
+window.videoMarks = NomadMarks.attach(document.getElementById('videoMarksBtn'), {
+  key: () => currentEpisode && currentEpisode.path,
+  title: () => (currentEpisode && currentEpisode.name) || '',
+  here: () => (currentEpisode && videoPlayer.duration ? { at: videoPlayer.currentTime, order: videoPlayer.currentTime, label: NomadMarks.clock(videoPlayer.currentTime) } : null),
+  go: (t) => { try { videoPlayer.currentTime = +t; videoPlayer.play().catch(() => {}); } catch (e) {} },
+});
 actionModal.addEventListener('click', (e)=>{ if(e.target===actionModal) closeActionModal(); });
-actionCloseBtn.addEventListener('click', closeActionModal);
+actionCloseBtn.addEventListener('click', ()=> closeActionModal());
 
 /* closeVideo optionally avoids autosave (used when marking completed to avoid overwriting) */
 function closeVideo(doSave=true){
@@ -957,8 +953,11 @@ function closeVideo(doSave=true){
     window.plyrInstance.pause();
   }
   videoModal.style.display='none';
+  NomadBack.done('sheet');
   stopAutosave();
   releaseWakeLock().catch(()=>{});
+  setMediaSession(null);
+  refreshEpisodeMarks();
 
   try {
     const allImages = document.querySelectorAll('img[loading="lazy"]');
@@ -979,97 +978,101 @@ videoNextBtn.addEventListener('click', nextEpisode);
 
 document.addEventListener('keydown', (e)=>{ if(e.key==='Escape'){ if(videoModal.style.display==='flex') closeVideo(true); else if(actionModal.style.display==='flex') closeActionModal(); else if(episodeModal.style.display==='flex') closeEpisodeModal(); } });
 
+/* play an episode from the list, the banner or a link, from its saved place when resume is set */
+function playEpisode(ep, resume){
+  ensureFlattenedForCurrentShow();
+  const idx = findIndexForPathOrBasename(ep.path);
+  if(idx !== undefined && idx !== null) ep = flattenedEpisodes[idx];
+  openVideo(fileUrl(ep.path), resume, ep);
+}
+
+/* the top of the episode list: one button back to where you are in the show */
+function renderResumeBanner(show, map){
+  episodeResumeBanner.innerHTML = '';
+  const place = showPlace(show, map);
+  if(!place){ episodeResumeBanner.style.display = 'none'; return; }
+  episodeResumeBanner.style.display = 'block';
+  if(place.kind === 'done'){
+    const txt = document.createElement('div'); txt.className = 'banner-done'; txt.setAttribute('role', 'status');
+    txt.innerHTML = NomadIcons.svg('check', 16);
+    txt.append('All watched');
+    episodeResumeBanner.appendChild(txt);
+    return;
+  }
+  const btn = document.createElement('button'); btn.className = 'secondary';
+  const name = epShort(place.ep);
+  btn.textContent = place.kind === 'resume' ? `Resume ${name} from ${formatTime(place.s.pos)}` : `Play next: ${name}`;
+  btn.onclick = () => playEpisode(place.ep, true);
+  episodeResumeBanner.appendChild(btn);
+}
+
+/* one episode's row: its name, then Watched or the time left, and a thin bar along the bottom */
+function episodeRow(en, season, map){
+  const row = document.createElement('div'); row.className = 'ep-row'; row.dataset.path = normalizePath(en.path);
+  const btn = document.createElement('button');
+  const name = document.createElement('span'); name.className = 'ep-name'; name.textContent = en.name || 'Untitled';
+  const state = document.createElement('span'); state.className = 'ep-state';
+  btn.append(name, state);
+  btn.onclick = ()=>{ ensureFlattenedForCurrentShow(); const idx = findIndexForPathOrBasename(en.path); const target = (idx !== undefined)? flattenedEpisodes[idx] : { name: en.name, path: en.path, season }; openActionModalForEpisode(target); };
+  row.appendChild(btn);
+  markRow(row, map.get(row.dataset.path) || null);
+  return row;
+}
+function markRow(row, s){
+  const btn = row.querySelector('button');
+  if(!btn) return;
+  const kind = !s ? '' : s.done ? 'done' : hasPlace(s) ? 'part' : '';
+  const pct = kind === 'part' && s.dur > 0 ? Math.max(2, Math.round(100 * s.pos / s.dur)) : 0;
+  const left = kind === 'part' ? placeLeft(s) : '';
+  const sig = kind + pct + left;
+  if(row.dataset.mark === sig) return;   // unchanged: this runs every few seconds while playing
+  row.dataset.mark = sig;
+  row.classList.toggle('watched', kind === 'done');
+  const state = btn.querySelector('.ep-state'), name = btn.querySelector('.ep-name').textContent;
+  const oldBar = btn.querySelector('.ep-bar');
+  if(oldBar) oldBar.remove();
+  if(kind === 'done'){
+    state.innerHTML = NomadIcons.svg('check', 14) + '<span>Watched</span>';
+    btn.setAttribute('aria-label', `${name}, watched`);
+  } else if(kind === 'part'){
+    state.textContent = left;
+    const bar = document.createElement('span'); bar.className = 'ep-bar'; bar.setAttribute('aria-hidden', 'true');
+    const fill = document.createElement('i'); fill.style.width = pct + '%';
+    bar.appendChild(fill); btn.appendChild(bar);
+    btn.setAttribute('aria-label', `${name}, ${left}`);
+  } else {
+    state.textContent = '';
+    btn.removeAttribute('aria-label');
+  }
+}
+// bring the open list's marks and banner up to date (after playing, or while it plays underneath)
+function refreshEpisodeMarks(map){
+  if(episodeModal.style.display !== 'flex') return;
+  map = map || resumeMap();
+  episodeList.querySelectorAll('.ep-row[data-path]').forEach(r => markRow(r, map.get(r.dataset.path) || null));
+  if(currentShow) renderResumeBanner(currentShow, map);
+}
+
+function setSeasonOpen(content, chev, open, animate){
+  content.style.display = open ? 'block' : 'none';
+  chev.innerHTML = NomadIcons.svg(open ? 'chevron-down' : 'chevron-right', 18);
+  if(open && animate){ Array.from(content.querySelectorAll('.ep-row')).forEach((r,i)=>{ r.style.opacity='0'; r.style.transform='translateY(6px)'; setTimeout(()=>{ r.style.transition='opacity .25s ease, transform .25s ease'; r.style.opacity='1'; r.style.transform='translateY(0)'; }, 20*i); }); }
+}
+
 /* open episode modal */
 function openEpisodeModal(show){
   currentShow = show;
   episodeModalTitle.textContent = show.name;
-  episodeList.innerHTML = '<p style="padding:12px;color:var(--muted)">Loading episodes…</p>';
-  episodeResumeBanner.style.display='none'; episodeResumeBanner.innerHTML='';
   episodeModal.style.display='flex';
-
-  const MEDIA_ENDPOINT = '/media';
-  const fileUrl = (p) => MEDIA_ENDPOINT + '?file=' + encodeURIComponent(normalizePath(p));
-  const INDEX_ENDPOINT = '/api/index';
-  const ROOT_PATH = '/Shows';
+  NomadBack.open('episodes', closeEpisodeModal);
 
   if(!show._loaded) loadSeriesEpisodes(show);
   ensureFlattenedForCurrentShow();
 
-  // If the whole show is completed (and we've loaded episodes) show single "Completed"
-  if(show._loaded && isShowFullyCompleted(show)){
-    episodeResumeBanner.style.display = 'block';
-    episodeResumeBanner.innerHTML = '';
-    const txt = document.createElement('div');
-    txt.textContent = 'Completed';
-    txt.style.marginBottom = '6px';
-    txt.setAttribute('role', 'status');
-    txt.setAttribute('aria-live', 'polite');
-    const btn = document.createElement('button');
-    btn.className = 'cancel';
-    btn.textContent = 'Completed';
-    btn.disabled = true;
-    btn.setAttribute('aria-disabled', 'true');
-    btn.setAttribute('title', 'Show completed');
-    btn.setAttribute('aria-label', 'Show completed');
-    episodeResumeBanner.appendChild(txt);
-    episodeResumeBanner.appendChild(btn);
-  } else {
-    const showResume = findResumeForShowDir(show.dir);
-    if(showResume && showResume.entry && !showResume.entry.completed && (showResume.entry.position && showResume.entry.position > 0)){
-      episodeResumeBanner.style.display = 'block';
-      episodeResumeBanner.innerHTML = '';
-
-      const titleText = showResume.entry.title || showResume.path.split('/').pop();
-      const positionText = formatTime(showResume.entry.position || 0);
-
-      const txt = document.createElement('div');
-      txt.textContent = `${titleText} • ${positionText}`;
-      txt.style.marginBottom = '6px';
-
-      const btn = document.createElement('button');
-      btn.className = 'secondary';
-      // Keep the label reasonably short but informative
-      const shortTitle = (titleText.length > 48) ? (titleText.slice(0, 45) + '…') : titleText;
-      btn.textContent = `Resume: ${shortTitle} • ${positionText}`;
-
-      btn.onclick = () => {
-        // Try to find the episode index by exact path first, then by basename fallback.
-        let idx = findIndexForPathOrBasename(showResume.path);
-        if(idx === undefined || idx === null){
-          // Try a basename-only match across flattenedEpisodes
-          const base = (showResume.path || '').split('/').pop();
-          idx = flattenedEpisodes.findIndex(e => {
-            if(!e) return false;
-            if(e.path === showResume.path) return true;
-            const epBase = (e.path || '').split('/').pop();
-            if(epBase === base) return true;
-            // Some indexes may store relative paths; compare names as a last resort
-            return (e.name && e.name === showResume.entry.title);
-          });
-          if(idx === -1) idx = undefined;
-        }
-
-        if(idx !== undefined && idx !== null){
-          const ep = flattenedEpisodes[idx];
-          if(ep){
-            openActionModalForEpisode(ep);
-            openVideo(fileUrl(ep.path), true, ep);
-          } else {
-            // Fallback to opening the raw resume path
-            openVideo(fileUrl(showResume.path), true, { name: showResume.entry.title || base, path: showResume.path });
-          }
-        } else {
-          // Final fallback: open the stored resume path directly
-          openVideo(fileUrl(showResume.path), true, { name: showResume.entry.title || showResume.path.split('/').pop(), path: showResume.path });
-        }
-
-        closeEpisodeModal();
-      };
-
-      episodeResumeBanner.appendChild(txt);
-      episodeResumeBanner.appendChild(btn);
-    }
-  }
+  const map = resumeMap();
+  renderResumeBanner(show, map);
+  const place = showPlace(show, map);
+  const here = place && place.ep ? normalizePath(place.ep.path) : null;
 
   episodeList.innerHTML = '';
   const entries = show.entries || [];
@@ -1077,34 +1080,25 @@ function openEpisodeModal(show){
 
   entries.forEach(en=>{
     if(en.type === 'f'){
-      const row = document.createElement('div'); row.className='ep-row';
-      const btn = document.createElement('button'); btn.textContent = en.name || 'Untitled';
-      btn.onclick = ()=>{ ensureFlattenedForCurrentShow(); const idx = findIndexForPathOrBasename(en.path); const target = (idx !== undefined)? flattenedEpisodes[idx] : { name: en.name, path: en.path, season: null }; openActionModalForEpisode(target); };
-      row.appendChild(btn); episodeList.appendChild(row);
+      episodeList.appendChild(episodeRow(en, null, map));
     } else if(en.type === 'd'){
       const section = document.createElement('div');
       const toggle = document.createElement('div'); toggle.className='season-toggle';
       const tleft = document.createElement('div'); tleft.textContent = en.name;
-      const tchev = document.createElement('div'); tchev.textContent = '▶';
+      const tchev = document.createElement('div'); tchev.style.display = 'flex'; tchev.innerHTML = NomadIcons.svg('chevron-right', 18);
       toggle.appendChild(tleft); toggle.appendChild(tchev);
       const content = document.createElement('div'); content.className='season-content'; content.style.display='none';
       if(!en.children || en.children.length===0){ const none = document.createElement('div'); none.style.padding='8px'; none.style.color='var(--muted)'; none.textContent='No episodes'; content.appendChild(none); }
-      else {
-        en.children.forEach(child => {
-          const row = document.createElement('div'); row.className='ep-row';
-          const btn = document.createElement('button'); btn.textContent = child.name;
-          btn.onclick = ()=>{ ensureFlattenedForCurrentShow(); const idx = findIndexForPathOrBasename(child.path); const target = (idx !== undefined)? flattenedEpisodes[idx] : { name: child.name, path: child.path, season: en.name }; openActionModalForEpisode(target); };
-          row.appendChild(btn); content.appendChild(row);
-        });
-      }
-      toggle.onclick = ()=>{ const open = content.style.display === 'block'; content.style.display = open ? 'none' : 'block'; tchev.textContent = open ? '▶':'▼'; if(!open){ Array.from(content.querySelectorAll('.ep-row')).forEach((r,i)=>{ r.style.opacity='0'; r.style.transform='translateY(6px)'; setTimeout(()=>{ r.style.transition='opacity .25s ease, transform .25s ease'; r.style.opacity='1'; r.style.transform='translateY(0)'; }, 20*i); }); } };
+      else en.children.forEach(child => content.appendChild(episodeRow(child, en.name, map)));
+      toggle.onclick = ()=> setSeasonOpen(content, tchev, content.style.display !== 'block', true);
+      // the season you're in opens by itself, and so does a show's only season
+      if((here && (en.children || []).some(c => normalizePath(c.path) === here)) || entries.length === 1) setSeasonOpen(content, tchev, true, false);
       section.appendChild(toggle); section.appendChild(content); episodeList.appendChild(section);
     }
   });
 
   // Apply theme styling to the newly created episode buttons
-  const isDark = localStorage.getItem(THEME_KEY) === 'true';
-  applyThemeFlag(isDark);
+  applyThemeFlag(document.body.classList.contains('dark'));
 }
 
 /* action modal for an episode */
@@ -1120,196 +1114,47 @@ function openActionModalForEpisode(ep){
     currentEpisodeIndex = (idx !== undefined && idx !== null) ? idx : -1;
   } else currentEpisodeIndex = -1;
 
+  const s = epState(ep), place = hasPlace(s);
   actionTitle.textContent = ep.name || 'Episode';
-  actionSub.textContent = `${currentShow ? currentShow.name : ''} ${ep.season ? '— ' + ep.season : ''}`;
+  actionSub.textContent = [currentShow && currentShow.name, ep.season, s && s.done ? 'Watched' : place ? placeLeft(s) : ''].filter(Boolean).join(' · ');
 
-    playButton.onclick = ()=>{ clearResumeForPath(ep.path); closeActionModal(); openVideo(fileUrl(ep.path), false, ep);
-    // update only this show's badge (no full re-render)
-    const showDir = findShowDirForEpisodePath(ep.path);
-    if(showDir) updateShowBadge(showDir);
+  // a saved place: Resume is the main action and Start over the second. Only Start over forgets it
+  resumeEpButton.style.display = place ? '' : 'none';
+  if(place) resumeEpButton.textContent = `Resume from ${formatTime(s.pos)}`;
+  resumeEpButton.onclick = ()=>{ closeActionModal(true); openVideo(fileUrl(ep.path), true, ep); };
+  playButton.textContent = place ? 'Start over' : 'Play';
+  playButton.classList.toggle('secondary', place);
+  playButton.onclick = ()=>{
+    if(place) clearResumeForPath(ep.path);
+    closeActionModal(true);
+    openVideo(fileUrl(ep.path), false, ep);
+    updateShowBadge(findShowDirForEpisodePath(ep.path));
   };
   downloadButton.onclick = ()=>{ closeActionModal(); startDownload(ep); };
+  // host a watch party of this episode
+  document.getElementById('togetherButton').onclick = ()=>{
+    const title = `${currentShow ? currentShow.name + ' · ' : ''}${ep.name || ''}`.slice(0, 70);
+    location.href = '/watch.html?' + new URLSearchParams({ host: '1', path: ep.path, title, cover: (currentShow && currentShow.cover) || '' });
+  };
 
   actionModal.style.display = 'flex';
+  NomadBack.open('sheet', closeSheet);
 }
 
 /* download */
 function startDownload(ep){
   if(!confirm(`Download "${ep.name}"?`)) return;
   const a = document.createElement('a');
-  // go through /media like playback does. a raw path truncated the request at the
-  // first # or ? in a filename, so those downloads 404'd while the file streamed fine
+  // go through /media like playback does. a raw path cuts the request off at the
+  // first # or ? in a filename
   a.href = `${MEDIA_ENDPOINT}?file=${encodeURIComponent(normalizePath(ep.path))}&download=1`;
-  a.download = ep.name || ep.file;
+  a.download = normalizePath(ep.path).split('/').pop() || ep.name;   // the file's own name, extension included
   document.body.appendChild(a);
   a.click();
   a.remove();
 }
 
 /* Player wiring & logic  */
-let stallTimer=null, stallRetries=0;
-let _meta=null, _pause=null, _seek=null, _ended=null;
-
-function detachVideoListeners(){ if(_meta) videoPlayer.removeEventListener('loadedmetadata', _meta); if(_pause) videoPlayer.removeEventListener('pause', _pause); if(_seek) videoPlayer.removeEventListener('seeked', _seek); if(_ended) videoPlayer.removeEventListener('ended', _ended); _meta=_pause=_seek=_ended=null; }
-function attachVideoListeners(){ detachVideoListeners(); _meta = ()=>{ videoPlayer.removeEventListener('loadedmetadata', _meta); startAutosave(); }; _pause = ()=>{ saveNow(); }; _seek = ()=>{ saveNow(); }; _ended = ()=>{ handleEpisodeEnded(); }; videoPlayer.addEventListener('loadedmetadata', _meta); videoPlayer.addEventListener('pause', _pause); videoPlayer.addEventListener('seeked', _seek); videoPlayer.addEventListener('ended', _ended); }
-
-// Enhanced stall watcher with 30-second intervals and stronger recovery
-function startStallWatcher(player, src) {
-  clearTimeout(stallTimer);
-  stallRetries = 0;
-  
-  let lastCurrentTime = 0;
-  let lastTimeCheck = Date.now();
-  let stallCheckInterval = null;
-  let consecutiveStalls = 0;
-  
-  function cleanupStallWatcher() {
-    clearTimeout(stallTimer);
-    if (stallCheckInterval) {
-      clearInterval(stallCheckInterval);
-      stallCheckInterval = null;
-    }
-  }
-  
-  function isPlayerStalled() {
-    if (player.paused || player.ended) return false;
-    
-    // Check if playback position hasn't advanced
-    const currentTime = player.currentTime;
-    const now = Date.now();
-    const timeDiff = now - lastTimeCheck;
-    
-    // If more than 5 seconds have passed and currentTime hasn't changed
-    if (timeDiff > 5000 && currentTime === lastCurrentTime) {
-      return true;
-    }
-    
-    // Check readyState - if trying to play but not ready
-    if (!player.paused && player.readyState < HTMLMediaElement.HAVE_CURRENT_DATA) {
-      return true;
-    }
-    
-    // Check if buffered regions are empty or far behind current time
-    if (player.buffered.length > 0) {
-      const bufferedEnd = player.buffered.end(player.buffered.length - 1);
-      if (currentTime > bufferedEnd + 30) {
-        return true;
-      }
-    }
-    
-    return false;
-  }
-  
-  function attemptRecovery() {
-    console.warn(`[StallWatcher] Attempting recovery (retry ${stallRetries + 1})`);
-    
-    const currentTime = player.currentTime;
-    stallRetries++;
-    consecutiveStalls++;
-    
-    // Progressive recovery strategies
-    if (consecutiveStalls === 1) {
-      // First try: just reload and resume
-      player.load();
-      player.addEventListener('loadeddata', () => {
-        player.currentTime = currentTime;
-        player.play().catch(e => console.warn('Recovery play failed:', e));
-      }, { once: true });
-      
-    } else if (consecutiveStalls === 2) {
-      // Second try: force new request with cache busting
-      const newSrc = `${src}${src.includes('?') ? '&' : '?'}_retry=${Date.now()}`;
-      player.src = newSrc;
-      player.load();
-      player.addEventListener('loadeddata', () => {
-        player.currentTime = currentTime;
-        player.play().catch(e => console.warn('Recovery play failed:', e));
-      }, { once: true });
-      
-    } else if (consecutiveStalls >= 3) {
-      // Third+ try: full reset with different approach
-      player.removeAttribute('src');
-      setTimeout(() => {
-        const newSrc = `${src}${src.includes('?') ? '&' : '?'}_reset=${Date.now()}&t=${Math.random()}`;
-        player.src = newSrc;
-        player.preload = 'auto';
-        player.load();
-        player.addEventListener('canplay', () => {
-          player.currentTime = currentTime;
-          player.play().catch(e => console.warn('Recovery play failed:', e));
-        }, { once: true });
-      }, 1000);
-    }
-  }
-  
-  function checkForStalls() {
-    if (isPlayerStalled()) {
-      console.warn('[StallWatcher] Stall detected');
-      attemptRecovery();
-    } else {
-      // Reset consecutive stalls if playback is healthy
-      if (consecutiveStalls > 0 && player.currentTime > lastCurrentTime) {
-        console.log('[StallWatcher] Playback recovered');
-        consecutiveStalls = 0;
-      }
-    }
-    
-    lastCurrentTime = player.currentTime;
-    lastTimeCheck = Date.now();
-  }
-  
-  // Start monitoring every 30 seconds
-  stallCheckInterval = setInterval(checkForStalls, 30000);
-  
-  // Also check more frequently for the first few minutes
-  let quickCheckCount = 0;
-  const quickCheckInterval = setInterval(() => {
-    quickCheckCount++;
-    checkForStalls();
-    
-    // Stop quick checks after 2 minutes
-    if (quickCheckCount >= 24) { // 24 * 5 seconds = 2 minutes
-      clearInterval(quickCheckInterval);
-    }
-  }, 5000);
-  
-  // Listen for network state changes
-  player.addEventListener('stalled', () => {
-    console.warn('[StallWatcher] Stalled event fired');
-    attemptRecovery();
-  });
-  
-  player.addEventListener('waiting', () => {
-    console.warn('[StallWatcher] Waiting event fired');
-    // Don't immediately retry on waiting, but check if it persists
-    setTimeout(() => {
-      if (isPlayerStalled()) {
-        attemptRecovery();
-      }
-    }, 10000);
-  });
-  
-  player.addEventListener('error', (e) => {
-    console.error('[StallWatcher] Player error:', e);
-    attemptRecovery();
-  });
-  
-  // Clean up on these events
-  const cleanupEvents = ['ended', 'pause'];
-  cleanupEvents.forEach(eventType => {
-    player.addEventListener(eventType, cleanupStallWatcher, { once: true });
-  });
-  
-  // Reset stalls counter on successful playing
-  player.addEventListener('playing', () => {
-    console.log('[StallWatcher] Playing - resetting counters');
-    stallRetries = 0;
-    consecutiveStalls = 0;
-  });
-  
-  // Initial check after a short delay
-  setTimeout(checkForStalls, 5000);
-}
 /* find index: exact path first -> basename fallback */
 function findIndexForPathOrBasename(path){
   const norm = normalizePath(path);
@@ -1334,44 +1179,29 @@ async function openVideo(src, useResume=false, ep=null){
 
   console.debug('[Shows] openVideo', { path: currentEpisode.path, index: currentEpisodeIndex });
 
-  console.log('[Shows openVideo] currentEpisode:', currentEpisode ? currentEpisode.path : 'NONE', 'useResume:', useResume);
-  const saved = findResumeForPath(currentEpisode);
-  console.log('[Shows openVideo] findResumeForPath result:', saved);
-  let startTime = 0;
-  if(useResume && saved && saved.entry && saved.entry.position > 1 && !saved.entry.completed){
-    startTime = saved.entry.position;
-  }
-  console.log('[Shows openVideo] startTime will be:', startTime);
+  // its own saved place, by exact path (a basename match could be another show's episode)
+  const saved = epState(currentEpisode);
+  const startTime = (useResume && hasPlace(saved)) ? saved.pos : 0;
+  console.log('[Shows openVideo]', currentEpisode.path, 'useResume:', useResume, 'startTime:', startTime);
 
+  // save nothing until the player has this episode: the old one's time and length linger
+  // on the element until then
+  const gen = ++openGen, playing = currentEpisode;
+  mediaReadyFor = null;
   videoPlayer.removeAttribute('src');
   videoPlayer.innerHTML = '';
+  // once its length is known it is noted as started, which drops the last episode's hold
+  videoPlayer.addEventListener('loadedmetadata', () => {
+    if(gen !== openGen) return;
+    mediaReadyFor = playing.path;
+    recordProgress(playing, startTime, videoPlayer.duration);
+  }, { once: true });
 
   if (!window.plyrInstance) {
-    window.plyrInstance = new Plyr(videoPlayer, {
-      iconUrl: '',            // sprite injected by NomadPlyr, see nomad-utils.js
-      loadSprite: false,
-      controls: [
-        'play-large',
-        'play',
-        'progress',
-        'current-time',
-        'duration',
-        'mute',
-        'volume',
-        'captions',
-        'settings',
-        'pip',
-        'airplay',
-        'fullscreen'
-      ],
-      settings: ['captions', 'speed'],
-      fullscreen: { enabled: true, fallback: true, iosNative: false },
-      clickToPlay: false,
-      hideControls: true,
-      resetOnEnd: false,
-      keyboard: { focused: true, global: true },
-      tooltips: { controls: true, seek: true }
-    });
+    // shared player build (nomad-utils.js). captions.update makes Plyr notice tracks appended
+    // after the player exists. Set per player, not in NomadPlyr's defaults: 'addtrack' also
+    // fires for in-band tracks, which would add a captions button on gallery and archive files.
+    window.plyrInstance = await NomadPlyr.create(videoPlayer, { captions: { update: true } });
 
     try {
       const allImages = document.querySelectorAll('img[loading="lazy"]');
@@ -1386,90 +1216,14 @@ async function openVideo(src, useResume=false, ep=null){
       console.warn('Could not pause image loading', e);
     }
 
-    window.plyrInstance.on('ended', () => {
-      handleEpisodeEnded();
-    });
-
-    window.plyrInstance.on('pause', () => {
-      saveNow();
-      releaseWakeLock().catch(()=>{});
-    });
-
-    window.plyrInstance.on('play', () => {
-      requestWakeLock().catch(()=>{});
-    });
-
-    window.plyrInstance.on('seeked', () => {
-      saveNow();
-    });
-
-    window.plyrInstance.on('enterfullscreen', async () => {
-      try {
-        if (screen.orientation && screen.orientation.lock) {
-          await screen.orientation.lock('landscape').catch(e => console.log('Orientation lock not supported:', e));
-        }
-      } catch(e) {
-        console.log('Could not lock orientation:', e);
-      }
-    });
-
-    window.plyrInstance.on('exitfullscreen', () => {
-      try {
-        if (screen.orientation && screen.orientation.unlock) {
-          screen.orientation.unlock();
-        }
-      } catch(e) {
-        console.log('Could not unlock orientation:', e);
-      }
-    });
-
-    setTimeout(() => {
-      const plyrWrapper = document.querySelector('.plyr__video-wrapper');
-      if (plyrWrapper) {
-        let lastTap = 0;
-        let tapTimeout = null;
-
-        plyrWrapper.addEventListener('touchend', (e) => {
-          const currentTime = Date.now();
-          const tapLength = currentTime - lastTap;
-
-          if (tapLength < 300 && tapLength > 0) {
-            clearTimeout(tapTimeout);
-            e.preventDefault();
-            e.stopPropagation();
-
-            const rect = plyrWrapper.getBoundingClientRect();
-            const touchX = e.changedTouches[0].clientX - rect.left;
-            const width = rect.width;
-
-            if (touchX < width / 3) {
-              window.plyrInstance.rewind(10);
-              console.log('Rewind 10s');
-            } else if (touchX > (2 * width) / 3) {
-              window.plyrInstance.forward(10);
-              console.log('Forward 10s');
-            }
-            lastTap = 0;
-          } else {
-            lastTap = currentTime;
-            tapTimeout = setTimeout(() => {
-              lastTap = 0;
-              if (window.plyrInstance && document.querySelector('.plyr--hide-controls') === null) {
-                const controlsDiv = document.querySelector('.plyr__controls');
-                if (controlsDiv && getComputedStyle(controlsDiv).opacity !== '0') {
-                  const video = document.querySelector('.plyr video');
-                  if (video) video.click();
-                }
-              }
-            }, 300);
-          }
-        });
-      }
-    }, 500);
+    window.plyrInstance.on('ended', () => { handleEpisodeEnded(); });
+    upNext.attach(window.plyrInstance);
+    window.plyrInstance.on('pause', () => { saveNow(); });
+    window.plyrInstance.on('seeked', () => { saveNow(); });
   }
 
   videoPlayer.src = src;
-  // all sidecar subtitles as selectable tracks; srt converted to VTT (browsers
+  // all sidecar subtitles as selectable tracks. srt converted to VTT (browsers
   // render nothing for raw srt in <track>)
   const subTracks = await NomadSubs.buildTracks(
     (currentEpisode.subtitles || []).map(p => ({ path: p, url: fileUrl(p) })),
@@ -1480,13 +1234,19 @@ async function openVideo(src, useResume=false, ep=null){
     track.label = sub.label;
     track.srclang = sub.srclang;
     track.src = sub.src;
-    if(sub.default) track.default = true;
     videoPlayer.appendChild(track);
   });
+  NomadSubs.keepOn(window.plyrInstance, videoPlayer);
   videoPlayer.load();
+  NomadPlyr.previews(window.plyrInstance, currentEpisode && currentEpisode.path);   // seek previews, if made
+  upNext.reset();
+  if (window.videoMarks) videoMarks.refresh();
 
   videoModal.style.display = 'flex';
+  NomadBack.open('sheet', closeSheet);
   videoTitle.textContent = currentEpisode.name || '';
+  updateNextBtn();
+  setMediaSession(currentEpisode);
 
   if (startTime > 0) {
     let seekDone = false;
@@ -1520,99 +1280,112 @@ async function openVideo(src, useResume=false, ep=null){
   }
 }
 
-/* When an episode ends: mark episode completed and either auto-advance to the next episode
-   (same behavior as clicking Next) OR, if there is no next episode, close the player/modal. */
+/* Up next: fullscreen only, in the last 3% of an episode (20 to 60 s), counting down to the
+   next one. Tap to go now, x to stay on this episode. */
+const upNext = {
+  el: null, cancelled: false, player: null,
+  attach(p){
+    this.player = p;
+    const box = p.elements && p.elements.container;
+    if(!box) return;
+    this.el = document.createElement('div');
+    this.el.className = 'up-next';
+    this.el.hidden = true;
+    this.el.innerHTML = `<button class="un-go" type="button"><span class="un-play" aria-hidden="true">&#9654;</span>
+        <span class="un-txt"><span class="un-when"></span><span class="un-name"><span class="un-code"></span><span class="un-title"></span></span></span></button>
+      <button class="un-x" type="button" aria-label="Stay on this episode" title="Stay on this episode">&times;</button>
+      <span class="un-bar" aria-hidden="true"></span>`;
+    box.appendChild(this.el);
+    this.el.querySelector('.un-go').addEventListener('click', (e) => { e.stopPropagation(); this.hide(); nextEpisode(); });
+    this.el.querySelector('.un-x').addEventListener('click', (e) => { e.stopPropagation(); this.cancelled = true; this.hide(); });
+    const tick = () => this.update();
+    p.on('timeupdate', tick);
+    p.on('enterfullscreen', tick);
+    p.on('exitfullscreen', tick);
+  },
+  next(){
+    if(!Array.isArray(flattenedEpisodes)) return null;
+    let i = currentEpisodeIndex;
+    if((i === undefined || i === -1) && currentEpisode && currentEpisode.path) i = findIndexForPathOrBasename(currentEpisode.path);
+    return (i !== undefined && i !== null && i + 1 < flattenedEpisodes.length) ? flattenedEpisodes[i + 1] : null;
+  },
+  update(){
+    const p = this.player;
+    if(!this.el || !p) return;
+    const dur = p.duration || 0, left = dur - (p.currentTime || 0);
+    const window_ = Math.min(60, Math.max(20, dur * 0.03));
+    const nxt = this.next();
+    const show = !this.cancelled && !!nxt && dur > 60 && left > 0 && left <= window_ && p.fullscreen && p.fullscreen.active;
+    this.el.hidden = !show;
+    if(show){
+      // "S01E02 - Trouble in Lumpy Space" reads as a small "S1 E2" and the title
+      const c = epCode(nxt);
+      this.el.querySelector('.un-code').textContent = c.code;
+      this.el.querySelector('.un-title').textContent = c.title;
+      this.el.querySelector('.un-name').title = nxt.name || '';
+      this.el.querySelector('.un-when').textContent = `Next episode in ${Math.ceil(left)}s`;
+      this.el.querySelector('.un-bar').style.transform = `scaleX(${Math.max(0, Math.min(1, left / window_))})`;
+    }
+  },
+  hide(){ if(this.el) this.el.hidden = true; },
+  reset(){ this.cancelled = false; this.hide(); },
+};
+
+/* When an episode ends it is finished, then the next one plays (the same as Next). The x on
+   Up next stays on this one. After the last episode the player closes onto the list. */
 function handleEpisodeEnded(){
   console.debug('[Shows] episode ended', currentEpisode && currentEpisode.path);
-  if(currentEpisode && currentEpisode.path){
-    try {
-      const store = readResume();
-      const key = fileKey(currentEpisode.path, currentEpisode.sz||0, currentEpisode.mt||0);
-      const dur = window.plyrInstance ? Math.floor(window.plyrInstance.duration || 0) : 0;
-      store[key] = { completed: true, position: 0, duration: dur, updated: Date.now(), title: currentEpisode.name || '' };
-      writeResume(store);
-    } catch(e){ console.warn('failed to mark completed', e); }
-  }
-
-  // Stop the periodic autosave
+  const dur = window.plyrInstance ? window.plyrInstance.duration || 0 : 0;
+  if(mediaReadyFor && currentEpisode && mediaReadyFor === currentEpisode.path) recordProgress(currentEpisode, dur, dur);
   stopAutosave();
-
-  // Determine current index robustly
-  let curIdx = currentEpisodeIndex;
-  if((curIdx === undefined || curIdx === -1) && currentEpisode && currentEpisode.path) curIdx = findIndexForPathOrBasename(currentEpisode.path);
-  if(curIdx === undefined || curIdx === null) {
-    // no index info; just close everything
-    closeVideo(false);
-    closeEpisodeModal();
-    renderGrid();
-    return;
-  }
-
-  const nextIdx = curIdx + 1;
-  if(Array.isArray(flattenedEpisodes) && nextIdx < flattenedEpisodes.length){
-    // Auto-advance: reuse nextEpisode() logic so behavior is identical to manual Next button
-    // Set currentEpisodeIndex correctly and call nextEpisode() which will update UI/resume.
-    currentEpisodeIndex = curIdx; // ensure nextEpisode computes next from the right base
-    try {
-      nextEpisode();
-    } catch(e){
-      console.warn('auto next failed', e);
-      // fallback: close if next failed
-      closeVideo(false);
-      closeEpisodeModal();
-    }
-    // update only the affected show's badge (nextEpisode will update the player)
-    const sd = findShowDirForEpisodePath(currentEpisode && currentEpisode.path);
-    if(sd) updateShowBadge(sd);
-
+  if(upNext.cancelled){ upNext.reset(); return; }
+  if(upNext.next()){
+    nextEpisode().catch(e => { console.warn('auto next failed', e); closeVideo(false); });
   } else {
-    // No more episodes: close player and episode modal 
     closeVideo(false);
-    closeEpisodeModal();
-    const sd = findShowDirForEpisodePath(currentEpisode && currentEpisode.path);
-    if(sd) updateShowBadge(sd);
   }
 }
 
-/* Next button (manual) - still allowed; moves to next ep if available */
-async function nextEpisode(){
-  console.debug('[Shows] nextEpisode called, currentIndex=', currentEpisodeIndex);
-  if(!flattenedEpisodes || flattenedEpisodes.length === 0) return;
-  let curIdx = currentEpisodeIndex;
-  if(curIdx === -1 && currentEpisode && currentEpisode.path) curIdx = findIndexForPathOrBasename(currentEpisode.path);
-  if(curIdx === undefined || curIdx === null) { closeVideo(true); return; }
-  const nextIdx = curIdx + 1;
-  if(nextIdx >= flattenedEpisodes.length){ closeVideo(true); return; }
-  const next = flattenedEpisodes[nextIdx];
-  console.debug('[Shows] nextEpisode ->', nextIdx, next.path);
+// Next says when this is the last episode instead of closing the player
+function updateNextBtn(){
+  const has = !!upNext.next();
+  videoNextBtn.disabled = !has;
+  videoNextBtn.textContent = has ? 'Next' : 'Last episode';
+  videoNextBtn.title = has ? `Next: ${epShort(upNext.next())}` : 'This is the last episode';
+}
 
+/* the lock screen and notification: which episode of which show, and its next button */
+function setMediaSession(ep){
+  if(!('mediaSession' in navigator) || typeof MediaMetadata === 'undefined') return;
   try {
-    const key = fileKey(next.path, next.sz||0, next.mt||0);
-    const entry = { position: 1, duration: next.sz || 0, updated: Date.now(), title: next.name || '' };
-    saveResumeEntryByKey(key, entry, true);
-  } catch(e){ console.warn('saving resume for next failed', e); }
+    if(!ep){ navigator.mediaSession.metadata = null; navigator.mediaSession.setActionHandler('nexttrack', null); return; }
+    const show = showForPath(ep.path), c = epCode(ep);
+    navigator.mediaSession.metadata = new MediaMetadata({
+      title: c.title || ep.name || '',
+      artist: [show && show.name, c.code].filter(Boolean).join(' · '),
+      album: ep.season || '',
+      artwork: show && show.cover ? [{ src: `${MEDIA_ENDPOINT}?file=${encodeURIComponent(show.cover)}` }] : []
+    });
+    navigator.mediaSession.setActionHandler('nexttrack', upNext.next() ? () => { nextEpisode(); } : null);
+  } catch(e){ console.warn('mediaSession', e); }
+}
 
-  currentEpisodeIndex = nextIdx;
+/* Next (the button, Up next, the end of an episode): play the next one from its start. Its
+   place is noted as soon as it loads, which drops the hold on the one you left. */
+async function nextEpisode(){
+  const next = upNext.next();
+  console.debug('[Shows] nextEpisode ->', next && next.path);
+  if(!next){ updateNextBtn(); return; }
+
+  currentEpisodeIndex = findIndexForPathOrBasename(next.path);
   currentEpisode = Object.assign({}, next);
-
   videoTitle.textContent = currentEpisode.name || '';
 
-  const src = fileUrl(currentEpisode.path);
-  const subtitles = await NomadSubs.buildTracks(
-    (currentEpisode.subtitles || []).map(p => ({ path: p, url: fileUrl(p) })),
-    currentEpisode.path);
-
-  if(window.plyrInstance){
-    window.plyrInstance.source = {
-      type: 'video',
-      sources: [{ src: src, type: 'video/mp4' }],
-      tracks: subtitles
-    };
-    window.plyrInstance.play().catch(()=>{});
-  }
-
-  const sd = findShowDirForEpisodePath(currentEpisode && currentEpisode.path);
-  if(sd) updateShowBadge(sd);
+  // Go through openVideo, never Plyr's source setter. The setter replaces the <video> element,
+  // which orphans `videoPlayer` (a hidden second download, later picks play nothing), and its
+  // blank src "" fetches this page as media. openVideo also restarts autosave.
+  // Captions here need captions:{update:true} in NomadPlyr.create, keep the two together.
+  await openVideo(fileUrl(currentEpisode.path), false, currentEpisode);
 }
 
 /* Autosave */
@@ -1621,55 +1394,13 @@ function stopAutosave(){ if(autosaveTimer){ clearInterval(autosaveTimer); autosa
 
 function saveNow(){
   try {
-    if(!currentEpisode || !currentEpisode.path) return;
-    if(!window.plyrInstance) return;
-    const cur = Math.floor(window.plyrInstance.currentTime || 0);
-    const dur = Math.floor(window.plyrInstance.duration || 0);
-    if(!isFinite(cur)) return;
-    if(cur > 0 && dur > 0){
-      const key = fileKey(currentEpisode.path, currentEpisode.sz || 0, currentEpisode.mt || 0);
-
-      const store = readResume();
-      const existing = store[key];
-      if(existing && existing.completed) return;
-
-      const entry = { position: cur, duration: dur, updated: Date.now(), title: currentEpisode.name || '' };
-
-      saveResumeEntryByKey(key, entry, true);
-
-      console.debug('[Shows] autosave', { key, pos: cur, dur });
-
-      const showDir = findShowDirForEpisodePath(currentEpisode.path);
-      if(showDir) updateShowBadge(showDir);
-
-      if(episodeModal.style.display === 'flex' && currentShow && normalizePath(currentShow.dir) === showDir){
-        const showResume = findResumeForShowDir(showDir);
-        if(showResume && showResume.entry && !showResume.entry.completed && (showResume.entry.position && showResume.entry.position > 0)){
-          episodeResumeBanner.style.display='block'; episodeResumeBanner.innerHTML = '';
-          const txt = document.createElement('div'); txt.textContent = `${showResume.entry.title || showResume.path.split('/').pop()} • ${formatTime(showResume.entry.position || 0)}`; txt.style.marginBottom='6px';
-          const btn = document.createElement('button'); btn.className='secondary';
-          btn.textContent = `Resume: ${(showResume.entry.title || showResume.path.split('/').pop()).slice(0,48)} • ${formatTime(showResume.entry.position || 0)}`;
-          btn.onclick = () => {
-            const idx = findIndexForPathOrBasename(showResume.path);
-            if(idx !== undefined && idx !== null){
-              openActionModalForEpisode(flattenedEpisodes[idx]);
-              openVideo(fileUrl(flattenedEpisodes[idx].path), true, flattenedEpisodes[idx]);
-            } else {
-              openVideo(fileUrl(showResume.path), true, { name: showResume.entry.title || showResume.path.split('/').pop(), path: showResume.path });
-            }
-            closeEpisodeModal();
-          };
-          episodeResumeBanner.appendChild(txt);
-          episodeResumeBanner.appendChild(btn);
-        } else {
-          episodeResumeBanner.style.display='none'; episodeResumeBanner.innerHTML='';
-        }
-      }
-
-    }
+    if(!currentEpisode || !currentEpisode.path || !window.plyrInstance) return;
+    if(mediaReadyFor !== currentEpisode.path) return;   // still loading: the time on the player is the last episode's
+    const cur = window.plyrInstance.currentTime || 0;
+    const dur = window.plyrInstance.duration || 0;
+    if(cur > 0 && dur > 0) recordProgress(currentEpisode, cur, dur);
   } catch(e){ console.warn('saveNow failed', e); }
 }
-
 
 
 /* UI helpers: search, sort, view size */
@@ -1678,17 +1409,17 @@ const sortSelect = document.getElementById('sortSelect');
 const viewButtons = document.querySelectorAll('.view-btn');
 
 function applyFilter(term=''){ const lower = (term||'').trim().toLowerCase(); filtered = !lower ? shows.slice() : shows.filter(s => (s.name||'').toLowerCase().includes(lower)); applySort(sortSelect.value || 'nameAsc'); }
-function applySort(mode='nameAsc'){ filtered.sort((a,b) => mode === 'nameDesc' ? b.name.localeCompare(a.name) : a.name.localeCompare(b.name)); renderGrid(); }
+function applySort(mode='nameAsc'){ filtered.sort((a,b) => mode === 'nameDesc' ? byName.compare(b.name, a.name) : byName.compare(a.name, b.name)); renderGrid(); }
 function setViewSize(size){ currentSize = size; viewButtons.forEach(btn => { btn.classList.toggle('active', btn.dataset.size === size); btn.setAttribute('aria-pressed', btn.dataset.size === size ? 'true' : 'false'); }); gridEl.className = `media-grid ${size}`; localStorage.setItem('nomadShowsSize', size); }
 
 /* Index watcher + load library */
 async function checkIndex(){
-  // Skip when the tab is hidden or a video is playing. The library cannot
-  // change while you are watching, and the poll competes for the SD mutex.
+  // skipped while hidden or playing: the poll competes for the SD mutex
   if(document.hidden) return;
   if(videoModal && videoModal.style.display === 'flex') return;
   try {
-    const res = await fetch(`${INDEX_ENDPOINT}?path=${encodeURIComponent(ROOT_PATH)}&_=${Date.now()}`, { cache: 'no-store' });
+    // revalidated, not re-fetched: an unchanged index answers 304 (the device sends its sig as an ETag)
+    const res = await fetch(`${INDEX_ENDPOINT}?path=${encodeURIComponent(ROOT_PATH)}`, { cache: 'no-cache' });
     if(!res.ok) return;
     const text = await res.text();
     const headerLine = text.split('\n')[0];
@@ -1700,10 +1431,6 @@ async function checkIndex(){
   } catch(e){}
 }
 
- // Removed duplicate loadLibrary function
-
-/* Handle incoming hash like #open=%2FShows%2FShowName%2FS1%20E1.mp4
-*/
 /* Handle incoming hash like #open=%2FShows%2FShowName%2FS1%20E1.mp4
 */
 async function handleHashOpenIfPresent(){
@@ -1764,7 +1491,7 @@ async function handleHashOpenIfPresent(){
       }
     }
 
-    // Otherwise treat open as an explicit episode/file request (existing behavior preserved)
+    // Otherwise treat open as an explicit episode/file request
     // Attempt to find the parent show (first two segments)
     if(parts.length < 3){
       // not enough info to identify an episode; clear hash and exit
@@ -1800,7 +1527,7 @@ async function handleHashOpenIfPresent(){
     const idx = findIndexForPathOrBasename(openPath);
     const ep = (idx !== undefined && idx !== null) ? flattenedEpisodes[idx] : null;
 
-    // Preserve prior behavior: if a specific episode was requested, open it in the player (resume)
+    // if a specific episode was requested, open it in the player (resume)
     if(ep){
       openVideo(fileUrl(ep.path), true, ep);
     } else {

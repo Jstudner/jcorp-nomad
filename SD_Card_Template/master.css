@@ -26,7 +26,6 @@
    20. Utility Classes
    ============================================ */
 
-
 /* ============================================
    1. CSS VARIABLES (LIGHT THEME)
    customizable themeable variables
@@ -35,9 +34,10 @@
 :root {
   /* === BRAND COLORS  === */
   --primary: #007bff;
+  --primary-rgb: 0, 123, 255;   /* --primary as channels, for the alpha tints below */
   --primary-dark: #0056b3;
   --primary-600: #0066d6;
-  /* white for text/icons on a colored bg. a bunch of pages used var(--color-white) but it was never defined */
+  /* white for text/icons on a colored bg, a bunch of pages use var(--color-white) */
   --color-white: #ffffff;
   --success: #28a745;
   --warning: #ffc107;
@@ -54,10 +54,41 @@
   --text-light: #212529;
   --muted: #6b7280;
   --line: rgba(11, 18, 32, 0.06);
+
+  /* Tints and overlays the media pages use. An undefined var() drops the whole
+     declaration, so keep these defined. The names say the value. */
+  --color-black: #000;
+  --white-alpha-3: rgba(255, 255, 255, 0.03);
+  --white-alpha-4: rgba(255, 255, 255, 0.04);
+  --white-alpha-6: rgba(255, 255, 255, 0.06);
+  --white-alpha-8: rgba(255, 255, 255, 0.08);
+  --white-alpha-12: rgba(255, 255, 255, 0.12);
+  --white-alpha-20: rgba(255, 255, 255, 0.2);
+  --white-alpha-30: rgba(255, 255, 255, 0.3);
+  --white-alpha-80: rgba(255, 255, 255, 0.8);
+  --black-alpha-4: rgba(0, 0, 0, 0.04);
+  --black-alpha-6: rgba(0, 0, 0, 0.06);
+  --black-alpha-8: rgba(0, 0, 0, 0.08);
+  --black-alpha-10: rgba(0, 0, 0, 0.1);
+  --black-alpha-12: rgba(0, 0, 0, 0.12);
+  --primary-alpha-5: rgba(var(--primary-rgb), 0.05);
+  --primary-alpha-8: rgba(var(--primary-rgb), 0.08);
+  --primary-alpha-10: rgba(var(--primary-rgb), 0.1);
+  --primary-alpha-20: rgba(var(--primary-rgb), 0.2);
+  --primary-alpha-30: rgba(var(--primary-rgb), 0.3);
+  --overlay-modal: rgba(0, 0, 0, 0.55);   /* same value .modal uses */
+  --overlay-video: rgba(0, 0, 0, 0.7);    /* same value .plyr controls use */
+  --overlay-menu: rgba(0, 0, 0, 0.9);     /* same value the dark Plyr menu uses */
+  --text-gray: var(--muted);
+  --red: var(--danger);
+  --surface: var(--card);
+  --audio-height: 0px;                    /* books.html sets the live value */
+  --progress-dark: var(--white-alpha-12);
+  --time-dark: var(--muted);
   --header-text: #ffffff;
 
   /* === STATE COLORS === */
-  --playing-bg: #0b63ff;
+  --playing-bg: var(--primary);   /* follows the card's theme */
   --playing-text: #ffffff;
 
   /* === TYPOGRAPHY === */
@@ -132,7 +163,6 @@
   --ease-out: cubic-bezier(0.2, 0.9, 0.2, 1);
 }
 
-
 /* ============================================
    2. CSS VARIABLES (DARK THEME)
    Dark mode color overrides
@@ -152,11 +182,18 @@ body.dark {
 
   /* === DARK BRAND COLORS === */
   --primary: #4aa3ff;
+  --primary-rgb: 74, 163, 255;
   --primary-dark: #2f84ff;
   --primary-600: #0a74e0;
+  /* redeclared so the tints follow the dark primary (and a theme's), not :root's light one */
+  --primary-alpha-5: rgba(var(--primary-rgb), 0.05);
+  --primary-alpha-8: rgba(var(--primary-rgb), 0.08);
+  --primary-alpha-10: rgba(var(--primary-rgb), 0.1);
+  --primary-alpha-20: rgba(var(--primary-rgb), 0.2);
+  --primary-alpha-30: rgba(var(--primary-rgb), 0.3);
 
   /* === DARK STATE COLORS === */
-  --playing-bg: #0a84ff;
+  --playing-bg: var(--primary);
   --playing-text: #ffffff;
 
   /* === DARK SHADOWS === */
@@ -165,8 +202,19 @@ body.dark {
   --shadow-medium: 0 6px 18px rgba(0, 0, 0, 0.45);
   --shadow-large: 0 12px 36px rgba(0, 0, 0, 0.5);
   --shadow-xl: 0 20px 64px rgba(0, 0, 0, 0.75);
-}
 
+  /* aliases redeclared: a var() in a custom property resolves where it is defined, so
+     :root's --surface: var(--card) would keep the LIGHT card colour under body.dark */
+  --surface: var(--card);
+  --text-gray: var(--muted);
+  --red: var(--danger);
+  --time-dark: var(--muted);
+  --primary-alpha-5: rgba(var(--primary-rgb), 0.05);
+  --primary-alpha-8: rgba(var(--primary-rgb), 0.08);
+  --primary-alpha-10: rgba(var(--primary-rgb), 0.1);
+  --primary-alpha-20: rgba(var(--primary-rgb), 0.2);
+  --primary-alpha-30: rgba(var(--primary-rgb), 0.3);
+}
 
 /* ============================================
    3. CSS RESET & BASE STYLES
@@ -216,7 +264,6 @@ input, select, textarea {
   font-family: inherit;
   font-size: inherit;
 }
-
 
 /* ============================================
    4. TYPOGRAPHY
@@ -272,7 +319,6 @@ p {
   font-family: var(--font-mono);
 }
 
-
 /* ============================================
    5. LAYOUT SYSTEM
    Container and page structure
@@ -312,7 +358,6 @@ main {
   width: 100%;
   align-items: center;
 }
-
 
 /* ============================================
    6. HEADER COMPONENT
@@ -458,7 +503,6 @@ header h1 {
   cursor: pointer;
 }
 
-
 /* ============================================
    7. TOOLBAR COMPONENT
    Search, filter, and control bars
@@ -583,7 +627,6 @@ body.dark .toolbar {
   flex-wrap: wrap;
 }
 
-
 /* ============================================
    8. BUTTON SYSTEM
    All button variants
@@ -674,7 +717,6 @@ body.dark .toolbar {
   white-space: nowrap;
 }
 
-
 /* ============================================
    9. FORM ELEMENTS
    Inputs, selects, textareas
@@ -723,7 +765,6 @@ input[type="checkbox"] {
   height: 18px;
   cursor: pointer;
 }
-
 
 /* ============================================
    10. CARD SYSTEM
@@ -846,7 +887,6 @@ body.dark .fallback-text {
   display: none;
 }
 
-
 /* ============================================
    11. GRID SYSTEM
    Responsive grid layouts
@@ -925,7 +965,6 @@ body.dark .fallback-text {
   text-align: center;
   width: 100%;
 }
-
 
 /* ============================================
    12. MODAL SYSTEM
@@ -1063,7 +1102,6 @@ body.dark .loading-overlay {
 .loading-overlay.hidden {
   display: none;
 }
-
 
 /* ============================================
    13. MEDIA PLAYER COMPONENTS
@@ -1217,20 +1255,6 @@ body.dark .progress {
   border-radius: var(--radius);
 }
 
-.plyr {
-  --plyr-color-main: var(--primary);
-  --plyr-video-controls-background: rgba(0, 0, 0, 0.7);
-  border-radius: var(--radius);
-  width: 100%;
-}
-
-body.dark .plyr {
-  --plyr-video-background: #000;
-  --plyr-menu-background: rgba(0, 0, 0, 0.9);
-  --plyr-menu-color: #fff;
-}
-
-
 /* ============================================
    14. NAVIGATION COMPONENTS
    Breadcrumbs, tabs, pagination
@@ -1314,7 +1338,6 @@ body.dark .plyr {
   letter-spacing: 0.05em;
   margin-bottom: 0.5rem;
 }
-
 
 /* ============================================
    15. BADGE & LABEL COMPONENTS
@@ -1400,7 +1423,6 @@ body.dark .badge-resume {
   white-space: nowrap;
   font-size: 0.95rem;
 }
-
 
 /* ============================================
    16. LIST COMPONENTS
@@ -1511,65 +1533,10 @@ body.dark .file-list li {
   text-align: right;
 }
 
-
 /* ============================================
    17. SPECIALIZED COMPONENTS
-   Resume panels, search results, etc.
+   Search results, etc.
    ============================================ */
-
-.resume-panel {
-  margin-top: var(--spacing-lg);
-  max-width: 760px;
-  margin-left: auto;
-  margin-right: auto;
-  background: var(--card);
-  border-radius: var(--radius-large);
-  border: 1px solid var(--line);
-  padding: var(--spacing-md);
-  box-shadow: var(--shadow-large);
-  text-align: center;
-  overflow: visible;
-}
-
-.resume-panel h3 {
-  margin: 0 0 var(--spacing-sm);
-  font-size: 1rem;
-  color: var(--text);
-}
-
-.resume-list {
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
-  align-items: center;
-  justify-content: center;
-  max-width: 720px;
-  margin: 0 auto;
-}
-
-.resume-section {
-  display: flex;
-  gap: var(--spacing-md);
-  align-items: center;
-  justify-content: center;
-  flex-wrap: nowrap;
-}
-
-.resume-item {
-  width: 140px;
-  height: 200px;
-  min-width: 120px;
-  border-radius: var(--radius-medium);
-  overflow: hidden;
-  position: relative;
-  background: linear-gradient(180deg, rgba(0, 0, 0, 0.03), transparent);
-  border: 1px solid var(--line);
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  box-sizing: border-box;
-}
 
 .results-panel {
   position: absolute;
@@ -1704,7 +1671,6 @@ body.dark .file-list li {
   padding: 0.3em 0.4em;
 }
 
-
 /* ============================================
    18. ANIMATIONS & TRANSITIONS
    Keyframes and animation utilities
@@ -1770,7 +1736,6 @@ body.dark .file-list li {
   animation-fill-mode: both;
   will-change: transform, opacity;
 }
-
 
 /* ============================================
    19. RESPONSIVE BREAKPOINTS
@@ -1849,7 +1814,7 @@ body.dark .file-list li {
   }
 
   .media-grid.small {
-    grid-template-columns: repeat(2, 1fr);
+    grid-template-columns: repeat(4, 1fr);
   }
 
   .media-grid.medium {
@@ -1857,7 +1822,7 @@ body.dark .file-list li {
   }
 
   .media-grid.large {
-    grid-template-columns: repeat(4, 1fr);
+    grid-template-columns: repeat(2, 1fr);
   }
 
   .controls {
@@ -1902,7 +1867,6 @@ body.dark .file-list li {
     padding: 1rem;
   }
 }
-
 
 /* ============================================
    20. UTILITY CLASSES
@@ -2032,31 +1996,9 @@ body.dark .file-list li {
 .mb-lg {
   margin-bottom: var(--spacing-lg);
 }
-
-.pt-md {
-  padding-top: var(--spacing-md);
-}
-
-.pt-lg {
-  padding-top: var(--spacing-lg);
-}
-
-.pb-lg {
-  padding-bottom: var(--spacing-lg);
-}
-
-body.dark .reader-container {
-  background: var(--bg);
-  color: var(--text);
-}
-
-body.dark .reader-header {
-  background: var(--primary);
-}
 .pt-sm {
   padding-top: var(--spacing-sm);
 }
-
 .pt-md {
   padding-top: var(--spacing-md);
 }
@@ -2064,40 +2006,6 @@ body.dark .reader-header {
 .pt-lg {
   padding-top: var(--spacing-lg);
 }
-
-.pb-lg {
-  padding-bottom: var(--spacing-lg);
-}
-
-body.dark .reader-container {
-  background: var(--bg);
-  color: var(--text);
-}
-
-body.dark .reader-header {
-  background: var(--primary);
-}
-.pt-md {
-  padding-top: var(--spacing-md);
-}
-
-.pt-lg {
-  padding-top: var(--spacing-lg);
-}
-
-.pb-lg {
-  padding-bottom: var(--spacing-lg);
-}
-
-body.dark .reader-container {
-  background: var(--bg);
-  color: var(--text);
-}
-
-body.dark .reader-header {
-  background: var(--primary);
-}
-
 
 .pb-md {
   padding-bottom: var(--spacing-md);
@@ -2235,1582 +2143,166 @@ body.dark .plyr {
   --plyr-menu-color: #fff;
 }
 
-
-/* === RESPONSIVE ADJUSTMENTS ===
-@media (max-width: 600px) {
-  header {
-    flex-direction: row;
-    gap: 0.5rem;
-  }
-
-  .toolbar {
-    top: 68px;
-  }
-
-  .media-grid.small {
-    grid-template-columns: repeat(2, 1fr);
-  }
-
-  .media-grid.medium {
-    grid-template-columns: repeat(3, 1fr);
-  }
-
-  .media-grid.large {
-    grid-template-columns: repeat(4, 1fr);
-  }
-}
-
-   /* === INDEX.HTML (Landing Page) === */
-
-/* === RESPONSIVE ADJUSTMENTS === */
-@media (max-width: 600px) {
-  header {
-    flex-direction: row;
-
-
-/* === RESPONSIVE ADJUSTMENTS ===
-@media (max-width: 600px) {
-  header {
-    flex-direction: row;
-    gap: 0.5rem;
-  }
-
-  .toolbar {
-    top: 68px;
-  }
-
-  .media-grid.small {
-    grid-template-columns: repeat(2, 1fr);
-  }
-
-  .media-grid.medium {
-    grid-template-columns: repeat(3, 1fr);
-  }
-
-
-
-/* === RESPONSIVE ADJUSTMENTS ===
-@media (max-width: 600px) {
-  header {
-    flex-direction: row;
-    gap: 0.5rem;
-  }
-/* ============================================
-   21. PAGE-SPECIFIC STYLES
-   Custom styles for individual pages
-   ============================================ */
-
 /* === INDEX.HTML (Landing Page) === */
-body[data-page="index"] {
-  height: 100vh;
-  display: flex;
-  flex-direction: column;
-}
 
-/* === RESPONSIVE ADJUSTMENTS === */
+/* Phones: header stays a row */
+
 @media (max-width: 600px) {
   header {
     flex-direction: row;
-    gap: 0.5rem;
-  }
-
-
-/* === RESPONSIVE ADJUSTMENTS ===
-@media (max-width: 600px) {
-  header {
-    flex-direction: row;
-    gap: 0.5rem;
-  }
-
-  .toolbar {
-    top: 68px;
-  }
-
-  .media-grid.small {
-    grid-template-columns: repeat(2, 1fr);
-  }
-
-  .media-grid.medium {
-    grid-template-columns: repeat(3, 1fr);
-  }
-
-  .media-grid.large {
-    grid-template-columns: repeat(4, 1fr);
   }
 }
 
-body[data-page="index"] .content {
-  flex-grow: 1;
-  padding: 20px;
-  display: flex;
-  flex-direction: column;
-  justify-content: center;
-  align-items: center;
-}
-
-body[data-page="index"] .instructions {
-  font-size: 1.1em;
-  background-color: var(--card-bg);
-  border-radius: var(--radius);
-  width: 90%;
-  max-width: 500px;
-  padding: 20px;
-  box-sizing: border-box;
-  box-shadow: var(--shadow);
-}
-
-body[data-page="index"] #copyLink {
-  padding: 8px;
-  font-size: 1em;
-  text-align: center;
-  width: 80%;
-  margin-bottom: 20px;
-  box-sizing: border-box;
-  word-wrap: break-word;
-  background-color: var(--card-bg);
-  border: 1px solid var(--card-border);
-  color: var(--text);
-  border-radius: var(--radius-small);
-}
-
-body[data-page="index"] .buttons {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: center;
-  gap: 15px;
-  margin-top: 20px;
-}
-
-body[data-page="index"] .buttons a {
-  background-color: var(--primary);
-  color: white;
-  text-decoration: none;
-  padding: 15px 25px;
-  border-radius: var(--radius);
-  transition: background-color 0.3s;
-  font-size: 1.2em;
-  text-align: center;
-}
-
-body[data-page="index"] .buttons a:hover {
-  background-color: var(--primary-dark);
-}
-
-@media (max-width: 600px) {
-  body[data-page="index"] .buttons {
-    flex-direction: column;
-    gap: 10px;
-  }
-  body[data-page="index"] .buttons a {
-    width: 90%;
-    padding: 12px;
-    font-size: 1em;
-  }
-}
-
-/* === MENU.HTML === */
-body[data-page="menu"] {
-  display: flex;
-  flex-direction: column;
-}
-  .media-grid.large {
-    grid-template-columns: repeat(4, 1fr);
-  }
-}
-
-/* ============================================
-   21. PAGE-SPECIFIC STYLES
-   Custom styles for individual pages
-   ============================================ */
-
-/* === INDEX.HTML (Landing Page) === */
-body[data-page="index"] {
-  height: 100vh;
-  display: flex;
-  flex-direction: column;
-}
-
-body[data-page="index"] .content {
-  flex-grow: 1;
-  padding: 20px;
-  display: flex;
-  flex-direction: column;
-  justify-content: center;
-  align-items: center;
-  text-align: center;
-}
-
-@media (max-width: 600px) {
-  body[data-page="index"] .tiles {
-    gap: 12px;
-    padding: 12px;
-    font-size: 1em;
-  }
-}
-
-
-
-/* === RESPONSIVE ADJUSTMENTS ===
-@media (max-width: 600px) {
-  header {
-    flex-direction: row;
-    gap: 0.5rem;
-  }
-/* ============================================
-   21. PAGE-SPECIFIC STYLES
-   Custom styles for individual pages
-   ============================================ */
-
-/* === INDEX.HTML (Landing Page) === */
-body[data-page="index"] {
-  height: 100vh;
-  display: flex;
-  flex-direction: column;
-}
-
-/* === RESPONSIVE ADJUSTMENTS === */
-@media (max-width: 600px) {
-  header {
-    flex-direction: row;
-    gap: 0.5rem;
-  }
-
-
-/* === RESPONSIVE ADJUSTMENTS ===
-@media (max-width: 600px) {
-  header {
-    flex-direction: row;
-    gap: 0.5rem;
-  }
-
-  .toolbar {
-    top: 68px;
-  }
-
-  .media-grid.small {
-    grid-template-columns: repeat(2, 1fr);
-  }
-
-  .media-grid.medium {
-    grid-template-columns: repeat(3, 1fr);
-  }
-
-  .media-grid.large {
-    grid-template-columns: repeat(4, 1fr);
-  }
-}
-=======
-/* === MENU.HTML === */
-body[data-page="menu"] {
-  display: flex;
-  flex-direction: column;
-}
-
-/* ============================================
-   21. PAGE-SPECIFIC STYLES
-   Custom styles for individual pages
-   ============================================ */
-
-/* === INDEX.HTML (Landing Page) === */
-body[data-page="index"] {
-  height: 100vh;
-  display: flex;
-  flex-direction: column;
-}
-
-/* === RESPONSIVE ADJUSTMENTS === */
-@media (max-width: 600px) {
-  header {
-    flex-direction: row;
-    gap: 0.5rem;
-  }
-
-  .toolbar {
-    top: 68px;
-  }
-
-  .media-grid.small {
-    grid-template-columns: repeat(2, 1fr);
-  }
-
-  .media-grid.medium {
-    grid-template-columns: repeat(3, 1fr);
-  }
-
-  .media-grid.large {
-    grid-template-columns: repeat(4, 1fr);
-  }
-}
-   ============================================ */
-
-
-/* === RESPONSIVE ADJUSTMENTS ===
-@media (max-width: 600px) {
-  header {
-    flex-direction: row;
-    gap: 0.5rem;
-  }
-/* ============================================
-   21. PAGE-SPECIFIC STYLES
-   Custom styles for individual pages
-   ============================================ */
-
-/* === INDEX.HTML (Landing Page) === */
-body[data-page="index"] {
-  height: 100vh;
-  display: flex;
-  flex-direction: column;
-}
-
-/* === RESPONSIVE ADJUSTMENTS === */
-@media (max-width: 600px) {
-  header {
-    flex-direction: row;
-    gap: 0.5rem;
-  }
-
-
-/* === RESPONSIVE ADJUSTMENTS ===
-@media (max-width: 600px) {
-  header {
-    flex-direction: row;
-    gap: 0.5rem;
-  }
-
-  .toolbar {
-    top: 68px;
-  }
-
-  .media-grid.small {
-    grid-template-columns: repeat(2, 1fr);
-  }
-
-  .media-grid.medium {
-    grid-template-columns: repeat(3, 1fr);
-  }
-
-  .media-grid.large {
-    grid-template-columns: repeat(4, 1fr);
-  }
-}
-
-body[data-page="index"] .content {
-  flex-grow: 1;
-  padding: 20px;
-  display: flex;
-  flex-direction: column;
-  justify-content: center;
-  align-items: center;
-}
-
-body[data-page="index"] .instructions {
-  font-size: 1.1em;
-  background-color: var(--card-bg);
-  border-radius: var(--radius);
-  width: 90%;
-  max-width: 500px;
-  padding: 20px;
-  box-sizing: border-box;
-  box-shadow: var(--shadow);
-}
-
-body[data-page="index"] #copyLink {
-  padding: 8px;
-  font-size: 1em;
-  text-align: center;
-  width: 80%;
-  margin-bottom: 20px;
-  box-sizing: border-box;
-  word-wrap: break-word;
-  background-color: var(--card-bg);
-  border: 1px solid var(--card-border);
-  color: var(--text);
-  border-radius: var(--radius-small);
-}
-
-body[data-page="index"] .buttons {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: center;
-  gap: 15px;
-  margin-top: 20px;
-}
-
-body[data-page="index"] .buttons a {
-  background-color: var(--primary);
-  color: white;
-  text-decoration: none;
-  padding: 15px 25px;
-  border-radius: var(--radius);
-  transition: background-color 0.3s;
-  font-size: 1.2em;
-  text-align: center;
-}
-
-body[data-page="index"] .buttons a:hover {
-  background-color: var(--primary-dark);
-}
-
-@media (max-width: 600px) {
-  body[data-page="index"] .buttons {
-    flex-direction: column;
-    gap: 10px;
-  }
-  body[data-page="index"] .buttons a {
-    width: 90%;
-    padding: 12px;
-    font-size: 1em;
-  }
-}
-
-/* === MENU.HTML === */
-body[data-page="menu"] {
-  display: flex;
-  flex-direction: column;
-}
-
-body[data-page="menu"] main {
-  max-width: var(--page-max);
-  margin: 18px auto;
-  padding: 12px 20px;
+/* Projector correction (nomad-utils.js NomadProjector).
+   .plyr > .nomad-stage > .nomad-surface > (video wrapper, captions). The flip/keystone
+   matrix goes on the surface and the stage clips it; controls, menu and projector panel
+   sit beside the stage, never transformed. Panel colours use Plyr's menu tokens. */
+.plyr .nomad-stage {
   position: relative;
   display: flex;
   flex-direction: column;
-  min-height: calc(100vh - var(--header-height) - 36px);
-  box-sizing: border-box;
-  z-index: 1;
-  align-items: center;
-}
-
-body[data-page="menu"] .welcome-center {
-  text-align: center;
-  margin-bottom: 6px;
+  flex: 1 1 auto;
+  min-height: 0;
   width: 100%;
-}
-
-body[data-page="menu"] .welcome-center h1 {
-  margin: 0;
-  font-size: 1.4rem;
-  font-weight: 900;
-  letter-spacing: -0.3px;
-  color: var(--text);
-}
-
-body[data-page="menu"] .welcome-center p {
-  margin: 6px 0 0;
-  color: var(--muted);
-  font-size: 1rem;
-}
-
-body[data-page="menu"] .search-row {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 8px;
-  margin: 8px 0 14px;
-  justify-content: center;
-  width: 100%;
-}
-
-body[data-page="menu"] .search-input {
-  width: 100%;
-  max-width: 980px;
-  padding: 14px 16px;
-  border-radius: 12px;
-  border: 1px solid var(--line);
-  background: var(--card);
-  color: var(--text);
-  font-weight: 600;
-  font-size: 1rem;
-  box-shadow: 0 10px 28px rgba(9, 18, 37, 0.05);
-}
-
-body[data-page="menu"] .search-input::placeholder {
-  color: var(--muted);
-}
-
-body[data-page="menu"] .grid-wrap {
-  margin-top: 8px;
-  padding: 14px;
-  border-radius: 14px;
-  border: 1px solid var(--line);
-  background: linear-gradient(180deg, transparent, rgba(0, 0, 0, 0.01));
-  width: 100%;
-  box-sizing: border-box;
-}
-
-body[data-page="menu"] .grid {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: center;
-  gap: 12px;
-  max-width: 760px;
-  margin: 12px auto 0;
-  align-items: stretch;
-}
-
-body[data-page="menu"] .tile {
-  background: var(--card);
-  border-radius: var(--radius);
-  padding: 14px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-weight: 700;
-  border: 1px solid var(--line);
-  cursor: pointer;
-  transition: transform 0.12s, box-shadow 0.12s;
-  min-height: 60px;
-  color: var(--text);
-  flex: 0 0 calc(33.333% - 8px);
-  max-width: 260px;
-  box-sizing: border-box;
-}
-
-body[data-page="menu"] .tile:active {
-  transform: translateY(1px);
-}
-
-body[data-page="menu"] .tile .label {
-  font-size: 1rem;
-  white-space: nowrap;
   overflow: hidden;
-  text-overflow: ellipsis;
-  padding: 0 6px;
-  text-align: center;
-  width: 100%;
+  border-radius: inherit;
 }
-
-@media (max-width: 900px) {
-  body[data-page="menu"] .tile {
-    flex: 0 0 calc(50% - 8px);
-    max-width: 360px;
-  }
-}
-
-@media (max-width: 480px) {
-  body[data-page="menu"] .tile {
-    flex: 0 0 100%;
-    max-width: none;
-  }
-}
-
-/* === MEDIA LIBRARY PAGES (Movies, Shows, Music, Books, Comics, Gallery, Games) === */
-body[data-page="movies"],
-body[data-page="shows"],
-body[data-page="music"],
-body[data-page="books"],
-body[data-page="comics"],
-body[data-page="gallery"],
-body[data-page="games"] {
-  display: flex;
-  flex-direction: column;
-  min-height: 100vh;
-}
-
-.toolbar {
-  background: var(--bg);
-  padding: 0.65rem 1rem;
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.6rem;
-  align-items: center;
-  border-bottom: 1px solid var(--line);
-  position: sticky;
-  top: var(--header-height);
-  z-index: 55;
-}
-
-body.dark .toolbar {
-  background: var(--bg);
-  border-bottom-color: rgba(255, 255, 255, 0.04);
-}
-
-.toolbar input[type="search"] {
-  flex: 1 1 220px;
-  padding: 0.5rem 0.75rem;
-  border: 1px solid var(--card-border);
-  border-radius: var(--radius-medium);
-  font-size: 0.95rem;
-  background: var(--card-bg);
-  color: var(--text);
-}
-
-.toolbar select,
-.toolbar .view-btn {
-  padding: 0.48rem 0.7rem;
-  border: 1px solid var(--card-border);
-  background: var(--card-bg);
-  color: var(--text);
-  border-radius: var(--radius-medium);
-  font-size: 0.9rem;
-  cursor: pointer;
-}
-
-.view-btn.active {
-  background: var(--primary);
-  color: #fff;
-  border-color: var(--primary-dark);
-}
-
-.media-grid {
-  display: grid;
-  gap: var(--card-gap);
-}
-
-.media-grid.small {
-  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
-}
-
-.media-grid.medium {
-  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
-}
-
-.media-grid.large {
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-}
-
-.media-card {
-  background: var(--card-bg);
-  border-radius: var(--radius);
-  box-shadow: var(--shadow);
-  overflow: hidden;
-  display: flex;
-  flex-direction: column;
-  transition: transform 0.22s ease, box-shadow 0.22s ease;
-  cursor: pointer;
-  width: 100%;
-  max-width: 220px;
-  margin: 0 auto;
-  will-change: transform, opacity;
-}
-
-.media-grid.small .media-card {
-  max-width: 120px;
-}
-
-.media-grid.medium .media-card {
-  max-width: 160px;
-}
-
-.media-grid.large .media-card {
-  max-width: 220px;
-}
-
-.media-card:hover {
-  transform: translateY(-4px);
-  box-shadow: 0 10px 26px rgba(0, 0, 0, 0.10);
-}
-
-body.dark .media-card {
-  background: var(--card);
-  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.18);
-}
-
-/* === FILEBROWSER.HTML === */
-body[data-page="filebrowser"] {
-  min-height: 100vh;
-  display: flex;
-}
-
-body[data-page="filebrowser"] .main-container {
-  display: flex;
-  flex: 1;
-  overflow: hidden;
-  height: 100vh;
-}
-
-body[data-page="filebrowser"] .sidebar {
-  width: 250px;
-  background: var(--card-bg);
-  border-right: 1px solid var(--card-border);
-  padding: 1rem;
-  overflow-y: auto;
-  flex-shrink: 0;
-  position: sticky;
-  top: 0;
-  height: 100vh;
-}
-
-body[data-page="filebrowser"] .sidebar h3 {
-  font-size: 0.875rem;
-  font-weight: 600;
-  color: var(--muted);
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  margin-bottom: 0.5rem;
-}
-
-body[data-page="filebrowser"] .controls-bar {
-  background: var(--card-bg);
-  border-bottom: 1px solid var(--card-border);
-  padding: 1rem 2rem;
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 1rem;
-  box-shadow: var(--shadow);
-  flex-shrink: 0;
-  position: sticky;
-  top: 0;
-  z-index: 100;
-}
-
-/* === MUSIC PLAYER SPECIFIC === */
-body[data-page="music"] .player-shell {
-  position: fixed;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  padding: var(--player-padding-desktop);
-  background: var(--card);
-  border-top: 1px solid var(--line);
-  box-shadow: 0 -12px 36px rgba(10, 12, 20, 0.08);
-  z-index: 999;
-}
-
-body[data-page="music"] .player {
-  max-width: 1200px;
-  margin: 0 auto;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  padding: 6px 8px;
-}
-
-body[data-page="music"] .player .title {
-  font-weight: 800;
-  color: var(--primary);
-  text-align: center;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  font-size: 0.95rem;
-}
-
-body[data-page="music"] .controls {
-  display: grid;
-  grid-template-columns: auto 1fr auto;
-  align-items: center;
-  column-gap: var(--control-gap);
-  width: 100%;
-  box-sizing: border-box;
-  padding: 0 6px;
-}
-
-body[data-page="music"] .progress {
-  height: 8px;
-  background: var(--line);
-  border-radius: 999px;
-  overflow: hidden;
-  width: 72%;
-  cursor: pointer;
-}
-
-body[data-page="music"] .progress > .bar {
-  height: 100%;
-  background: var(--primary);
-  width: 0%;
-  transition: width 0.06s linear;
-}
-
-/* === BOOKS/READER PAGES === */
-body[data-page="books"] .reader-container,
-body[data-page="comics"] .reader-container,
-body[data-page="epub"] .reader-container {
-  position: fixed;
-  inset: 0;
-  background: var(--bg);
-  display: none;
-  flex-direction: column;
-  z-index: 1000;
-}
-
-body[data-page="books"] .reader-header,
-body[data-page="comics"] .reader-header,
-body[data-page="epub"] .reader-header {
-  background: var(--primary);
-  color: var(--header-text);
-  padding: 14px 18px;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  box-shadow: var(--shadow);
-}
-
-body[data-page="books"] .reader-content,
-body[data-page="comics"] .reader-content,
-body[data-page="epub"] .reader-content {
-  flex: 1;
-  overflow: auto;
-  padding: 2rem;
-  background: var(--card-bg);
-}
-
-body.dark .reader-container {
-  background: var(--bg);
-  color: var(--text);
-}
-
-body.dark .reader-header {
-  background: var(--primary);
-}
-
-/* === MODAL STYLES (Shared across pages) === */
-.modal,
-.video-modal {
-  display: none;
-  position: fixed;
-  inset: 0;
-  background: rgba(0, 0, 0, 0.55);
-  justify-content: center;
-  align-items: center;
-  z-index: 1000;
-  padding: 20px;
-}
-
-.modal-content {
-  background: var(--card-bg);
-  color: var(--text);
-  padding: 20px;
-  border-radius: var(--radius-large);
-  text-align: center;
-  width: 94%;
-  max-width: 480px;
-  box-shadow: var(--shadow-large);
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-
-.modal-content h2 {
-  margin: 0;
-  font-size: 1.15rem;
-  font-weight: 700;
-}
-
-.modal button {
-  padding: 10px 14px;
-  font-size: 0.95rem;
-  border: none;
-  border-radius: var(--radius-medium);
-  cursor: pointer;
-  transition: background-color 0.18s ease, color 0.18s ease;
-}
-
-.modal button:not(.cancel):not(.secondary) {
-  background: var(--primary);
-  color: #fff;
-}
-
-.modal button.secondary {
-  background: #f6f9ff;
-  color: var(--primary);
-  border: 1px solid rgba(0, 123, 255, 0.12);
-}
-
-.modal button.cancel {
-  background: #fff;
-  color: #444;
-  border: 1px solid var(--card-border);
-}
-
-body.dark .modal button.secondary {
-  background: rgba(74, 163, 255, 0.1);
-  color: var(--primary);
-}
-
-body.dark .modal button.cancel {
-  background: var(--card);
-  color: var(--text);
-  border: 1px solid var(--card-border);
-}
-
-.video-modal-content {
-  background: var(--card-bg);
-  color: var(--text);
-  padding: 14px;
-  border-radius: var(--radius-large);
-  width: 100%;
-  max-width: 980px;
-  box-shadow: var(--shadow-large);
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 12px;
-}
-
-/* === PLYR.JS VIDEO PLAYER CUSTOMIZATION === */
-.plyr {
-  --plyr-color-main: var(--primary);
-  --plyr-video-controls-background: rgba(0, 0, 0, 0.7);
-  border-radius: var(--radius);
-  width: 100%;
-}
-
-.plyr__video-wrapper {
-  width: 100%;
-}
-
-.plyr--fullscreen {
-  background: #000;
-}
-
-.plyr--fullscreen video {
-  max-height: 100% !important;
-  max-width: 100% !important;
-  width: 100%;
-  height: 100%;
-  object-fit: contain;
-}
-
-@media (max-width: 768px) {
-  .plyr__volume {
-    display: none !important;
-  }
-}
-
-body.dark .plyr {
-  --plyr-video-background: #000;
-  --plyr-menu-background: rgba(0, 0, 0, 0.9);
-  --plyr-menu-color: #fff;
-}
-
-/* === RESPONSIVE ADJUSTMENTS === */
-@media (max-width: 600px) {
-  header {
-    flex-direction: row;
-
-
-/* === RESPONSIVE ADJUSTMENTS ===
-@media (max-width: 600px) {
-  header {
-    flex-direction: row;
-    gap: 0.5rem;
-  }
-
-  .toolbar {
-    top: 68px;
-  }
-
-  .media-grid.small {
-    grid-template-columns: repeat(2, 1fr);
-  }
-
-  .media-grid.medium {
-    grid-template-columns: repeat(3, 1fr);
-  }
-
-  .media-grid.large {
-    grid-template-columns: repeat(4, 1fr);
-  }
-}
-
-
-/* ============================================
-
-.pb-lg {
-  padding-bottom: var(--spacing-lg);
-}
-
-
-/* ============================================
-   21. PAGE-SPECIFIC STYLES
-   Custom styles for individual pages
-
-/* === INDEX.HTML (Landing Page) === */
-body[data-page="index"] {
-  height: 100vh;
-  display: flex;
-  flex-direction: column;
-}
-
-body[data-page="index"] .content {
-  flex-grow: 1;
-  padding: 20px;
-  display: flex;
-  flex-direction: column;
-  justify-content: center;
-  align-items: center;
-}
-
-body[data-page="index"] .instructions {
-  font-size: 1.1em;
-  background-color: var(--card-bg);
-  border-radius: var(--radius);
-  width: 90%;
-  max-width: 500px;
-  padding: 20px;
-  box-sizing: border-box;
-  box-shadow: var(--shadow);
-}
-
-body[data-page="index"] #copyLink {
-  padding: 8px;
-  font-size: 1em;
-  text-align: center;
-  width: 80%;
-  margin-bottom: 20px;
-  box-sizing: border-box;
-  word-wrap: break-word;
-  background-color: var(--card-bg);
-  border: 1px solid var(--card-border);
-  color: var(--text);
-  border-radius: var(--radius-small);
-}
-
-body[data-page="index"] .buttons {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: center;
-  gap: 15px;
-  margin-top: 20px;
-}
-
-body[data-page="index"] .buttons a {
-  background-color: var(--primary);
-  color: white;
-  text-decoration: none;
-  padding: 15px 25px;
-  border-radius: var(--radius);
-  transition: background-color 0.3s;
-  font-size: 1.2em;
-  text-align: center;
-}
-
-body[data-page="index"] .buttons a:hover {
-  background-color: var(--primary-dark);
-}
-
-@media (max-width: 600px) {
-  body[data-page="index"] .buttons {
-    flex-direction: column;
-    gap: 10px;
-  }
-  body[data-page="index"] .buttons a {
-    width: 90%;
-    padding: 12px;
-    font-size: 1em;
-  }
-}
-
-/* === MENU.HTML === */
-body[data-page="menu"] {
-  display: flex;
-  flex-direction: column;
-}
-
-body[data-page="menu"] main {
-  max-width: var(--page-max);
-  margin: 18px auto;
-  padding: 12px 20px;
+.plyr .nomad-surface {
   position: relative;
   display: flex;
   flex-direction: column;
-  min-height: calc(100vh - var(--header-height) - 36px);
-  box-sizing: border-box;
-  z-index: 1;
-  align-items: center;
-}
-
-body[data-page="menu"] .welcome-center {
-  text-align: center;
-  margin-bottom: 6px;
+  flex: 1 1 auto;
+  min-height: 0;
   width: 100%;
+  transform-origin: 0 0;
 }
-
-body[data-page="menu"] .welcome-center h1 {
-  margin: 0;
-  font-size: 1.4rem;
-  font-weight: 900;
-  letter-spacing: -0.3px;
-  color: var(--text);
+.plyr .nomad-surface > .plyr__video-wrapper { flex: 1 1 auto; min-height: 0; }
+/* Plyr lifts captions above visible controls with a sibling selector that can't reach
+   them inside the surface, so do the same lift here */
+.plyr:not(.plyr--hide-controls) .nomad-surface .plyr__captions {
+  transform: translateY(calc(var(--plyr-control-spacing, 10px) * -4));
 }
-
-body[data-page="menu"] .welcome-center p {
-  margin: 6px 0 0;
-  color: var(--muted);
-  font-size: 1rem;
+/* Projector captions while a correction is on: --nomad-cap is 5% of the picture height,
+   Plyr's fixed sizes are too small on a wall. Off-white, pure white glares in a dark room.
+   Lifted clear of the screen frame and front-row heads. */
+.plyr.nomad-proj-active .nomad-surface .plyr__captions {
+  --plyr-captions-text-color: #f3efe4;
+  --plyr-captions-background: rgba(0, 0, 0, .72);
+  font-size: var(--nomad-cap, 21px);
+  padding: 0 4% calc(var(--nomad-cap, 21px) * 1.1);
 }
-
-body[data-page="menu"] .search-row {
+.plyr.nomad-proj-active .nomad-surface .plyr__caption {
+  font-weight: 500;
+  line-height: 1.5;
+  text-shadow: 0 0 .12em #000, 0 .04em .1em #000;
+}
+/* tinted while a correction is active. plain white while hovered or open, Plyr paints
+   the button background that same colour then */
+.plyr .nomad-proj-btn.nomad-proj-on:not(:hover):not([aria-expanded="true"]) { color: var(--plyr-color-main, var(--primary)); }
+.plyr .nomad-proj {
+  position: absolute;
+  right: var(--plyr-control-spacing, 10px);
+  bottom: calc(var(--plyr-control-spacing, 10px) * 5.5);
+  z-index: 4;   /* above .plyr__controls (3), whose padded gradient reaches up under the panel */
+  width: min(260px, calc(100% - 20px));
+  padding: 10px;
+  border-radius: var(--plyr-menu-radius, 8px);
+  background: var(--plyr-menu-background, rgba(255, 255, 255, 0.9));
+  color: var(--plyr-menu-color, #4a5464);
+  box-shadow: var(--plyr-menu-shadow, 0 1px 2px rgba(0, 0, 0, 0.15));
+  font-size: 13px;
   display: flex;
   flex-direction: column;
-  align-items: center;
   gap: 8px;
-  margin: 8px 0 14px;
-  justify-content: center;
-  width: 100%;
+  text-align: left;
 }
-
-body[data-page="menu"] .search-input {
-  width: 100%;
-  max-width: 980px;
-  padding: 14px 16px;
-  border-radius: 12px;
-  border: 1px solid var(--line);
-  background: var(--card);
-  color: var(--text);
-  font-weight: 600;
-  font-size: 1rem;
-  box-shadow: 0 10px 28px rgba(9, 18, 37, 0.05);
-}
-
-body[data-page="menu"] .search-input::placeholder {
-  color: var(--muted);
-}
-
-body[data-page="menu"] .grid-wrap {
-  margin-top: 8px;
-  padding: 14px;
-  border-radius: 14px;
-  border: 1px solid var(--line);
-  background: linear-gradient(180deg, transparent, rgba(0, 0, 0, 0.01));
-  width: 100%;
-  box-sizing: border-box;
-}
-
-body[data-page="menu"] .grid {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: center;
-  gap: 12px;
-  max-width: 760px;
-  margin: 12px auto 0;
-  align-items: stretch;
-}
-
-body[data-page="menu"] .tile {
-  background: var(--card);
-  border-radius: var(--radius);
-  padding: 14px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-weight: 700;
-  border: 1px solid var(--line);
-  cursor: pointer;
-  transition: transform 0.12s, box-shadow 0.12s;
-  min-height: 60px;
-  color: var(--text);
-  flex: 0 0 calc(33.333% - 8px);
-  max-width: 260px;
-  box-sizing: border-box;
-}
-
-body[data-page="menu"] .tile:active {
-  transform: translateY(1px);
-}
-
-body[data-page="menu"] .tile .label {
-  font-size: 1rem;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  padding: 0 6px;
-  text-align: center;
-  width: 100%;
-}
-
-@media (max-width: 900px) {
-  body[data-page="menu"] .tile {
-    flex: 0 0 calc(50% - 8px);
-    max-width: 360px;
-  }
-}
-
-@media (max-width: 480px) {
-  body[data-page="menu"] .tile {
-    flex: 0 0 100%;
-    max-width: none;
-  }
-}
-
-/* === MEDIA LIBRARY PAGES (Movies, Shows, Music, Books, Comics, Gallery, Games) === */
-body[data-page="movies"],
-body[data-page="shows"],
-body[data-page="music"],
-body[data-page="books"],
-body[data-page="comics"],
-body[data-page="gallery"],
-body[data-page="games"] {
-  display: flex;
-  flex-direction: column;
-  min-height: 100vh;
-}
-
-.toolbar {
-  background: var(--bg);
-  padding: 0.65rem 1rem;
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.6rem;
-  align-items: center;
-  border-bottom: 1px solid var(--line);
-  position: sticky;
-  top: var(--header-height);
-  z-index: 55;
-}
-
-body.dark .toolbar {
-  background: var(--bg);
-  border-bottom-color: rgba(255, 255, 255, 0.04);
-}
-
-.toolbar input[type="search"] {
-  flex: 1 1 220px;
-  padding: 0.5rem 0.75rem;
-  border: 1px solid var(--card-border);
-  border-radius: var(--radius-medium);
-  font-size: 0.95rem;
-  background: var(--card-bg);
-  color: var(--text);
-}
-
-.toolbar select,
-.toolbar .view-btn {
-  padding: 0.48rem 0.7rem;
-  border: 1px solid var(--card-border);
-  background: var(--card-bg);
-  color: var(--text);
-  border-radius: var(--radius-medium);
-  font-size: 0.9rem;
-  cursor: pointer;
-}
-
-.view-btn.active {
-  background: var(--primary);
-  color: #fff;
-  border-color: var(--primary-dark);
-}
-
-.media-grid {
-  display: grid;
-  gap: var(--card-gap);
-}
-
-.media-grid.small {
-  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
-}
-
-.media-grid.medium {
-  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
-}
-
-.media-grid.large {
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-}
-
-.media-card {
-  background: var(--card-bg);
-  border-radius: var(--radius);
-  box-shadow: var(--shadow);
-  overflow: hidden;
-  display: flex;
-  flex-direction: column;
-  transition: transform 0.22s ease, box-shadow 0.22s ease;
-  cursor: pointer;
-  width: 100%;
-  max-width: 220px;
-  margin: 0 auto;
-  will-change: transform, opacity;
-}
-
-.media-grid.small .media-card {
-  max-width: 120px;
-}
-
-.media-grid.medium .media-card {
-  max-width: 160px;
-}
-
-.media-grid.large .media-card {
-  max-width: 220px;
-}
-
-.media-card:hover {
-  transform: translateY(-4px);
-  box-shadow: 0 10px 26px rgba(0, 0, 0, 0.10);
-}
-
-body.dark .media-card {
-  background: var(--card);
-  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.18);
-}
-
-/* === FILEBROWSER.HTML === */
-body[data-page="filebrowser"] {
-  min-height: 100vh;
-  display: flex;
-}
-
-body[data-page="filebrowser"] .main-container {
-  display: flex;
-  flex: 1;
-  overflow: hidden;
-  height: 100vh;
-}
-
-body[data-page="filebrowser"] .sidebar {
-  width: 250px;
-  background: var(--card-bg);
-  border-right: 1px solid var(--card-border);
-  padding: 1rem;
-  overflow-y: auto;
-  flex-shrink: 0;
-  position: sticky;
-  top: 0;
-  height: 100vh;
-}
-
-body[data-page="filebrowser"] .sidebar h3 {
-  font-size: 0.875rem;
-  font-weight: 600;
-  color: var(--muted);
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  margin-bottom: 0.5rem;
-}
-
-body[data-page="filebrowser"] .controls-bar {
-  background: var(--card-bg);
-  border-bottom: 1px solid var(--card-border);
-  padding: 1rem 2rem;
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 1rem;
-  box-shadow: var(--shadow);
-  flex-shrink: 0;
-  position: sticky;
-  top: 0;
-  z-index: 100;
-}
-
-/* === MUSIC PLAYER SPECIFIC === */
-body[data-page="music"] .player-shell {
-  position: fixed;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  padding: var(--player-padding-desktop);
-  background: var(--card);
-  border-top: 1px solid var(--line);
-  box-shadow: 0 -12px 36px rgba(10, 12, 20, 0.08);
-  z-index: 999;
-}
-
-body[data-page="music"] .player {
-  max-width: 1200px;
-  margin: 0 auto;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
+.plyr .nomad-proj[hidden] { display: none; }
+.plyr--video.nomad-proj-open { overflow: visible; }   /* same lift Plyr gives .plyr--menu-open */
+.plyr--hide-controls .nomad-proj { opacity: 0; pointer-events: none; }
+.nomad-proj-row { display: flex; gap: 6px; }
+.nomad-proj-toggle, .nomad-proj-reset {
+  flex: 1 1 0;
   padding: 6px 8px;
-}
-
-body[data-page="music"] .player .title {
-  font-weight: 800;
-  color: var(--primary);
-  text-align: center;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  font-size: 0.95rem;
-}
-
-body[data-page="music"] .controls {
-  display: grid;
-  grid-template-columns: auto 1fr auto;
-  align-items: center;
-  column-gap: var(--control-gap);
-  width: 100%;
-  box-sizing: border-box;
-  padding: 0 6px;
-}
-
-body[data-page="music"] .progress {
-  height: 8px;
-  background: var(--line);
-  border-radius: 999px;
-  overflow: hidden;
-  width: 72%;
+  border: 1px solid currentColor;
+  border-radius: 6px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
   cursor: pointer;
 }
-
-body[data-page="music"] .progress > .bar {
-  height: 100%;
-  background: var(--primary);
-  width: 0%;
-  transition: width 0.06s linear;
-}
-
-/* === BOOKS/READER PAGES === */
-body[data-page="books"] .reader-container,
-body[data-page="comics"] .reader-container,
-body[data-page="epub"] .reader-container {
-  position: fixed;
-  inset: 0;
-  background: var(--bg);
-  display: none;
-  flex-direction: column;
-  z-index: 1000;
-}
-
-body[data-page="books"] .reader-header,
-body[data-page="comics"] .reader-header,
-body[data-page="epub"] .reader-header {
-  background: var(--primary);
-  color: var(--header-text);
-  padding: 14px 18px;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  box-shadow: var(--shadow);
-}
-
-body[data-page="books"] .reader-content,
-body[data-page="comics"] .reader-content,
-body[data-page="epub"] .reader-content {
-  flex: 1;
-  overflow: auto;
-  padding: 2rem;
-  background: var(--card-bg);
-}
-
-body.dark .reader-container {
-  background: var(--bg);
-  color: var(--text);
-}
-
-body.dark .reader-header {
-  background: var(--primary);
-}
-
-/* === MODAL STYLES (Shared across pages) === */
-.modal,
-.video-modal {
-  display: none;
-  position: fixed;
-  inset: 0;
-  background: rgba(0, 0, 0, 0.55);
-  justify-content: center;
-  align-items: center;
-  z-index: 1000;
-  padding: 20px;
-}
-
-.modal-content {
-  background: var(--card-bg);
-  color: var(--text);
-  padding: 20px;
-  border-radius: var(--radius-large);
-  text-align: center;
-  width: 94%;
-  max-width: 480px;
-  box-shadow: var(--shadow-large);
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-
-.modal-content h2 {
-  margin: 0;
-  font-size: 1.15rem;
-  font-weight: 700;
-}
-
-.modal button {
-  padding: 10px 14px;
-  font-size: 0.95rem;
-  border: none;
-  border-radius: var(--radius-medium);
-  cursor: pointer;
-  transition: background-color 0.18s ease, color 0.18s ease;
-}
-
-.modal button:not(.cancel):not(.secondary) {
-  background: var(--primary);
+.nomad-proj-toggle[aria-pressed="true"] {
+  background: var(--plyr-color-main, var(--primary));
+  border-color: transparent;
   color: #fff;
 }
+.nomad-proj-slider { display: flex; flex-direction: column; gap: 2px; }
+.nomad-proj-slider input { width: 100%; margin: 0; }
 
-.modal button.secondary {
-  background: #f6f9ff;
-  color: var(--primary);
-  border: 1px solid rgba(0, 123, 255, 0.12);
-}
-
-.modal button.cancel {
-  background: #fff;
-  color: #444;
-  border: 1px solid var(--card-border);
-}
-
-body.dark .modal button.secondary {
-  background: rgba(74, 163, 255, 0.1);
-  color: var(--primary);
-}
-
-body.dark .modal button.cancel {
-  background: var(--card);
-  color: var(--text);
-  border: 1px solid var(--card-border);
-}
-
-.video-modal-content {
-  background: var(--card-bg);
-  color: var(--text);
-  padding: 14px;
-  border-radius: var(--radius-large);
-  width: 100%;
-  max-width: 980px;
-  box-shadow: var(--shadow-large);
+/* Toolbars on phones: search on its own row, filters and size buttons on the next. The size
+   buttons wrap as one group (.view-group). `body` outranks each page's own toolbar rules. */
+.toolbar .view-group {
   display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 12px;
+  gap: 0.35rem;
+  flex: 0 0 auto;
 }
 
-/* === PLYR.JS VIDEO PLAYER CUSTOMIZATION === */
-.plyr {
-  --plyr-color-main: var(--primary);
-  --plyr-video-controls-background: rgba(0, 0, 0, 0.7);
-  border-radius: var(--radius);
-  width: 100%;
+@media (max-width: 600px) {
+  body .toolbar {
+    flex-wrap: wrap;
+  }
+
+  body .toolbar input[type="search"],
+  body .toolbar input[type="text"] {
+    flex: 1 1 100%;
+  }
+
+  body .toolbar select {
+    flex: 1 1 70px;
+    min-width: 0;
+  }
+
+  body .toolbar .view-group {
+    margin-left: auto;
+  }
+
+  body .toolbar .view-btn {
+    padding: 0.4rem 0.5rem;
+  }
 }
 
-.plyr__video-wrapper {
-  width: 100%;
+/* A video in a popup fits the screen: the player stops at the screen height minus the
+   title and Close button so tall videos and sideways phones keep their controls, and the
+   picture letterboxes inside. dvh follows a phone's browser bars, vh is the fallback. */
+.video-modal-content {
+  max-height: calc(100vh - 40px);
+  max-height: calc(100dvh - 40px);
 }
 
-.plyr--fullscreen {
-  background: #000;
+.video-modal-content .plyr,
+.video-modal-content video {
+  max-height: calc(100vh - 150px);
+  max-height: calc(100dvh - 150px);
 }
 
-.plyr--fullscreen video {
-  max-height: 100% !important;
-  max-width: 100% !important;
-  width: 100%;
-  height: 100%;
+.video-modal-content video {
   object-fit: contain;
 }
 
-@media (max-width: 768px) {
-  .plyr__volume {
-    display: none !important;
-  }
-}
-
-body.dark .plyr {
-  --plyr-video-background: #000;
-  --plyr-menu-background: rgba(0, 0, 0, 0.9);
-  --plyr-menu-color: #fff;
-}
-
-
-/* ============================================
-   END OF MASTER.CSS
-   ============================================ */
-
+/* Fullscreen: Plyr fullscreens its own box, which stays inside the popup, so drop the
+   caps above. One rule per form of fullscreen, a browser drops a whole rule over a
+   selector it doesn't know. (.plyr--fullscreen above is not a class Plyr sets.) */
+.plyr:fullscreen { max-height: none; }
+.plyr:-webkit-full-screen { max-height: none; }
+.plyr.plyr--fullscreen-fallback { max-height: none; }
+.plyr:fullscreen .nomad-stage,
+.plyr:fullscreen .nomad-surface,
+.plyr:fullscreen .plyr__video-wrapper { height: 100%; }
+.plyr:-webkit-full-screen .nomad-stage,
+.plyr:-webkit-full-screen .nomad-surface,
+.plyr:-webkit-full-screen .plyr__video-wrapper { height: 100%; }
+.plyr--fullscreen-fallback .nomad-stage,
+.plyr--fullscreen-fallback .nomad-surface,
+.plyr--fullscreen-fallback .plyr__video-wrapper { height: 100%; }
+.plyr:fullscreen video { max-height: none !important; width: 100%; height: 100%; object-fit: contain; }
+.plyr:-webkit-full-screen video { max-height: none !important; width: 100%; height: 100%; object-fit: contain; }
+.plyr--fullscreen-fallback video { max-height: none !important; width: 100%; height: 100%; object-fit: contain; }

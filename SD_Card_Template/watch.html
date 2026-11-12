@@ -1,0 +1,745 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Nomad • Watch together</title>
+<link rel="icon" href="/favicon.ico">
+<link rel="stylesheet" href="/master.css">
+<link rel="stylesheet" href="/assets/plyr.css">
+<script src="/theme-boot.js?v=5"></script>
+<script src="/nomad-icons.js?v=1"></script>
+<script src="/nomad-utils.js?v=49"></script>
+<script src="/assets/plyr.min.js"></script>
+<script src="/theme-manager.js?v=5"></script>
+<style>
+  /* Watch together. The party state lives on Nomad (NomadParty.h). */
+  :root { --wt-r: 14px; }
+  body { min-height: 100dvh; background: var(--bg); }
+  main.wt { max-width: 980px; margin: 0 auto; padding: 12px 12px 40px; box-sizing: border-box; }
+  .wt-card { background: var(--card-bg, var(--card)); border: 1px solid var(--card-border); border-radius: var(--wt-r); padding: 16px; margin-bottom: 12px; }
+  .wt-card h2 { margin: 0 0 10px; font-size: 1rem; font-weight: 800; color: var(--text); }
+  .wt-muted { color: var(--muted); font-size: .85rem; line-height: 1.45; }
+  .wt-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  .wt-btn { display: inline-flex; align-items: center; justify-content: center; gap: 6px; min-height: 40px; padding: 0 16px; border-radius: 11px;
+    border: 1px solid var(--card-border); background: var(--card-bg, var(--card)); color: var(--text); font: inherit; font-weight: 700; font-size: .9rem; cursor: pointer; }
+  .wt-btn.primary { background: var(--primary); border-color: var(--primary); color: #fff; }
+  .wt-btn.danger { color: #e5484d; border-color: color-mix(in srgb, #e5484d 40%, transparent); }
+  .wt-btn:disabled { opacity: .5; cursor: default; }
+  .wt-btn svg { width: 18px; height: 18px; }
+  .wt-input { height: 42px; padding: 0 12px; border-radius: 11px; border: 1px solid var(--card-border); background: var(--bg); color: var(--text); font: inherit; font-size: 1rem; box-sizing: border-box; min-width: 0; }
+  [hidden] { display: none !important; }
+
+  /* start */
+  .wt-start { display: grid; gap: 12px; grid-template-columns: 1fr; }
+  @media (min-width: 720px) { .wt-start { grid-template-columns: 1fr 1fr; } }
+  .wt-big { display: flex; flex-direction: column; gap: 10px; }
+  .wt-big .ico { width: 44px; height: 44px; border-radius: 12px; display: grid; place-items: center; background: color-mix(in srgb, var(--primary) 14%, transparent); color: var(--primary); }
+  .wt-big .ico svg { width: 24px; height: 24px; }
+  #codeIn { letter-spacing: .35em; text-transform: uppercase; font-weight: 800; text-align: center; width: 9rem; }
+  .wt-name { margin-bottom: 12px; }
+  .wt-name .wt-input { width: 100%; }
+
+  /* the room */
+  .wt-top { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+  .wt-code { font-size: 1.6rem; font-weight: 900; letter-spacing: .3em; padding: 6px 12px; border-radius: 12px; background: color-mix(in srgb, var(--primary) 12%, transparent); color: var(--primary); cursor: pointer; }
+  .wt-top .grow { flex: 1; min-width: 160px; }
+  .wt-title { font-weight: 800; font-size: 1.05rem; margin: 0; overflow-wrap: anywhere; }
+  .wt-people { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+  .wt-person { display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; border-radius: 999px; font-size: .8rem; font-weight: 700;
+    background: color-mix(in srgb, var(--muted) 14%, transparent); color: var(--text); }
+  .wt-person .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); opacity: .5; }
+  .wt-person.ready .dot { background: #16a34a; opacity: 1; }
+  .wt-person.me { outline: 2px solid color-mix(in srgb, var(--primary) 50%, transparent); }
+  .wt-person .host { font-size: .68rem; color: var(--primary); text-transform: uppercase; letter-spacing: .04em; }
+
+  .wt-stage { position: relative; border-radius: var(--wt-r); overflow: hidden; background: #000; margin-bottom: 12px; }
+  .wt-stage video { width: 100%; display: block; max-height: 70vh; background: #000; }
+  .wt-empty { aspect-ratio: 16 / 9; display: grid; place-items: center; text-align: center; color: #cbd5e1; padding: 20px; box-sizing: border-box; }
+  .wt-empty b { display: block; color: #fff; font-size: 1.05rem; margin-bottom: 6px; }
+  .wt-banner { position: absolute; left: 50%; top: 12px; transform: translateX(-50%); z-index: 20; padding: 8px 14px; border-radius: 999px;
+    background: rgba(0,0,0,.72); color: #fff; font-weight: 700; font-size: .85rem; pointer-events: none; white-space: nowrap; }
+  .wt-sound { position: absolute; inset: 0; z-index: 25; display: grid; place-items: center; background: rgba(0,0,0,.35); border: 0; cursor: pointer; }
+  .wt-sound span { display: inline-flex; gap: 8px; align-items: center; padding: 12px 20px; border-radius: 999px; background: var(--primary); color: #fff; font-weight: 800; font-size: 1rem; }
+  .wt-sound svg { width: 20px; height: 20px; }
+  .wt-status { display: flex; gap: 12px; flex-wrap: wrap; font-size: .82rem; color: var(--muted); }
+  .wt-status b { color: var(--text); }
+
+  /* voting */
+  .wt-vote-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 10px; }
+  .wt-vote-head h2 { margin: 0; flex: 1; }
+  .wt-chip { font-size: .72rem; font-weight: 800; padding: 3px 9px; border-radius: 999px; background: color-mix(in srgb, var(--primary) 14%, transparent); color: var(--primary); }
+  .wt-picks { display: grid; grid-template-columns: repeat(auto-fill, minmax(100px, 1fr)); gap: 10px; }
+  .wt-pick { position: relative; border: 2px solid transparent; border-radius: 12px; overflow: hidden; background: var(--bg); cursor: default; text-align: left; padding: 0; font: inherit; color: inherit; }
+  .wt-pick.can { cursor: pointer; }
+  .wt-pick.mine { border-color: var(--primary); }
+  .wt-pick.win { border-color: #16a34a; box-shadow: 0 0 0 3px color-mix(in srgb, #16a34a 30%, transparent); }
+  .wt-pick .poster { aspect-ratio: 2 / 3; background: color-mix(in srgb, var(--muted) 18%, transparent); position: relative; }
+  .wt-pick .poster img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+  .wt-pick .votes { position: absolute; top: 6px; right: 6px; min-width: 26px; height: 26px; border-radius: 13px; background: var(--primary); color: #fff;
+    font-weight: 900; display: grid; place-items: center; font-size: .85rem; padding: 0 6px; box-sizing: border-box; }
+  .wt-pick .meta { padding: 7px 8px 9px; }
+  .wt-pick .meta b { display: block; font-size: .82rem; line-height: 1.25; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+  .wt-pick .meta span { font-size: .72rem; color: var(--muted); display: block; margin-top: 3px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .wt-reveal { text-align: center; padding: 6px 0 4px; font-weight: 800; }
+  .wt-reveal.spin { animation: wt-flash .18s steps(2) infinite; }
+  @keyframes wt-flash { 50% { opacity: .55; } }
+
+  /* the picker: covers, search, Movies or Shows */
+  .wt-sheet { position: fixed; inset: 0; z-index: 9000; background: rgba(0,0,0,.5); display: flex; align-items: flex-end; justify-content: center; }
+  @media (min-width: 760px) { .wt-sheet { align-items: center; } }
+  .wt-panel { background: var(--bg); width: 100%; max-width: 980px; height: 92dvh; border-radius: 18px 18px 0 0; display: flex; flex-direction: column; overflow: hidden;
+    box-shadow: 0 -10px 40px rgba(0,0,0,.3); }
+  @media (min-width: 760px) { .wt-panel { border-radius: 18px; height: 86dvh; } }
+  .wt-panel header.ph { position: static; display: flex; gap: 8px; align-items: center; padding: 12px; border-bottom: 1px solid var(--card-border); background: var(--card-bg, var(--card)); flex-wrap: wrap; }
+  .wt-panel .ph h3 { margin: 0; font-size: 1rem; flex: 1; min-width: 120px; color: var(--text); }
+  .wt-seg { display: flex; gap: 3px; padding: 3px; border-radius: 11px; background: var(--bg); border: 1px solid var(--card-border); }
+  .wt-seg button { border: 0; background: none; padding: 7px 14px; border-radius: 8px; font: inherit; font-weight: 800; font-size: .85rem; color: var(--muted); cursor: pointer; }
+  .wt-seg button.on { background: var(--primary); color: #fff; }
+  .wt-find { position: relative; flex: 1 1 100%; }
+  .wt-find svg { position: absolute; left: 11px; top: 50%; transform: translateY(-50%); width: 16px; height: 16px; color: var(--muted); }
+  .wt-find .wt-input { width: 100%; padding-left: 34px; }
+  .wt-grid { flex: 1; overflow: auto; padding: 12px; display: grid; grid-template-columns: repeat(auto-fill, minmax(100px, 1fr)); gap: 10px; align-content: start; -webkit-overflow-scrolling: touch; }
+  .wt-tile { border: 0; padding: 0; background: none; text-align: left; cursor: pointer; color: var(--text); font: inherit; }
+  .wt-tile .poster { aspect-ratio: 2 / 3; border-radius: 10px; overflow: hidden; position: relative; background: color-mix(in srgb, var(--muted) 18%, transparent); display: grid; place-items: center; }
+  .wt-tile .poster img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; opacity: 0; transition: opacity .3s; }
+  .wt-tile .poster img.loaded { opacity: 1; }
+  .wt-tile .poster .fb { padding: 8px; text-align: center; font-weight: 800; font-size: .8rem; color: var(--muted); }
+  .wt-tile b { display: block; margin-top: 6px; font-size: .82rem; line-height: 1.25; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+  .wt-tile:hover .poster { outline: 2px solid var(--primary); }
+  .wt-eps { flex: 1; overflow: auto; padding: 8px 12px 16px; }
+  .wt-eps h4 { margin: 14px 4px 6px; font-size: .78rem; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); }
+  .wt-ep { display: flex; gap: 10px; align-items: center; width: 100%; text-align: left; border: 0; border-bottom: 1px solid color-mix(in srgb, var(--card-border) 60%, transparent);
+    background: none; padding: 11px 6px; font: inherit; color: var(--text); cursor: pointer; border-radius: 8px; }
+  .wt-ep:hover { background: color-mix(in srgb, var(--primary) 7%, transparent); }
+  .wt-ep .n { flex: 0 0 28px; height: 28px; border-radius: 8px; display: grid; place-items: center; font-size: .75rem; font-weight: 800; background: color-mix(in srgb, var(--primary) 12%, transparent); color: var(--primary); }
+  .wt-note { padding: 30px 12px; text-align: center; color: var(--muted); grid-column: 1 / -1; }
+
+  .wt-modes { display: grid; gap: 8px; }
+  .wt-mode { display: flex; gap: 10px; align-items: flex-start; padding: 12px; border: 1px solid var(--card-border); border-radius: 12px; cursor: pointer; background: var(--bg); text-align: left; font: inherit; color: var(--text); }
+  .wt-mode b { display: block; }
+  .wt-mode span { font-size: .8rem; color: var(--muted); }
+  .wt-mode:hover { border-color: var(--primary); }
+  .wt-small { background: var(--card-bg, var(--card)); color: var(--text); width: 100%; max-width: 440px; border-radius: 18px 18px 0 0; padding: 16px 16px calc(16px + env(safe-area-inset-bottom)); }
+  @media (min-width: 760px) { .wt-small { border-radius: 18px; } }
+  .wt-small h3 { margin: 0 0 12px; font-size: 1rem; }
+  .wt-toast { position: fixed; left: 50%; bottom: 20px; transform: translateX(-50%); z-index: 9500; background: rgba(15,23,42,.92); color: #fff; padding: 10px 16px; border-radius: 12px; font-size: .88rem; max-width: 90vw; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Watch together</h1>
+  <a class="back-btn" href="/games.html">← Games</a>
+</header>
+
+<main class="wt">
+  <!-- start: host or join -->
+  <section id="start">
+    <div class="wt-card wt-name">
+      <label class="wt-muted" for="nameIn">Your name, shown to others</label>
+      <input id="nameIn" class="wt-input" maxlength="18" autocomplete="off" placeholder="Name">
+    </div>
+    <div class="wt-start">
+      <div class="wt-card wt-big">
+        <div class="ico" data-icon="play"></div>
+        <h2>Host</h2>
+        <div class="wt-row"><button class="wt-btn primary" id="hostBtn">Host a party</button></div>
+      </div>
+      <div class="wt-card wt-big">
+        <div class="ico" data-icon="users"></div>
+        <h2>Join</h2>
+        <div class="wt-row">
+          <input id="codeIn" class="wt-input" maxlength="4" autocomplete="off" autocapitalize="characters" placeholder="CODE">
+          <button class="wt-btn primary" id="joinBtn">Join</button>
+        </div>
+        <div class="wt-muted" id="joinMsg"></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- the room -->
+  <section id="room" hidden>
+    <div class="wt-card">
+      <div class="wt-top">
+        <div class="wt-code" id="codeChip" title="Copy the join link">----</div>
+        <div class="grow">
+          <p class="wt-title" id="roomTitle">Nothing picked yet</p>
+          <div class="wt-muted" id="joinHint"></div>
+        </div>
+        <div class="wt-row" id="hostTools" hidden>
+          <button class="wt-btn" id="changeBtn" data-icon-label="list">Pick</button>
+          <button class="wt-btn" id="voteBtn" data-icon-label="users">Vote</button>
+          <button class="wt-btn danger" id="endBtn">End</button>
+        </div>
+        <button class="wt-btn" id="leaveBtn" hidden>Leave</button>
+      </div>
+      <div class="wt-people" id="people"></div>
+    </div>
+
+    <div class="wt-stage" id="stage">
+      <div class="wt-empty" id="emptyStage"><div><b id="emptyTitle">Nothing picked yet</b><span id="emptyText"></span></div></div>
+      <video id="vid" playsinline preload="metadata" hidden></video>
+      <div class="wt-banner" id="banner" hidden></div>
+      <button class="wt-sound" id="soundBtn" hidden><span data-icon-label="volume">Tap for sound</span></button>
+    </div>
+    <div class="wt-status" id="status"></div>
+
+    <div class="wt-card" id="votePanel" hidden style="margin-top:12px">
+      <div class="wt-vote-head">
+        <h2 id="voteTitle">Vote</h2>
+        <span class="wt-chip" id="voteMode"></span>
+      </div>
+      <p class="wt-muted" id="voteHelp" style="margin:0 0 10px"></p>
+      <div class="wt-reveal" id="reveal" hidden></div>
+      <div class="wt-picks" id="picks"></div>
+      <div class="wt-row" style="margin-top:12px">
+        <button class="wt-btn primary" id="pickBtn">Pick something</button>
+        <button class="wt-btn primary" id="closeVoteBtn" hidden>Close voting</button>
+        <button class="wt-btn" id="cancelVoteBtn" hidden>Cancel vote</button>
+      </div>
+    </div>
+  </section>
+</main>
+
+<script>
+(() => {
+'use strict';
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const icon = (n, s) => (window.NomadIcons ? NomadIcons.svg(n, s || 18) : '');
+const media = (p) => '/media?file=' + encodeURIComponent(p);
+const VIDEO = /\.(mp4|m4v|mkv|webm|mov)$/i, IMAGE = /\.(jpe?g|png|webp|avif)$/i;
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+document.querySelectorAll('[data-icon]').forEach((el) => { el.innerHTML = icon(el.dataset.icon, 24); });
+document.querySelectorAll('[data-icon-label]').forEach((el) => { el.innerHTML = icon(el.dataset.iconLabel) + esc(el.textContent); });
+
+function toast(t, ms) {
+  const el = document.createElement('div');
+  el.className = 'wt-toast'; el.textContent = t;
+  document.body.appendChild(el);
+  setTimeout(() => el.remove(), ms || 3200);
+}
+
+/* talking to Nomad */
+async function api(path, body) {
+  const r = await fetch('/api/party/' + path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+  let j = {};
+  try { j = await r.json(); } catch (e) {}
+  if (!r.ok) { const e = new Error(j.error || 'HTTP ' + r.status); e.status = r.status; throw e; }
+  return j;
+}
+
+// who I am in which party, kept so a reload (or the phone locking) carries on
+const S = {
+  key: 'nomad_party',
+  get() { try { return JSON.parse(localStorage.getItem(this.key) || 'null'); } catch (e) { return null; } },
+  set(v) { try { v ? localStorage.setItem(this.key, JSON.stringify(v)) : localStorage.removeItem(this.key); } catch (e) {} },
+};
+let me = null;            // { code, member, token? }
+let st = null;            // the last full state
+let player = null;        // Plyr
+const vid = $('vid');
+const isHost = () => !!(me && me.token);
+
+/* the library: Movies and Shows with their covers */
+const Library = {
+  movies: null, shows: null,
+  coverFor(files, base) {
+    // Movie.jpg next to Movie.mp4, or poster/cover/folder in the same folder
+    const want = base.toLowerCase();
+    return (files.find((f) => IMAGE.test(f.n) && f.n.replace(/\.[^.]+$/, '').toLowerCase() === want) ||
+            files.find((f) => IMAGE.test(f.n) && /poster|cover|folder/i.test(f.n)) || {}).p || '';
+  },
+  // "Film Name (1999).mp4" -> "Film Name"; a title that is only a year ("2012") stays
+  pretty(n) { const base = n.replace(/\.[^.]+$/, '').replace(/[_.]+/g, ' ').trim(); return base.replace(/\s*\(?\d{4}\)?\s*$/, '').trim() || base || n; },
+  async loadMovies() {
+    if (this.movies) return this.movies;
+    const { entries } = await NomadIndex.fetch('/Movies');
+    const byDir = new Map();
+    for (const e of entries) {
+      if (e.t !== 'f' || !e.p) continue;
+      const dir = e.p.replace(/\/[^/]*$/, '');
+      if (!byDir.has(dir)) byDir.set(dir, []);
+      byDir.get(dir).push(e);
+    }
+    const out = [];
+    for (const files of byDir.values()) {
+      for (const f of files.filter((x) => VIDEO.test(x.n))) {
+        const base = f.n.replace(/\.[^.]+$/, '');
+        out.push({ path: f.p, title: this.pretty(f.n), cover: this.coverFor(files, base) });
+      }
+    }
+    out.sort((a, b) => a.title.localeCompare(b.title, undefined, { numeric: true }));
+    return (this.movies = out);
+  },
+  async loadShows() {
+    if (this.shows) return this.shows;
+    const { entries } = await NomadIndex.fetch('/Shows');
+    const shows = new Map();
+    const rootImages = new Map();
+    for (const e of entries) {
+      if (!e.p) continue;
+      const parts = e.p.split('/').filter(Boolean);      // ['Shows', show, ...]
+      if (parts.length === 2 && e.t === 'f' && IMAGE.test(e.n)) rootImages.set(e.n.replace(/\.[^.]+$/, '').toLowerCase(), e.p);
+      if (parts.length < 3) continue;
+      const name = parts[1];
+      if (!shows.has(name)) shows.set(name, { name, dir: '/Shows/' + name, files: [], episodes: [] });
+      const s = shows.get(name);
+      if (e.t !== 'f') continue;
+      if (IMAGE.test(e.n) && parts.length === 3) s.files.push(e);
+      if (VIDEO.test(e.n)) s.episodes.push({ path: e.p, title: this.pretty(e.n), season: parts.length > 3 ? parts[2] : '' });
+    }
+    const out = [];
+    for (const s of shows.values()) {
+      if (!s.episodes.length) continue;
+      s.cover = this.coverFor(s.files, s.name) || rootImages.get(s.name.toLowerCase()) || '';
+      s.title = s.name.replace(/[_.]+/g, ' ').trim();
+      const coll = new Intl.Collator(undefined, { numeric: true });
+      s.episodes.sort((a, b) => coll.compare(a.season, b.season) || coll.compare(a.path, b.path));
+      out.push(s);
+    }
+    out.sort((a, b) => a.title.localeCompare(b.title, undefined, { numeric: true }));
+    return (this.shows = out);
+  },
+};
+
+/* the picker popup */
+// resolves with {path, title, cover} or null
+function pickSomething(heading) {
+  return new Promise((resolve) => {
+    const sheet = document.createElement('div');
+    sheet.className = 'wt-sheet';
+    sheet.innerHTML = `<div class="wt-panel" role="dialog" aria-modal="true">
+      <header class="ph">
+        <button class="wt-btn" data-a="back" hidden>${icon('chevron-left')}</button>
+        <h3>${esc(heading)}</h3>
+        <div class="wt-seg"><button data-tab="movies" class="on">Movies</button><button data-tab="shows">Shows</button></div>
+        <button class="wt-btn" data-a="close" aria-label="Close">${icon('x')}</button>
+        <label class="wt-find">${icon('search', 16)}<input class="wt-input" type="search" placeholder="Search" aria-label="Search"></label>
+      </header>
+      <div class="wt-grid"></div>
+      <div class="wt-eps" hidden></div>
+    </div>`;
+    document.body.appendChild(sheet);
+    const q = (s) => sheet.querySelector(s);
+    const grid = q('.wt-grid'), eps = q('.wt-eps'), find = q('input'), back = q('[data-a=back]');
+    let tab = 'movies', items = [], openShow = null;
+    const done = (v) => { sheet.remove(); document.removeEventListener('keydown', onKey); resolve(v); };
+    const onKey = (e) => { if (e.key === 'Escape') done(null); };
+    document.addEventListener('keydown', onKey);
+    sheet.addEventListener('click', (e) => { if (e.target === sheet) done(null); });
+    q('[data-a=close]').onclick = () => done(null);
+    back.onclick = () => { openShow = null; eps.hidden = true; grid.hidden = false; back.hidden = true; find.parentElement.hidden = false; };
+
+    function tile(it, i) {
+      return `<button class="wt-tile" data-i="${i}"><div class="poster">${it.cover ? `<img alt="">` : ''}<span class="fb">${it.cover ? '' : esc(it.title)}</span></div><b>${esc(it.title)}</b></button>`;
+    }
+    function draw() {
+      const s = find.value.trim().toLowerCase();
+      const shown = items.map((it, i) => [it, i]).filter(([it]) => !s || it.title.toLowerCase().includes(s) ||
+        (it.episodes && it.episodes.some((e) => e.title.toLowerCase().includes(s))));
+      if (!items.length) { grid.innerHTML = `<div class="wt-note">${tab === 'movies' ? 'No films yet' : 'No shows yet'}</div>`; return; }
+      if (!shown.length) { grid.innerHTML = '<div class="wt-note">No matches</div>'; return; }
+      grid.innerHTML = shown.map(([it, i]) => tile(it, i)).join('');
+      grid.querySelectorAll('.wt-tile').forEach((b) => {
+        const it = items[+b.dataset.i], img = b.querySelector('img');
+        if (img && it.cover) { img.onload = () => img.classList.add('loaded'); NomadImages.observe(img, media(it.cover)); }
+      });
+    }
+    async function load(which) {
+      tab = which;
+      sheet.querySelectorAll('[data-tab]').forEach((b) => b.classList.toggle('on', b.dataset.tab === which));
+      back.onclick();
+      grid.innerHTML = '<div class="wt-note">Loading…</div>';
+      try { items = which === 'movies' ? await Library.loadMovies() : await Library.loadShows(); }
+      catch (e) { items = []; grid.innerHTML = `<div class="wt-note">${e.message === 'INDEX_BUILDING' ? 'Library is still indexing. Try again in a minute.' : "Couldn't load the library."}</div>`; return; }
+      draw();
+    }
+    function showEpisodes(show) {
+      openShow = show;
+      grid.hidden = true; eps.hidden = false; back.hidden = false; find.parentElement.hidden = true;
+      let html = '', season = null, n = 0;
+      show.episodes.forEach((e, i) => {
+        if (e.season !== season) { season = e.season; n = 0; html += `<h4>${esc(season || show.title)}</h4>`; }
+        html += `<button class="wt-ep" data-i="${i}"><span class="n">${++n}</span><span>${esc(e.title)}</span></button>`;
+      });
+      eps.innerHTML = html;
+    }
+    sheet.querySelectorAll('[data-tab]').forEach((b) => b.onclick = () => load(b.dataset.tab));
+    find.addEventListener('input', draw);
+    grid.addEventListener('click', (e) => {
+      const b = e.target.closest('.wt-tile'); if (!b) return;
+      const it = items[+b.dataset.i];
+      if (tab === 'movies') done({ path: it.path, title: it.title, cover: it.cover });
+      else showEpisodes(it);
+    });
+    eps.addEventListener('click', (e) => {
+      const b = e.target.closest('.wt-ep'); if (!b) return;
+      const ep = openShow.episodes[+b.dataset.i];
+      done({ path: ep.path, title: `${openShow.title} · ${ep.title}`.slice(0, 70), cover: openShow.cover });
+    });
+    load('movies');
+  });
+}
+
+function choose(title, options) {
+  return new Promise((resolve) => {
+    const sheet = document.createElement('div');
+    sheet.className = 'wt-sheet';
+    sheet.innerHTML = `<div class="wt-small" role="dialog" aria-modal="true"><h3>${esc(title)}</h3><div class="wt-modes">${
+      options.map((o, i) => `<button class="wt-mode" data-i="${i}"><div><b>${esc(o.label)}</b><span>${esc(o.text)}</span></div></button>`).join('')}
+      <button class="wt-btn" data-i="-1">Cancel</button></div></div>`;
+    document.body.appendChild(sheet);
+    const done = (v) => { sheet.remove(); resolve(v); };
+    sheet.addEventListener('click', (e) => {
+      if (e.target === sheet) return done(null);
+      const b = e.target.closest('[data-i]'); if (!b) return;
+      done(+b.dataset.i < 0 ? null : options[+b.dataset.i].value);
+    });
+  });
+}
+
+/* starting and joining */
+const nameIn = $('nameIn');
+try { nameIn.value = localStorage.getItem('nomad_party_name') || ''; } catch (e) {}
+const myName = () => { const n = nameIn.value.trim(); try { localStorage.setItem('nomad_party_name', n); } catch (e) {} return n; };
+
+async function host(item) {
+  try {
+    const body = Object.assign({ name: myName() || 'Host' }, item || {});
+    const j = await api('create', body);
+    me = { code: j.code, member: j.member, token: j.token };
+    S.set(me);
+    enterRoom();
+  } catch (e) { toast(e.message); }
+}
+$('hostBtn').onclick = async () => { host(null); };
+
+async function join(code) {
+  code = String(code || '').trim().toUpperCase();
+  if (code.length !== 4) { $('joinMsg').textContent = 'The code is 4 letters.'; return; }
+  $('joinMsg').textContent = 'Joining…';
+  try {
+    const j = await api('join', { code, name: myName() });
+    me = { code: j.code, member: j.member };
+    S.set(me);
+    $('joinMsg').textContent = '';
+    enterRoom();
+  } catch (e) { $('joinMsg').textContent = e.message; }
+}
+$('joinBtn').onclick = () => join($('codeIn').value);
+$('codeIn').addEventListener('keydown', (e) => { if (e.key === 'Enter') join($('codeIn').value); });
+
+/* the room */
+let pollT = 0, beatT = 0, lastSeq = -1, loadedPath = '', ready = false, rtt = 150, polling = false;
+// a host coming back (a reload) takes up where the party is before sending anything,
+// or its fresh player at 0:00 and paused would rewind and pause everyone
+let catchingUp = false, stAt = 0;
+// a page being left pauses its video on the way out: that pause is not the host's, and sent
+// it would stop everyone at the start of every reload
+let leaving = false;
+window.addEventListener('beforeunload', () => { leaving = true; });
+window.addEventListener('pagehide', () => { leaving = true; });
+window.addEventListener('pageshow', () => { leaving = false; });
+
+// Nomad turns a new stream away (503) while its slots are full, as right after a reload
+// while the old page's stream is still winding down: ask again shortly instead of sitting dead
+let loadTries = 0;
+// the host's place when its stream was turned away: the new load starts at 0:00, and must
+// neither be sent as everyone's place nor lose where the film was
+let retryAt = null;
+vid.addEventListener('error', () => {
+  const path = loadedPath;
+  // a slot can take a while to free up. a film this phone can't play gives up after ~2 minutes
+  if (!path || loadTries >= 30) return;
+  loadTries++;
+  if (isHost() && !retryAt && vid.readyState >= 1) retryAt = { pos: vid.currentTime, play: !vid.paused };
+  setTimeout(() => { if (loadedPath === path && vid.error) { vid.src = media(path); vid.load(); } }, Math.min(5000, 1000 + 500 * loadTries));
+});
+vid.addEventListener('loadedmetadata', () => {
+  loadTries = 0;
+  const r = retryAt;
+  if (!r) return;
+  retryAt = null;
+  if (r.pos > 0.5) vid.currentTime = r.pos;
+  if (r.play) vid.play().catch(() => { vid.muted = true; $('soundBtn').hidden = false; vid.play().catch(() => sync(true)); });
+});
+
+// navigator.clipboard needs a secure context, which http://192.168.4.1 is not
+async function copyLink(link) {
+  try {
+    if (navigator.clipboard && window.isSecureContext) await navigator.clipboard.writeText(link);
+    else {
+      const ta = document.createElement('textarea');
+      ta.value = link; ta.setAttribute('readonly', ''); ta.style.cssText = 'position:fixed;top:0;left:0;opacity:0';
+      document.body.appendChild(ta); ta.select();
+      const ok = document.execCommand('copy');
+      ta.remove();
+      if (!ok) throw new Error('copy refused');
+    }
+    toast('Join link copied');
+  } catch (e) { toast(link, 5000); }
+}
+
+async function enterRoom() {
+  $('start').hidden = true; $('room').hidden = false;
+  $('hostTools').hidden = !isHost(); $('leaveBtn').hidden = isHost();
+  const link = `${location.origin}/watch.html?c=${me.code}`;
+  $('codeChip').textContent = me.code;
+  $('joinHint').textContent = `Join at ${location.host}/watch.html with this code`;
+  $('codeChip').onclick = () => copyLink(link);
+  history.replaceState(null, '', '/watch.html?c=' + me.code);
+  if (!player) {
+    try {
+      player = await NomadPlyr.create(vid, isHost()
+        ? { captions: { update: true } }
+        // viewers follow the host: no play, progress or seeking of their own
+        : { controls: ['mute', 'volume', 'captions', 'settings', 'pip', 'fullscreen'], settings: ['captions'],
+            doubleTapSeek: false, keyboard: { focused: false, global: false } });
+    } catch (e) { player = null; vid.controls = true; }
+  }
+  if (isHost()) {
+    catchingUp = true;
+    vid.addEventListener('loadedmetadata', catchUp);
+    const push = (event) => sync(event);
+    vid.addEventListener('play', () => push(true));
+    vid.addEventListener('pause', () => push(true));
+    vid.addEventListener('seeked', () => push(true));
+    // the host's own picture stalling (a seek, a slow stretch) holds everyone, so nobody runs ahead
+    vid.addEventListener('waiting', () => push(true));
+    vid.addEventListener('playing', () => push(true));
+    beatT = setInterval(() => sync(false), 3000);
+  }
+  vid.addEventListener('canplay', () => { ready = true; });
+  vid.addEventListener('waiting', () => { if (!isHost()) ready = false; });
+  poll(true);
+}
+
+async function sync(event) {
+  if (!isHost() || !loadedPath || catchingUp || retryAt || leaving) return;
+  // playing only while the picture is moving: paused, or waiting for data, holds everyone
+  const playing = !vid.paused && vid.readyState >= 3;
+  try { await api('sync', { code: me.code, token: me.token, playing, position: vid.currentTime, event: !!event }); }
+  catch (e) { if (e.status === 404) gone('The party has ended.'); }
+}
+
+async function poll(force) {
+  clearTimeout(pollT);
+  if (!me) return;
+  if (document.hidden && !isHost() && !force) { pollT = setTimeout(poll, 2000); return; }
+  if (polling) return;
+  polling = true;
+  const t0 = performance.now();
+  try {
+    const qs = `code=${me.code}&m=${me.member}&ready=${ready ? 1 : 0}` + (force || !st ? '' : `&since=${lastSeq}`);
+    const r = await fetch('/api/party/state?' + qs, { cache: 'no-store' });
+    const t1 = performance.now();
+    if (r.status === 404) { gone('That party has ended.'); return; }
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    const d = await r.json();
+    rtt = rtt * 0.7 + (t1 - t0) * 0.3;
+    if (d.members) { st = d; lastSeq = d.seq; render(d); }
+    else if (st) { Object.assign(st, d); }
+    stAt = performance.now();
+    if (d.ended) { gone(isHost() ? 'You ended the party.' : 'The host ended the party.'); return; }
+    if (!isHost()) follow(d); else catchUp();
+    banner(st || d);   // the short answer has no item: the merged state does
+  } catch (e) {
+    showBanner("Can't reach Nomad. Trying again…");
+  } finally {
+    polling = false;
+  }
+  pollT = setTimeout(poll, isHost() ? 2000 : 1000);
+}
+
+function gone(msg) {
+  clearTimeout(pollT); clearInterval(beatT);
+  S.set(null);
+  try { vid.pause(); } catch (e) {}
+  me = null;
+  showBanner(msg);
+  $('hostTools').hidden = true; $('leaveBtn').hidden = false; $('leaveBtn').textContent = 'Back';
+  $('leaveBtn').onclick = () => { location.href = '/watch.html'; };
+}
+
+function render(d) {
+  // who's here
+  $('people').innerHTML = (d.members || []).map((m) =>
+    `<span class="wt-person${m.ready ? ' ready' : ''}${m.me ? ' me' : ''}"><span class="dot"></span>${esc(m.name)}${m.host ? ' <span class="host">host</span>' : ''}</span>`).join('');
+  const item = d.item;
+  $('roomTitle').textContent = item ? item.title : 'Nothing picked yet';
+  // what plays
+  if (item && item.path !== loadedPath) {
+    loadedPath = item.path; ready = false; loadTries = 0; retryAt = null;
+    vid.hidden = false; $('emptyStage').hidden = true;
+    vid.src = media(item.path);
+    if (item.cover) vid.poster = media(item.cover); else vid.removeAttribute('poster');
+    if (!isHost()) { vid.muted = true; $('soundBtn').hidden = false; }
+    vid.load();
+  } else if (!item) {
+    loadedPath = ''; vid.hidden = true; $('emptyStage').hidden = false;
+    $('emptyTitle').textContent = 'Nothing picked yet';
+    $('emptyText').textContent = isHost() ? '' : 'Waiting for the host';
+  }
+  // the line under the player
+  const parts = [`<span><b>${d.watching}</b> here</span>`];
+  if (item) parts.push(`<span><b>${d.ready}</b> of ${d.watching} loaded</span>`);
+  if (isHost() && d.watching > 5) parts.push('<span>More than 5 phones streaming at once can stutter</span>');
+  $('status').innerHTML = parts.join('');
+  renderVote(d);
+}
+
+/* a host picking up where the party is */
+function catchUp() {
+  if (!catchingUp || !st) return;
+  if (!st.item) { catchingUp = false; return; }    // nothing playing: nothing to keep
+  if (!loadedPath || vid.readyState < 1) return;   // wait for the film to know its length
+  catchingUp = false;
+  const target = st.position + (st.playing ? (st.age + performance.now() - stAt) / 1000 : 0);
+  if (target > 0.5) vid.currentTime = Math.min(target, (vid.duration || target) - 0.5);
+  if (st.playing && vid.paused) {
+    // a reload has no tap behind it, so the phone may only allow it muted
+    vid.play().catch(() => { vid.muted = true; $('soundBtn').hidden = false; vid.play().catch(() => sync(true)); });
+  }
+}
+
+/* following the host */
+function follow(d) {
+  if (!loadedPath || vid.readyState < 1) return;
+  const target = d.position + (d.playing ? (d.age + rtt / 2) / 1000 : 0);
+  const drift = target - vid.currentTime;
+  if (!d.playing) {
+    if (!vid.paused) vid.pause();
+    if (Math.abs(drift) > 0.5) vid.currentTime = Math.max(0, target);
+    vid.playbackRate = 1;
+    return;
+  }
+  // a big gap is a jump. a small one is eased away by running a touch fast or slow,
+  // every jump is a new request and a stall on this radio
+  if (Math.abs(drift) > 3) { vid.currentTime = Math.max(0, target); vid.playbackRate = 1; }
+  else if (Math.abs(drift) > 0.35) vid.playbackRate = 1 + Math.max(-0.05, Math.min(0.05, drift * 0.08));
+  else vid.playbackRate = 1;
+  if (vid.paused) vid.play().catch(() => { vid.muted = true; $('soundBtn').hidden = false; vid.play().catch(() => {}); });
+}
+$('soundBtn').onclick = () => { vid.muted = false; $('soundBtn').hidden = true; if (st && st.playing) vid.play().catch(() => {}); };
+
+function banner(d) {
+  if (d.hostAway && !isHost()) return showBanner('Waiting for the host…');
+  if (!isHost() && d.item && !d.playing && loadedPath) return showBanner(d.position > 1 ? 'Paused by the host' : 'Waiting for the host to start');
+  showBanner('');
+}
+function showBanner(t) { $('banner').textContent = t; $('banner').hidden = !t; }
+
+/* the host's tools */
+$('changeBtn').onclick = async () => {
+  const it = await pickSomething('What should everyone watch?');
+  if (!it) return;
+  try { await api('item', Object.assign({ code: me.code, token: me.token }, it)); poll(true); } catch (e) { toast(e.message); }
+};
+$('voteBtn').onclick = async () => {
+  const mode = await choose('Let everyone vote', [
+    { value: 'most', label: 'Most votes wins', text: 'Ties are drawn at random' },
+    { value: 'random', label: 'Random from the picks', text: 'More votes, better odds' },
+    { value: 'runoff', label: 'Two rounds', text: 'Top picks go to a final vote' },
+  ]);
+  if (!mode) return;
+  try { await api('vote', { code: me.code, token: me.token, action: 'open', mode }); poll(true); } catch (e) { toast(e.message); }
+};
+$('endBtn').onclick = async () => {
+  if (!confirm('End the party for everyone?')) return;
+  try { await api('end', { code: me.code, token: me.token }); } catch (e) {}
+  gone('You ended the party.');
+};
+$('leaveBtn').onclick = async () => {
+  if (me) { try { await api('leave', { code: me.code, m: me.member }); } catch (e) {} }
+  S.set(null);
+  location.href = '/watch.html';
+};
+window.addEventListener('pagehide', () => {
+  // a viewer closing the tab leaves. the host doesn't end the party by closing it (a reload or a locked phone carries on)
+  if (me && !isHost()) try { navigator.sendBeacon('/api/party/leave', new Blob([JSON.stringify({ code: me.code, m: me.member })], { type: 'application/json' })); } catch (e) {}
+});
+document.addEventListener('visibilitychange', () => { if (!document.hidden && me) poll(true); });
+
+/* voting */
+let revealed = '';
+const MODE_NAMES = { most: 'Most votes', random: 'Random pick', runoff: 'Two rounds' };
+function renderVote(d) {
+  const v = d.vote || { phase: 'none' };
+  const panel = $('votePanel');
+  panel.hidden = v.phase === 'none';
+  if (panel.hidden) return;
+  $('voteMode').textContent = MODE_NAMES[v.mode] || '';
+  const picks = v.picks || [];
+  const total = picks.reduce((a, p) => a + p.votes, 0);
+  $('voteTitle').textContent = v.phase === 'runoff' ? 'Final round' : v.phase === 'done' ? 'Decided' : 'Vote on what to watch';
+  $('voteHelp').textContent = v.phase === 'open' ? `${total} of ${d.watching} have picked`
+    : v.phase === 'runoff' ? `${total} of ${d.watching} have voted`
+    : '';
+  $('pickBtn').hidden = v.phase !== 'open';
+  $('pickBtn').textContent = picks.some((p) => p.mine) ? 'Change my pick' : 'Pick something';
+  $('closeVoteBtn').hidden = !isHost() || !(v.phase === 'open' || v.phase === 'runoff');
+  $('closeVoteBtn').textContent = v.phase === 'open' && v.mode === 'runoff' ? 'Go to the final round' : 'Close voting';
+  $('cancelVoteBtn').hidden = !isHost();
+  $('cancelVoteBtn').textContent = v.phase === 'done' ? 'Done' : 'Cancel vote';
+  const can = v.phase === 'runoff';
+  $('picks').innerHTML = picks.length ? picks.map((p) => `<button class="wt-pick${can ? ' can' : ''}${p.mine ? ' mine' : ''}${v.winner && v.winner.path === p.path ? ' win' : ''}"
+      ${can ? `data-choice="${p.choice}"` : ''}><div class="poster">${p.cover ? `<img alt="" src="${esc(media(p.cover))}">` : ''}<span class="votes">${p.votes}</span></div>
+      <div class="meta"><b>${esc(p.title)}</b><span>${esc((p.who || []).join(', '))}</span></div></button>`).join('')
+    : '<div class="wt-muted">No picks yet.</div>';
+  // the result, once: a short shuffle for a random draw, then the winner
+  const rev = $('reveal');
+  if (v.phase === 'done' && v.winner) {
+    const key = d.seq + v.winner.path;
+    if (revealed !== key && revealed !== 'shown:' + v.winner.path) {
+      revealed = key;
+      rev.hidden = false;
+      if (v.mode === 'random' && picks.length > 1) {
+        rev.classList.add('spin');
+        let i = 0;
+        const t = setInterval(() => { rev.textContent = picks[i++ % picks.length].title; }, 110);
+        setTimeout(() => { clearInterval(t); rev.classList.remove('spin'); rev.textContent = 'Watching: ' + v.winner.title; revealed = 'shown:' + v.winner.path; }, 1800);
+      } else { rev.textContent = 'Watching: ' + v.winner.title; revealed = 'shown:' + v.winner.path; }
+    }
+  } else { rev.hidden = true; revealed = ''; }
+}
+$('pickBtn').onclick = async () => {
+  const it = await pickSomething('Your pick');
+  if (!it || !me) return;
+  try { await api('pick', Object.assign({ code: me.code, m: me.member }, it)); poll(true); } catch (e) { toast(e.message); }
+};
+$('picks').addEventListener('click', async (e) => {
+  const b = e.target.closest('[data-choice]'); if (!b || !me) return;
+  try { await api('pick', { code: me.code, m: me.member, choice: +b.dataset.choice }); poll(true); } catch (err) { toast(err.message); }
+});
+$('closeVoteBtn').onclick = async () => {
+  try { await api('vote', { code: me.code, token: me.token, action: 'close' }); poll(true); } catch (e) { toast(e.message); }
+};
+$('cancelVoteBtn').onclick = async () => {
+  try { await api('vote', { code: me.code, token: me.token, action: 'cancel' }); poll(true); } catch (e) { toast(e.message); }
+};
+
+/* arriving */
+(async () => {
+  const qs = new URLSearchParams(location.search);
+  const code = (qs.get('c') || '').toUpperCase();
+  const saved = S.get();
+  // back in a party this phone was already in (a reload, a locked phone)
+  if (saved && (!code || code === saved.code)) {
+    try {
+      const r = await fetch(`/api/party/state?code=${saved.code}&m=${saved.member}`, { cache: 'no-store' });
+      if (r.ok) { const d = await r.json(); if (!d.ended && (d.members || []).some((m) => m.me)) { me = saved; enterRoom(); return; } }
+    } catch (e) {}
+    S.set(null);
+  }
+  // started from a film or an episode page: host it straight away
+  if (qs.get('host') === '1' && qs.get('path')) {
+    host({ path: qs.get('path'), title: qs.get('title') || '', cover: qs.get('cover') || '' });
+    return;
+  }
+  if (code) { $('codeIn').value = code; if (nameIn.value.trim()) join(code); else nameIn.focus(); }
+})();
+})();
+</script>
+</body>
+</html>

@@ -23,7 +23,7 @@ Stream movies, music, books, and shows anywhere - no internet required.</p>
 
 > **Experimental Branch** - This is where new stuff lands before it goes to main. Everything in 4.6 is here too, this just adds on top of it.
 >
-> What's new here is mostly under the hood: streaming holds up better when several people are pulling at once, direct links to a file actually stream instead of falling over, and a few mobile layout bugs are gone. There is also a flashing script that means you no longer have to unplug the board after every flash.
+> This update is 4.8, and it's a big one. While a lot of it is under the hood (several people streaming at once holds up a lot better now), there's also a lot of new stuff on the pages, Watch Together, a rebuilt admin panel, firmware updates without a cable, offline archives served by the Nomad itself, and rebuilt maps. The full list is below.
 >
 > Fair warning, this branch gets less testing than main. If something breaks, tell me, that is what this branch is for.
 >
@@ -60,22 +60,40 @@ If you just want to support the project, donations are always appreciated:
 
 ## What's New in Experimental
 
+### New in 4.8
+
+- **Several people at once:** Four films play smooth at the same time in my testing now, and pages don't come back half loaded when the Nomad is busy, they just take a second longer. Uploads pick up where they left off if the connection drops, and big downloads actually finish.
+- **Archives served by the Nomad:** Wikipedia and the other ZIM archives are served by the Nomad itself now, so they work on every phone without any setup on the phone side.
+- **Maps rebuilt:** Vector map packs, turn by turn with voice and rerouting, search for addresses and coordinates, Nearby for things like hospitals, water and gas, and it follows your theme. Phones too old for the full map get a basic one instead.
+- **Admin panel redone:** Split into sections, a sign in where the password never gets sent over the air (and more than one device can stay signed in), switches per page for what people can see, download or upload, Activity to see and stop what's playing, card health, and a WiFi QR code.
+- **Firmware updates without a cable:** From a file or straight from the flasher site. Only signed builds are accepted, and if a new build doesn't start right it goes back to the old one on its own.
+- **Watch Together:** One person hosts, everyone else joins with a code, and you can vote on what to watch.
+- **Movies & Shows:** Simpler resume, progress on every episode, Up next, seek previews, and subtitles that stay on through episode changes.
+- **Music:** Now playing, no gap between songs, a sleep timer and sound settings.
+- **Books:** Progress and Continue on everything, audiobooks that run on through a book in parts, read aloud for e-books, and bookmarks and notes. PDFs and comics open a lot quicker too.
+- **Gallery & Files:** A proper photo viewer with folders and thumbnails, and Files can open docs, slides and sheets.
+- **Games:** Gzipped ROMs start in about half the time, and there's a Toolkit with some everyday tools.
+- **Translate:** A conversation mode for going back and forth.
+- **Chat:** Kept by the Nomad now, so messages don't get lost or show up out of order.
+- **Safe mode and a support file:** If it crashes a few times in a row it starts in safe mode, and the admin panel can save a support file you can send me when something goes wrong.
+- **Security:** Guests can't get at the settings, the interface files or the card's top folders anymore, no matter how the path is spelled.
+
 ### Streaming holds up under load
 
-The device turns people away properly now instead of quietly falling over.
+When too many people connect at once, Nomad now says it's busy instead of stalling.
 
-- When several devices pull at once, Nomad reserves a slot before it starts the work rather than checking free memory and hoping. It was checking at the top of the request and not committing until much later, so a burst of requests all passed the check before any of them had actually taken anything. Six at once could drive free memory from 70 KB down to 20 KB, under the floor that was meant to stop exactly that.
-- If it is genuinely full you now get a clean "busy, try again" instead of a stall, and the players handle that fine.
-- A stuck stream can't hold its slot forever, so one phone that walks out of range can't slowly eat the device.
+- When several devices pull at once, Nomad now reserves a slot before it starts the work. Before, it checked free memory at the start of a request but didn't use it until much later, so a burst of requests could all pass the check together. Six at once could take free memory from 70 KB down to 20 KB, below the limit that was supposed to prevent that.
+- If it is actually full you get a "busy, try again" instead of a stall, and the players handle that fine.
+- A stuck stream gives its slot back after a while, so a phone that walks out of range doesn't keep it.
 - **Hotspot goes from 8 devices to 10.** 8 was inherited from the Mk4 and was never actually measured, the radio driver allows 10.
 
 ### Direct file links actually stream
 
-If something asked for `/Movies/film.mp4` straight, rather than going through the site, it got a whole-file response with no seeking and never counted towards the limits above. That is exactly what DLNA players, VLC and anything else external requests, so it was the one way to start a stream that bypassed everything. Those go through the proper handler now.
+If something asked for `/Movies/film.mp4` directly instead of going through the site, it got the whole file with no seeking, and it didn't count towards the limits above. DLNA players, VLC and other outside apps ask for files that way, so they skipped all of it. Those go through the proper handler now.
 
 ### Mobile fixes
 
-- **The epub reader had dead space** below and beside the page you could scroll into. Two causes: the reader sized itself to the full screen height including the strip behind the address bar, and it never noticed the viewport changing when that bar collapsed or you rotated. Both fixed.
+- **The epub reader had dead space** below and beside the page you could scroll into. The reader sized itself to the full screen height, including the strip behind the address bar, and it didn't notice the screen changing size when that bar collapsed or you rotated. Both are fixed.
 - **The gallery's Prev/Next buttons sat just under the fold** on a phone. Same address bar problem.
 - **The Resume panel stayed on the menu with nothing in it** when there was nothing to resume.
 
@@ -85,8 +103,8 @@ If something asked for `/Movies/film.mp4` straight, rather than going through th
 - Paths with doubled slashes fold properly, which is what made `/Archive` and `//Archive` behave differently
 - The `/config` folder is properly off limits no matter how the path is spelled
 - The health readout reports the memory the card actually needs, not just free heap
-- A game that survives the thinking state, a search index that updates, and 248 lines of dead code gone
-- **`tools/flash-nomad.sh`** - compiles, flashes and waits for the hotspot to come back. **No more unplugging the board after a flash.** The trick is resetting through the watchdog rather than the serial line, which the S3's USB port doesn't really have. `--usbc` builds for the 1.47B board.
+- A game no longer gets stuck while it's thinking, the search index updates properly, and 248 lines of dead code are gone
+- **`tools/flash-nomad.sh`** - compiles, flashes and waits for the hotspot to come back. **No more unplugging the board after a flash.** It resets through the watchdog instead of the serial line, since the S3's USB port can't really do that. `--usbc` builds for the 1.47B board.
 
 ---
 
@@ -144,14 +162,14 @@ A Translate page that works with zero internet. Two people can pass a phone back
 Two new library pages, both optional, both disabled by default.
 
 - **Cookbook:** drop `.md`, `.cook` or `.json` recipe files into `/Cookbook` (photos work, same-name image convention). Recipes render with ingredient and step checklists you can tick off while cooking.
-- **Workshop:** drop `.stl`, `.3mf` or `.obj` files into `/Workshop` and preview them in 3D right in the browser. A README or notes file in a folder describes every model in it. The viewer is a few hundred lines of raw WebGL, not a bundled 3D engine, so it stays fast off the card.
+- **Workshop:** drop `.stl`, `.3mf` or `.obj` files into `/Workshop` and preview them in 3D right in the browser. A README or notes file in a folder describes every model in it. The viewer is a few hundred lines of plain WebGL instead of a full 3D engine, so it loads fast off the card.
 
 - I think these are kinda dumb... but I needed a clean number of pages so this is what we get..
 ### Game ROMs & Built-in Games
 
 - Drop ROMs into `/Games` and play them in the browser through EmulatorJS
 - Ships with Go, Chess, Connect Four, Tic-Tac-Toe, 2048, Minesweeper, Snake, Crazy Eights, Dots and Boxes, and a shared Whiteboard, all just plain HTML files
-- Also ships with **DOOM** - the shareware WAD is included, and any `.wad` you drop in `/Games` runs through the same engine (this is here so I can say it runs doom, you must keep this on the card it is load bearing.. I swear lol)
+- Also ships with **DOOM** - Freedoom (a free replacement for the game data) is included, and any `.wad` you drop in `/Games` runs through the same engine (this is here so I can say it runs doom, you must keep this on the card it is load bearing.. I swear lol)
 - Cover art works the same as everywhere else, drop an image with the same name next to the file
 - Add or remove games by adding or deleting files, there's nothing to configure, this works for the inbuilt games aswell. 
 
@@ -224,6 +242,8 @@ Burgundy Wine, Teal Oasis
 - **Workshop:** 3D-print model library with an in-browser STL/3MF/OBJ preview.
 - **Subtitles:** Sidecar subtitle files attach themselves to a video by filename, with selectable language tracks.
 - **Chat:** A simple local chat room for everyone connected to the Nomad.
+- **Watch Together:** Pick something as a group and everyone watches it at the same moment.
+- **Firmware Updates:** Update from the admin panel with a signed build, no cable needed, and it rolls back on its own if the new one fails.
 - **Admin Panel:** Full device controls, library indexing, Theme Customizer, menu page toggles, login-gated settings.
 - **File Browser:** Upload, rename, delete, download, and inline file editing. (Recommended to use a PC)
 - **Global Search:** Quickly find media across all categories from the Menu page.
@@ -408,7 +428,7 @@ Folder Structure
 /Games
     Pokemon Red.gb
     Pokemon Red.png
-    Doom.wad
+    Freedoom.wad
     Chess.html
     Go.html
 
@@ -490,7 +510,7 @@ What the menu covers:
 - **Optimize cover images** - shrinks Movie/Show/Book covers so pages load fast on the device.
 - **Rebuild media index** - refreshes the library listing after you've added or removed files from the PC.
 - **Download offline maps** - grabs map tiles for an area you pick, with a size estimate and free-space check before anything downloads.
-- **Build a routing map** - maps plus the road network and place search, for turn by turn directions. Pick from ready-made areas (any US state, big regions, or the whole country) and they join into one seamless map. US only for now
+- **Build a routing map** - maps plus the road network and place search, for turn by turn directions. Pick from ready-made areas (any US state, big regions, or the whole country) and they join into one map. US only for now
 - **Add translation languages** - installs offline translation packs, always both directions of a pair. Comes in collections (`starter`, `traveler`, `europe`, `asia`, `world`) or single languages. (I recomend just grabbing all as its less than 4GB)
 
 A good order for a fresh card: media and ZIMs first, optimize images, rebuild the index last. Maps and languages can be added any time.

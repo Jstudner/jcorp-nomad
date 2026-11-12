@@ -7,8 +7,8 @@
 <title>Nomad • Whiteboard</title>
 <link rel="icon" href="/favicon.ico" type="image/x-icon">
 <link rel="stylesheet" href="/master.css">
-<script src="/theme-boot.js"></script>
-<script src="/theme-manager.js"></script>
+<script src="/theme-boot.js?v=5"></script>
+<script src="/theme-manager.js?v=5"></script>
 <style>
   main{max-width:1150px;margin:0 auto;padding:10px;width:100%;box-sizing:border-box}
   .toolbar{display:flex;flex-wrap:wrap;gap:8px;align-items:center;background:var(--card);
@@ -74,13 +74,11 @@
   </main>
 
 <script>
-/* Whiteboard: two boards behind one set of controls, same layout as Gallion's.
-   - "My Board": strokes autosave to localStorage on this device, Save downloads a
-     PNG, Load draws an image file onto the canvas.
-   - "Live Board": shared with everyone on the Nomad. There are no sockets on the
-     firmware, so each participant writes their own stroke layer to the card via the
-     open POST /save handler and polls /listfiles for the other layers, refetching
-     only layers whose size changed. Clear deletes every layer file. */
+/* Two boards behind one set of controls.
+   My Board: autosaves to localStorage; Save downloads a PNG, Load draws an image on it.
+   Live Board: the firmware has no sockets, so each participant writes their own stroke
+   layer to the card with POST /save and polls /listfiles for the others, refetching only
+   layers whose size changed. Clear deletes every layer file. */
 'use strict';
 
 const W = 1600, H = 1200;               // fixed logical space so all clients agree
@@ -102,11 +100,15 @@ let cur = null;                         // in-progress stroke
 let pollTimer = null;
 let savePending = false, saveInFlight = false, savedOnce = false;
 let layerFull = false;
+// my layer on the card is read back before anything of mine is written. a reload keeps
+// the file name, and saving an empty layer first would wipe this phone's strokes for everyone
+let mineChecked = false;
+let saveFails = 0, saveRetry = null;
+let activePointer = null;               // one finger draws; a second one is ignored
 
 const clientId = (() => {
-  // sessionStorage, not localStorage: the id must be unique per browser tab, or two
-  // windows on one device share a layer file and each ignores it as "mine", which
-  // makes the live board look dead when testing with two windows
+  // sessionStorage, not localStorage: one id per tab, or two windows on one device share
+  // a layer file, each ignores it as "mine" and the live board looks dead
   let id = sessionStorage.getItem('nomad_wb_id');
   if (!id){
     id = Math.random().toString(36).slice(2, 8);
@@ -116,7 +118,22 @@ const clientId = (() => {
 })();
 const myFile = `${LIVE_DIR}/wb_${clientId}.json`;
 
-/* ---------- drawing primitives ---------- */
+/* Points are saved as differences from the one before (d:1), which roughly halves a
+   layer. Older layers have absolute points and load as they are. */
+function packStroke(s){
+  if (s.img || !s.p) return s;
+  const p = s.p, out = [p[0], p[1]];
+  for (let i = 2; i + 1 < p.length; i += 2) out.push(p[i] - p[i-2], p[i+1] - p[i-1]);
+  return { c: s.c, w: s.w, e: s.e, p: out, d: 1 };
+}
+function unpackStroke(s){
+  if (!s || !s.d || !Array.isArray(s.p)) return s;
+  const p = s.p.slice();
+  for (let i = 2; i + 1 < p.length; i += 2){ p[i] += p[i-2]; p[i+1] += p[i-1]; }
+  return { c: s.c, w: s.w, e: s.e, p };
+}
+
+// drawing
 
 function drawStroke(s){
   if (s.img){                            // loaded image (private board only)
@@ -159,7 +176,7 @@ function redraw(){
   if (cur) drawStroke(cur);
 }
 
-/* ---------- pointer input ---------- */
+// pointer input
 
 function toLogical(e){
   const r = cv.getBoundingClientRect();
@@ -169,14 +186,16 @@ function toLogical(e){
 
 cv.addEventListener('pointerdown', e => {
   e.preventDefault();
-  cv.setPointerCapture(e.pointerId);
+  if (activePointer !== null && activePointer !== e.pointerId) return;   // a second finger
   if (layerFull && mode === 'live') return;
+  activePointer = e.pointerId;
+  cv.setPointerCapture(e.pointerId);
   const [x, y] = toLogical(e);
   cur = { c: color, w: size, e: erasing ? 1 : 0, p: [x, y] };
   drawStroke(cur);
 });
 cv.addEventListener('pointermove', e => {
-  if (!cur) return;
+  if (!cur || e.pointerId !== activePointer) return;
   const [x, y] = toLogical(e);
   const p = cur.p, n = p.length;
   if (Math.abs(x - p[n-2]) + Math.abs(y - p[n-1]) < 3) return;  // decimate
@@ -192,7 +211,9 @@ cv.addEventListener('pointermove', e => {
   ctx.stroke();
   ctx.globalCompositeOperation = 'source-over';
 });
-function endStroke(){
+function endStroke(e){
+  if (e && e.pointerId !== undefined && e.pointerId !== activePointer) return;
+  activePointer = null;
   if (!cur) return;
   myStrokes[mode].push(cur);
   redoStack[mode] = [];
@@ -203,7 +224,7 @@ function endStroke(){
 cv.addEventListener('pointerup', endStroke);
 cv.addEventListener('pointercancel', endStroke);
 
-/* ---------- controls ---------- */
+// controls
 
 document.getElementById('colorPicker').addEventListener('input', e => { color = e.target.value; });
 document.getElementById('sizeSlider').addEventListener('input', e => {
@@ -289,7 +310,7 @@ async function clearBoard(){
   redraw(); updateButtons(); setLiveInfo();
 }
 
-/* ---------- private persistence ---------- */
+// My Board autosave
 
 function persist(){
   if (mode === 'private'){
@@ -309,17 +330,18 @@ function restorePrivate(){
   } catch(e){}
 }
 
-/* ---------- live sync over /save + /listfiles + /delete ---------- */
+// live sync over /save, /listfiles and /delete
 
 function scheduleSave(){
   savePending = true;
-  setTimeout(doSave, SAVE_THROTTLE_MS);
+  if (!saveRetry) setTimeout(doSave, SAVE_THROTTLE_MS);
 }
 
 async function doSave(){
   if (!savePending || saveInFlight || mode !== 'live') return;
+  if (!mineChecked){ setTimeout(doSave, 500); return; }   // my layer is still being read back
   savePending = false;
-  const json = JSON.stringify({ v: 1, strokes: myStrokes.live });
+  const json = JSON.stringify({ v: 2, strokes: myStrokes.live.map(packStroke) });
   if (json.length > MAX_LAYER_JSON){
     layerFull = true;
     liveInfo.textContent = 'Your layer is full. Clear the board to keep drawing.';
@@ -336,18 +358,29 @@ async function doSave(){
     const res = await fetch('/save', { method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
       body: new URLSearchParams({ filename: myFile, content: json }) });
-    if (res.ok) savedOnce = true;
-  } catch(e){}
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    savedOnce = true;
+    if (saveFails){ saveFails = 0; setLiveInfo(); }
+  } catch(e){
+    // the card was busy or the WiFi dropped: keep the strokes and try again, a little later each time
+    savePending = true;
+    saveFails++;
+    liveInfo.textContent = 'Not shared yet, trying again…';
+    clearTimeout(saveRetry);
+    saveRetry = setTimeout(() => { saveRetry = null; doSave(); }, Math.min(15000, 1000 * 2 ** Math.min(saveFails, 4)));
+  }
   saveInFlight = false;
-  if (savePending) setTimeout(doSave, SAVE_THROTTLE_MS);
+  if (savePending && !saveRetry) setTimeout(doSave, SAVE_THROTTLE_MS);
 }
 
 async function pollLive(){
   if (mode !== 'live') return;
+  if (document.hidden){ pollTimer = setTimeout(pollLive, POLL_MS); return; }   // a pocketed phone doesn't ask
   try {
     const res = await fetch(`/listfiles?dir=${encodeURIComponent(LIVE_DIR)}&_=${Date.now()}`, { cache: 'no-store' });
     if (res.status === 404){            // nobody has drawn yet
       peerLayers.clear(); redraw(); setLiveInfo(1);
+      mineChecked = true;
     } else if (res.ok){
       const arr = await res.json();
       const seen = new Set();
@@ -355,7 +388,21 @@ async function pollLive(){
       for (const f of (Array.isArray(arr) ? arr : [])){
         const n = String(f.name || '');
         if (!/^wb_.*\.json$/.test(n) || f.isDir) continue;
-        if (`${LIVE_DIR}/${n}` === myFile){ sawMine = true; continue; }
+        if (`${LIVE_DIR}/${n}` === myFile){
+          sawMine = true;
+          if (!mineChecked){
+            // back after a reload: my earlier strokes, under anything drawn since
+            try {
+              const r = await fetch(`${myFile}?_=${Date.now()}`, { cache: 'no-store' });
+              if (r.ok){
+                const j = await r.json();
+                myStrokes.live = ((j && j.strokes) || []).map(unpackStroke).concat(myStrokes.live);
+                savedOnce = true; changed = true; updateButtons();
+              }
+            } catch(e){}
+          }
+          continue;
+        }
         seen.add(n);
         const cached = peerLayers.get(n);
         if (!cached || cached.size !== f.size){
@@ -363,7 +410,7 @@ async function pollLive(){
             const r = await fetch(`${LIVE_DIR}/${n}?_=${Date.now()}`, { cache: 'no-store' });
             if (r.ok){
               const j = await r.json();
-              peerLayers.set(n, { size: f.size, strokes: (j && j.strokes) || [] });
+              peerLayers.set(n, { size: f.size, strokes: ((j && j.strokes) || []).map(unpackStroke) });
               changed = true;
             }
           } catch(e){}
@@ -372,6 +419,7 @@ async function pollLive(){
       for (const k of [...peerLayers.keys()]){
         if (!seen.has(k)){ peerLayers.delete(k); changed = true; }
       }
+      mineChecked = true;
       // my file vanished while I had saved -> someone cleared the board
       if (savedOnce && !sawMine){
         myStrokes.live = []; redoStack.live = [];
@@ -396,7 +444,7 @@ function setLiveInfo(count){
   }
 }
 
-/* ---------- mode switching ---------- */
+// mode switching
 
 function setMode(m){
   if (m === mode) return;
@@ -409,6 +457,19 @@ function setMode(m){
   setLiveInfo();
   redraw(); updateButtons();
 }
+
+// back to the tab: look straight away rather than at the next tick
+document.addEventListener('visibilitychange', () => {
+  if (!document.hidden && mode === 'live'){ clearTimeout(pollTimer); pollLive(); }
+});
+// leaving with a stroke not yet shared: send it on the way out
+window.addEventListener('pagehide', () => {
+  if (mode !== 'live' || !savePending || !mineChecked) return;
+  const json = JSON.stringify({ v: 2, strokes: myStrokes.live.map(packStroke) });
+  if (json.length > MAX_LAYER_JSON) return;
+  try { fetch('/save', { method: 'POST', keepalive: true, headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams({ filename: myFile, content: json }) }); } catch(e){}
+});
 
 restorePrivate();
 redraw();

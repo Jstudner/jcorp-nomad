@@ -1,4 +1,3 @@
-#line 1 "C:\\Users\\jstud\\Downloads\\ESP32-S3-LCD-1.47-Demo\\Arduino\\examples\\LVGL_Arduino\\RGB_lamp.h"
 #pragma once
 #include "Arduino.h"
 

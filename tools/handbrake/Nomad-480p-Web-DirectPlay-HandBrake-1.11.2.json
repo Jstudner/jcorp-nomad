@@ -6,14 +6,14 @@
       "AudioCopyMask": [
         "copy:aac"
       ],
-      "AudioEncoderFallback": "aac",
+      "AudioEncoderFallback": "av_aac",
       "AudioLanguageList": [],
       "AudioList": [
         {
           "AudioBitrate": 80,
           "AudioCompressionLevel": -1.0,
           "AudioDitherMethod": "auto",
-          "AudioEncoder": "aac",
+          "AudioEncoder": "av_aac",
           "AudioMixdown": "stereo",
           "AudioNormalizeMixLevel": false,
           "AudioSamplerate": "auto",

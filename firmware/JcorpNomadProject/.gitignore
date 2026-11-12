@@ -1,0 +1,2 @@
+# the bench key (NOMAD_FW_DEVKEY=1 builds): a throwaway, never committed
+NomadFirmwareKeyDev.h

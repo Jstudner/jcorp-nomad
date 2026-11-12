@@ -5,7 +5,7 @@
 'use strict';
 
 /* Firmware without /api/mp/* answers with the captive portal page (status 200),
-   so a JSON parse failure means the routes are missing, not a bad response. */
+   so a JSON parse failure means the routes are missing. */
 async function mpJson(r) {
   try { return await r.json(); }
   catch (e) {

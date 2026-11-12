@@ -7,8 +7,9 @@ and shows up on the Games page (`games.html`) as a card in the same grid as ROMs
 
 - Built-ins are **pinned above the ROM list** and are not re-ordered by the sort
   dropdown. Pin order is the `BUILTIN_ORDER` list in `games.html`
-  (`go`, `connect four`, `chess`, `tic-tac-toe`, `whiteboard`); anything not in
-  the list follows alphabetically.
+  (`watch together`, `toolkit`, `go`, `connect four`, `chess`, `tic-tac-toe`,
+  `whiteboard`, `dots and boxes`, `crazy eights`, `2048`, `minesweeper`, `snake`);
+  anything not in the list follows alphabetically.
 - The card label is the filename without `.html` (`Connect Four.html` becomes "Connect Four").
 - **Cover art** uses the same sidecar convention as ROMs: put an image with the
   same basename next to the file (`Go.png` beside `Go.html`) and it becomes the
@@ -20,7 +21,9 @@ and shows up on the Games page (`games.html`) as a card in the same grid as ROMs
 - The console filter dropdown hides built-ins (they have no console); the search
   box still matches their names.
 
-Shipped built-ins live in `SD_Card_Template/Games/`:
+Shipped built-ins live in `SD_Card_Template/Games/`. The folder also has Watch
+Together, Toolkit, Dots and Boxes, Crazy Eights, 2048, Minesweeper and Snake,
+which aren't covered here.
 
 | File | Needs | Notes |
 |---|---|---|
@@ -44,9 +47,8 @@ passes **without dead-stone marking**, so casual-play accuracy only.
 
 ## Whiteboard
 
-Same control set as the old Gallion whiteboard (Private/Live modes, undo/redo,
-color, pen size, erase, clear, save, load) but the live board syncs through the
-SD card instead of sockets (the firmware has none):
+Private/Live modes, undo/redo, color, pen size, erase, clear, save and load. The
+live board syncs through the SD card instead of sockets (the firmware has none):
 
 - Every participant writes **their own stroke layer** to
   `/.whiteboard/wb_<clientid>.json` via the open `POST /save` handler (atomic
@@ -66,10 +68,11 @@ SD card instead of sockets (the firmware has none):
 
 - Runtime lives at `/EmulatorJS/data/` (loader.js, emulator.min.js/.css,
   version.json, `compression/`, `localization/`, `cores/`).
-- Cores staged on the card (4 build variants each): gambatte (GB/GBC),
-  fceumm (NES), snes9x (SNES), genesis_plus_gx (Genesis/Master System),
-  mgba (GBA) ≈ 24 MB. More cores: copy `<core>/*.data` from the EmulatorJS
-  repo's per-core directories into `data/cores/`.
+- Cores on the card (EmulatorJS 4.2.3, 4 build variants each, about 26 MB):
+  prboom (DOOM), gambatte (GB/GBC), fceumm (NES), mgba (GBA), snes9x (SNES)
+  and genesis_plus_gx (Genesis/Master System), each with its `LICENSE-<core>`
+  beside it. snes9x and genesis_plus_gx are free to use but can't be sold, so a
+  card that goes into a prebuilt Nomad for sale leaves those two out.
 - `data/cores/reports/<core>.json` must exist per core or EmulatorJS disables
   **core caching** (the ~1 MB core re-downloads on every play, costly over the
   ESP32 link). The report content is trivial build metadata
@@ -77,8 +80,8 @@ SD card instead of sockets (the firmware has none):
   ones are fine. The core itself downloads only after the user taps Start Game.
 - `games.html` maps UI console ids to EmulatorJS system keys before launch
   (`gbc` to `gb`, `genesis` to `segaMD`, `sms` to `segaMS`), since EmulatorJS has **no** `gbc`
-  system key; an unmapped id makes the loader fetch a nonexistent core and die.
-- An "Exit Game" bar appears above the emulator; exiting reloads the page
+  system key. An unmapped id makes the loader fetch a nonexistent core and die.
+- An "Exit Game" bar appears above the emulator, and exiting reloads the page
   (EmulatorJS cannot be torn down and restarted in one page lifetime).
 - Save states/saves persist in the browser (IndexedDB), keyed by ROM path
   (`EJS_gameID`).

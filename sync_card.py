@@ -8,7 +8,7 @@ were removed from the template but linger on provisioned cards).
 
 Usage:
   ./sync_card.py            # auto-detect the card under /media/$USER
-  ./sync_card.py /media/jstudner/NOMAD
+  ./sync_card.py /media/$USER/NOMAD
 """
 
 import hashlib
@@ -24,12 +24,14 @@ CLEANUP = [
     "zimtest.html",
     "assets/nomad-zimfs.js",
     "assets/zip.min.js",
+    "assets/jszip.js",      # JSZip v2, only reachable via a branch uncompress.js never took
+    "assets/libuntar.js",   # same: loadArchiveFormats(['tar']) is never called
 ]
 
 # never push local dev leftovers
 SKIP_NAMES = {".DS_Store", "Thumbs.db"}
 
-# updates the APP on a live card - user content and device-owned state never
+# updates the APP on a live card. User content and device-owned state never
 # come from the template: content buckets hold the real library (placeholders
 # are provisioning's job), .system-ui.json is written by the firmware, and
 # config/ holds settings.json (wifi + admin passwords)

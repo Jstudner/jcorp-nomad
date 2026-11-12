@@ -1,6 +1,6 @@
 <!DOCTYPE html>
 <!-- Nomad Gallery -->
-<!-- Version 4.1 -->
+<!-- Version 5 -->
 <html lang="en">
 <head>
   <meta charset="utf-8" />
@@ -10,14 +10,18 @@
   <link rel="stylesheet" href="/assets/plyr.css">
   <link rel="stylesheet" href="/master.css">
   <script src="/assets/plyr.min.js"></script>
-  <script src="/theme-boot.js"></script>
-  <script src="/nomad-utils.js?v=45"></script>
-  <script src="/theme-manager.js"></script>
+  <script src="/theme-boot.js?v=5"></script>
+<script src="/nomad-icons.js?v=1"></script>
+  <script src="/nomad-utils.js?v=49"></script>
+  <script src="/theme-manager.js?v=5"></script>
   <style>
     /* Functional CSS: Gallery-specific layout and positioning */
-    /* 100vh counts the strip behind the collapsing address bar, so the pager sat just
-       under the fold on a phone. dvh is what you can see. */
+    /* dvh, with vh as fallback: 100vh on a phone counts the strip behind the address bar */
+    /* the page itself scrolls (master.css pins html and body to the screen's height), so a
+       phone's address bar can tuck away */
+    html, body { height: auto; }
     body { display: flex; flex-direction: column; min-height: 100vh; min-height: 100dvh; padding: 0 .5rem; overflow-x: hidden; }
+    html.v-lock { overflow: hidden; }
 
     header {
       margin-left: -.5rem;
@@ -32,21 +36,20 @@
     }
 
     .toolbar {
-      padding: .75rem 1rem;
+      padding: .65rem 1rem;
       display: flex;
-      gap: .75rem;
+      gap: .5rem;
       align-items: center;
       border-bottom: 1px solid var(--line);
       position: sticky;
       top: var(--header-height);
       z-index: 55;
-      justify-content: flex-end;
       flex-wrap: wrap;
       background: var(--bg);
     }
     .toolbar-left { margin-right: auto; display: flex; gap: .5rem; align-items: center; }
-    .toolbar select, .toolbar input[type='number'], .toolbar .view-btn, .toolbar .btn {
-      padding: .45rem .65rem;
+    .toolbar select, .toolbar .btn {
+      padding: .45rem .6rem;
       border-radius: var(--radius);
       border: 1px solid var(--line);
       background: var(--card);
@@ -54,14 +57,28 @@
       cursor: pointer;
       font-size: .9rem;
     }
-    .view-btn.active { background: var(--primary); color: var(--header-text); border-color: var(--primary-dark); }
+    /* one bordered strip of buttons, the chosen one filled */
+    .seg { display: inline-flex; border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden; background: var(--card); }
+    .seg[hidden] { display: none; }
+    .seg button { border: 0; background: transparent; color: var(--text); padding: .45rem .75rem; font-size: .9rem; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; gap: .35rem; min-height: 36px; }
+    .seg button + button { border-left: 1px solid var(--line); }
+    .seg button.active { background: var(--primary); color: var(--header-text); }
+    .seg.sizes button { padding: .45rem .55rem; color: var(--muted); }
+    .seg.sizes button.active { color: var(--header-text); }
 
-    main { flex: 1; display: flex; flex-direction: column; max-width: 1200px; width: 100%; margin: 0 auto; overflow-x: hidden; }
-    .grid-wrapper { flex: 1; overflow-y: auto; padding: 1rem; }
-    .media-grid { display: grid; gap: 1rem; justify-content: center; width: 100%; box-sizing: border-box; }
-    .media-grid.small { grid-template-columns: repeat(auto-fill, minmax(90px, 1fr)); }
+    main { flex: 1 0 auto; display: flex; flex-direction: column; max-width: 1200px; width: 100%; margin: 0 auto; overflow-x: clip; }
+    .crumbs { display: flex; align-items: center; gap: .15rem; flex-wrap: wrap; padding: .75rem 1rem 0; font-size: .95rem; color: var(--muted); min-height: 2.2rem; }
+    .crumbs button { background: none; border: 0; color: var(--primary); padding: .25rem .35rem; cursor: pointer; font: inherit; border-radius: 6px; }
+    .crumbs button:hover { background: var(--primary-alpha-10, rgba(0,123,255,.1)); }
+    .crumbs .sep { opacity: .6; }
+    .crumbs .here { color: var(--text); font-weight: 600; padding: .25rem .35rem; overflow-wrap: anywhere; }
+    .crumbs .count { margin-left: auto; font-size: .85rem; padding-left: .5rem; }
+    .grid-wrapper { flex: 1; padding: .75rem 1rem 1rem; }
+    .media-grid { display: grid; gap: .75rem; justify-content: center; width: 100%; box-sizing: border-box; }
+    .media-grid.small { grid-template-columns: repeat(auto-fill, minmax(90px, 1fr)); gap: .4rem; }
     .media-grid.medium { grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); }
     .media-grid.large { grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); }
+    .more { text-align: center; color: var(--muted); font-size: .85rem; padding: 1.25rem 0 1.5rem; min-height: 1px; }
 
     .media-card {
       background: var(--card-bg);
@@ -80,6 +97,7 @@
       box-sizing: border-box;
     }
     .media-card:hover { transform: translateY(-3px); }
+    .media-card:focus-visible { outline: 3px solid var(--primary); outline-offset: 2px; }
     .media-thumb { width: 100%; height: 100%; object-fit: cover; display: block; user-select: none; pointer-events: none; opacity: 0; transition: opacity .3s ease; }
     .play-overlay {
       position: absolute;
@@ -88,14 +106,28 @@
       transform: translate(-50%, -50%);
       pointer-events: none;
       opacity: .9;
-      font-size: 3rem;
       color: var(--header-text);
-      text-shadow: 0 0 10px black;
       z-index: 2;
       background: rgba(0,0,0,0.6);
       border-radius: 50%;
-      padding: .3em .4em;
+      padding: .55rem .5rem .45rem .6rem;
+      line-height: 0;
     }
+    .media-grid.small .play-overlay { transform: translate(-50%, -50%) scale(.7); }
+    /* a file the browser can't draw (HEIC, AVI): its kind and name instead of a picture */
+    .file-tile { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: .3rem; width: 100%; height: 100%; padding: .5rem; box-sizing: border-box; color: var(--muted); font-size: .78rem; text-align: center; }
+    .file-tile b { color: var(--text); font-size: .9rem; }
+    .file-tile span { overflow-wrap: anywhere; max-height: 2.5em; overflow: hidden; line-height: 1.25; }
+    .media-grid.small .file-tile span { display: none; }
+    /* folder tiles: the first photo inside, the name and count over a dark fade */
+    .media-card.folder { background: var(--card); border: 1px solid var(--line); }
+    .folder-empty { color: var(--muted); }
+    .folder-label { position: absolute; left: 0; right: 0; bottom: 0; padding: 1.6rem .6rem .5rem; background: linear-gradient(transparent, rgba(0,0,0,.72)); color: #fff; font-size: .8rem; line-height: 1.25; text-align: left; pointer-events: none; z-index: 3; }
+    .folder-label b { display: flex; align-items: center; gap: .3rem; font-size: .9rem; font-weight: 600; }
+    .folder-label b span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .folder-label small { opacity: .85; font-size: .78rem; }
+    .media-grid.small .folder-label { padding: 1rem .4rem .35rem; }
+    .media-grid.small .folder-label small { display: none; }
     .spinner {
       position: absolute;
       right: 8px;
@@ -113,45 +145,60 @@
     .spinner .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--primary); animation: spin 1s linear infinite; }
     @keyframes spin { 0% { transform: rotate(0); } 100% { transform: rotate(360deg); } }
 
-    .modal-content {
-      position: relative;
-      border-radius: var(--radius);
-      overflow: hidden;
-      width: 90vw;
-      height: 90vh;
-      padding: 1rem;
-      background: #000;
-      color: var(--header-text);
-      display: flex;
-      flex-direction: column;
-    }
-    #modalMedia { flex: 1; display: flex; align-items: center; justify-content: center; overflow: hidden; }
-    #modalMedia img, #modalMedia video { width: 100%; height: 100%; object-fit: contain; }
-    /* Plyr wraps the <video> in its own container; let it fill the modal */
-    #modalMedia .plyr { width: 100%; max-height: 100%; --plyr-color-main: var(--primary); }
-    #modalMedia .plyr__video-wrapper { height: 100%; }
-    .modal-info { flex: 0 0 auto; padding: 1rem 0 0; overflow-y: auto; max-height: 25vh; color: rgba(255,255,255,0.75); font-size: .95rem; }
-    .modal-close {
-      position: absolute;
-      top: 8px;
-      right: 8px;
-      background: rgba(0,0,0,0.6);
-      color: var(--header-text);
-      border: none;
-      font-size: 1.5rem;
-      padding: .2rem .5rem;
-      border-radius: 50%;
-      cursor: pointer;
-    }
-    .pager { display: flex; justify-content: center; align-items: center; padding: 1rem; gap: 1rem; flex-wrap: wrap; }
+    /* viewer: the whole screen, black in either theme */
+    .viewer { position: fixed; inset: 0; z-index: var(--z-modal, 1000); background: #000; color: #fff; overscroll-behavior: contain; }
+    .viewer[hidden] { display: none; }
+    .v-stage { position: absolute; inset: 0; overflow: hidden; touch-action: none; user-select: none; -webkit-user-select: none; }
+    .v-slide { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; }
+    .v-slide > img { width: 100%; height: 100%; object-fit: contain; transform-origin: center center; will-change: transform; -webkit-user-drag: none; cursor: zoom-in; }
+    /* a video sits between the bars so its own controls stay clear of them */
+    .viewer.is-video .v-slide { top: 60px; bottom: 70px; }
+    .v-slide .plyr { width: 100%; max-height: 100%; --plyr-color-main: var(--primary); }
+    .v-slide .plyr__video-wrapper { height: 100%; }
+    .v-slide video { width: 100%; height: 100%; object-fit: contain; }
+    .v-file { display: flex; flex-direction: column; align-items: center; gap: .75rem; padding: 1.5rem; text-align: center; max-width: 22rem; color: rgba(255,255,255,.8); }
+    .v-file b { color: #fff; font-size: 1.1rem; overflow-wrap: anywhere; }
+    .v-file a { display: inline-flex; align-items: center; gap: .4rem; padding: .6rem 1.1rem; border-radius: var(--radius); background: var(--primary); color: var(--header-text); text-decoration: none; font-weight: 600; }
+    .v-top { position: absolute; top: 0; left: 0; right: 0; display: flex; align-items: center; gap: .4rem; padding: .5rem .6rem .9rem; padding-top: max(.5rem, env(safe-area-inset-top)); background: linear-gradient(rgba(0,0,0,.6), transparent); z-index: 3; pointer-events: none; }
+    .v-top > * { pointer-events: auto; }
+    .v-count { margin-right: auto; padding-left: .4rem; font-size: .9rem; opacity: .85; font-variant-numeric: tabular-nums; }
+    .v-btn { width: 44px; height: 44px; display: inline-flex; align-items: center; justify-content: center; border-radius: 50%; border: 0; background: rgba(0,0,0,.35); color: #fff; cursor: pointer; text-decoration: none; padding: 0; }
+    .v-btn:hover { background: rgba(255,255,255,.18); }
+    .v-btn.on { background: var(--primary); }
+    .v-btn:focus-visible, .v-nav:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
+    .v-btn[hidden] { display: none; }
+    .v-nav { position: absolute; top: 50%; margin-top: -24px; z-index: 3; width: 48px; height: 48px; display: flex; align-items: center; justify-content: center; border-radius: 50%; border: 0; background: rgba(0,0,0,.4); color: #fff; cursor: pointer; padding: 0; }
+    .v-nav.prev { left: .5rem; }
+    .v-nav.next { right: .5rem; }
+    .v-nav:disabled { opacity: 0; pointer-events: none; }
+    .v-info { position: absolute; left: 0; right: 0; bottom: 0; padding: 1.25rem 1rem .75rem; padding-bottom: max(.75rem, env(safe-area-inset-bottom)); background: linear-gradient(transparent, rgba(0,0,0,.65)); z-index: 3; font-size: .9rem; pointer-events: none; }
+    .v-info b { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-weight: 600; }
+    .v-info span { opacity: .8; font-size: .82rem; }
+    .v-top, .v-nav, .v-info { transition: opacity .2s ease; }
+    /* one tap on a photo hides the controls, another brings them back */
+    .viewer.bare .v-top, .viewer.bare .v-nav, .viewer.bare .v-info { opacity: 0; pointer-events: none; }
+    .viewer.bare .v-top > * { pointer-events: none; }
 
     @media (max-width: 768px) {
-      .media-grid.small { grid-template-columns: repeat(auto-fill, minmax(70px, 1fr)); }
+      .toolbar { padding: .55rem .75rem; }
+      .grid-wrapper { padding: .6rem .5rem 1rem; }
+      .crumbs { padding: .6rem .5rem 0; }
+      .media-grid { gap: .5rem; }
+      .media-grid.small { grid-template-columns: repeat(auto-fill, minmax(70px, 1fr)); gap: .25rem; }
       .media-grid.medium { grid-template-columns: repeat(auto-fill, minmax(110px, 1fr)); }
       .media-grid.large { grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); }
+      /* on a phone you swipe, the side arrows only cover the photo */
+      .v-nav { width: 40px; height: 40px; margin-top: -20px; background: rgba(0,0,0,.25); }
     }
+    /* a phone: the toolbar wraps to two rows and scrolls away (sticky, it would take a fifth of the screen) */
+    @media (max-width: 520px) {
+      .toolbar { position: static; }
+      .toolbar-left { flex: 1 0 100%; }
+      .toolbar #uploadBtn { margin-left: auto; }
+      .toolbar select { flex: 1; min-width: 0; }
+    }
+    @media (hover: none) { .media-card:hover { transform: none; } }
     body.dark .back-btn { background: rgba(255,255,255,0.12); color: var(--header-text); }
-    body.dark .view-btn.active { border-color: var(--primary); }
   </style>
 </head>
 <body data-page="gallery">
@@ -162,102 +209,138 @@
 
   <div class="toolbar" role="toolbar" aria-label="Gallery toolbar">
     <div class="toolbar-left">
+      <div class="seg" id="modeSeg" role="group" aria-label="Show" hidden>
+        <button type="button" data-mode="folders" aria-pressed="true">Folders</button>
+        <button type="button" data-mode="all" aria-pressed="false">All</button>
+      </div>
       <button id="uploadBtn" class="btn" title="Upload files" style="display:none">Upload</button>
     </div>
 
-    <label>
-      Sort:
-      <select id="sortSelect" aria-label="Sort gallery">
-        <option value="nameAsc">Name A→Z</option>
-        <option value="nameDesc">Name Z→A</option>
-        <option value="typeAsc">Type ↑</option>
-        <option value="typeDesc">Type ↓</option>
-        <option value="sizeAsc">Size ↑</option>
-        <option value="sizeDesc">Size ↓</option>
-      </select>
-    </label>
+    <select id="sortSelect" aria-label="Sort">
+      <option value="nameAsc">Name A to Z</option>
+      <option value="nameDesc">Name Z to A</option>
+      <option value="typeAsc">Photos first</option>
+      <option value="typeDesc">Videos first</option>
+      <option value="sizeDesc">Largest first</option>
+      <option value="sizeAsc">Smallest first</option>
+    </select>
 
-    <label>
-      Per page:
-      <!-- default 20, max 100 -->
-      <input id="pageSizeInput" type="number" min="1" max="100" value="20" aria-label="Items per page" style="width:4.5rem" />
-    </label>
-
-    <button class="view-btn" data-size="small" title="Small view" aria-label="Small view">🔳</button>
-    <button class="view-btn" data-size="medium" title="Medium view" aria-label="Medium view">🔲</button>
-    <button class="view-btn active" data-size="large" title="Large view" aria-label="Large view">⬜</button>
+    <div class="seg sizes" role="group" aria-label="Tile size">
+      <button type="button" class="view-btn" data-size="small" title="Small tiles" aria-label="Small tiles"></button>
+      <button type="button" class="view-btn" data-size="medium" title="Medium tiles" aria-label="Medium tiles"></button>
+      <button type="button" class="view-btn" data-size="large" title="Large tiles" aria-label="Large tiles"></button>
+    </div>
   </div>
 
   <main>
+    <nav id="crumbs" class="crumbs" aria-label="Folder"></nav>
     <div class="grid-wrapper">
-      <div id="grid" class="media-grid medium" aria-live="polite"></div>
-    </div>
-
-    <div class="pager">
-      <button id="prevBtn" class="btn btn-secondary">Prev</button>
-      <span id="pageInfo"></span>
-      <button id="nextBtn" class="btn btn-secondary">Next</button>
+      <div id="grid" class="media-grid medium"></div>
+      <div id="more" class="more" aria-live="polite"></div>
     </div>
   </main>
 
-  <div id="modal" class="modal" onclick="closeModal(event)">
-    <div class="modal-content" onclick="event.stopPropagation()">
-      <button class="modal-close" onclick="closeModal(event)">&times;</button>
-      <div id="modalMedia"></div>
-      <div id="modalInfo" class="modal-info"></div>
+  <div id="viewer" class="viewer" role="dialog" aria-modal="true" aria-label="Photo viewer" hidden>
+    <div id="vStage" class="v-stage"></div>
+    <div class="v-top">
+      <span id="vCount" class="v-count"></span>
+      <button id="vPlay" class="v-btn" type="button" title="Slideshow" aria-label="Play slideshow"></button>
+      <a id="vDl" class="v-btn" title="Download" aria-label="Download" data-icon="download" data-icon-size="22"></a>
+      <button id="vClose" class="v-btn" type="button" title="Close" aria-label="Close" data-icon="x" data-icon-size="24"></button>
     </div>
+    <button id="vPrev" class="v-nav prev" type="button" title="Previous" aria-label="Previous" data-icon="chevron-left" data-icon-size="26"></button>
+    <button id="vNext" class="v-nav next" type="button" title="Next" aria-label="Next" data-icon="chevron-right" data-icon-size="26"></button>
+    <div class="v-info"><b id="vName"></b><span id="vMeta"></span></div>
   </div>
 
   <input id="uploadInput" type="file" multiple style="display:none" />
 
 <script>
-/* ---------- CONFIG ---------- */
+/* CONFIG */
 const ROOT = '/Gallery';
 const INDEX_ENDPOINT = '/api/index';
 const UPLOAD_ENDPOINT = '/upload';
 const FALLBACK_INDEX_FILES = ['Gallery.index.ndjson','Gallery.nested.ndjson','index.ndjson','Gallery.index.ndjson.meta'];
 const IMAGE_EXTS = ['.jpg','.jpeg','.png','.webp','.avif','.gif'];
-const VIDEO_EXTS = ['.mp4','.webm','.ogg','.mov'];
-const CACHE_NAME = 'nomad-gallery-thumbs-v1';
+const VIDEO_EXTS = ['.mp4','.m4v','.webm','.ogg','.mov','.mkv'];
+// listed (menu search finds them too) but most browsers can't draw or play them: shown as a
+// file to download instead of a blank picture
+const FILE_EXTS = { '.heic': 'photo', '.heif': 'photo', '.avi': 'video', '.ts': 'video' };
+// Thumbnails are kept per phone in IndexedDB. The Cache API only exists on https and
+// Nomad is plain http. Caches left by https test pages are dropped.
+const THUMB_DB = 'nomad-gallery-thumbs';
+try{ if(window.caches){ caches.delete('nomad-gallery-thumbs-v1'); caches.delete('nomad-gallery-thumbs-v2'); } }catch(e){}
+const THUMB_PX = 640;   // longest side of a stored thumbnail (a large-view card is ~320px wide)
 const WHITE_SVG = "data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='1' height='1'><rect width='100%' height='100%' fill='%23ffffff'/></svg>";
+const CHUNK = 60;          // cards added at a time as you scroll
+const SLIDE_MS = 4000;     // how long the slideshow shows each photo
 
-/* ---------- UI refs ---------- */
+/* UI refs */
 const grid = document.getElementById('grid');
+const moreEl = document.getElementById('more');
+const crumbsEl = document.getElementById('crumbs');
+const modeSeg = document.getElementById('modeSeg');
 const uploadBtn = document.getElementById('uploadBtn');
 const uploadInput = document.getElementById('uploadInput');
 const viewButtons = document.querySelectorAll('.view-btn');
 const sortSelect = document.getElementById('sortSelect');
-const pageSizeInput = document.getElementById('pageSizeInput');
-const modal = document.getElementById('modal');
-const modalMedia = document.getElementById('modalMedia');
-const modalInfo = document.getElementById('modalInfo');
-const prevBtn = document.getElementById('prevBtn');
-const nextBtn = document.getElementById('nextBtn');
-const pageInfo = document.getElementById('pageInfo');
+const viewer = document.getElementById('viewer');
+const stage = document.getElementById('vStage');
+const vCount = document.getElementById('vCount');
+const vName = document.getElementById('vName');
+const vMeta = document.getElementById('vMeta');
+const vPlay = document.getElementById('vPlay');
+const vDl = document.getElementById('vDl');
+const vClose = document.getElementById('vClose');
+const vPrev = document.getElementById('vPrev');
+const vNext = document.getElementById('vNext');
 
-/* ---------- STATE ---------- */
+/* STATE */
 let items = [];
-let filtered = [];
 let currentSize = localStorage.getItem('nomadGallery.viewSize') || 'medium';
-
-// clamp page size between 1 and 100, default 20
-function clampPageSize(v){ const n = parseInt(v||0,10)||20; return Math.min(100, Math.max(1, n)); }
-let pageSize = clampPageSize(localStorage.getItem('nomadGallery.pageSize') || pageSizeInput.value || 20);
-let currentPage = 1;
 let sortMode = localStorage.getItem('nomadGallery.sort') || sortSelect.value;
+if(![...sortSelect.options].some(o => o.value === sortMode)) sortMode = 'nameAsc';
+let mode = localStorage.getItem('nomadGallery.mode') === 'all' ? 'all' : 'folders';
+let folder = ROOT;          // the folder shown in Folders view
+let viewFolders = [];       // folder tiles in the grid, then
+let viewItems = [];         // the photos and videos, in the order the viewer steps through
+let shown = 0;              // cards in the grid so far
 
-/* ---------- THUMBNAIL QUEUE & DEDUPE ---------- */
-// Images go through this queue too, not just videos. There is no device-side
-// thumbnailing, so an image thumb pulls the FULL original off the SD card. A
-// gallery of a few hundred photos firing those in parallel outruns the
-// firmware's 8 concurrent streams and its ~60KB of internal heap: responses get
-// truncated mid-body (NS_ERROR_NET_RESET) and every thumb falls back to the
-// white placeholder. Sequential + paced keeps us under that ceiling.
+/* small icons this page needs that the shared set doesn't have, drawn the same way */
+const GICON = {
+  image: '<rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="8.5" cy="9.5" r="1.5"/><path d="M21 16l-5-5-9 9"/>',
+  film: '<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M7 4v16M17 4v16M3 9h4M3 15h4M17 9h4M17 15h4"/>',
+  pause: '<rect x="6" y="4.5" width="4" height="15" rx="1"/><rect x="14" y="4.5" width="4" height="15" rx="1"/>',
+  'tiles-small': '<rect x="2.5" y="2.5" width="5" height="5" rx="1"/><rect x="9.5" y="2.5" width="5" height="5" rx="1"/><rect x="16.5" y="2.5" width="5" height="5" rx="1"/><rect x="2.5" y="9.5" width="5" height="5" rx="1"/><rect x="9.5" y="9.5" width="5" height="5" rx="1"/><rect x="16.5" y="9.5" width="5" height="5" rx="1"/><rect x="2.5" y="16.5" width="5" height="5" rx="1"/><rect x="9.5" y="16.5" width="5" height="5" rx="1"/><rect x="16.5" y="16.5" width="5" height="5" rx="1"/>',
+  'tiles-medium': '<rect x="3" y="3" width="8" height="8" rx="1.5"/><rect x="13" y="3" width="8" height="8" rx="1.5"/><rect x="3" y="13" width="8" height="8" rx="1.5"/><rect x="13" y="13" width="8" height="8" rx="1.5"/>',
+  'tiles-large': '<rect x="3" y="3" width="18" height="18" rx="2.5"/>'
+};
+function gIcon(name, size){
+  const solid = name === 'pause' || name.startsWith('tiles');
+  const paint = solid ? 'fill="currentColor" stroke="none"' : 'fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"';
+  return `<svg class="nomad-icon" viewBox="0 0 24 24" width="${size}" height="${size}" ${paint} aria-hidden="true" focusable="false">${GICON[name]}</svg>`;
+}
+viewButtons.forEach(b => { b.innerHTML = gIcon('tiles-' + b.dataset.size, 18); });
+
+/* THUMBNAIL QUEUE & DEDUPE */
+// Photos and videos alike, two at a time: there's no thumbnailing on the device, and
+// hundreds of full-size reads at once outrun the firmware's 8 streams and ~60KB heap.
+// A photo's first thumb is the camera's embedded preview (one small read). Once nothing
+// on screen is waiting, it's swapped for a sharp one made from the whole photo.
 const thumbQueue = [];           // { item, imgEl, spinner, kind }
+const sharpenQueue = [];         // { item, imgEl, spinner, kind: 'sharpen' }
+let sharpenAbort = null;         // a sharpen in flight gives way to a card that's still blank
 const thumbPending = new Set();  // dedupe by path
-let thumbWorkerRunning = false;
+const thumbWaiting = new Map();  // path -> a card that asked while that file was already being done
+function releaseThumb(key){
+  thumbPending.delete(key);
+  const w = thumbWaiting.get(key);
+  if(w){ thumbWaiting.delete(key); if(document.body.contains(w.imgEl)) enqueueThumbJob(w.item, w.imgEl, w.spinner, w.kind); }
+}
+const THUMB_WORKERS = 2;
+let thumbWorkers = 0;
 
-/* ---------- IntersectionObserver: only queue thumbs when card visible ---------- */
+/* IntersectionObserver: only queue thumbs when card visible */
 const observerOptions = { root: null, rootMargin: '400px 0px', threshold: 0.05 };
 const cardObserver = new IntersectionObserver((entries) => {
   for(const e of entries){
@@ -273,78 +356,145 @@ const cardObserver = new IntersectionObserver((entries) => {
   }
 }, observerOptions);
 
-/* ---------- Cache helpers ---------- */
+/* Cache helpers */
 function thumbCacheKey(item){
   const v = item.mt || item.sz || item.size || 0;
   return `${location.origin}/__thumbcache__/${encodeURIComponent(item.path)}?v=${encodeURIComponent(v)}`;
 }
-async function getCachedThumb(item){
-  try{
-    const cache = await caches.open(CACHE_NAME);
-    const match = await cache.match(new Request(thumbCacheKey(item)));
-    if(match){
-      const blob = await match.blob();
-      const url = URL.createObjectURL(blob);
-      return { blob, url };
-    }
-  }catch(e){}
-  return null;
+let thumbDb = null;
+function openThumbDb(){
+  return thumbDb || (thumbDb = new Promise((res) => {
+    try{
+      const r = indexedDB.open(THUMB_DB, 1);
+      r.onupgradeneeded = () => r.result.createObjectStore('t');
+      r.onsuccess = () => res(r.result);
+      r.onerror = () => res(null);
+    }catch(e){ res(null); }   // private mode on some browsers: no store, thumbnails are just made again
+  }));
 }
-async function storeThumbToCache(item, blob, mime='image/jpeg'){
-  try{
-    const cache = await caches.open(CACHE_NAME);
-    const key = new Request(thumbCacheKey(item));
-    const resp = new Response(blob, { headers: { 'Content-Type': mime }});
-    await cache.put(key, resp);
-    return true;
-  }catch(e){
-    return false;
-  }
+// { blob, url, quick } or null. quick: the camera's own small preview, to be swapped for a sharp one
+async function getCachedThumb(item){
+  const db = await openThumbDb();
+  if(!db) return null;
+  const rec = await new Promise((res) => {
+    try{ const g = db.transaction('t').objectStore('t').get(thumbCacheKey(item)); g.onsuccess = () => res(g.result || null); g.onerror = () => res(null); }
+    catch(e){ res(null); }
+  });
+  if(!rec || !rec.blob) return null;
+  return { blob: rec.blob, url: URL.createObjectURL(rec.blob), quick: !!rec.quick };
+}
+async function storeThumbToCache(item, blob, mime='image/jpeg', quick=false){
+  const db = await openThumbDb();
+  if(!db || !blob) return false;
+  return new Promise((res) => {
+    try{
+      const tx = db.transaction('t', 'readwrite');
+      tx.objectStore('t').put({ blob, quick }, thumbCacheKey(item));
+      tx.oncomplete = () => res(true);
+      tx.onerror = tx.onabort = () => res(false);   // full: carry on without keeping it
+    }catch(e){ res(false); }
+  });
 }
 
-/* ---------- Queue processor (sequential) ---------- */
+/* Queue processor (THUMB_WORKERS at a time) */
 function enqueueThumbJob(item, imgEl, spinner, kind='video'){
-  if(thumbPending.has(item.path)) return;
-  thumbPending.add(item.path);
-  thumbQueue.push({ item, imgEl, spinner, kind });
+  const key = (kind === 'sharpen' ? 's:' : '') + item.path;
+  if(thumbPending.has(key)){
+    // the same file for another card (a folder's tile, then the photo's own card): its turn
+    // comes when that one is done, from the cache
+    if(kind !== 'sharpen') thumbWaiting.set(key, { item, imgEl, spinner, kind });
+    return;
+  }
+  thumbPending.add(key);
+  (kind === 'sharpen' ? sharpenQueue : thumbQueue).push({ item, imgEl, spinner, kind });
+  if(kind !== 'sharpen' && sharpenAbort) sharpenAbort.abort();
   processThumbQueue().catch(()=>{/* ignore */});
+}
+function nearScreen(el){
+  const r = el.getBoundingClientRect();
+  return r.bottom > -400 && r.top < innerHeight + 400;
 }
 
 async function processThumbQueue(){
-  if(thumbWorkerRunning) return;
-  thumbWorkerRunning = true;
-  while(thumbQueue.length){
-    const job = thumbQueue.shift();
+  if(thumbWorkers >= THUMB_WORKERS) return;
+  thumbWorkers++;
+  for(;;){
+    // the viewer's photo has the radio to itself, the grid carries on when it closes
+    if(!viewer.hidden) break;
+    // cards still blank come first. sharpening waits until none are, one at a time
+    const job = thumbQueue.length ? thumbQueue.shift() : (!sharpenAbort && sharpenQueue.length) ? sharpenQueue.shift() : null;
+    if(!job) break;
     const { item, imgEl, spinner, kind } = job;
-    if(!document.body.contains(imgEl)){ thumbPending.delete(item.path); continue; }
-    spinner.style.display = 'flex';
+    const key = (kind === 'sharpen' ? 's:' : '') + item.path;
+    if(!document.body.contains(imgEl)){ releaseThumb(key); continue; }
+    // scrolled past before its turn came (cards keep coming as you scroll): wait until it is
+    // back near the screen, so the ones you're looking at go first
+    if((kind === 'image' || kind === 'video') && !nearScreen(imgEl)){
+      thumbPending.delete(key);
+      const card = imgEl.parentElement;
+      if(card){ card._thumbJob = job; cardObserver.observe(card); }
+      continue;
+    }
+    if(kind === 'sharpen'){
+      // scrolled away since: sharpen it if it comes back into view
+      if(!nearScreen(imgEl)){
+        thumbPending.delete(key);
+        const card = imgEl.parentElement;
+        if(card){ card._thumbJob = job; cardObserver.observe(card); }
+        continue;
+      }
+    } else {
+      spinner.style.display = 'flex';
+    }
 
+    let requeue = false;
     try{
+      if(kind === 'sharpen'){
+        sharpenAbort = new AbortController();
+        const b = await madePreview(item) || await wholeImageThumb(item, sharpenAbort.signal);
+        if(b){
+          await storeThumbToCache(item, b, b.type || 'image/jpeg');
+          if(document.body.contains(imgEl)) setImageFromBlobUrl(imgEl, URL.createObjectURL(b));
+        }
+        continue;
+      }
+
       // cached?
       const cached = await getCachedThumb(item);
       if(cached){
         setImageFromBlobUrl(imgEl, cached.url);
-        spinner.style.display = 'none';
-        thumbPending.delete(item.path);
-        await new Promise(r => setTimeout(r, 60));
+        if(cached.quick) enqueueThumbJob(item, imgEl, spinner, 'sharpen');
         continue;
       }
 
-      if(kind === 'image'){
-        // one full-size original at a time. no direct-URL fallback on failure:
-        // that would re-request the same bytes off-queue and undo the pacing.
-        const r = await fetch(fileUrlWithVersion(item.path,item), { cache:'no-store', credentials:'same-origin' });
-        if(r.ok){
-          const b = await r.blob();
-          await storeThumbToCache(item, b, b.type || 'image/jpeg');
-          setImageFromBlobUrl(imgEl, URL.createObjectURL(b));
+      // made ahead of time: one small read, nothing to work out here
+      const made = kind !== 'whole' && await madePreview(item);
+      if(made){
+        await storeThumbToCache(item, made, 'image/jpeg');
+        setImageFromBlobUrl(imgEl, URL.createObjectURL(made));
+        continue;
+      }
+
+      if(kind === 'image' || kind === 'whole'){
+        // the camera's preview if the file has one. a photo without one is read whole, at the
+        // back of the line. No direct-URL fallback on failure: it would undo the pacing.
+        const t = kind === 'image' ? await quickImageThumb(item) : { blob: await wholeImageThumb(item, null, job.head, job.total), quick: false };
+        // no preview: keep the bytes already read, the rest comes later
+        if(!t || t.head){ thumbQueue.push({ ...job, kind: 'whole', head: t && t.head, total: t && t.total }); requeue = true; continue; }
+        if(t.blob){
+          await storeThumbToCache(item, t.blob, t.blob.type || 'image/jpeg', t.quick);
+          setImageFromBlobUrl(imgEl, URL.createObjectURL(t.blob));
+          if(t.quick) enqueueThumbJob(item, imgEl, spinner, 'sharpen');
         } else {
           imgEl.src = WHITE_SVG;
         }
       } else {
         // range-first strategy: try to fetch a partial chunk and extract a frame from ~3s into the video
         const videoUrl = mediaStreamUrlWithVersion(item.path, item);
-        const dataUrl = await rangeFetchAndExtract(videoUrl, 3.0, 450000).catch(()=>null);
+        let dataUrl = await rangeFetchAndExtract(videoUrl, 3.0, 450000).catch(()=>null);
+        // phone videos keep their index at the end of the file, so the first
+        // 450KB can't be played on its own. Let the browser seek into the file.
+        if(!dataUrl) dataUrl = await extractFrameFromVideo(videoUrl, 3.0, 20000).catch(()=>null);
 
         if(dataUrl){
           const blob = dataURLToBlob(dataUrl);
@@ -357,17 +507,19 @@ async function processThumbQueue(){
         }
       }
     }catch(e){
-      imgEl.src = WHITE_SVG;
+      if(kind !== 'sharpen') imgEl.src = WHITE_SVG;
+      else if(e && e.name === 'AbortError'){ sharpenQueue.unshift(job); requeue = true; }
     }finally{
+      if(kind === 'sharpen') sharpenAbort = null;
       spinner.style.display = 'none';
-      thumbPending.delete(item.path);
-      await new Promise(r => setTimeout(r, 80));
+      if(!requeue) releaseThumb(key);
+      await new Promise(r => setTimeout(r, 20));
     }
   }
-  thumbWorkerRunning = false;
+  thumbWorkers--;
 }
 
-/* ---------- small helper to set <img> from blobURL safely ---------- */
+/* small helper to set <img> from blobURL safely */
 function setImageFromBlobUrl(imgEl, blobUrl){
   const old = imgEl.dataset.objectUrl;
   if(old && old !== blobUrl){
@@ -381,11 +533,147 @@ function setImageFromBlobUrl(imgEl, blobUrl){
   imgEl.onerror = () => { imgEl.src = WHITE_SVG; };
 }
 
-/* ---------- range-first fetch + extraction ---------- */
+/* previews made ahead of time */
+// Nomad-Tools (Pictures > Gallery previews) keeps a small picture of every photo and
+// clip in /Gallery/.previews, listed in its index.json as { path: [size] }. A preview
+// is used only while the photo still has that size; anything else is made here.
+let previewList = null;
+function previews(){
+  if(!previewList){
+    previewList = fetchRetry(mediaStreamUrl(ROOT + '/.previews/index.json'), { cache: 'no-cache', credentials: 'same-origin' })
+      .then((r) => r.ok ? r.json() : null)
+      .then((d) => (d && d.v === 1 && d.items) || {})
+      .catch(() => ({}));
+  }
+  return previewList;
+}
+async function madePreview(item){
+  if(!item.path || !item.path.startsWith(ROOT + '/')) return null;
+  const rel = item.path.slice(ROOT.length + 1);
+  const have = (await previews())[rel];
+  const size = item.sz || item.size;
+  if(!have || (size && have[0] !== size)) return null;
+  try{
+    const r = await fetchRetry(mediaStreamUrl(ROOT + '/.previews/' + rel + '.jpg') + '&v=' + have[0], { credentials: 'same-origin' });
+    return r.ok ? await r.blob() : null;
+  }catch(e){
+    return null;
+  }
+}
+
+previews();   // ask for the list now, alongside the folder's index
+
+/* photo thumbnails */
+// Nomad turns a read away (503) for a moment when its memory is short: wait as long as it
+// asks and try again.
+async function fetchRetry(url, opts){
+  for(let i = 0; ; i++){
+    const r = await fetch(url, opts);
+    if(r.status !== 503 || i >= 4) return r;
+    const wait = Math.min(4, +r.headers.get('Retry-After') || 1) * 1000;
+    await new Promise((x) => setTimeout(x, wait * (0.75 + Math.random() / 2)));
+  }
+}
+// The preview a camera writes into a JPEG's EXIF block (IFD1), and the photo's
+// orientation from IFD0. buf holds the start of the file.
+function exifThumb(buf){
+  try{
+    const d = new DataView(buf);
+    if(d.getUint16(0) !== 0xFFD8) return null;
+    for(let p = 2; p + 4 <= d.byteLength; ){
+      const m = d.getUint16(p), len = d.getUint16(p + 2);
+      if((m & 0xFF00) !== 0xFF00 || m === 0xFFDA) return null;   // not a marker, or the image data
+      if(m === 0xFFE1 && d.getUint32(p + 4) === 0x45786966){      // APP1 "Exif"
+        const t = p + 10, le = d.getUint16(t) === 0x4949;
+        const u16 = (o) => d.getUint16(t + o, le), u32 = (o) => d.getUint32(t + o, le);
+        const ifd0 = u32(4), n0 = u16(ifd0);
+        let orientation = 1, off = 0, size = 0;
+        for(let i = 0; i < n0; i++) if(u16(ifd0 + 2 + i * 12) === 0x0112) orientation = u16(ifd0 + 2 + i * 12 + 8);
+        const ifd1 = u32(ifd0 + 2 + n0 * 12);
+        if(!ifd1) return null;
+        const n1 = u16(ifd1);
+        for(let i = 0; i < n1; i++){
+          const e = ifd1 + 2 + i * 12, tag = u16(e);
+          if(tag === 0x0201) off = u32(e + 8);
+          else if(tag === 0x0202) size = u32(e + 8);
+        }
+        if(!off || !size || t + off + size > d.byteLength || d.getUint16(t + off) !== 0xFFD8) return null;
+        return { start: t + off, len: size, orientation };
+      }
+      p += 2 + len;
+    }
+  }catch(e){}
+  return null;
+}
+function loadImg(blob){
+  return new Promise((resolve, reject) => {
+    const img = new Image(), url = URL.createObjectURL(blob);
+    img.onload = () => { URL.revokeObjectURL(url); resolve(img); };
+    img.onerror = () => { URL.revokeObjectURL(url); reject(new Error('decode')); };
+    img.src = url;
+  });
+}
+function canvasBlob(canvas){
+  return new Promise((resolve) => canvas.toBlob(resolve, 'image/jpeg', 0.82));
+}
+// draw img no larger than THUMB_PX, turned by EXIF orientation o (the browser
+// already turns whole photos; the camera preview carries no orientation of its own)
+async function drawThumb(img, o = 1){
+  const w0 = img.naturalWidth, h0 = img.naturalHeight;
+  const k = Math.min(1, THUMB_PX / Math.max(w0, h0));
+  const w = Math.max(1, Math.round(w0 * k)), h = Math.max(1, Math.round(h0 * k));
+  const swap = o >= 5 && o <= 8;
+  const canvas = document.createElement('canvas');
+  canvas.width = swap ? h : w; canvas.height = swap ? w : h;
+  const ctx = canvas.getContext('2d');
+  const T = { 2: [-1, 0, 0, 1, w, 0], 3: [-1, 0, 0, -1, w, h], 4: [1, 0, 0, -1, 0, h],
+              5: [0, 1, 1, 0, 0, 0], 6: [0, 1, -1, 0, h, 0], 7: [0, -1, -1, 0, h, w], 8: [0, -1, 1, 0, 0, w] }[o];
+  if(T) ctx.setTransform(...T);
+  ctx.drawImage(img, 0, 0, w, h);
+  return canvasBlob(canvas);
+}
+// the camera's preview: one small read from the start of the file
+async function quickImageThumb(item){
+  try{
+    const r = await fetchRetry(mediaStreamUrlWithVersion(item.path, item), { headers: { 'Range': 'bytes=0-69631' }, cache: 'no-store', credentials: 'same-origin' });
+    if(!r.ok) return null;
+    const buf = await r.arrayBuffer();
+    const total = +((r.headers.get('Content-Range') || '').split('/')[1]) || (r.status === 200 ? buf.byteLength : 0);
+    // a small file came whole: shrink that, no second read
+    if(total && buf.byteLength >= total){
+      return { blob: await drawThumb(await loadImg(new Blob([buf]))), quick: false };
+    }
+    const ex = exifThumb(buf);
+    if(!ex) return { head: buf, total };
+    const preview = new Blob([new Uint8Array(buf, ex.start, ex.len)], { type: 'image/jpeg' });
+    return { blob: ex.orientation > 1 ? await drawThumb(await loadImg(preview), ex.orientation) : preview, quick: true };
+  }catch(e){
+    return null;
+  }
+}
+// the whole photo, shrunk to THUMB_PX. head: its first bytes if they were already
+// read, so only the rest is fetched
+async function wholeImageThumb(item, signal, head, total){
+  let b = null;
+  if(head && total > head.byteLength){
+    try{
+      const r = await fetchRetry(mediaStreamUrlWithVersion(item.path, item), { headers: { 'Range': `bytes=${head.byteLength}-${total - 1}` }, cache: 'no-store', credentials: 'same-origin', signal });
+      if(r.status === 206 && (r.headers.get('Content-Range') || '').startsWith(`bytes ${head.byteLength}-${total - 1}/`)) b = new Blob([head, await r.blob()]);
+    }catch(e){ if(e && e.name === 'AbortError') throw e; }
+  }
+  if(!b){
+    const r = await fetchRetry(fileUrlWithVersion(item.path, item), { cache: 'no-store', credentials: 'same-origin', signal });
+    if(!r.ok) return null;
+    b = await r.blob();
+  }
+  try{ return await drawThumb(await loadImg(b)); }catch(e){ return null; }
+}
+
+/* range-first fetch + extraction */
 async function rangeFetchAndExtract(videoUrl, seekTime = 3.0, rangeBytes = 450000){
   try{
     const headers = { 'Range': `bytes=0-${rangeBytes}` };
-    const res = await fetch(videoUrl, { method: 'GET', headers, cache: 'no-store', credentials: 'same-origin' });
+    const res = await fetchRetry(videoUrl, { method: 'GET', headers, cache: 'no-store', credentials: 'same-origin' });
     if(!res.ok) return null;
     const blob = await res.blob();
     const blobUrl = URL.createObjectURL(blob);
@@ -402,12 +690,14 @@ async function rangeFetchAndExtract(videoUrl, seekTime = 3.0, rangeBytes = 45000
   }
 }
 
-/* ---------- extract a frame from a video sourceUrl (blob or remote) ---------- */
+/* extract a frame from a video sourceUrl (blob or remote) */
 function extractFrameFromVideo(sourceUrl, seekTime = 3.0, timeoutMs = 3000){
   return new Promise((resolve, reject) => {
     const video = document.createElement('video');
     let settled = false;
-    function cleanup(){ if(settled) return; settled = true; try{ video.pause(); video.removeAttribute('src'); video.load(); }catch(e){} }
+    function cleanup(){ if(settled) return; settled = true; clearTimeout(guard); try{ video.pause(); video.removeAttribute('src'); video.load(); }catch(e){} }
+    // a file that never gets as far as its first frame
+    const guard = setTimeout(() => { if(!settled){ cleanup(); reject(new Error('load timeout')); } }, timeoutMs + 2000);
 
     video.crossOrigin = 'anonymous';
     video.preload = 'metadata';
@@ -424,8 +714,10 @@ function extractFrameFromVideo(sourceUrl, seekTime = 3.0, timeoutMs = 3000){
         didSeek = true;
         try{
           const canvas = document.createElement('canvas');
-          canvas.width = video.videoWidth || 320;
-          canvas.height = video.videoHeight || 180;
+          const vw = video.videoWidth || 320, vh = video.videoHeight || 180;
+          const k = Math.min(1, THUMB_PX / Math.max(vw, vh));
+          canvas.width = Math.round(vw * k);
+          canvas.height = Math.round(vh * k);
           const ctx = canvas.getContext('2d');
           ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
           const data = canvas.toDataURL('image/jpeg', 0.85);
@@ -448,7 +740,7 @@ function extractFrameFromVideo(sourceUrl, seekTime = 3.0, timeoutMs = 3000){
   });
 }
 
-/* ---------- small helpers ---------- */
+/* small helpers */
 function dataURLToBlob(dataURL){
   const parts = dataURL.split(',');
   const meta = parts[0];
@@ -470,13 +762,15 @@ function extFromName(name){ const i = name.lastIndexOf('.'); return i>=0? name.s
 function basename(path){ if(!path) return ''; const idx = path.lastIndexOf('/'); return idx>=0? path.slice(idx+1):path; }
 function isImageName(n){ return IMAGE_EXTS.includes(extFromName(n)); }
 function isVideoName(n){ return VIDEO_EXTS.includes(extFromName(n)); }
-function prettify(name){ if(!name) return ''; let n = name.replace(/\.[^/.]+$/,''); let t = n.replace(/[_\.]+/g,' ').trim(); t = t.replace(/\s*\(?\d{4}\)?\s*$/,'').trim(); return t || name; }
+// file name without its extension, underscores and dots as spaces. A trailing year stays,
+// in a gallery "Beach 2019" is the name.
+function prettify(name){ if(!name) return ''; let n = name.replace(/\.[^/.]+$/,''); let t = n.replace(/[_\.]+/g,' ').trim(); return t || name; }
 function formatBytes(bytes){ if(!bytes && bytes !== 0) return '0 B'; const k=1024,s=['B','KB','MB','GB','TB']; const i=Math.floor(Math.log(Math.max(bytes,1))/Math.log(k)); return parseFloat((bytes/Math.pow(k,i)).toFixed(1)) + ' ' + s[i]; }
 function fileUrlWithVersion(path,item){ const ver = item && (item.mt||item.sz||item.size) ? (item.mt||item.sz||item.size) : Date.now(); const base = fileUrlDirect(path); return base + (base.includes('?') ? '&' : '?') + 'v=' + encodeURIComponent(ver); }
 function mediaStreamUrlWithVersion(path,item){ const ver = item && (item.mt||item.sz||item.size) ? (item.mt||item.sz||item.size) : Date.now(); const base = mediaStreamUrl(path); return base + (base.includes('?') ? '&' : '?') + 'v=' + encodeURIComponent(ver); }
 function escapeHtml(s){ if(!s) return ''; return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
 
-/* ---------- NDJSON parsing & index fetch ---------- */
+/* NDJSON parsing & index fetch */
 function parseNDJSONWithHeader(text){
   const lines = text.split('\n').filter(Boolean);
   if(lines.length === 0) return { header: null, entries: [] };
@@ -506,41 +800,35 @@ async function fetchRawNDJSONFile(urlPath){
   return parseNDJSONWithHeader(text);
 }
 
-/* This page never asks for a reindex on its own.
-   While a reindex runs the firmware sets indexingTasksActive and returns 503 for every
-   media request device-wide, so triggering one from a page load can stall playback
-   everywhere. An empty or unsigned index is nearly always just an empty folder.
-   Reindex lives on the admin page. A 202 is different, the firmware is already
-   building, so polling for it is fine as long as it stops. */
+/* This page never asks for a reindex: while one runs the firmware 503s every media request
+   device-wide. Reindex lives on the admin page. A 202 means the firmware is already building,
+   so a bounded poll for it is fine. */
 const MAX_BUILD_POLLS = 10;   // ~30s of 202 polling, then stop
 let buildPolls = 0;
 
 function showGalleryMessage(msg){
+  indexNote = msg;
   grid.innerHTML = `<p style="grid-column:1/-1;text-align:center;color:var(--primary-dark);">${msg}</p>`;
 }
 
 async function fetchIndexWithFallback(path){
   try{
-    const apiUrl = `${INDEX_ENDPOINT}?path=${encodeURIComponent(normalizePath(path))}&_=${Date.now()}`;
-    let res = await fetch(apiUrl, { cache:'no-store', credentials:'same-origin' });
+    // revalidated, not re-fetched: an unchanged index answers 304 (the device sends its sig as an ETag)
+    const apiUrl = `${INDEX_ENDPOINT}?path=${encodeURIComponent(normalizePath(path))}`;
+    let res = await fetch(apiUrl, { cache:'no-cache', credentials:'same-origin' });
     // 503 means the SD is busy for a moment, retry before falling back
     for(let i=0; i<3 && res.status===503; i++){
       await new Promise(r=>setTimeout(r, 800*(i+1)));
-      res = await fetch(apiUrl, { cache:'no-store', credentials:'same-origin' });
+      res = await fetch(apiUrl, { cache:'no-cache', credentials:'same-origin' });
     }
-    // 202 falls inside Response.ok (200-299), so the "index is building" status object was
-    // being parsed as NDJSON: its {"status":"building"} line became the header, the sig
-    // check failed, and the page reported an empty gallery instead of a building one. The
-    // else-if below has been unreachable since it was written.
+    // 202 falls inside res.ok: check it first, or the {"status":"building"} body is parsed
+    // as the index
     if(res.ok && res.status !== 202){
       const text = await res.text();
       const parsed = parseNDJSONWithHeader(text);
 
-      // check for a valid header signature. a missing sig can also mean the response was
-      // truncated in transit under load, so only act on it if we havent already tried once
       if(!parsed.header || !parsed.header.sig){
-        // nearly always just an empty folder, so take the answer and move on. asking for a
-        // rebuild here put that load on the device from every phone for nothing
+        // nearly always just an empty folder: take the answer, never ask for a rebuild
         console.warn('No index signature found in gallery, treating as empty.');
       }
 
@@ -550,23 +838,20 @@ async function fetchIndexWithFallback(path){
         return { source: 'api', header: parsed.header, entries: parsed.entries };
       }
     } else if(res.status === 202) {
-      // Server is building the index on its own. Poll, but bounded: an unbounded
-      // 3s poll never stops if the build keeps failing.
+      // bounded: a build that keeps failing would otherwise be polled forever
       if(buildPolls < MAX_BUILD_POLLS){
         buildPolls++;
         console.log(`Gallery index is building (202) - poll ${buildPolls}/${MAX_BUILD_POLLS}`);
-        showGalleryMessage('Building gallery index... Please wait.');
+        showGalleryMessage('Building gallery index…');
         setTimeout(async () => {
           try {
             await refreshIndex();
-            renderPage();
           } catch(e) {
             console.error('Retry after 202 failed', e);
-            showGalleryMessage('Could not load gallery.');
+            showGalleryMessage('Couldn\'t load the gallery. Reload to try again.');
           }
         }, 3000);
-        // only the polling branch returns - giving up should still try the fallback
-        // index files below rather than dead-ending on the message.
+        // only polling returns here: giving up still tries the fallback index files below
         return { source: null, header: null, entries: [] };
       } else {
         console.warn('Gallery index still building after max polls; giving up.');
@@ -588,19 +873,27 @@ async function fetchIndexWithFallback(path){
     }catch(e){}
   }
 
-  // Nothing in the API or the fallback files. Usually just an empty /Gallery,
-  // so say so rather than asking the device to rebuild.
+  // usually just an empty /Gallery: say so rather than asking the device to rebuild
   console.warn('No gallery index found in API or fallback files');
-  showGalleryMessage('No photos found. If you just added files, reindex from the admin page.');
+  showGalleryMessage('No photos found. If you just added some, reindex from the admin page.');
 
   return { source: null, header: null, entries: [] };
 }
 
-/* ---------- build gallery ---------- */
+/* build gallery */
+function kindOf(name){
+  const x = extFromName(name);
+  if(IMAGE_EXTS.includes(x)) return 'image';
+  if(VIDEO_EXTS.includes(x)) return 'video';
+  return FILE_EXTS[x] ? 'file' : null;
+}
+function parentOf(p){ const i = p.lastIndexOf('/'); return i > 0 ? p.slice(0, i) : '/'; }
+
 async function buildGallery(){
   const map = new Map();
   const resp = await fetchIndexWithFallback(ROOT);
   for(const e of resp.entries){
+    if(e.t === 'd') continue;
     const n = e.n || e.name || null;
     const p = e.p || e.path || null;
     let entryPath = null;
@@ -611,64 +904,138 @@ async function buildGallery(){
     if(!entryPath) continue;
     entryPath = normalizePath(entryPath);
     const b = basename(entryPath);
-    if(isImageName(b) || isVideoName(b)){
-      const type = isVideoName(b) ? 'video' : 'image';
-      const item = { name: prettify(b), path: entryPath, type, size: e.sz || e.size || 0, mt: e.mt || 0 };
-      map.set(entryPath, item);
-    }
+    const type = kindOf(b);
+    if(!type) continue;
+    // anything listed outside /Gallery counts as loose in /Gallery
+    const dir = entryPath.startsWith(ROOT + '/') ? parentOf(entryPath) : ROOT;
+    map.set(entryPath, { name: prettify(b), file: b, path: entryPath, dir, type, size: e.sz || e.size || 0, mt: e.mt || 0 });
   }
-  return Array.from(map.values()).sort((a,b)=> a.name.localeCompare(b.name));
+  return Array.from(map.values());
 }
 
-/* ---------- create card (register observer for videos) ---------- */
-function createCard(item){
-  const isVideo = item.type === 'video';
-  const card = document.createElement('div');
-  card.className = 'media-card';
-  card.title = item.name;
-  card.tabIndex = 0;
+/* folders */
+// the card's /Gallery is loose folders. Each one knows its subfolders, its own items and how
+// many there are under it in all; empty ones are left out.
+let folders = new Map();
+const collate = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' }).compare;
+function buildFolders(){
+  folders = new Map();
+  const get = (p) => {
+    let f = folders.get(p);
+    if(!f){
+      f = { path: p, name: p === ROOT ? 'Gallery' : basename(p), subs: [], items: [], total: 0, cover: undefined };
+      folders.set(p, f);
+      if(p !== ROOT) get(parentOf(p)).subs.push(f);
+    }
+    return f;
+  };
+  get(ROOT);
+  for(const it of items){
+    get(it.dir).items.push(it);
+    for(let p = it.dir; ; p = parentOf(p)){ folders.get(p).total++; if(p === ROOT || p === '/') break; }
+  }
+}
+function hasFolders(){ const r = folders.get(ROOT); return !!r && r.subs.some(s => s.total > 0); }
+// the tile's picture: its first photo by name, else the first one further down, else a video
+function folderCover(f){
+  if(f.cover !== undefined) return f.cover;
+  const byName = (a, b) => collate(a.name, b.name);
+  let c = f.items.filter(i => i.type === 'image').sort(byName)[0] || null;
+  if(!c){
+    for(const s of [...f.subs].sort(byName)){ const sc = folderCover(s); if(sc && (!c || (sc.type === 'image' && c.type !== 'image'))) c = sc; if(c && c.type === 'image') break; }
+  }
+  if(!c) c = f.items.filter(i => i.type === 'video').sort(byName)[0] || null;
+  f.cover = c;
+  return c;
+}
+function folderLabel(dir){
+  if(!dir || dir === ROOT || !dir.startsWith(ROOT + '/')) return 'Gallery';
+  return dir.slice(ROOT.length + 1).split('/').join(' / ');
+}
+function countText(list, nFolders){
+  let ph = 0, vid = 0;
+  for(const it of list){ if(it.type === 'video' || FILE_EXTS[extFromName(it.file)] === 'video') vid++; else ph++; }
+  const parts = [];
+  if(nFolders) parts.push(nFolders + (nFolders === 1 ? ' folder' : ' folders'));
+  if(ph || (!vid && !nFolders)) parts.push(ph + (ph === 1 ? ' photo' : ' photos'));
+  if(vid) parts.push(vid + (vid === 1 ? ' video' : ' videos'));
+  return parts.join(', ');
+}
 
+/* cards */
+function thumbParts(card){
   const thumb = document.createElement('img');
   thumb.className = 'media-thumb';
-  thumb.alt = item.name;
+  thumb.alt = '';
   thumb.loading = 'lazy';
+  thumb.src = WHITE_SVG;
   thumb.onerror = () => { thumb.src = WHITE_SVG; };
-
   const spinner = document.createElement('div');
   spinner.className = 'spinner';
   const dot = document.createElement('div'); dot.className = 'dot'; spinner.appendChild(dot);
   spinner.style.display = 'none';
-
   card.appendChild(thumb);
   card.appendChild(spinner);
+  return { thumb, spinner };
+}
+function asButton(card, label, go){
+  card.tabIndex = 0;
+  card.setAttribute('role', 'button');
+  card.setAttribute('aria-label', label);
+  card.addEventListener('click', go);
+  card.addEventListener('keydown', (e) => { if(e.key === 'Enter' || e.key === ' '){ e.preventDefault(); go(); } });
+}
 
-  if(isVideo){
-    thumb.src = WHITE_SVG;
-    const overlay = document.createElement('div');
-    overlay.className = 'play-overlay';
-    overlay.innerHTML = '▶';
-    card.appendChild(overlay);
-
-    // attach job metadata to card and observe it (thumbnail will only be queued when visible)
-    card._thumbJob = { item, imgEl: thumb, spinner, kind: 'video' };
-    cardObserver.observe(card);
+function createCard(item){
+  const card = document.createElement('div');
+  card.className = 'media-card';
+  card.title = item.name;
+  card.dataset.path = item.path;
+  if(item.type === 'file'){
+    const isVid = FILE_EXTS[extFromName(item.file)] === 'video';
+    card.innerHTML = `<div class="file-tile">${gIcon(isVid ? 'film' : 'image', 30)}<b>${escapeHtml(extFromName(item.file).slice(1).toUpperCase())}</b><span>${escapeHtml(item.name)}</span></div>`;
   } else {
-    // image: same observer + queue as video. previously this fired its own
-    // unthrottled fetch per card at creation time, so a full page of photos hit
-    // the server all at once and starved it.
-    thumb.src = WHITE_SVG;
-    card._thumbJob = { item, imgEl: thumb, spinner, kind: 'image' };
+    // the thumbnail is queued only once the card is near the screen (cardObserver)
+    const { thumb, spinner } = thumbParts(card);
+    thumb.alt = item.name;
+    if(item.type === 'video'){
+      const overlay = document.createElement('div');
+      overlay.className = 'play-overlay';
+      overlay.innerHTML = NomadIcons.svg('play', 28);
+      card.appendChild(overlay);
+    }
+    card._thumbJob = { item, imgEl: thumb, spinner, kind: item.type === 'video' ? 'video' : 'image' };
     cardObserver.observe(card);
   }
-
-  card.addEventListener('click', ()=> openModal(item));
-  card.addEventListener('keypress', (e)=> { if(e.key === 'Enter') openModal(item); });
-
+  asButton(card, item.name, () => openViewer(viewItems.indexOf(item)));
   return card;
 }
 
-/* ---------- render & pagination ---------- */
-// free blob URLs + observers before discarding a card, else every page/sort change leaks thumbnail memory
+function createFolderCard(f){
+  const card = document.createElement('div');
+  card.className = 'media-card folder';
+  card.title = f.name;
+  const count = countText(itemsUnder(f));
+  const cover = folderCover(f);
+  if(cover && cover.type !== 'file'){
+    const { thumb, spinner } = thumbParts(card);
+    card._thumbJob = { item: cover, imgEl: thumb, spinner, kind: cover.type === 'video' ? 'video' : 'image' };
+    cardObserver.observe(card);
+  } else {
+    card.insertAdjacentHTML('beforeend', `<div class="folder-empty">${NomadIcons.svg('folder', 40)}</div>`);
+  }
+  card.insertAdjacentHTML('beforeend', `<div class="folder-label"><b>${NomadIcons.svg('folder', 15)}<span>${escapeHtml(f.name)}</span></b><small>${escapeHtml(count)}</small></div>`);
+  asButton(card, `${f.name}, ${count}`, () => enterFolder(f.path));
+  return card;
+}
+function itemsUnder(f){
+  const out = [];
+  (function walk(g){ out.push(...g.items); g.subs.forEach(walk); })(f);
+  return out;
+}
+
+/* the grid: what this view shows, added as you scroll */
+// free blob URLs + observers before discarding a card, else every view/sort change leaks thumbnail memory
 function destroyCard(card){
   try{ cardObserver.unobserve(card); }catch(e){}
   const thumb = card.querySelector && card.querySelector('.media-thumb');
@@ -678,141 +1045,521 @@ function destroyCard(card){
 function clearGrid(){
   for(const card of grid.children) destroyCard(card);
   grid.innerHTML = '';
+  // jobs for cards that are gone would only be skipped later, drop them now
+  for(const q of [thumbQueue, sharpenQueue]){
+    for(let i = q.length - 1; i >= 0; i--){
+      if(!document.body.contains(q[i].imgEl)){
+        thumbPending.delete((q[i].kind === 'sharpen' ? 's:' : '') + q[i].item.path);
+        q.splice(i, 1);
+      }
+    }
+  }
 }
 
-function renderPage(){
-  // clamp page size between 1 and 100
-  pageSize = clampPageSize(parseInt(pageSizeInput.value,10) || pageSize);
-  localStorage.setItem('nomadGallery.pageSize', pageSize);
-  const start = (currentPage - 1) * pageSize;
-  const end = start + pageSize;
-  const pageItems = filtered.slice(start, end);
+function sortItems(list){
+  const out = [...list];
+  const TYPE_ORDER = { image: 0, video: 1, file: 2 };
+  const byName = (a, b) => collate(a.name, b.name) || collate(a.path, b.path);
+  if(sortMode === 'nameDesc') out.sort((a, b) => byName(b, a));
+  else if(sortMode === 'typeAsc') out.sort((a, b) => (TYPE_ORDER[a.type] - TYPE_ORDER[b.type]) || byName(a, b));
+  else if(sortMode === 'typeDesc') out.sort((a, b) => (TYPE_ORDER[b.type] - TYPE_ORDER[a.type]) || byName(a, b));
+  else if(sortMode === 'sizeAsc') out.sort((a, b) => ((a.size || 0) - (b.size || 0)) || byName(a, b));
+  else if(sortMode === 'sizeDesc') out.sort((a, b) => ((b.size || 0) - (a.size || 0)) || byName(a, b));
+  else out.sort(byName);
+  return out;
+}
+
+let indexNote = null;   // why the index came back empty (still building), shown instead of "no photos"
+function render(){
   clearGrid();
-  if(pageItems.length === 0){
-    grid.innerHTML = `<p style="grid-column:1/-1;text-align:center;color:var(--primary-dark);">No items.</p>`;
+  shown = 0;
+  const inFolders = mode === 'folders' && hasFolders();
+  const f = inFolders ? (folders.get(folder) || folders.get(ROOT)) : null;
+  if(f) folder = f.path;
+  viewFolders = f ? f.subs.filter(s => s.total > 0).sort((a, b) => collate(a.name, b.name)) : [];
+  if(f && sortMode === 'nameDesc') viewFolders.reverse();
+  viewItems = sortItems(f ? f.items : items);
+  drawBar(f);
+  if(!viewFolders.length && !viewItems.length){
+    moreEl.textContent = '';
+    showGalleryMessage(indexNote || (items.length ? 'This folder is empty' : 'No photos yet'));
     return;
   }
-  for(const item of pageItems){
-    const c = createCard(item);
-    grid.appendChild(c);
+  fillGrid();
+}
+function renderMore(){
+  const total = viewFolders.length + viewItems.length;
+  const end = Math.min(total, shown + CHUNK);
+  const frag = document.createDocumentFragment();
+  for(let i = shown; i < end; i++){
+    frag.appendChild(i < viewFolders.length ? createFolderCard(viewFolders[i]) : createCard(viewItems[i - viewFolders.length]));
   }
-  const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
-  pageInfo.textContent = `Page ${currentPage} of ${totalPages}`;
-  prevBtn.disabled = currentPage === 1;
-  nextBtn.disabled = currentPage === totalPages;
+  grid.appendChild(frag);
+  shown = end;
+  moreEl.textContent = shown < total ? 'Loading more…' : (total > CHUNK ? countText(viewItems, viewFolders.length) : '');
+}
+// add cards while the end of the grid is near the screen (or until the page is minY tall)
+function fillGrid(minY){
+  const total = () => viewFolders.length + viewItems.length;
+  while(shown < total()){
+    const near = moreEl.getBoundingClientRect().top < innerHeight + 800;
+    const short = minY && document.documentElement.scrollHeight < minY + innerHeight;
+    if(!near && !short) break;
+    renderMore();
+  }
+  if(!shown && total()) renderMore();
+}
+new IntersectionObserver((es) => { if(es.some(e => e.isIntersecting)) fillGrid(); }, { rootMargin: '800px 0px' }).observe(moreEl);
+
+// the Folders / All switch and the breadcrumb
+function drawBar(f){
+  const anyFolders = hasFolders();
+  modeSeg.hidden = !anyFolders;
+  modeSeg.querySelectorAll('button').forEach(b => {
+    const on = b.dataset.mode === (anyFolders ? mode : 'all');
+    b.classList.toggle('active', on);
+    b.setAttribute('aria-pressed', on ? 'true' : 'false');
+  });
+  crumbsEl.innerHTML = '';
+  if(f){
+    const parts = f.path.slice(ROOT.length).split('/').filter(Boolean);
+    let p = ROOT;
+    const chain = [{ name: 'Gallery', path: ROOT }].concat(parts.map(n => ({ name: n, path: (p = p + '/' + n) })));
+    chain.forEach((c, i) => {
+      if(i){ const s = document.createElement('span'); s.className = 'sep'; s.setAttribute('aria-hidden', 'true'); s.textContent = '›'; crumbsEl.appendChild(s); }
+      if(i === chain.length - 1){
+        const h = document.createElement('span'); h.className = 'here'; h.textContent = c.name; h.setAttribute('aria-current', 'page'); crumbsEl.appendChild(h);
+      } else {
+        const b = document.createElement('button'); b.type = 'button'; b.textContent = c.name; b.addEventListener('click', () => jumpTo(c.path)); crumbsEl.appendChild(b);
+      }
+    });
+  } else {
+    const h = document.createElement('span'); h.className = 'here'; h.textContent = anyFolders ? 'All photos' : 'Gallery'; crumbsEl.appendChild(h);
+  }
+  const n = document.createElement('span'); n.className = 'count';
+  n.textContent = items.length ? countText(viewItems, viewFolders.length) : '';
+  crumbsEl.appendChild(n);
+}
+
+/* moving between folders */
+// Each folder opened adds a step to the phone's Back (NomadBack), so Back goes up a folder
+// before it leaves the page. The breadcrumb and the All switch take those steps off again.
+const dirSteps = [];             // the folders opened, deepest last
+// Back here is a folder or the viewer closing: this page puts the scroll where it belongs
+// (the folder you came up to, the photo you ended on). the browser's own restore fights it
+try{ history.scrollRestoration = 'manual'; }catch(e){}
+const scrollAt = new Map();      // where a folder was scrolled to when you went into a subfolder
+function enterFolder(path){
+  scrollAt.set(folder, scrollY);
+  folder = path;
+  const step = 'dir:' + path;
+  dirSteps.push(path);
+  NomadBack.open(step, () => { dirSteps.pop(); showFolder(parentOf(path)); });
+  render();
+  window.scrollTo(0, 0);
+}
+function showFolder(path){
+  folder = path;
+  render();
+  const y = scrollAt.get(path) || 0;
+  fillGrid(y);
+  window.scrollTo(0, y);
+}
+function jumpTo(path){
+  const i = dirSteps.findIndex(p => p.startsWith(path + '/'));
+  if(i >= 0){ NomadBack.done('dir:' + dirSteps[i]); dirSteps.splice(i); }
+  showFolder(path);
+}
+function setMode(m){
+  if(m === mode) return;
+  if(dirSteps.length){ NomadBack.done('dir:' + dirSteps[0]); dirSteps.length = 0; }
+  mode = m;
+  folder = ROOT;
+  localStorage.setItem('nomadGallery.mode', m);
+  render();
+  window.scrollTo(0, 0);
 }
 
 function setViewSize(size){
   currentSize = size;
-  viewButtons.forEach(btn => btn.classList.toggle('active', btn.dataset.size === size));
+  viewButtons.forEach(btn => { const on = btn.dataset.size === size; btn.classList.toggle('active', on); btn.setAttribute('aria-pressed', on ? 'true' : 'false'); });
   grid.className = 'media-grid ' + size;
   localStorage.setItem('nomadGallery.viewSize', size);
+  fillGrid();   // smaller tiles: more of them fit on screen
 }
-// the click handler is wired once in init(), with the rest of the UI
-
 function applySort(){
   sortMode = sortSelect.value;
   localStorage.setItem('nomadGallery.sort', sortMode);
-  filtered = [...items];
-  if(sortMode.startsWith('name')) filtered.sort((a,b)=> sortMode === 'nameDesc' ? b.name.localeCompare(a.name) : a.name.localeCompare(b.name));
-  else if(sortMode.startsWith('type')) filtered.sort((a,b)=> sortMode === 'typeDesc' ? b.type.localeCompare(a.type) : a.type.localeCompare(b.type));
-  else if(sortMode.startsWith('size')) filtered.sort((a,b)=> sortMode === 'sizeDesc' ? (b.size||0)-(a.size||0) : (a.size||0)-(b.size||0));
-  currentPage = 1;
-  renderPage();
-}
-function changePage(delta){
-  currentPage += delta;
-  const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
-  if(currentPage<1) currentPage=1;
-  if(currentPage>totalPages) currentPage=totalPages;
-  renderPage();
+  render();
 }
 
-/* ---------- modal (zoom/pan + playback) ---------- */
-let modalGeneration = 0;
-function openModal(item){
-  if(modal._cleanup){ modal._cleanup(); modal._cleanup = null; } // in case a modal was already open (e.g. hash navigation)
-  modalMedia.innerHTML = '';
-  modalInfo.innerHTML = '';
-  const gen = ++modalGeneration;
-  const modalUrls = []; // blob URLs created for this modal instance, revoked on close
-  let mediaEl;
-  if(item.type === 'video'){
-    mediaEl = document.createElement('video');
-    mediaEl.src = mediaStreamUrlWithVersion(item.path,item);
-    mediaEl.controls = true; mediaEl.preload = 'metadata'; mediaEl.autoplay = false; mediaEl.setAttribute('playsinline','');
+/* viewer */
+// One photo or video at a time, stepping through the current view's order. Photos zoom
+// and pan with fingers (pointer events, so touch, pen and mouse alike). A swipe steps.
+let vList = [], vIndex = -1, vGen = 0, vImg = null, vSlide = null, vCleanup = null;
+let vLoaded = false;             // the full photo is on screen (the slideshow counts from then)
+let lastDir = 1, preImg = null, lastFocus = null;
+let slideOn = false, slideTimer = 0;
+const Z = { z: 1, tx: 0, ty: 0 };
+
+function downloadUrl(item){ return `/media?file=${encodeURIComponent(item.path)}&download=1`; }
+
+function openViewer(i, list){
+  vList = list || viewItems;
+  if(!(i >= 0 && i < vList.length)) return;
+  if(viewer.hidden){
+    lastFocus = document.activeElement;
+    viewer.hidden = false;
+    viewer.classList.remove('bare');
+    document.documentElement.classList.add('v-lock');
+    for(const el of document.querySelectorAll('body > header, body > .toolbar, body > main')) el.inert = true;
+    NomadBack.open('viewer', () => closeViewer(true));
+    if(sharpenAbort) sharpenAbort.abort();   // it goes back in line for later
+  }
+  showAt(i, 0);
+  try{ vClose.focus({ preventScroll: true }); }catch(e){}
+}
+function closeViewer(fromBack){
+  if(viewer.hidden) return;
+  setSlideshow(false);
+  teardown();
+  stage.innerHTML = '';
+  preImg = null;
+  viewer.hidden = true;
+  document.documentElement.classList.remove('v-lock');
+  for(const el of document.querySelectorAll('body > header, body > .toolbar, body > main')) el.inert = false;
+  if(!fromBack) NomadBack.done('viewer');
+  revealCard(vList[vIndex]);
+  for(let i = 0; i < THUMB_WORKERS; i++) processThumbQueue().catch(()=>{});
+}
+// back in the grid on the card of the photo you ended on
+function revealCard(item){
+  if(!item || vList !== viewItems) return;
+  const at = viewFolders.length + viewItems.indexOf(item);
+  while(shown <= at && shown < viewFolders.length + viewItems.length) renderMore();
+  const card = [...grid.children].find(c => c.dataset.path === item.path);
+  if(!card) return;
+  card.scrollIntoView({ block: 'nearest' });
+  if(lastFocus && lastFocus.classList && lastFocus.classList.contains('media-card')) try{ card.focus({ preventScroll: true }); }catch(e){}
+}
+function teardown(){
+  if(vCleanup){ try{ vCleanup(); }catch(e){} vCleanup = null; }
+}
+
+function showAt(i, dir){
+  teardown();
+  clearTimeout(slideTimer);
+  vIndex = i;
+  if(dir) lastDir = dir;
+  const item = vList[i];
+  const gen = ++vGen;
+  vLoaded = false;
+  Z.z = 1; Z.tx = 0; Z.ty = 0;
+  const urls = [];   // blob URLs made for this item, freed when it goes
+  const slide = document.createElement('div');
+  slide.className = 'v-slide';
+  stage.innerHTML = '';
+  stage.appendChild(slide);
+  vSlide = slide; vImg = null;
+  viewer.classList.toggle('is-video', item.type === 'video');
+  let plyr = null;
+
+  if(item.type === 'image'){
+    const img = document.createElement('img');
+    img.alt = item.name;
+    img.draggable = false;
+    slide.appendChild(img);
+    vImg = img;
+    // the cached thumbnail at once, then the photo. Nomad 503s reads when short of memory,
+    // so a failed photo is retried a few times.
+    const url = fileUrlWithVersion(item.path, item);
+    const full = new Image();
+    let tries = 0;
+    full.onload = () => { if(gen !== vGen) return; img.src = full.src; photoReady(gen); };
+    full.onerror = () => {
+      if(gen !== vGen) return;
+      if(tries++ < 3) setTimeout(() => { if(gen === vGen) full.src = url + '&r=' + tries; }, 1000 * tries);
+      else photoReady(gen);
+    };
+    full.src = url;
+    (async ()=>{
+      const cached = await getCachedThumb(item);
+      if(cached && (gen !== vGen || full.complete)){ try{ URL.revokeObjectURL(cached.url); }catch(e){} return; }
+      if(cached){ img.src = cached.url; urls.push(cached.url); }
+      else if(gen === vGen && !full.complete) img.src = full.src;   // draws as it arrives
+    })();
+    img.addEventListener('load', () => { if(gen === vGen) clampPan(); });
+  } else if(item.type === 'video'){
+    const v = document.createElement('video');
+    v.src = mediaStreamUrlWithVersion(item.path, item);
+    v.controls = true; v.preload = 'metadata'; v.setAttribute('playsinline', '');
     (async ()=>{
       const cached = await getCachedThumb(item);
       if(!cached) return;
-      if(gen !== modalGeneration){ try{ URL.revokeObjectURL(cached.url); }catch(e){} return; }
-      mediaEl.poster = cached.url;
-      modalUrls.push(cached.url);
+      if(gen !== vGen){ try{ URL.revokeObjectURL(cached.url); }catch(e){} return; }
+      v.poster = cached.url;
+      urls.push(cached.url);
     })();
-    modalMedia.appendChild(mediaEl);
+    slide.appendChild(v);
+    // videos get the same Plyr player the movies page uses
+    // (NomadPlyr is a top-level const, not a window property)
+    if(window.Plyr && typeof NomadPlyr !== 'undefined'){
+      NomadPlyr.create(v, {
+        controls: ['play-large','play','progress','current-time','duration','mute','volume','fullscreen'],
+        // the arrow keys step through the gallery here, inside the player they still seek
+        keyboard: { focused: true, global: false }
+      }).then(p => {
+        if(gen !== vGen){ try{ p.destroy(); }catch(e){} return; }   // already moved on
+        plyr = p;
+      }).catch(() => { v.controls = true; });
+    }
   } else {
-    mediaEl = document.createElement('img');
-    (async ()=>{
-      const cached = await getCachedThumb(item);
-      if(cached && gen !== modalGeneration){ try{ URL.revokeObjectURL(cached.url); }catch(e){} return; }
-      if(cached){ mediaEl.src = cached.url; modalUrls.push(cached.url); }
-      else mediaEl.src = fileUrlWithVersion(item.path,item);
-    })();
-    mediaEl.alt = item.name;
-    modalMedia.appendChild(mediaEl);
+    // HEIC and the like: most browsers can't show them, so say so and offer the file
+    const isVid = FILE_EXTS[extFromName(item.file)] === 'video';
+    const box = document.createElement('div');
+    box.className = 'v-file';
+    box.innerHTML = `${gIcon(isVid ? 'film' : 'image', 48)}<b>${escapeHtml(item.file)}</b>
+      <span>${isVid ? 'This video' : 'This photo'} can't be shown here.</span>
+      <a data-dl href="${escapeHtml(downloadUrl(item))}" download="${escapeHtml(item.file)}">${NomadIcons.svg('download', 18)} Download</a>`;
+    slide.appendChild(box);
   }
 
-  modalInfo.innerHTML = `<p><strong>Name:</strong> ${escapeHtml(item.name)}</p>
-                         <p><strong>Type:</strong> ${escapeHtml(item.type)}</p>
-                         <p><strong>Size:</strong> ${formatBytes(item.size)}</p>`;
-  modal.style.display = 'flex';
-
-  // Zoom and pan belong to photos. Bound to a video they swallowed every
-  // click on the player controls, which is why playback looked broken.
-  const zoomable = (item.type !== 'video');
-  if (zoomable) {
-  mediaEl.style.transformOrigin = 'center center';
-  mediaEl.style.cursor = 'zoom-in';
-  mediaEl.style.transition = 'none';
-  mediaEl.setAttribute('draggable','false');
-
-  let zoom=1, offsetX=0, offsetY=0, dragStartX=0, dragStartY=0, isDragging=false, dragMoved=false;
-  function updateTransform(){ mediaEl.style.transform = `scale(${zoom}) translate(${offsetX}px, ${offsetY}px)`; mediaEl.style.cursor = zoom>1 ? (isDragging? 'grabbing' : 'grab') : 'zoom-in'; }
-
-  mediaEl.addEventListener('wheel', (e)=>{ e.preventDefault(); const rect = mediaEl.getBoundingClientRect(); const mx=e.clientX-rect.left, my=e.clientY-rect.top; const oldZoom=zoom; zoom = Math.min(Math.max(1, zoom + Math.sign(e.deltaY)*-0.2),5); const factor = zoom/oldZoom; offsetX -= (mx/oldZoom)*(factor-1); offsetY -= (my/oldZoom)*(factor-1); updateTransform(); });
-  mediaEl.addEventListener('click', (e)=>{ if(dragMoved){ dragMoved=false; return; } const rect=mediaEl.getBoundingClientRect(); const mx=e.clientX-rect.left, my=e.clientY-rect.top; if(zoom===1){ const zoomFactor=2, cx=rect.width/2, cy=rect.height/2; zoom=zoomFactor; offsetX=(cx-mx)/zoom; offsetY=(cy-my)/zoom; } else { zoom=1; offsetX=0; offsetY=0; } updateTransform(); });
-  mediaEl.addEventListener('mousedown', (e)=>{ if(zoom===1) return; isDragging=true; dragMoved=false; dragStartX=e.clientX; dragStartY=e.clientY; mediaEl.style.cursor='grabbing'; });
-  window.addEventListener('mousemove', onMouseMove); window.addEventListener('mouseup', onMouseUp);
-  function onMouseMove(e){ if(!isDragging) return; const dx=(e.clientX-dragStartX)/zoom; const dy=(e.clientY-dragStartY)/zoom; if(Math.abs(dx)>3 || Math.abs(dy)>3) dragMoved=true; offsetX+=dx; offsetY+=dy; dragStartX=e.clientX; dragStartY=e.clientY; updateTransform(); }
-  function onMouseUp(){ if(!isDragging) return; isDragging=false; mediaEl.style.cursor='grab'; setTimeout(()=>dragMoved=false,100); }
-  }   // end zoomable
-
-  // videos get the same Plyr player the movies page uses
-  let plyr = null;
-  if (item.type === 'video' && window.Plyr) {
-    NomadPlyr.create(mediaEl, {
-      controls: ['play-large','play','progress','current-time','duration','mute','volume','fullscreen']
-    }).then(p => {
-      if (gen !== modalGeneration) { try { p.destroy(); } catch(e){} return; }   // modal already moved on
-      plyr = p;
-    }).catch(() => { mediaEl.controls = true; });
+  if(dir){
+    // a short slide in from the side it came from
+    slide.style.transform = `translateX(${dir * 48}px)`;
+    slide.style.opacity = '0';
+    requestAnimationFrame(() => requestAnimationFrame(() => {
+      slide.style.transition = 'transform .18s ease, opacity .18s ease';
+      slide.style.transform = '';
+      slide.style.opacity = '';
+    }));
   }
 
-  modal._cleanup = ()=>{
-    if (zoomable) { window.removeEventListener('mousemove', onMouseMove); window.removeEventListener('mouseup', onMouseUp); }
-    if (plyr) { try { plyr.destroy(); } catch(e){} plyr = null; }
-    const v = modalMedia.querySelector('video'); if(v){ v.pause(); try{ v.removeAttribute('src'); v.load(); }catch(e){} }
-    for(const url of modalUrls){ try{ URL.revokeObjectURL(url); }catch(e){} }
+  vCount.textContent = `${i + 1} of ${vList.length}`;
+  vName.textContent = item.name;
+  vMeta.textContent = folderLabel(item.dir) + ' · ' + formatBytes(item.size);
+  vDl.href = downloadUrl(item);
+  vDl.setAttribute('download', item.file);
+  vPrev.disabled = i <= 0;
+  vNext.disabled = i >= vList.length - 1;
+  // (on a video it would read as the video's own play button)
+  vPlay.hidden = !slideOn && (item.type !== 'image' || vList.filter(x => x.type === 'image').length < 2);
+  // the slideshow shows photos only: step on past a video or file
+  if(slideOn && item.type !== 'image') slideTimer = setTimeout(slideNext, 600);
+
+  vCleanup = () => {
+    if(plyr){ try{ plyr.destroy(); }catch(e){} plyr = null; }
+    const v = slide.querySelector('video'); if(v){ v.pause(); try{ v.removeAttribute('src'); v.load(); }catch(e){} }
+    for(const u of urls){ try{ URL.revokeObjectURL(u); }catch(e){} }
   };
 }
-function closeModal(evt){
-  if(modal._cleanup && evt && evt.type === 'click' && evt.clientX === 0 && evt.clientY === 0) return;
-  if(evt.target === modal || (evt.target && evt.target.classList && evt.target.classList.contains('modal-close'))){
-    if(modal._cleanup){ modal._cleanup(); modal._cleanup = null; }
-    modal.style.display = 'none';
-  }
+function step(d){
+  const j = vIndex + d;
+  if(j < 0 || j >= vList.length) return false;
+  showAt(j, d);
+  return true;
 }
 
-/* ---------- upload (shared NomadUpload modal; sends dir=/Gallery) ---------- */
+// the photo is in: count the slideshow from now, and fetch the one you'll most likely see
+// next (one photo, not both sides: the radio is shared)
+function photoReady(gen){
+  if(gen !== vGen) return;
+  vLoaded = true;
+  if(slideOn) armSlide();
+  const j = slideOn ? nextPhoto(vIndex) : vIndex + lastDir;
+  const it = vList[j];
+  if(!it || it.type !== 'image' || j === vIndex) return;
+  const url = fileUrlWithVersion(it.path, it);
+  if(preImg && preImg._url === url) return;
+  preImg = new Image();
+  preImg._url = url;
+  preImg.src = url;
+}
+
+/* slideshow */
+function nextPhoto(i){
+  for(let k = 1; k <= vList.length; k++){ const j = (i + k) % vList.length; if(vList[j].type === 'image') return j; }
+  return -1;
+}
+function armSlide(){ clearTimeout(slideTimer); if(slideOn) slideTimer = setTimeout(slideNext, SLIDE_MS); }
+function slideNext(){
+  const j = nextPhoto(vIndex);
+  if(j < 0 || j === vIndex){ setSlideshow(false); return; }
+  showAt(j, 1);
+}
+function setSlideshow(on){
+  const was = slideOn;
+  slideOn = !!on;
+  clearTimeout(slideTimer);
+  vPlay.classList.toggle('on', slideOn);
+  vPlay.innerHTML = slideOn ? gIcon('pause', 20) : NomadIcons.svg('play', 20);
+  vPlay.setAttribute('aria-label', slideOn ? 'Pause slideshow' : 'Play slideshow');
+  vPlay.title = slideOn ? 'Pause slideshow' : 'Play slideshow';
+  if(slideOn){
+    if(typeof requestWakeLock === 'function') requestWakeLock();
+    if(vList[vIndex] && vList[vIndex].type !== 'image') slideNext();
+    else if(vLoaded) armSlide();
+  } else if(was && typeof releaseWakeLock === 'function'){
+    releaseWakeLock();
+  }
+}
+setSlideshow(false);
+
+/* zoom, pan and swipe */
+function applyZoom(animate){
+  if(!vImg) return;
+  vImg.style.transition = animate ? 'transform .2s ease' : 'none';
+  vImg.style.transform = (Z.z === 1 && !Z.tx && !Z.ty) ? '' : `translate(${Z.tx}px, ${Z.ty}px) scale(${Z.z})`;
+  vImg.style.cursor = Z.z > 1 ? 'grab' : 'zoom-in';
+}
+// keep a zoomed photo's edges from coming in past the screen's
+function clampPan(){
+  if(!vImg) return;
+  const r = stage.getBoundingClientRect();
+  const nw = vImg.naturalWidth || r.width, nh = vImg.naturalHeight || r.height;
+  const fit = Math.min(r.width / nw, r.height / nh);
+  const mx = Math.max(0, (nw * fit * Z.z - r.width) / 2), my = Math.max(0, (nh * fit * Z.z - r.height) / 2);
+  Z.tx = Math.max(-mx, Math.min(mx, Z.tx));
+  Z.ty = Math.max(-my, Math.min(my, Z.ty));
+}
+// zoom to z keeping the point under (sx, sy) where it is
+function zoomAt(z, sx, sy, base){
+  const b = base || Z;
+  const r = stage.getBoundingClientRect();
+  const cx = r.left + r.width / 2, cy = r.top + r.height / 2;
+  z = Math.max(1, Math.min(5, z));
+  const k = z / b.z;
+  Z.tx = (sx - cx) - k * (sx - cx - b.tx);
+  Z.ty = (sy - cy) - k * (sy - cy - b.ty);
+  Z.z = z;
+  if(z === 1){ Z.tx = 0; Z.ty = 0; }
+  if(z > 1 && slideOn) setSlideshow(false);   // looking closer: hold this photo
+}
+function toggleZoom(x, y){
+  if(!vImg) return;
+  if(Z.z > 1){ Z.z = 1; Z.tx = 0; Z.ty = 0; }
+  else zoomAt(2.5, x, y);
+  clampPan();
+  applyZoom(true);
+}
+
+const G = { pts: new Map(), mode: null, start: null, pinch: null, moved: false, lastTap: 0, tapX: 0, tapY: 0, tapTimer: 0 };
+function slideTo(dx, animate){
+  if(!vSlide) return;
+  vSlide.style.transition = animate ? 'transform .2s ease' : 'none';
+  vSlide.style.transform = dx ? `translateX(${dx}px)` : '';
+}
+stage.addEventListener('pointerdown', (e) => {
+  // the video's own controls and the download link keep their pointers
+  if(e.target.closest('.plyr__controls, .v-file a, button')) return;
+  if(e.pointerType === 'mouse' && e.button !== 0) return;
+  G.pts.set(e.pointerId, { x: e.clientX, y: e.clientY });
+  if(G.pts.size === 1){
+    G.start = { x: e.clientX, y: e.clientY, tx: Z.tx, ty: Z.ty, t: performance.now(), id: e.pointerId };
+    G.moved = false;
+    G.mode = vImg && Z.z > 1 ? 'pan' : 'swipe';
+  } else if(G.pts.size === 2 && vImg){
+    const [a, b] = [...G.pts.values()];
+    slideTo(0);
+    G.mode = 'pinch';
+    G.moved = true;
+    G.pinch = { d: Math.hypot(a.x - b.x, a.y - b.y) || 1, mx: (a.x + b.x) / 2, my: (a.y + b.y) / 2, z: Z.z, tx: Z.tx, ty: Z.ty };
+  }
+});
+stage.addEventListener('pointermove', (e) => {
+  const p = G.pts.get(e.pointerId);
+  if(!p) return;
+  p.x = e.clientX; p.y = e.clientY;
+  if(G.mode === 'pinch' && G.pts.size >= 2){
+    const [a, b] = [...G.pts.values()];
+    const d = Math.hypot(a.x - b.x, a.y - b.y), mx = (a.x + b.x) / 2, my = (a.y + b.y) / 2;
+    zoomAt(G.pinch.z * d / G.pinch.d, G.pinch.mx, G.pinch.my, G.pinch);
+    Z.tx += mx - G.pinch.mx; Z.ty += my - G.pinch.my;
+    applyZoom(false);
+    return;
+  }
+  if(!G.start || e.pointerId !== G.start.id) return;
+  const dx = e.clientX - G.start.x, dy = e.clientY - G.start.y;
+  if(!G.moved && Math.hypot(dx, dy) > 8){
+    G.moved = true;
+    // only once it is a drag: capturing on a plain tap would take the click from the video
+    try{ stage.setPointerCapture(e.pointerId); }catch(err){}
+  }
+  if(!G.moved) return;
+  if(G.mode === 'pan'){ Z.tx = G.start.tx + dx; Z.ty = G.start.ty + dy; clampPan(); applyZoom(false); }
+  else if(G.mode === 'swipe' && Math.abs(dx) > Math.abs(dy)){
+    // past the first or last one it only gives a little
+    const edge = (dx > 0 && vIndex <= 0) || (dx < 0 && vIndex >= vList.length - 1);
+    slideTo(edge ? dx / 4 : dx, false);
+  }
+});
+function pointerEnd(e){
+  if(!G.pts.has(e.pointerId)) return;
+  G.pts.delete(e.pointerId);
+  if(G.mode === 'pinch'){
+    if(G.pts.size === 1){
+      // one finger still down: carry on as a pan
+      const [id, q] = [...G.pts.entries()][0];
+      G.start = { x: q.x, y: q.y, tx: Z.tx, ty: Z.ty, t: performance.now(), id };
+      G.mode = Z.z > 1 ? 'pan' : 'swipe-off';
+    }
+    if(G.pts.size === 0){ if(Z.z < 1.05){ Z.z = 1; Z.tx = 0; Z.ty = 0; } clampPan(); applyZoom(true); G.mode = null; }
+    return;
+  }
+  if(G.pts.size) return;
+  const s = G.start; G.start = null;
+  const m = G.mode; G.mode = null;
+  if(!s) return;
+  const dx = e.clientX - s.x, dy = e.clientY - s.y;
+  if(G.moved){
+    if(m === 'swipe'){
+      const fast = Math.abs(dx) > 25 && Math.abs(dx) / Math.max(1, performance.now() - s.t) > 0.5;
+      if(e.type !== 'pointercancel' && (Math.abs(dx) > 60 || fast) && Math.abs(dx) > Math.abs(dy) * 1.2 && step(dx < 0 ? 1 : -1)) return;
+      slideTo(0, true);
+    }
+    return;
+  }
+  // a tap. Mouse: click zooms in and out. Touch: two quick taps zoom, one shows or hides the controls.
+  if(e.type === 'pointercancel') return;
+  if(e.pointerType === 'mouse'){ if(vImg && e.target === vImg) toggleZoom(e.clientX, e.clientY); return; }
+  const now = performance.now();
+  if(now - G.lastTap < 320 && Math.hypot(e.clientX - G.tapX, e.clientY - G.tapY) < 40){
+    clearTimeout(G.tapTimer);
+    G.lastTap = 0;
+    toggleZoom(e.clientX, e.clientY);
+    return;
+  }
+  G.lastTap = now; G.tapX = e.clientX; G.tapY = e.clientY;
+  clearTimeout(G.tapTimer);
+  // a video's own surface already shows and hides its controls on a tap
+  if(!e.target.closest('.plyr')) G.tapTimer = setTimeout(() => viewer.classList.toggle('bare'), 320);
+}
+stage.addEventListener('pointerup', pointerEnd);
+stage.addEventListener('pointercancel', pointerEnd);
+stage.addEventListener('wheel', (e) => {
+  if(!vImg) return;
+  e.preventDefault();
+  zoomAt(Z.z * (e.deltaY < 0 ? 1.25 : 0.8), e.clientX, e.clientY);
+  clampPan();
+  applyZoom(false);
+}, { passive: false });
+window.addEventListener('resize', () => { if(!viewer.hidden){ clampPan(); applyZoom(false); } fillGrid(); });
+
+vPrev.addEventListener('click', () => step(-1));
+vNext.addEventListener('click', () => step(1));
+vClose.addEventListener('click', () => closeViewer());
+vPlay.addEventListener('click', () => setSlideshow(!slideOn));
+document.addEventListener('keydown', (e) => {
+  if(viewer.hidden) return;
+  if(e.key === 'Escape'){ e.preventDefault(); closeViewer(); return; }
+  // inside the player the arrows seek
+  if(e.target && e.target.closest && e.target.closest('.plyr')) return;
+  if(e.key === 'ArrowRight'){ e.preventDefault(); step(1); }
+  else if(e.key === 'ArrowLeft'){ e.preventDefault(); step(-1); }
+});
+NomadUI.applyDownloadPolicy(vDl);
+
+/* upload (shared NomadUpload modal, into the folder you're looking at) */
 uploadBtn.addEventListener('click', () => uploadInput.click());
 uploadInput.addEventListener('change', (e) => {
   const files = Array.from(e.target.files || []);
@@ -820,15 +1567,15 @@ uploadInput.addEventListener('change', (e) => {
   if(!files.length) return;
   (async () => {
     uploadBtn.disabled = true;
-    const ok = await NomadUpload.run(files, ROOT);
+    const ok = await NomadUpload.run(files, mode === 'folders' && hasFolders() ? folder : ROOT);
     uploadBtn.disabled = false;
     if(ok) await refreshIndex();
   })();
 });
 /* admin toggle: the button only appears when uploads are allowed */
-NomadUI.config().then(c => { if(!c.uploadsDisabled && uploadBtn) uploadBtn.style.display = ''; });
+NomadUI.config().then(c => { if(NomadUI.canUpload(c, 'gallery') && uploadBtn) uploadBtn.style.display = ''; });
 
-/* ---------- Hash helpers (open via #open=...) ---------- */
+/* Hash helpers (open via #open=...) */
 function getHashParam(){
   const h = (location.hash || '').replace(/^#/,'');
   if(!h) return { action:null, path:null };
@@ -838,64 +1585,53 @@ function getHashParam(){
 }
 
 async function handleHashNavigation(hashObj){
-  if(!hashObj || !hashObj.action) return;
-  if(hashObj.action === 'open' && hashObj.path){
-    const want = normalizePath(hashObj.path);
-    if(items.length === 0) await refreshIndex(); // ensure we have items
-    // try exact normalized match -> basename match -> endsWith
-    let found = items.find(it => normalizePath(it.path) === want);
-    if(!found) found = items.find(it => normalizePath('/' + basename(it.path)) === want);
-    if(!found){
-      const wantBase = want.split('/').pop();
-      found = items.find(it => normalizePath(it.path).endsWith(wantBase));
-    }
-    if(found){
-      // try to set currentPage so card is visible
-      const idx = filtered.findIndex(it => normalizePath(it.path) === normalizePath(found.path));
-      if(idx >= 0){
-        currentPage = Math.floor(idx / pageSize) + 1;
-        renderPage();
-        // allow the rendered card to exist and then open modal (cards create thumbnails async)
-        setTimeout(()=> openModal(found), 120);
-      } else {
-        // not in filtered => open it directly (modal) anyway
-        openModal(found);
-      }
-    } else {
-      console.warn('gallery item not found for hash', want);
-    }
+  if(!hashObj || hashObj.action !== 'open' || !hashObj.path) return;
+  const want = normalizePath(hashObj.path);
+  if(items.length === 0) await refreshIndex();
+  // the exact path, else the same path in other case, else a file of exactly that name.
+  // Don't match on the end of the name, 1.jpg would open IMG_0001.jpg.
+  const lower = want.toLowerCase(), wantBase = basename(lower);
+  const found = items.find(it => it.path === want)
+    || items.find(it => it.path.toLowerCase() === lower)
+    || items.find(it => it.file.toLowerCase() === wantBase);
+  // a reload shouldn't open it again
+  try{ history.replaceState(history.state, '', location.pathname + location.search); }catch(e){}
+  if(!found){ console.warn('gallery item not found for hash', want); return; }
+  // shown among its own folder's photos, so next and previous are its neighbours
+  if(!viewer.hidden) closeViewer();
+  if(mode === 'folders' && hasFolders()){
+    if(dirSteps.length){ NomadBack.done('dir:' + dirSteps[0]); dirSteps.length = 0; }
+    folder = found.dir;
   }
+  render();
+  openViewer(viewItems.indexOf(found));
 }
 window.addEventListener('hashchange', ()=> handleHashNavigation(getHashParam()));
 
-/* ---------- index & boot ---------- */
+/* index & boot */
 async function refreshIndex(){
+  indexNote = null;
   items = await buildGallery();
-  filtered = items.slice();
-  applySort();
+  buildFolders();
+  if(!folders.has(folder)) folder = ROOT;
+  render();
 }
 
 async function init(){
   try{
     // UI wiring
     setViewSize(currentSize);
-    pageSizeInput.value = pageSize;
     sortSelect.value = sortMode;
-    pageSizeInput.addEventListener('change', ()=> { pageSize = clampPageSize(pageSizeInput.value); localStorage.setItem('nomadGallery.pageSize', pageSize); currentPage=1; renderPage(); });
     sortSelect.addEventListener('change', ()=> applySort());
-    prevBtn.addEventListener('click', ()=> changePage(-1));
-    nextBtn.addEventListener('click', ()=> changePage(1));
     viewButtons.forEach(btn => btn.addEventListener('click', ()=> setViewSize(btn.dataset.size)));
+    modeSeg.querySelectorAll('button').forEach(b => b.addEventListener('click', () => setMode(b.dataset.mode)));
 
-    items = await buildGallery();
-    filtered = items.slice();
-    applySort();
+    await refreshIndex();
 
     // handle initial hash if present (open requested item)
     await handleHashNavigation(getHashParam());
   }catch(e){ console.error('init error', e); }
 }
-document.addEventListener('keydown', (e)=> { if(e.key === 'Escape'){ if(modal.style.display === 'flex') closeModal({ target: modal }); } });
 init();
 </script>
 </body>

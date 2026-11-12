@@ -1,10 +1,10 @@
 # Workshop
 
-3D models for the Nomad's Workshop page. Drop files in here; the Workshop tile
+3D models for the Nomad's Workshop page. Drop files in here and the Workshop tile
 appears on the menu as soon as this folder has anything in it.
 
-Subfolders become collections — `Workshop/Repairs/Hose Clip.stl` shows up under
-"Repairs". One level deep; anything deeper isn't scanned.
+Subfolders become collections, so `Workshop/Repairs/Hose Clip.stl` shows up under
+"Repairs". Only one level deep, anything deeper isn't scanned.
 
 ## What can be previewed
 
@@ -13,10 +13,9 @@ Subfolders become collections — `Workshop/Repairs/Hose Clip.stl` shows up unde
 | `.stl` (binary or ASCII) | Full 3D preview, dimensions, triangle count |
 | `.obj` | Full 3D preview |
 | `.3mf` | Full 3D preview, including multi-part plates |
-| `.gcode`, `.step`, `.f3d`, `.scad`, `.zip`, and friends | Listed and downloadable, no preview |
+| `.gcode`, `.step`, `.f3d`, `.scad`, `.zip` and other files | Listed and downloadable, no preview |
 
-The preview is drawn with plain WebGL off the card — nothing is fetched from the
-internet, and no slicer is involved.
+The preview is drawn with WebGL from files on the card, so it works offline.
 
 ## Thumbnails and descriptions
 
@@ -29,8 +28,7 @@ Hose Clip.md           its description / print notes
 README.md              a description shared by everything in this folder
 ```
 
-A few common suffixes are understood too, so all of these attach to
-`Hose Clip.stl` rather than being ignored:
+A few common suffixes work too, so all of these attach to `Hose Clip.stl`:
 
 ```
 Hose Clip-notes.md
@@ -39,24 +37,23 @@ Hose Clip print settings.txt
 ```
 
 An exact name match always wins over a suffixed one. Images may be `.jpg`,
-`.png`, `.webp`, `.gif` or `.bmp`; descriptions may be `.md`, `.txt` or `.nfo`,
-and are shown as plain text, so write them however you like. A folder-wide
-description can be called `README`, `notes` or `description`.
+`.png`, `.webp`, `.gif` or `.bmp`. Descriptions can be `.md`, `.txt` or `.nfo`.
+`.md` files are shown as formatted Markdown, the others as plain text. A
+folder-wide description can be called `README`, `notes` or `description`.
 
 Where the photo shows up:
 
 - in the grid, as the model's thumbnail
 - for `.stl` / `.obj` / `.3mf`, behind a **Photo** button next to the 3D view,
   so you can compare the model with how it actually printed
-- for everything else — `.gcode`, `.step` and friends — the photo *is* the
-  preview, filling the space where the 3D view would be
+- for other files (`.gcode`, `.step` and so on) the photo takes the space
+  where the 3D view would be
 
 ## Print check
 
 The model view compares the model's real bounding box against a build volume you
-set once (stored in your browser, not on the card). It counts a part as fitting
-if it fits either way round on the plate, since rotating 90° costs nothing.
+set once (stored in your browser, not on the card). A part counts as fitting if
+it fits on the plate either way round, rotated 90° or not.
 
-Dimensions come from the model's own geometry, so this only applies to the
-formats that get parsed — a `.gcode` or `.step` is reported as unknown rather
-than guessed at.
+Dimensions come from the model's own geometry, so this only works for the
+formats that get previewed. A `.gcode` or `.step` file doesn't get a size.

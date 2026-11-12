@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <title>Nomad • Document</title>
+  <link rel="icon" href="/favicon.ico">
+  <link rel="stylesheet" href="/master.css">
+  <script src="/theme-boot.js?v=5"></script>
+  <script src="/nomad-icons.js?v=1"></script>
+  <script src="/nomad-utils.js?v=49"></script>
+  <script src="/theme-manager.js?v=5"></script>
+  <script src="/assets/nomad-docs.js?v=1"></script>
+  <style>
+    /* Full-screen document, presentation or spreadsheet. assets/nomad-docs.js renders it;
+       this page fetches the file and adds the controls. */
+    html, body { margin: 0; min-height: 100%; }
+    body { background: var(--bg); color: var(--text); display: flex; flex-direction: column; min-height: 100vh; min-height: 100dvh;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; }
+    [hidden] { display: none !important; }
+    .dv-top { position: sticky; top: 0; z-index: 30; background: var(--primary); color: var(--header-text, #fff); display: flex; align-items: center;
+      gap: 8px; padding: 6px 10px; min-height: 48px; box-sizing: border-box; box-shadow: 0 2px 10px rgba(0,0,0,.12); }
+    .dv-top h1 { flex: 1; min-width: 0; margin: 0; font-size: 1rem; font-weight: 800; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .dv-btn { border: 0; border-radius: 999px; background: rgba(255,255,255,.18); color: inherit; font: inherit; font-weight: 700; font-size: .85rem;
+      padding: 6px 12px; cursor: pointer; display: inline-flex; align-items: center; gap: 5px; text-decoration: none; white-space: nowrap; }
+    .dv-btn.ic { width: 34px; height: 34px; padding: 0; justify-content: center; }
+    .dv-btn svg { width: 17px; height: 17px; }
+    .dv-btn:disabled { opacity: .45; cursor: default; }
+    .dv-zoom { display: inline-flex; gap: 4px; }
+    .dv-bar { position: sticky; top: 48px; z-index: 25; display: flex; align-items: center; justify-content: center; gap: 10px; padding: 6px 10px;
+      background: var(--card-bg, var(--card)); border-bottom: 1px solid var(--card-border); font-weight: 700; font-size: .9rem; color: var(--text); }
+    .dv-bar .dv-btn { background: color-mix(in srgb, var(--primary) 14%, transparent); color: var(--primary); }
+    main { flex: 1; padding: 14px 10px 24px; box-sizing: border-box; width: 100%; max-width: 1200px; margin: 0 auto; min-width: 0; }
+    .dv-loading { max-width: 360px; margin: 60px auto; text-align: center; color: var(--muted); font-size: .9rem; }
+    .dv-loading .bar { height: 6px; border-radius: 999px; background: color-mix(in srgb, var(--muted) 22%, transparent); overflow: hidden; margin-top: 10px; }
+    .dv-loading .bar i { display: block; height: 100%; width: 0; background: var(--primary); transition: width .2s; }
+    .dv-tabs { position: sticky; bottom: 0; z-index: 25; display: flex; gap: 4px; overflow-x: auto; scrollbar-width: none; padding: 6px 10px calc(6px + env(safe-area-inset-bottom));
+      background: var(--card-bg, var(--card)); border-top: 1px solid var(--card-border); }
+    .dv-tabs::-webkit-scrollbar { display: none; }
+    .dv-tabs button { flex: 0 0 auto; border: 1px solid var(--card-border); background: var(--bg); color: var(--text); border-radius: 8px; padding: 6px 12px;
+      font: inherit; font-size: .85rem; font-weight: 700; cursor: pointer; max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .dv-tabs button.on { background: var(--primary); border-color: var(--primary); color: #fff; }
+    @media (max-width: 480px) { .dv-top .dv-dl-label { display: none; } }
+  </style>
+</head>
+<body>
+  <!-- not a <header>: master.css centres every header and hides its title on phones -->
+  <div class="dv-top" role="banner">
+    <button class="dv-btn ic" id="back" aria-label="Back" title="Back"></button>
+    <h1 id="title">Document</h1>
+    <span class="dv-zoom" id="zoom" hidden>
+      <button class="dv-btn ic" id="zoomOut" aria-label="Smaller" title="Smaller">−</button>
+      <button class="dv-btn ic" id="zoomIn" aria-label="Bigger" title="Bigger">+</button>
+    </span>
+    <a class="dv-btn" id="dl" hidden><span id="dlIcon"></span><span class="dv-dl-label">Download</span></a>
+  </div>
+  <div class="dv-bar" id="slideBar" hidden>
+    <button class="dv-btn ic" id="prev" aria-label="Previous slide"></button>
+    <span id="counter">1 / 1</span>
+    <button class="dv-btn ic" id="next" aria-label="Next slide"></button>
+  </div>
+  <main id="doc"><div class="dv-loading" id="loading"><span id="loadText">Opening…</span><div class="bar"><i id="loadBar"></i></div></div></main>
+  <nav class="dv-tabs" id="tabs" hidden aria-label="Sheets"></nav>
+
+  <script>
+  (() => {
+    'use strict';
+    const $ = (id) => document.getElementById(id);
+    const icon = (n) => (window.NomadIcons ? NomadIcons.svg(n, 18) : '');
+    $('back').innerHTML = icon('chevron-left');
+    $('prev').innerHTML = icon('chevron-left');
+    $('next').innerHTML = icon('chevron-right');
+    $('dlIcon').innerHTML = icon('download');
+
+    const path = new URLSearchParams(location.search).get('file') || '';
+    const name = path.split('/').pop() || 'Document';
+    $('title').textContent = name;
+    document.title = 'Nomad • ' + name;
+    const src = '/media?file=' + encodeURIComponent(path);
+
+    $('back').onclick = () => {
+      let same = false;
+      try { same = document.referrer && new URL(document.referrer).origin === location.origin; } catch (e) {}
+      if (same && history.length > 1) history.back(); else location.href = '/files.html';
+    };
+
+    // the download button follows the admin's switch for the page the file belongs to
+    const page = (path.split('/').filter(Boolean)[0] || 'files').toLowerCase();
+    const showDl = () => { $('dl').href = src + '&download=1'; $('dl').setAttribute('download', name); $('dl').hidden = false; };
+    if (window.NomadUI && NomadUI.config) NomadUI.config().then((c) => { if (NomadUI.canDownload(c, page)) showDl(); }).catch(showDl);
+    else showDl();
+
+    function fail(title, text) {
+      window.NomadDocs._message($('doc'), title, [text]);
+    }
+
+    // the file, with a progress bar. a busy Nomad (503) or a dropped connection is tried again
+    async function fetchFile() {
+      for (let attempt = 0; ; attempt++) {
+        let r;
+        try { r = await fetch(src, { cache: 'no-cache' }); }
+        catch (e) { if (attempt < 3) { await new Promise((ok) => setTimeout(ok, 1000 * (attempt + 1))); continue; } throw new Error("Couldn't reach Nomad. Check you're still on its WiFi."); }
+        if (r.status === 503 && attempt < 5) { await new Promise((ok) => setTimeout(ok, 800 * (attempt + 1))); continue; }
+        if (r.status === 404) throw new Error("This file isn't on the card any more.");
+        if (!r.ok) throw new Error(`Nomad couldn't send the file (HTTP ${r.status}).`);
+        const total = +(r.headers.get('Content-Length') || 0);
+        if (total > NomadDocs.MAX_BYTES) { try { r.body && r.body.cancel(); } catch (e) {} return { tooBig: true, total }; }
+        if (!r.body || !r.body.getReader || !total) return { buffer: await r.arrayBuffer() };
+        const reader = r.body.getReader(), parts = [];
+        let got = 0;
+        for (;;) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          parts.push(value); got += value.length;
+          $('loadBar').style.width = Math.round(got / total * 100) + '%';
+          $('loadText').textContent = `Loading ${(got / 1048576).toFixed(1)} of ${(total / 1048576).toFixed(1)} MB`;
+        }
+        const buf = new Uint8Array(got);
+        let at = 0; for (const p of parts) { buf.set(p, at); at += p.length; }
+        return { buffer: buf.buffer };
+      }
+    }
+
+    const ZOOMS = [0.6, 0.75, 0.9, 1, 1.15, 1.3, 1.5, 1.75, 2];
+    let zi = ZOOMS.indexOf(1), ctl = null;
+    function setZoom(i) {
+      zi = Math.max(0, Math.min(ZOOMS.length - 1, i));
+      if (ctl && ctl.zoom) ctl.zoom(ZOOMS[zi]); else $('doc').style.setProperty('--nd-zoom', ZOOMS[zi]);
+      $('zoomOut').disabled = zi === 0; $('zoomIn').disabled = zi === ZOOMS.length - 1;
+    }
+    $('zoomOut').onclick = () => setZoom(zi - 1);
+    $('zoomIn').onclick = () => setZoom(zi + 1);
+
+    function slides(c) {
+      $('slideBar').hidden = false;
+      const show = (i) => { $('counter').textContent = `${i + 1} / ${c.count}`; $('prev').disabled = i === 0; $('next').disabled = i >= c.count - 1; };
+      c.onchange = show; show(0);
+      $('prev').onclick = () => c.go(c.index - 1);
+      $('next').onclick = () => c.go(c.index + 1);
+      document.addEventListener('keydown', (e) => {
+        if (e.target.closest('input,textarea')) return;
+        if (['ArrowRight', 'PageDown', ' '].includes(e.key)) { e.preventDefault(); c.go(c.index + 1); }
+        if (['ArrowLeft', 'PageUp'].includes(e.key)) { e.preventDefault(); c.go(c.index - 1); }
+      });
+    }
+    function sheets(c) {
+      if (c.names.length < 2) return;
+      const tabs = $('tabs');
+      tabs.hidden = false;
+      const draw = () => tabs.querySelectorAll('button').forEach((b, i) => b.classList.toggle('on', i === c.index));
+      c.names.forEach((n, i) => { const b = document.createElement('button'); b.textContent = n; b.title = n; b.onclick = () => { c.show(i); draw(); window.scrollTo(0, 0); }; tabs.append(b); });
+      draw();
+    }
+
+    (async () => {
+      if (!path) { fail('No file named', 'Open a document from the Files page.'); return; }
+      if (!window.NomadDocs) { fail("The reader didn't load", 'Reload the page to try again.'); return; }
+      try {
+        const got = await fetchFile();
+        if (got.tooBig) { fail('Too big to open here', `It is ${(got.total / 1048576).toFixed(0)} MB and the limit is ${NomadDocs.MAX_BYTES / 1048576} MB. Download it instead.`); return; }
+        $('loadText').textContent = 'Opening…';
+        $('loadBar').style.width = '100%';
+        await new Promise((ok) => requestAnimationFrame(() => ok()));
+        ctl = await NomadDocs.render($('doc'), { name, buffer: got.buffer });
+        if (ctl.kind !== 'message') { $('zoom').hidden = false; setZoom(zi); }
+        if (ctl.kind === 'slides') slides(ctl);
+        if (ctl.kind === 'sheet') sheets(ctl);
+      } catch (e) {
+        console.error(e);
+        fail("This file couldn't be opened", e.message || String(e));
+      }
+    })();
+  })();
+  </script>
+</body>
+</html>

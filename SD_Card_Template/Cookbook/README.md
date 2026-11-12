@@ -3,8 +3,8 @@
 Recipes for the Nomad's Cookbook page. Drop files in here, then turn the page on
 in **Admin → Menu Pages → Cookbook** (it ships off).
 
-Subfolders become categories — `Cookbook/Bread/Cornbread.md` shows up under
-"Bread". One level deep; anything deeper isn't scanned.
+Subfolders become categories, so `Cookbook/Bread/Cornbread.md` shows up under
+"Bread". Only one level deep, anything deeper isn't scanned.
 
 ## Writing recipes on the Nomad itself
 
@@ -13,7 +13,7 @@ You don't have to prepare files on a computer. The Cookbook page has a
 button on every recipe. What it saves is ordinary Markdown in the format below,
 so a recipe typed on a phone is still a plain file you can open on a PC later.
 
-Editing and deleting follow the admin's **Allow uploads** switch — turn that off
+Editing and deleting follow the admin's **Allow uploads** switch. Turn that off
 and the Cookbook becomes read-only, without hiding the recipes.
 
 ## Timers
@@ -22,15 +22,15 @@ Any time written into a step becomes a tappable timer: "bake 20-25 minutes"
 gets a **⏲ 20 min** button beside it (ranges start at the low end, so you come
 back and check). There's also a manual timer at the bottom of the dock.
 
-Timers keep running while you move around the page, survive a reload, hold the
-screen awake, and beep when they finish. They're per-browser, not stored on the
-card, so two people cooking from the same Nomad don't fight over them.
+Timers keep running while you move around the page or reload it, keep the screen
+on while they run, and beep when they finish. They're saved in your browser, not
+on the card, so two people cooking from the same Nomad each have their own.
 
-## Three formats
+## Formats
 
-Any of them works, and they can be mixed in the same folder.
+There are three, and they can be mixed in the same folder.
 
-### Markdown (`.md`) — easiest to type by hand
+### Markdown (`.md`), easiest to type by hand
 
 ```markdown
 ---
@@ -59,10 +59,10 @@ A crisp-edged cornbread that comes out of a hot skillet.
 Buttermilk instead of milk makes it tangier.
 ```
 
-The `---` block at the top is optional; so is every field in it. A `# Heading`
+The `---` block at the top is optional, and so is every field in it. A `# Heading`
 before the first section works as the title if there's no front matter.
 
-### JSON (`.json`) — easiest to generate
+### JSON (`.json`), easiest to generate
 
 ```json
 {
@@ -77,10 +77,10 @@ before the first section works as the title if there's no front matter.
 }
 ```
 
-Ingredients may also be objects — `{"qty": 1, "unit": "cup", "item": "cornmeal"}` —
+Ingredients can also be objects, like `{"qty": 1, "unit": "cup", "item": "cornmeal"}`,
 which come out as the same scalable line.
 
-### Cooklang (`.cook`) — recipe-as-a-sentence
+### Cooklang (`.cook`), recipe as a sentence
 
 [Cooklang](https://cooklang.org) tags ingredients, cookware and timers inline in
 the method, and the ingredients list builds itself:
@@ -98,7 +98,7 @@ then flip. Serve with @maple syrup{}.
 ```
 
 `@ingredient{qty%unit}` (use `{}` when the name is more than one word),
-`#cookware{}` and `~timer{5%min}` are lifted out automatically; `>> key: value`
+`#cookware{}` and `~timer{5%min}` are pulled out automatically, and `>> key: value`
 lines are metadata (`servings` still drives scaling). See
 `Example - Cooklang Pancakes.cook`.
 
@@ -114,6 +114,5 @@ The page reads the leading amount off each ingredient line and multiplies it
 when you change the serving count. It understands `2`, `1.5`, `1/2`, `1 1/2`,
 `½`, `1½`, and ranges like `2-3` or `2 to 3`.
 
-Lines that don't start with a number — "salt to taste", "a handful of parsley" —
-are left exactly as written, because they don't scale. Unit names aren't
-converted either: 8 tsp stays 8 tsp rather than becoming 2 tbsp 2 tsp.
+Lines that don't start with a number, like "salt to taste" or "a handful of parsley",
+are left as written. Units aren't converted either, so 8 tsp stays 8 tsp.

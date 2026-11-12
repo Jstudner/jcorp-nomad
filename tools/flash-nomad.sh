@@ -3,27 +3,18 @@
 #
 #   ./tools/flash-nomad.sh [--usbc] <sketch-dir> [build-dir] [port]
 #
-# --usbc builds for the Waveshare ESP32-S3-LCD-1.47B. That board is the 1.47 with
-# the LCD backlight moved from GPIO 48 to GPIO 46, and that pin is the ONLY
-# firmware-visible difference -- the .ino is byte-identical for both, verified
-# against the flashing site's own build tree. So one source tree builds both,
-# switched by -DBOARD_USB_C=1, which is what the site has always done; it just
-# lived in nomadflash/build/usbc-patch.py instead of here. Without the flag you
-# get the USB-A image, which is the default and what most units are.
+# --usbc builds for the Waveshare ESP32-S3-LCD-1.47B: the 1.47 with the LCD
+# backlight on GPIO 46 instead of 48. That pin is the only firmware-visible
+# difference, so -DBOARD_USB_C=1 switches it. Default is the USB-A image, which
+# most units are.
 #
-# The replug used to be unavoidable: esptool's default hard reset drives RTS,
-# and on a board whose console is the ESP32-S3's built-in USB-Serial-JTAG there
-# is no real RTS line to drive. The chip stayed in the ROM bootloader printing
-# "ESP-ROM:esp32s3-20210327" and nothing else, and only a power cycle cleared it.
-#
-# --after watchdog-reset is the answer: it resets through the RTC watchdog, which
-# does not depend on a serial control line, so the board comes back up running
-# the application and re-enumerates on its own. Verified end to end on 2026-09-20.
-#
-# Entering the bootloader was never the problem -- --before default-reset gets
-# there by itself. /flash-mode on the running device does the same thing through
-# the core's usb_persist_restart(RESTART_BOOTLOADER), which is worth knowing if
-# the port is ever wedged, but it is not needed for a normal flash.
+# esptool's default hard reset drives RTS, and the S3's built-in USB-Serial-JTAG
+# has no real RTS line, so the chip stays in the ROM bootloader printing
+# "ESP-ROM:esp32s3-20210327" until a power cycle. --after watchdog-reset resets
+# through the RTC watchdog instead, so the board boots the app and re-enumerates
+# by itself. --before default-reset enters the bootloader fine. If the port is
+# ever wedged, /flash-mode on the running device does the same through
+# usb_persist_restart(RESTART_BOOTLOADER).
 set -euo pipefail
 
 USBC=0
@@ -31,9 +22,9 @@ if [ "${1:-}" = "--usbc" ]; then USBC=1; shift; fi
 
 SKETCH="${1:?usage: flash-nomad.sh [--usbc] <sketch-dir> [build-dir] [port]}"
 BUILD="${2:-$SKETCH/build}"
-# The port is NOT stable. A watchdog reset re-enumerates the USB-Serial-JTAG
-# device, and the kernel hands out the next free minor -- ttyACM0 becomes ttyACM1
-# and a hard-coded path fails with "no device". Find it by its USB id instead.
+# The port moves: a watchdog reset re-enumerates the USB-Serial-JTAG device and
+# the kernel hands out the next free minor (ttyACM0 becomes ttyACM1), so a
+# hard-coded path fails with "no device". Find it by USB id.
 find_port() {
   local dev id
   for dev in /dev/ttyACM* /dev/ttyUSB*; do
@@ -49,11 +40,11 @@ PORT="${3:-$(find_port || true)}"
 FQBN="esp32:esp32:esp32s3:CDCOnBoot=cdc,FlashSize=16M,PSRAM=opi,PartitionScheme=app3M_fat9M_16MB"
 USBC_FLAG=""
 [ "$USBC" = "1" ] && USBC_FLAG=" -DBOARD_USB_C=1"
-CLI="${ARDUINO_CLI:-$HOME/nomadflash-build/bin/arduino-cli}"
+CLI="${ARDUINO_CLI:-$(command -v arduino-cli || true)}"
 CORE="$HOME/.arduino15/packages/esp32/hardware/esp32/3.3.3"
 ESPTOOL="$HOME/.arduino15/packages/esp32/tools/esptool_py/5.1.0/esptool"
 
-[ -x "$CLI" ] || { echo "arduino-cli not at $CLI (set ARDUINO_CLI=)" >&2; exit 1; }
+[ -x "$CLI" ] || { echo "arduino-cli not found (put it on PATH or set ARDUINO_CLI=)" >&2; exit 1; }
 [ -x "$ESPTOOL" ] || { echo "esptool not at $ESPTOOL" >&2; exit 1; }
 [ -n "$PORT" ] && [ -c "$PORT" ] || { echo "no Espressif device found (looked for USB 303a:1001 on /dev/ttyACM* and /dev/ttyUSB*)" >&2; exit 1; }
 echo "==> port $PORT"
@@ -79,7 +70,7 @@ echo "==> flash $PORT"
 echo "==> waiting for the AP (no replug needed)"
 for i in $(seq 1 20); do
   sleep 5
-  if nmcli -t -f SSID device wifi list ifname "${IFACE:-wlp3s0}" --rescan yes 2>/dev/null \
+  if nmcli -t -f SSID device wifi list ${IFACE:+ifname "$IFACE"} --rescan yes 2>/dev/null \
        | grep -q '^Jcorp_Nomad$'; then
     echo "    up after $((i*5))s"; exit 0
   fi

@@ -7,8 +7,8 @@
 <title>Nomad • Connect Four</title>
 <link rel="icon" href="/favicon.ico" type="image/x-icon">
 <link rel="stylesheet" href="/master.css">
-<script src="/theme-boot.js"></script>
-<script src="/theme-manager.js"></script>
+<script src="/theme-boot.js?v=5"></script>
+<script src="/theme-manager.js?v=5"></script>
 <script src="/assets/mp-client.js"></script>
 <style>
   main{max-width:560px;margin:0 auto;padding:14px}
@@ -126,7 +126,7 @@ function updateStatus(win){
   } else if (over){
     statusEl.textContent = "It's a draw!";
   } else if (!MP.room.joined){
-    statusEl.textContent = `Share the code and wait for a second player… (you are ${me})`;
+    statusEl.textContent = `Waiting for a second player… (you are ${me})`;
   } else if (MP.myTurn()){
     statusEl.textContent = `Your turn (${me})`;
     statusEl.classList.add('hot');
@@ -163,8 +163,8 @@ function onInfo(j){
   render();
 }
 
-/* Rematch in the same room, same code, no resharing. The firmware alternates
-   who drops first; the other player picks the fresh board up from the poll. */
+/* Rematch in the same room. The firmware alternates who drops first; the other
+   player gets the fresh board from the poll. */
 async function playAgain(){
   try {
     await MP.reset(JSON.stringify({ b: '-'.repeat(COLS * ROWS) }));

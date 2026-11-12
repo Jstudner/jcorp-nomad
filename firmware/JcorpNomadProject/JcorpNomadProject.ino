@@ -1,22 +1,23 @@
 // Jcorp Nomad Backend - exFAT edition
-//<!-- Version 4.6 -->
+//<!-- Version 4.8 -->
 //
-// ---------------- board variant: set it in Display_ST7789.h ----------------
-// USB-A 1.47 = backlight GPIO 48 (BOARD_USB_C 0), USB-C 1.47B = GPIO 46 (1). That pin
-// is the only firmware-visible difference; this file is the same for both.
-// Setting it here does nothing and says nothing: the pin is used in Display_ST7789.cpp,
-// its own translation unit, so a define in the sketch never reaches it and the board
-// keeps GPIO 48 with a dark screen.
+// Board variant: set it in Display_ST7789.h, NOT here.
+//
+//  USB-A  Waveshare ESP32-S3-LCD-1.47   backlight GPIO 48   BOARD_USB_C 0  (default)
+//  USB-C  Waveshare ESP32-S3-LCD-1.47B  backlight GPIO 46   BOARD_USB_C 1
+//
+// The backlight pin is the only difference between the two. A #define here never reaches
+// Display_ST7789.cpp, so a USB-C board would get GPIO 48 and a dark screen. Edit the line
+// in Display_ST7789.h or build with -DBOARD_USB_C=1 (tools/flash-nomad.sh --usbc).
 #include <Arduino.h>
 #include <WiFi.h>
 #include <esp_netif.h>
 #include <esp_heap_caps.h>
 #include <AsyncTCP.h>
 #include <ESPAsyncWebServer.h>
-// NomadSD replaces SD_MMC: same pins and peripheral, SdFat underneath, so exFAT,
-// FAT32 and FAT16 all mount. Included early because StreamHandle below holds a
-// NomadFile64. NomadSD.h hides SdFat's headers, whose global `typedef FsFile File`
-// would collide with fs::File.
+// NomadSD replaces SD_MMC: same pins, SdFat underneath, so exFAT, FAT32 and FAT16 all
+// mount. Included early because StreamHandle below holds a NomadFile64. NomadSD.h hides
+// SdFat's headers, its global `typedef FsFile File` would collide with fs::File.
 #include "NomadSD.h"
 #include "NomadDLNA.h"
 #define SD_MMC NomadSD
@@ -24,6 +25,8 @@
 #define SD NomadSD
 #endif
 #include "NomadDNS.h"
+#include "NomadGuardWeb.h" // path rules for every request: /config, the interface, guest writes
+#include "NomadReadAhead.h" // aligned card reads for media fills (off unless switched on)
 #include <ESPmDNS.h>
 #include <ArduinoJson.h>
 #include <map>
@@ -35,17 +38,19 @@
 #include <SPIFFS.h>
 #include <Preferences.h>
 #include "esp_wifi.h"
-#include "esp_netif.h"      // esp_netif_dhcps_* -- restart softAP DHCP if it stays down (issue #126)
-#include "esp_heap_caps.h"  // heap_caps_get_* -- DHCP-start heap logging
+#include "esp_netif.h"      // esp_netif_dhcps_*: restart softAP DHCP if it stays down (issue #126)
+#include "esp_heap_caps.h"  // heap_caps_get_*: DHCP-start heap logging
 #if defined(ARDUINO_ARCH_ESP32)
   #include "soc/soc.h"
   #include "soc/rtc_cntl_reg.h"
   #include "esp_system.h"
   #include "esp_core_dump.h"
 #endif
-#include "esp32-hal-tinyusb.h"  // usb_persist_restart: the reliable road into ROM download mode
+#include "esp32-hal-tinyusb.h"  // usb_persist_restart, for getting into ROM download mode
 #include "usb_mode.h"
 #include "boot_mode.h" // library for firmware switching
+#include "freertos/idf_additions.h"   // xTaskCreatePinnedToCoreWithCaps / vTaskDeleteWithCaps
+
 
 struct BreakdownStats {
   uint64_t bytes = 0;
@@ -54,6 +59,19 @@ struct BreakdownStats {
 };
 
 void handleRangeRequest(AsyncWebServerRequest *request);
+#ifndef NOMAD_AP_HT20
+#define NOMAD_AP_HT20 0          // 1 = hotspot on 20 MHz channels
+#endif
+#ifndef NOMAD_ROUTES_PSRAM
+#define NOMAD_ROUTES_PSRAM 0     // 1 = route tables in PSRAM, frees about 23 KB of DMA memory on an S3
+#endif
+#ifndef NOMAD_MEDIA_SNDBUF
+#define NOMAD_MEDIA_SNDBUF 0     // max media socket send buffer in bytes, 0 leaves the core's 5,744
+#endif
+#if NOMAD_BENCH
+static bool benchApplySndBuf(AsyncWebServerRequest *request);   // NomadBench.h
+static void benchApplyBootRadio();                               // NomadBench.h
+#endif
 String urlDecode(const String& str);
 void enqueueIndexUpdateForPath(const String& path);
 void RGB_SetMode(uint8_t mode);
@@ -73,18 +91,66 @@ extern void usb_loop();
 enum { HALF_INDEX_BUF = GLOBAL_INDEX_BUF / 2 };
 
 static char g_lineBuf[GLOBAL_INDEX_BUF];
-static uint8_t g_fileBuf[4096];                 // file reads/writes
-static std::map<String, unsigned long> g_lastIndexSkipLog;
-static inline void freeString(String &s) { s = String(); }
-static inline void freeVectorString(std::vector<String> &v) { std::vector<String>().swap(v); }
-static inline void freeVectorUInt32(std::vector<uint32_t> &v) { std::vector<uint32_t>().swap(v); }
-static inline void closeFile(File &f) { if (f) f.close(); }
-
 struct LvglMsg {
   char text[80];
   bool show;
 };
 static QueueHandle_t lvglQueue = NULL;
+
+// LVGL isn't thread-safe and three tasks touch it: StreamingTask pumps lv_timer_handler(),
+// UiTask updates labels and the SD bar, loop() paints the flash-mode notice. Two inside it
+// at once can panic the allocator, so every lv_* call after setup() takes this lock.
+// Created in setup() before any task starts.
+static SemaphoreHandle_t lvglMutex = NULL;
+struct LvglLock {
+  bool held;
+  LvglLock() : held(lvglMutex && xSemaphoreTakeRecursive(lvglMutex, portMAX_DELAY) == pdTRUE) {}
+  ~LvglLock() { if (held) xSemaphoreGiveRecursive(lvglMutex); }
+};
+
+// Background tasks with stacks in PSRAM, to save internal RAM (about 190 KB of heap for
+// everything). The indexer, scans, boot coordinator and config writer don't touch DMA or
+// write flash, so PSRAM stacks are fine for them (SDMMC uses its own bounce buffer).
+// Tasks that drive SPI/LVGL or write NVS keep internal stacks: StreamingTask, UiTask,
+// loop, async_tcp.
+//
+// A task made here must exit through nomadTaskExit(), never vTaskDelete(NULL). A WithCaps
+// task has to be deleted with vTaskDeleteWithCaps from another task, so it parks itself on
+// the reap queue and suspends, and loop() deletes it. Falls back to an internal stack if
+// PSRAM allocation fails.
+static QueueHandle_t g_taskReapQueue = NULL;
+
+static BaseType_t nomadCreateTask(TaskFunction_t fn, const char *name, uint32_t stackBytes,
+                                  void *arg, UBaseType_t prio, TaskHandle_t *handle, BaseType_t core) {
+  BaseType_t r = xTaskCreatePinnedToCoreWithCaps(fn, name, stackBytes, arg, prio, handle, core,
+                                                 MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+  if (r == pdPASS) return r;
+  Serial.printf("[Task] %s: no PSRAM for its stack, using internal RAM\n", name);
+  return xTaskCreatePinnedToCoreWithCaps(fn, name, stackBytes, arg, prio, handle, core,
+                                         MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+}
+
+static void nomadTaskExit() {
+  TaskHandle_t me = xTaskGetCurrentTaskHandle();
+  if (g_taskReapQueue && xQueueSend(g_taskReapQueue, &me, pdMS_TO_TICKS(200)) == pdTRUE) {
+    vTaskSuspend(NULL);          // loop() reaps us from here
+  }
+  // no queue (or it stayed full): the discouraged but supported self-delete
+  vTaskDeleteWithCaps(NULL);
+  for (;;) vTaskDelay(portMAX_DELAY);
+}
+
+// called from loop(): free finished background tasks. A task that has not reached
+// its suspend yet goes back on the queue for the next pass.
+static void nomadReapTasks() {
+  if (!g_taskReapQueue) return;
+  TaskHandle_t h = NULL;
+  int n = uxQueueMessagesWaiting(g_taskReapQueue);
+  while (n-- > 0 && xQueueReceive(g_taskReapQueue, &h, 0) == pdTRUE && h) {
+    if (eTaskGetState(h) == eSuspended) vTaskDeleteWithCaps(h);
+    else xQueueSend(g_taskReapQueue, &h, 0);
+  }
+}
 
 static void lvglSendMsg(const char *text, bool show) {
   if (!lvglQueue) return;
@@ -101,6 +167,7 @@ static void lvglSendMsg(const char *text, bool show) {
 
 static void lvglDrainQueue() {
   if (!lvglQueue) return;
+  LvglLock lock;
   LvglMsg msg;
   bool drainedAny = false;
   bool endedHidden = false;
@@ -128,7 +195,9 @@ static void lvglDrainQueue() {
 }
 
 static volatile bool bootButtonPressed = false;
-// /flash-mode sets this; loop() does the actual switch (LVGL + restart must
+// set once StreamingTask (the LVGL pump) is running, loop() only pumps as a fallback
+static volatile bool g_lvglPumpTaskUp = false;
+// /flash-mode sets this, loop() does the actual switch (LVGL + restart must
 // not run on the async_tcp task)
 static volatile bool g_enterFlashMode = false;
 #ifndef INDEX_MIN_HEAP
@@ -168,49 +237,158 @@ static size_t jsonEscapeToBuf(const String &in, char *dst, size_t dstLen) {
   return pos;
 }
 
-static void writeIndexEntryToFile(File &fout, char t, const String &name, const String &path, uint64_t sz = 0, uint64_t mt = 0) {
-  char escName[HALF_INDEX_BUF];
-  char escPath[HALF_INDEX_BUF];
-  jsonEscapeToBuf(name, escName, HALF_INDEX_BUF);
-  jsonEscapeToBuf(path, escPath, HALF_INDEX_BUF);
-
-  int pos = snprintf(g_lineBuf, GLOBAL_INDEX_BUF,
-                     "{\"t\":\"%c\",\"n\":\"%s\",\"p\":\"%s\"", t, escName, escPath);
-  if (pos < 0) pos = 0;
-  if (t == 'f') {
-    pos += snprintf(g_lineBuf + pos, (pos < (int)GLOBAL_INDEX_BUF) ? (GLOBAL_INDEX_BUF - pos) : 0,
-                    ",\"sz\":%llu,\"mt\":%llu}\n",
-                    (unsigned long long)sz, (unsigned long long)mt);
-  } else {
-    pos += snprintf(g_lineBuf + pos, (pos < (int)GLOBAL_INDEX_BUF) ? (GLOBAL_INDEX_BUF - pos) : 0,
-                    "}\n");
-  }
-
-  size_t wlen = strlen(g_lineBuf);
-  if (wlen) fout.write((const uint8_t*)g_lineBuf, wlen);
-}
-int screenBrightness = 100; // 0-100, default full brightness
 void handleConnector(AsyncWebServerRequest *request);
-unsigned long lastTempReading = 0;
 float currentTempC = 0.0;
 volatile bool mediaStreamingActive = false; // Flag to indicate active media streaming
+volatile bool g_fwPausingMedia = false;      // the Nomad is fetching new firmware: media waits (NomadFirmware.h)
 volatile unsigned long lastStreamIoMs = 0;  // last time a streaming request/fill touched the SD
-static bool sdScanned = false;
-const uint32_t SD_SCAN_DELAY = 5000;  // milliseconds after boot
 SemaphoreHandle_t sdMutex = NULL;
 #include <map>
 static uint32_t nextStreamId = 1;
-// NomadFile64 rather than fs::File, so streams can seek and size past 4 GB on
-// exFAT. Identical behaviour on FAT32. Move-only, like the SdFat handle.
+// NomadFile64 so streams can seek and size past 4 GB on exFAT. Move-only, like the
+// SdFat handle.
 struct StreamHandle {
   NomadFile64 file;
   String path;
   unsigned long lastActivity;
   uint64_t lastEndByte;
+  // True while a response is still filling from this handle.
+  // Two live responses sharing one handle re-seek on every 16 KB fill, and on FAT32 a
+  // backward seek walks the cluster chain from the start, so the cost grows with the
+  // offset into the file. Big films slow way down. exFAT seeks don't have this problem.
+  bool active = false;
+  // Replies on this handle whose connection hasn't closed yet. Counted up when a reply is
+  // built and down in its onDisconnect (every reply carries Connection: close). This one
+  // is exact, active is a guess, so this decides whether a rename or delete must wait.
+  uint8_t inflight = 0;
 };
 static std::map<uint32_t, StreamHandle> streamingFiles;
 static std::map<String, uint32_t> streamPathIndex;
 static SemaphoreHandle_t streamingFilesMutex = NULL;
+// A scrub or resume can want a second handle for one path while the first response
+// drains. About 300 bytes each.
+static const int MAX_CONCURRENT_STREAMS = 16;
+
+// true when this request is a viewer coming back for the next piece of the film it is
+// playing: a handle for the path whose last response ended at (or, if the connection broke,
+// up to 8 MB after) where this one starts, active in the last 30 s
+static bool continuingStream(const String &path, AsyncWebServerRequest *request) {
+  if (!request->hasHeader("Range")) return false;
+  const String r = request->header("Range");
+  if (!r.startsWith("bytes=") || r.length() < 7 || r.charAt(6) == '-') return false;
+  const uint64_t start = strtoull(r.c_str() + 6, nullptr, 10);
+  if (start == 0 || !streamingFilesMutex) return false;
+  if (xSemaphoreTake(streamingFilesMutex, pdMS_TO_TICKS(50)) != pdTRUE) return false;
+  bool yes = false;
+  auto pi = streamPathIndex.find(path);
+  if (pi != streamPathIndex.end()) {
+    auto it = streamingFiles.find(pi->second);
+    if (it != streamingFiles.end()) {
+      const uint64_t next = it->second.lastEndByte + 1;
+      yes = start <= next && start + (8ULL << 20) >= next && millis() - it->second.lastActivity < 30000UL;
+    }
+  }
+  xSemaphoreGive(streamingFilesMutex);
+  return yes;
+}
+
+// A handle whose response was abandoned mid-flight is spotted by going quiet. A filling
+// response touches lastActivity many times a second.
+static const unsigned long STREAM_BUSY_QUIET_MS = 2000;
+
+// DMA-capable memory runs out here while free heap still looks fine. When the sdmmc
+// driver can't get its DMA bounce buffer it returns ESP_ERR_NO_MEM, which reads as a
+// missing file, so /media would 404 a film that's on the card. On the P4 the ESP-Hosted
+// link to the C6 radio panics instead (transport_drv_ap_tx asserts on a failed copy_buff).
+// The floor only stops the 404s. It's low enough that a page full of cover art still loads.
+// The S3 doesn't have the ESP-Hosted panic and MEDIA_SLOTS bounds the worst case, so it
+// can go lower. A higher floor there stopped a third film from starting.
+#if CONFIG_IDF_TARGET_ESP32P4
+static const size_t STREAM_DMA_FLOOR = 48 * 1024;
+#else
+static const size_t STREAM_DMA_FLOOR = 24 * 1024;
+#endif
+static const size_t SMALL_FILE_DMA_FLOOR = 24 * 1024;   // covers and page assets through /media
+static const size_t CONTINUE_DMA_FLOOR = 12 * 1024;     // the next piece of a film already playing
+static inline size_t streamDmaFree() {
+  return heap_caps_get_free_size(MALLOC_CAP_DMA);
+}
+
+// Media slots: a cap on live media responses, taken before the memory floor check.
+// Every open response holds network buffers until its client is done, and a paused or
+// stalled player keeps holding them. Too many at once crash the board, so count them.
+// Cover art and page files aren't counted, they finish in milliseconds.
+//
+// The floor is checked at the top of the handler but the response is built much later,
+// so several requests arriving together could all pass it before any of them allocates.
+// Taking a slot first closes that gap.
+//
+// A slot older than MEDIA_SLOT_STALE_MS is reclaimed. That frees the count, not the
+// socket, so the worst case is letting one extra in for a while.
+//
+// 8 matches how many films play cleanly at once (see MAX_CLIENTS).
+static const int MEDIA_SLOTS = 8;
+static const uint32_t MEDIA_SLOT_STALE_MS = 10UL * 60UL * 1000UL;
+static portMUX_TYPE mediaSlotMux = portMUX_INITIALIZER_UNLOCKED;
+static volatile uint32_t mediaSlotStartMs[MEDIA_SLOTS] = {0};
+static volatile int inFlightMediaResponses = 0;
+
+// Returns a slot index, or -1 when every slot is busy. *token gets the slot's start time,
+// pass it back to mediaSlotGive(). That way a late disconnect from a reclaimed slot can't
+// free whoever took it next.
+static int mediaSlotTake(uint32_t *token = nullptr) {
+  const uint32_t now = millis();
+  int idx = -1;
+  portENTER_CRITICAL(&mediaSlotMux);
+  for (int i = 0; i < MEDIA_SLOTS; i++) {
+    if (mediaSlotStartMs[i] != 0 &&
+        (uint32_t)(now - mediaSlotStartMs[i]) > MEDIA_SLOT_STALE_MS) {
+      mediaSlotStartMs[i] = 0;
+      if (inFlightMediaResponses > 0) inFlightMediaResponses--;
+    }
+  }
+  for (int i = 0; i < MEDIA_SLOTS; i++) {
+    if (mediaSlotStartMs[i] == 0) {
+      mediaSlotStartMs[i] = now ? now : 1;   // 0 is the free marker, never a timestamp
+      if (token) *token = mediaSlotStartMs[i];
+      inFlightMediaResponses++;
+      idx = i;
+      break;
+    }
+  }
+  portEXIT_CRITICAL(&mediaSlotMux);
+  return idx;
+}
+
+static void mediaSlotGive(int idx, uint32_t token) {
+  if (idx < 0 || idx >= MEDIA_SLOTS) return;
+  portENTER_CRITICAL(&mediaSlotMux);
+  // only the holder that took this slot may free it: a reaped slot must not decrement
+  // twice, and a reaped-and-retaken slot belongs to someone else now
+  if (mediaSlotStartMs[idx] != 0 && mediaSlotStartMs[idx] == token) {
+    mediaSlotStartMs[idx] = 0;
+    if (inFlightMediaResponses > 0) inFlightMediaResponses--;
+  }
+  portEXIT_CRITICAL(&mediaSlotMux);
+}
+
+// Frees the slot on any early return between admission and send. On success, release()
+// hands it to onDisconnect.
+struct MediaSlotGuard {
+  int idx = -1;
+  uint32_t token = 0;
+  bool take() { idx = mediaSlotTake(&token); return idx >= 0; }
+  int release() { int h = idx; idx = -1; return h; }
+  ~MediaSlotGuard() { if (idx >= 0) mediaSlotGive(idx, token); }
+};
+
+// Remove the path -> id entry only when it still names THIS handle. Two handles can
+// share a path (the newest is the published one), so closing the older one mustn't
+// unpublish the live one.
+static inline void streamUnpublish(const String &path, uint32_t id) {
+  auto pi = streamPathIndex.find(path);
+  if (pi != streamPathIndex.end() && pi->second == id) streamPathIndex.erase(pi);
+}
 
 // close a handle we opened but never sent, so it doesn't leak until the LRU gets it
 static void closeStreamById(uint32_t streamId) {
@@ -226,119 +404,35 @@ static void closeStreamById(uint32_t streamId) {
   }
   if (streamingFilesMutex) xSemaphoreGive(streamingFilesMutex);
 }
-// Raised from 8 now that a scrub or a resume legitimately wants a second handle for one
-// path while the first response drains. About 300 bytes each, against 280 KB free.
-static const int MAX_CONCURRENT_STREAMS = 16;
 
-// There is no end-of-response hook in the async server, so a handle whose response was
-// abandoned mid-flight is recognised by going quiet - a filling response touches
-// lastActivity many times a second.
-static const unsigned long STREAM_BUSY_QUIET_MS = 2000;
-
-// DMA-capable free memory, not free heap, is what runs out here, and two different
-// things break when it does. The sdmmc driver takes a DMA bounce buffer for every read
-// it issues; when that allocation fails it answers ESP_ERR_NO_MEM, which nothing above
-// it can tell apart from a file that is not there, so /media answered 404 for a film
-// plainly sitting on the card. Worse, the ESP-Hosted link to the C6 radio does not
-// degrade at all - transport_drv_ap_tx asserts on a failed copy_buff and panics the
-// whole board, dropping every client. Measured on the P4-NANO with twelve slow readers
-// holding connections open: free heap still read 137 KB while DMA free was down at
-// 25 KB, and the board rebooted.
-//
-// The floor below fixes the first of those and does NOT fix the second. Refusing new
-// work keeps reads answering truthfully, but the panic is inside the radio driver and a
-// board that is already over the line goes down whatever this handler does. It is set
-// low enough that a page loading a wall of cover art is never turned away, which is the
-// failure that would actually be noticed.
-static const size_t STREAM_DMA_FLOOR = 48 * 1024;
-static inline size_t streamDmaFree() {
-  return heap_caps_get_free_size(MALLOC_CAP_DMA);
+// Before a rename, delete or save: is a reply still open on this file (or anything inside
+// this folder)? Idle handles get closed here, so a file the editor just read can be changed
+// right away. A handle with a reply still open is left alone.
+// Returns 1 for in use, 0 for clear, -1 when the lock wasn't available.
+static int releaseStreamsFor(const String &path) {
+  if (!streamingFilesMutex) return 0;
+  if (xSemaphoreTake(streamingFilesMutex, pdMS_TO_TICKS(300)) != pdTRUE) return -1;
+  const String under = path.endsWith("/") ? path : path + "/";
+  bool busy = false;
+  for (auto it = streamingFiles.begin(); it != streamingFiles.end(); ) {
+    const String &p = it->second.path;
+    if (p != path && !p.startsWith(under)) { ++it; continue; }
+    if (it->second.inflight) { busy = true; ++it; continue; }
+    streamUnpublish(it->second.path, it->first);
+    it->second.file.close();
+    it = streamingFiles.erase(it);
+  }
+  xSemaphoreGive(streamingFilesMutex);
+  return busy ? 1 : 0;
 }
 
-// ...and the floor above is only a backstop, because free memory read from outside the
-// board cannot see the trough: the request that reads it needs a connection of its own,
-// so it fails exactly when the answer would have been interesting. Sampling every 1.5 s
-// through a load that panics the board never saw DMA free go under 127 KB.
-//
-// What actually has to be bounded is how many media responses are alive at once. Each
-// one holds lwIP TX buffers for as long as its client keeps the socket open, so a
-// player that stops draining (paused, buffering, a phone that walked out of range) goes
-// on costing memory while delivering nothing. Twelve such readers panic a stock board.
-// Counting is exact where a threshold is not, and onDisconnect is a real end-of-response
-// hook - the response carries Connection: close, so one disconnect is one response.
-//
-// Only timed media is counted. Cover art and page assets come through the same handler
-// but are over in milliseconds and are not what holds memory.
-//
-// A cap was tried on the P4 and rejected: it did not stop that board's panic, and a
-// response that never finishes would hold its slot forever. Both still true there.
-// Here it is not preventing a panic - the S3 does not share the P4's slow-reader reset
-// - it is fixing a race. The DMA floor is sampled at the top of the handler and the
-// slot was not taken until ~470 lines later, so requests arriving together all cleared
-// the check before any had allocated: six max-rate readers took DMA free from 70 KB to
-// 20,624 B, well under the 48 KB floor meant to stop that. Reserving first fixes it;
-// the floor still reacts to whatever else is using memory.
-//
-// The stuck-slot hazard is handled by MEDIA_SLOT_STALE_MS, which reclaims the
-// accounting and not the socket, so the worst case is over-admitting by one.
-//
-// 8 because that is what the MAX_CLIENTS note above measured as playing cleanly.
-static const int MEDIA_SLOTS = 8;
-static const uint32_t MEDIA_SLOT_STALE_MS = 10UL * 60UL * 1000UL;
-static portMUX_TYPE mediaSlotMux = portMUX_INITIALIZER_UNLOCKED;
-static volatile uint32_t mediaSlotStartMs[MEDIA_SLOTS] = {0};
-static volatile int inFlightMediaResponses = 0;
-
-// Returns a slot index, or -1 when every slot is busy. millis() is read outside the
-// critical section: nothing that can block belongs inside one.
-static int mediaSlotTake() {
-  const uint32_t now = millis();
-  int idx = -1;
-  portENTER_CRITICAL(&mediaSlotMux);
-  for (int i = 0; i < MEDIA_SLOTS; i++) {
-    if (mediaSlotStartMs[i] != 0 &&
-        (uint32_t)(now - mediaSlotStartMs[i]) > MEDIA_SLOT_STALE_MS) {
-      mediaSlotStartMs[i] = 0;
-      if (inFlightMediaResponses > 0) inFlightMediaResponses--;
-    }
-  }
-  for (int i = 0; i < MEDIA_SLOTS; i++) {
-    if (mediaSlotStartMs[i] == 0) {
-      mediaSlotStartMs[i] = now ? now : 1;   // 0 is the free marker, never a timestamp
-      inFlightMediaResponses++;
-      idx = i;
-      break;
-    }
-  }
-  portEXIT_CRITICAL(&mediaSlotMux);
-  return idx;
-}
-
-static void mediaSlotGive(int idx) {
-  if (idx < 0 || idx >= MEDIA_SLOTS) return;
-  portENTER_CRITICAL(&mediaSlotMux);
-  if (mediaSlotStartMs[idx] != 0) {          // a reaped slot must not decrement twice
-    mediaSlotStartMs[idx] = 0;
-    if (inFlightMediaResponses > 0) inFlightMediaResponses--;
-  }
-  portEXIT_CRITICAL(&mediaSlotMux);
-}
-
-// RAII so that none of the eight early returns between admission and send can leak a
-// slot. On the one path that succeeds, release() hands ownership to onDisconnect.
-struct MediaSlotGuard {
-  int idx = -1;
-  bool take() { idx = mediaSlotTake(); return idx >= 0; }
-  int release() { int h = idx; idx = -1; return h; }
-  ~MediaSlotGuard() { if (idx >= 0) mediaSlotGive(idx); }
-};
-
-// Remove the path -> id entry only when it still names THIS handle. Two handles can now
-// share a path (the newest is the published one), so closing an older sibling must not
-// unpublish the live one.
-static inline void streamUnpublish(const String &path, uint32_t id) {
-  auto pi = streamPathIndex.find(path);
-  if (pi != streamPathIndex.end() && pi->second == id) streamPathIndex.erase(pi);
+// a reply on this handle has closed (its onDisconnect)
+static void streamReplyDone(uint32_t streamId) {
+  if (!streamId || !streamingFilesMutex) return;
+  if (xSemaphoreTake(streamingFilesMutex, pdMS_TO_TICKS(300)) != pdTRUE) return;
+  auto it = streamingFiles.find(streamId);
+  if (it != streamingFiles.end() && it->second.inflight) it->second.inflight--;
+  xSemaphoreGive(streamingFilesMutex);
 }
 
 static uint64_t cachedTotalBytes = 0;
@@ -354,7 +448,6 @@ struct IndexBuildArgs {
 };
 static QueueHandle_t indexQueue = nullptr;
 
-// Task management for performance optimization
 TaskHandle_t indexWorkerTaskHandle = nullptr;
 TaskHandle_t storageMonitorTaskHandle = nullptr;
 volatile bool shutdownBackgroundTasks = false;
@@ -366,10 +459,9 @@ int g_totalBucketsForProgress = 0;
 int g_indexProgressPercent = 0;
 SemaphoreHandle_t indexingPathMutex = NULL;
 
-// ---- Multiplayer room store (HTTP polling, no WebSockets) ----
-// Fixed-size plain char buffers, no Arduino String anywhere in this store or its
-// handlers, and no SD I/O. Same class of hazard that caused heap corruption via
-// unsynchronized Strings shared across tasks. Everything here is guarded by gameMutex.
+// Multiplayer room store (HTTP polling, no WebSockets).
+// Fixed-size char buffers only, no Arduino String and no SD I/O. Strings shared across
+// tasks corrupted the heap before. Everything here is guarded by gameMutex.
 #define MP_MAX_ROOMS 8
 #define MP_CODE_LEN 5      // 4-char room code + NUL
 #define MP_GAME_LEN 16     // e.g. "tictactoe", "chess"
@@ -381,7 +473,7 @@ struct MpRoom {
   bool active;
   char code[MP_CODE_LEN];
   char game[MP_GAME_LEN];
-  char token[2][MP_TOKEN_LEN];  // seat 0/1 tokens; empty string = seat open
+  char token[2][MP_TOKEN_LEN];  // seat 0/1 tokens, empty string = seat open
   char state[MP_STATE_LEN];
   uint32_t seq;
   uint32_t games;               // finished games, used to alternate who starts a rematch
@@ -393,16 +485,16 @@ SemaphoreHandle_t gameMutex = NULL;
 // Function declarations for task management
 void shutdownBackgroundTasksForStreaming();
 void startBackgroundTasksIfNeeded();
+void ensureBackgroundTasks();
 void checkStreamingTimeout();
 void immediateEnqueueTopLevelTask(void *param);
 void triggerIndexingIfNeeded(const String& filePath);
-// Last time UI bar was updated
-unsigned long lastSdbarUpdate = 0;
 void updateSDBAR() {
   sdbarDirty = true;
 }
 void updateSDBAR_UI_ThreadOnly() {
   if (cachedTotalBytes == 0) return;
+  LvglLock lock;
   
   int usage = (int)((cachedUsedBytes * 100) / cachedTotalBytes);
   if (usage > 100) usage = 100;
@@ -468,25 +560,11 @@ static bool shouldSkipIndexingPath(const String &path) {
   return false;
 }
 
-// SoftAP max_connection. 8 was inherited from the Mk4 and was never measured against
-// anything. Asking for 16 gets 10: the driver clamps it and says so in the boot log,
-// which is where this number came from rather than from a datasheet.
-//
-// Ten is also about where the device runs out of media anyway, measured on a P4-NANO
-// against the films actually on the card (97-125 KB/s, 0.8-1.0 Mbps):
-//
-//   aggregate SD throughput is a flat ~1.05 MB/s no matter how many readers share it
-//   125 KB/s films -> 8 play cleanly, the 9th starves 6 of 9
-//   100 KB/s films -> 10 play cleanly, the 11th starves 5 of 11
-//
-// Note this caps ASSOCIATIONS, not streams: one phone can pull several, and a TV pulling
-// one over DLNA is one association either way.
-//
-// The ceiling is the card path, not the radio. The same board serves flash-resident
-// files at ~1.65 MB/s, and both SD handlers (/media and the sendSdFile catch-all) top
-// out together at ~1.1 MB/s, so there is roughly half again as much link sitting unused
-// behind whatever limits SD reads. Worth a look before anyone tries to buy capacity with
-// a faster radio.
+// Max number of devices that can connect at once. The driver clamps anything higher
+// to 10 (it says so in the boot log).
+// Ten is also about where media runs out. Total SD throughput is around 1 MB/s however
+// many readers share it, so about 8 films at 125 KB/s or 10 at 100 KB/s play cleanly.
+// This caps devices, one phone can pull several streams. The bottleneck is the card.
 #define MAX_CLIENTS 10
 String encodeIndexName(const String &path);
 
@@ -496,89 +574,36 @@ struct AdminSettings {
   String adminPassword = "";
   String wifiSSID = "Jcorp_Nomad";
   String wifiPassword = "password";
-  int brightness = 100;            // percent 0-100 (Set_Backlight range); 230 was out-of-range and ignored
+  int brightness = 100;            // percent 0-100 (Set_Backlight range)
   bool autoGenerateMedia = true;   // check for new files on boot (default on)
   bool flipScreen = false;         // rotate LCD 180 deg (USB port upside down, e.g. car mounts)
   bool dlnaEnabled = true;         // TV support: DLNA server + SSDP discovery
   // WiFi Mode (station): join an existing network instead of running the hotspot.
   // staPersist=true -> try every boot (with hotspot fallback on failure).
-  // staPersist=false -> only when the sta_once NVS flag is armed; a power cycle clears it.
+  // staPersist=false -> only when the sta_once NVS flag is armed, a power cycle clears it.
   String staSSID = "";
   String staPassword = "";
   bool staPersist = false;
-  // legacy wildcard captive DNS (answer every lookup with Nomad's address).
-  // off = targeted responder, so phones keep using mobile data for the internet
+  // old wildcard captive DNS (answer every lookup with Nomad's address).
+  // off = only answer for Nomad, so phones keep using mobile data for the internet
   bool dnsCatchAll = false;
 };
 
 AdminSettings settings;
-// Set by the /settings handler (async_tcp task); consumed by the task that owns
-// LVGL flushes. MADCTL must never be written mid-flush from another task.
+// Set by the /settings handler, picked up by the task that owns LVGL flushes.
+// MADCTL must never be written mid-flush from another task.
 volatile bool lcdRotatePending = false;
 const char* SETTINGS_PATH = "/config/settings.json";
 
 // --- Admin session auth ---
-// Not perfect, but designed to make it a bit more secure and properly gated, unlikly this will ever be needed, but some users want it as an option. 
-String adminSessionToken = "";
+// The password, sessions and the /auth/* routes are in NomadAuth.h (included after
+// saveSettings, which it uses). Declared here because handlers above it call them.
+bool isAdminAuthRequired();
+bool checkAdminAuth(AsyncWebServerRequest *request);
+void nomadAuthLoad();
 
-String generateSessionToken() {
-  char buf[33];
-  for (int i = 0; i < 4; i++) {
-    snprintf(buf + (i * 8), 9, "%08x", (unsigned)esp_random());
-  }
-  buf[32] = '\0';
-  return String(buf);
-}
-
-bool isAdminAuthRequired() {
-  return settings.adminPassword.length() > 0;
-}
-
-// Returns true if the request is allowed to perform an admin/state-changing action.
-bool checkAdminAuth(AsyncWebServerRequest *request) {
-  if (!isAdminAuthRequired()) return true; // admin password explicitly disabled
-  if (adminSessionToken.length() == 0) return false; // nobody has logged in since boot
-  if (!request->hasHeader("X-Admin-Token")) return false;
-  return request->getHeader("X-Admin-Token")->value().equals(adminSessionToken);
-}
-
-// The card root is the web root, but /config holds settings.json: the hotspot
-// password, the admin hash and, in WiFi Mode, the home network password in plain
-// text. GET /settings withholds all three on purpose, so the raw file must not be
-// reachable through the catch-all file server or /media, and only an admin may
-// write, rename or delete anything under it.
-// Fold the path the same way SdFat will before deciding anything about it. This is a
-// comparison form only; the original string is what gets opened.
-static String canonicalPath(const String &in) {
-  String out;
-  out.reserve(in.length() + 1);
-  const int n = in.length();
-  int i = 0;
-  while (i < n) {
-    while (i < n && in.charAt(i) == '/') i++;          // "//" is one separator
-    if (i >= n) break;
-    int j = i;
-    while (j < n && in.charAt(j) != '/') j++;
-    int b = i, e = j;
-    while (b < e && in.charAt(b) == ' ') b++;                                    // leading spaces
-    while (e > b && (in.charAt(e - 1) == '.' || in.charAt(e - 1) == ' ')) e--;    // trailing dots/spaces
-    if (e > b) {
-      out += '/';
-      for (int k = b; k < e; ++k) {
-        const char c = in.charAt(k);
-        out += (c >= 'A' && c <= 'Z') ? (char)(c - 'A' + 'a') : c;
-      }
-    }
-    i = j;
-  }
-  if (out.length() == 0) out = "/";
-  return out;
-}
-
-static bool isConfigPath(const String &p) {
-  const String c = canonicalPath(p);
-  return c == "/config" || c.startsWith("/config/");
-}
+// isConfigPath() lives in NomadGuard.h with the rest of the path rules. Don't compare
+// the raw string here: "/CONFIG/", "//config/" and "/config./" all reach the same file.
 
 // Web Console Logging System
 #define MAX_LOG_ENTRIES 50
@@ -635,19 +660,14 @@ void webLogf(const String& type, const char* format, ...) {
 #define SD_D2_PIN 17
 #define SD_D3_PIN 21
 const char *INDEX_DIR = "/.system-index";   // on-SD folder for index files
-const size_t INDEX_WRITE_CHUNK = 4096;      // flush buffer when larger than this
 // Normalize path: ensure leading '/', remove trailing '/'
 String normalizePath(const String &p_in){
   if (p_in.length() == 0) return "/";
   String p = p_in;
   if (!p.startsWith("/")) p = "/" + p;
-  // Collapse runs of '/'. The index builder joins as path + "/" + entry, so every
-  // entry directly under the card root came out as "//Books", "//Movies" and so on
-  // in the p field of its index row -- 49 of 50 rows on this card. Lookups with a
-  // single slash happen to work, so nothing looked broken, but it is why //Archive
-  // and /Archive behaved differently and it makes any string compare on p a trap.
-  // canonicalPath() already folds duplicate slashes for the config guard; this is
-  // the same rule applied where paths are built rather than where they are checked.
+  // Collapse runs of '/'. The index builder joins path + "/" + entry, so entries under
+  // the card root come out as "//Books" and string compares break. Same rule as
+  // canonicalPath() in the config guard.
   if (p.indexOf("//") >= 0) {
     String out;
     out.reserve(p.length());
@@ -661,6 +681,74 @@ String normalizePath(const String &p_in){
   while (p.length() > 1 && p.endsWith("/")) p = p.substring(0, p.length()-1);
   return p;
 }
+// One /api/index-nested response, streamed: the prefix, then the index body with its
+// header line dropped and newlines turned into commas, then "]}". Every read takes
+// sdMutex briefly. A busy card means "ask again", never a short body.
+struct NestedIndexStream {
+  NomadFile64 f;
+  String prefix;
+  uint64_t pos = 0;
+  uint8_t phase = 0;     // 0 prefix, 1 skipping the header line, 2 entries, 3 closing, 4 done
+  bool sep = false, any = false;
+  ~NestedIndexStream() {
+    if (!f.isOpen()) return;
+    if (sdMutex && xSemaphoreTake(sdMutex, pdMS_TO_TICKS(1000)) == pdTRUE) { f.close(); xSemaphoreGive(sdMutex); }
+    else f.close();
+  }
+  size_t fill(uint8_t *buf, size_t maxLen) {
+    size_t n = 0;
+    if (phase == 0) {
+      if (prefix.length() > maxLen) return RESPONSE_TRY_AGAIN;
+      memcpy(buf, prefix.c_str(), prefix.length());
+      n = prefix.length();
+      phase = 1;
+    }
+    uint8_t tmp[512];
+    while ((phase == 1 || phase == 2) && maxLen - n >= 8) {
+      size_t want = (maxLen - n - 2) / 2;        // each byte read can become two (",{")
+      if (want > sizeof(tmp)) want = sizeof(tmp);
+      if (sdMutex && xSemaphoreTake(sdMutex, pdMS_TO_TICKS(50)) != pdTRUE) return n ? n : RESPONSE_TRY_AGAIN;
+      size_t got = f.readAt(pos, tmp, want);
+      if (got < want) f.close();                 // end of file: close while we hold the card
+      if (sdMutex) xSemaphoreGive(sdMutex);
+      pos += got;
+      for (size_t i = 0; i < got; i++) {
+        const uint8_t c = tmp[i];
+        if (phase == 1) { if (c == '\n') phase = 2; continue; }
+        if (c == '\n' || c == '\r') { if (any) sep = true; continue; }
+        if (sep) { buf[n++] = ','; sep = false; }
+        buf[n++] = c;
+        any = true;
+      }
+      if (got < want) phase = 3;
+    }
+    if (phase == 3 && maxLen - n >= 2) { buf[n++] = ']'; buf[n++] = '}'; phase = 4; }
+    return n;                                    // 0 only once phase 4 has been sent
+  }
+};
+
+// ETag for an index file: the signature from its header line plus the file size.
+// "" when it can't be read.
+String indexEtag(const String &fullPath) {
+  if (sdMutex && xSemaphoreTake(sdMutex, pdMS_TO_TICKS(500)) != pdTRUE) return "";
+  String etag;
+  NomadFile64 f;
+  if (f.open(fullPath.c_str())) {
+    char head[192];
+    size_t n = f.readAt(0, (uint8_t *)head, sizeof(head) - 1);
+    head[n] = 0;
+    const char *sig = strstr(head, "\"sig\":\"");
+    if (sig) {
+      sig += 7;
+      const char *end = strchr(sig, '"');
+      if (end && end - sig < 40) etag = "\"" + String(sig).substring(0, end - sig) + "-" + String((unsigned long long)f.size()) + "\"";
+    }
+    f.close();
+  }
+  if (sdMutex) xSemaphoreGive(sdMutex);
+  return etag;
+}
+
 String encodeIndexName(const String &path_in) {
   String p = path_in;
   if (p.length() == 0) return String("root");
@@ -736,29 +824,6 @@ String buildIndexHeader(const String &path, const String &sigHex, uint32_t count
   return h;
 }
 
-// Append one NDJSON entry (t: 'f'|'d', n: filename, p: absolute path, optional sz/mt)
-String buildIndexEntry(const char t, const String &name, const String &path, uint64_t sz=0, uint64_t mt=0){
-  String line;
-  line.reserve(160);
-  line += "{\"t\":\"";
-  line += t;
-  line += "\",\"n\":\"";
-  line += jsonEscape(name);
-  line += "\",\"p\":\"";
-  line += jsonEscape(path);
-  if (t == 'f') {
-    line += "\",\"sz\":";
-    line += String((unsigned long long)sz);
-    line += ",\"mt\":";
-    line += String((unsigned long long)mt);
-    line += "}\n";
-  } else {
-    line += "\"}\n";
-  }
-  return line;
-}
-
-#define MAX_NESTED_AUTOGEN_ITEMS 40
 bool readIndexHeaderSig(const String &indexPath, String &outSig, uint32_t &outCount) {
   outSig = "";
   outCount = 0;
@@ -778,7 +843,7 @@ bool readIndexHeaderSig(const String &indexPath, String &outSig, uint32_t &outCo
   outCount = (uint32_t)(doc["count"] | doc["count"]); // header key is "count"
   return true;
 }
-// ---------- Media file detector + safe recursive counter ----------
+// Media file detector + safe recursive counter
 static bool isMediaFile(const String &lowerName) {
   int dot = lowerName.lastIndexOf('.');
   if (dot < 0) return false;
@@ -802,6 +867,23 @@ static bool isMediaFile(const String &lowerName) {
 
   // Other video containers we count (wont work, dont use these dummy): .avi, .flv, .rmvb
   if (ext == ".avi" || ext == ".flv" || ext == ".rmvb") return true;
+
+  return false;
+}
+
+// Audio or video a player pulls with Range requests over minutes. isMediaFile() also
+// covers images and books, and the grids fetch every cover through /media, so using it
+// would mark the box as streaming on every scroll. Keep the two lists next to each other.
+static bool isTimedMediaExtension(const String &lowerPath) {
+  int dot = lowerPath.lastIndexOf('.');
+  if (dot < 0) return false;
+  String ext = lowerPath.substring(dot);   // includes the dot, e.g. ".mkv"
+
+  if (ext == ".mp4"  || ext == ".m4v"  || ext == ".mov"  || ext == ".mkv"
+   || ext == ".webm" || ext == ".ts"   || ext == ".m2ts" || ext == ".avi") return true;
+
+  if (ext == ".mp3"  || ext == ".m4a"  || ext == ".flac" || ext == ".wav"
+   || ext == ".ogg"  || ext == ".opus" || ext == ".aac") return true;
 
   return false;
 }
@@ -858,45 +940,6 @@ static bool isBookFormat(const String &name) {
   return lower.endsWith(".pdf") || lower.endsWith(".epub") || 
          lower.endsWith(".azw3") || lower.endsWith(".mobi");
 }
-unsigned int countMediaFiles(const String &dirPath) {
-  unsigned int count = 0;
-
-  File d = SD_MMC.open(dirPath);
-  if (!d || !d.isDirectory()) {
-    if (d) d.close();
-    return 0;
-  }
-
-  d.rewindDirectory();
-  File e;
-  while ((e = d.openNextFile())) {
-    if (e.isDirectory()) {
-      // name() is just the bare name under NomadSD. recursing on it opens the
-      // wrong directory and silently counts nothing.
-      String sub = String(e.path());
-      count += countMediaFiles(sub);
-    } else {
-      // Lower-case filename once for efficient extension checks
-      String name = String(e.name());
-      name.toLowerCase();
-
-      if (isMediaFile(name)) {
-        ++count;
-      }
-    }
-    e.close();
-    yield(); // keep watchdog happy during recursion/long scans
-  }
-
-  d.close();
-  return count;
-}
-
-// compatibility wrapper, some callers expect countDirItems()
-unsigned int countDirItems(const String &p) {
-  return countMediaFiles(p);
-}
-
 // Ensure INDEX_DIR exists (creates it if missing.. usualy)
 void ensureIndexDir(){
   if (!SD_MMC.exists(INDEX_DIR)) {
@@ -940,26 +983,6 @@ bool renameOrCopy(const String &src, const String &dst) {
   return true;
 }
 
-// Atomic write helper - writes tmp then moves to final (uses renameOrCopy)
-bool atomicWriteFile(const String &tmpPath, const String &finalPath) {
-  // final renameOrCopy already does the heavy lifting; here just ensure final exists
-  return renameOrCopy(tmpPath, finalPath);
-}
-void dumpSDRoot() {
-  Serial.println("[Index] dumpSDRoot(): listing /");
-  File r = SD_MMC.open("/");
-  if (!r) {
-    Serial.println("[Index] dumpSDRoot(): FAILED to open root '/'");
-    return;
-  }
-  r.rewindDirectory();
-  while (true) {
-    File e = r.openNextFile();
-    if (!e) break;
-    Serial.printf("[Index] root-entry: %s %s\n", e.name(), e.isDirectory() ? "(dir)" : "(file)");
-  }
-  r.close();
-}
 bool writeNDIndexForDir(const String &dirPath, const String &outFilename) {
   // Acquire SD card mutex to prevent concurrent access
   if (sdMutex && xSemaphoreTake(sdMutex, pdMS_TO_TICKS(5000)) != pdTRUE) {
@@ -1228,8 +1251,8 @@ bool writeNDIndexForDir(const String &dirPath, const String &outFilename) {
     jsonEscapeToBuf(full, escPath, HALF_INDEX_BUF);
 
     if (entryType == 'f') {
-    // size() saturates at SIZE_MAX rather than wrapping; only then pay for the
-    // 64-bit lookup, so normal files (and every FAT32 card) cost nothing extra
+    // size() sticks at SIZE_MAX past 4 GB. Only then do the 64-bit lookup, so normal
+    // files cost nothing extra
     uint64_t fsz = (uint64_t)e.size();
     if (fsz == (uint64_t)SIZE_MAX) fsz = SD_MMC.fileSize64(full.c_str());
     uint64_t fmt = 0;
@@ -1239,10 +1262,8 @@ bool writeNDIndexForDir(const String &dirPath, const String &outFilename) {
     if (pos < 0) pos = 0;
     size_t wlen = strlen(g_lineBuf);
     if (wlen && fout.write((const uint8_t*)g_lineBuf, wlen) != wlen) {
-      // A card that refuses a write says so only in this return value. Ignoring it
-      // published a truncated index, and a truncated index is not a visible failure -
-      // it is a library that silently stops mid-alphabet. Abandon the build instead;
-      // the previous index stays live, which is the right answer.
+      // A refused write only shows up in this return value. Ignoring it would publish a
+      // truncated index, so abandon the build and keep the previous one.
       Serial.printf("[Index] Short write building '%s', abandoning\n", normPath.c_str());
       webLogf("error", "Indexing '%s' abandoned - the card refused a write", normPath.c_str());
       abortIndex = true;
@@ -1259,10 +1280,7 @@ bool writeNDIndexForDir(const String &dirPath, const String &outFilename) {
     if (pos < 0) pos = 0;
     size_t wlen = strlen(g_lineBuf);
     if (wlen && fout.write((const uint8_t*)g_lineBuf, wlen) != wlen) {
-      // A card that refuses a write says so only in this return value. Ignoring it
-      // published a truncated index, and a truncated index is not a visible failure -
-      // it is a library that silently stops mid-alphabet. Abandon the build instead;
-      // the previous index stays live, which is the right answer.
+      // same as the file branch above: abandon on a refused write
       Serial.printf("[Index] Short write building '%s', abandoning\n", normPath.c_str());
       webLogf("error", "Indexing '%s' abandoned - the card refused a write", normPath.c_str());
       abortIndex = true;
@@ -1390,7 +1408,7 @@ bool writeNDIndexForDir(const String &dirPath, const String &outFilename) {
     return true;
 }
 
-// ---------------- write bucket-level index ----------------
+// write bucket-level index
 // write top-level bucket index (ex: /Music -> Music.index.ndjson)
 bool writeBucketIndex(const String &bucketPath) {
   String name = bucketPath;
@@ -1488,7 +1506,7 @@ bool loadSettings() {
 
   return true;
 }
-// ---------------- deferred config writes ----------------
+// Deferred config writes.
 // Writing a file on the async_tcp task stalls the web server while the filesystem
 // hunts for free clusters, and on a nearly full card that trips the task watchdog.
 // Small config writes go through this queue and a background task does the SD work.
@@ -1529,10 +1547,9 @@ void configWriterTask(void *param) {
   for (;;) {
     if (xQueueReceive(cfgWriteQueue, &job, portMAX_DELAY) == pdTRUE && job) {
       bool ok = writeFileAtomicBlocking(job->path, job->content);
-      // /save writes land here, so a page that writes a file into a content bucket
-      // (the cookbook editor) has to refresh that folder's index or the new file
-      // stays invisible until the next full scan. Enqueued after the write, not in
-      // the request handler, or the rebuild can race the file into existence.
+      // /save writes land here, so a file saved into a content folder (the cookbook
+      // editor) needs that folder's index refreshed or it won't show up until the next
+      // full scan. Queued after the write so the rebuild can't run before the file exists.
       // Non-bucket paths (settings, .system-ui.json) are ignored by the callee.
       if (ok) triggerIndexingIfNeeded(job->path);
       delete job;
@@ -1542,8 +1559,8 @@ void configWriterTask(void *param) {
   }
 }
 
-// Queue a write. False means the queue is full or not created yet; boot
-// context callers can safely write inline since they are not on async_tcp.
+// Queue a write. False means the queue is full or not created yet. Boot code can
+// just write inline, it isn't on async_tcp.
 bool queueConfigWrite(const String &path, const String &content) {
   if (!cfgWriteQueue) return false;
   ConfigWriteJob *job = new ConfigWriteJob{ path, content };
@@ -1554,13 +1571,98 @@ bool queueConfigWrite(const String &path, const String &content) {
   return true;
 }
 
-// ---------------- UI config (menu pages, downloads, uploads, motd) ----------------
-// Owned by the firmware: held in RAM, served from RAM, written to /.system-ui.json
-// through the config writer, changed only through the admin authed POST
-// /api/ui-config. Pages that read the file directly still work.
+// UI config (menu pages, downloads, uploads, motd).
+// Held and served from RAM, saved to /.system-ui.json through the config writer, and
+// only changed through the admin POST /api/ui-config. Pages can still read the file.
 const char *UI_CONFIG_PATH = "/.system-ui.json";
 String g_uiConfigJson = "{}";
 SemaphoreHandle_t uiCfgMutex = NULL;
+
+// The admin's upload and download switches, read whenever the UI config changes so the
+// firmware enforces them itself. Each has a master switch and a per-page list (ulOff,
+// dlOff: page keys, the folder names in lower case). A page's bit is its place in kMenuPages.
+static const char *const kMenuPages[] = { "movies", "shows", "music", "books", "gallery", "files", "games",
+                                          "maps", "archive", "translate", "cookbook", "workshop", "chat" };
+volatile bool g_guestWritesOff = false;
+volatile bool g_downloadsOff = false;
+volatile uint32_t g_ulOffMask = 0, g_dlOffMask = 0;
+// pages taken off the menu: their page files answer with a "turned off" page instead, so
+// typing the address doesn't get round it
+volatile uint32_t g_hiddenMask = 0;
+static const char *const kMenuPageNames[] = { "Movies", "Shows", "Music", "Books", "Gallery", "Files", "Games",
+                                              "Maps", "Archive", "Translate", "Cookbook", "Workshop", "Chat" };
+static uint32_t pageBit(const char *key) {
+  for (size_t i = 0; i < sizeof(kMenuPages) / sizeof(kMenuPages[0]); ++i) if (!strcasecmp(key, kMenuPages[i])) return 1u << i;
+  return 0;
+}
+// the page a path belongs to: its first folder ("/Gallery/x.jpg" is gallery)
+static uint32_t pageBitForPath(const String &path) {
+  const int a = path.startsWith("/") ? 1 : 0;
+  int b = path.indexOf('/', a);
+  if (b < 0) b = path.length();
+  char key[16];
+  const String first = path.substring(a, b);
+  if (first.length() >= sizeof(key)) return 0;
+  strcpy(key, first.c_str());
+  return pageBit(key);
+}
+bool guestWritesOffFor(const String &path) { return g_guestWritesOff || (g_ulOffMask & pageBitForPath(path)); }
+bool downloadsOffFor(const String &path) { return g_downloadsOff || (g_dlOffMask & pageBitForPath(path)); }
+void refreshUiFlags(const String &json) {
+  JsonDocument doc;
+  if (deserializeJson(doc, json)) return;
+  g_guestWritesOff = doc["uploadsDisabled"] | false;
+  g_downloadsOff = doc["downloadsDisabled"] | false;
+  uint32_t ul = 0, dl = 0;
+  for (JsonVariant v : doc["ulOff"].as<JsonArray>()) ul |= pageBit(v | "");
+  for (JsonVariant v : doc["dlOff"].as<JsonArray>()) dl |= pageBit(v | "");
+  g_ulOffMask = ul;
+  g_dlOffMask = dl;
+  uint32_t hid = 0;
+  for (JsonVariant v : doc["hiddenPages"].as<JsonArray>()) hid |= pageBit(v | "");
+  g_hiddenMask = hid;
+}
+
+// The page a page file belongs to, for the hidden-pages switch: its own file, the music
+// page's tabs, and the built-in games. Readers (epub, pdf, comics) and Watch together are
+// not pages of their own on the menu and stay reachable.
+static int pageIndexForFile(const String &path) {
+  String f = path;
+  f.toLowerCase();
+  static const char *const files[][2] = {
+    { "/movies.html", "movies" }, { "/shows.html", "shows" }, { "/music.html", "music" }, { "/songs.html", "music" },
+    { "/playlist.html", "music" }, { "/queue.html", "music" }, { "/books.html", "books" }, { "/gallery.html", "gallery" },
+    { "/files.html", "files" }, { "/games.html", "games" }, { "/maps.html", "maps" }, { "/maps-basic.html", "maps" },
+    { "/archive.html", "archive" }, { "/translate.html", "translate" }, { "/cookbook.html", "cookbook" },
+    { "/workshop.html", "workshop" }, { "/chat.html", "chat" } };
+  const char *key = nullptr;
+  if (f.startsWith("/games/") && f.endsWith(".html") && f != "/games/watch together.html") key = "games";
+  for (auto &m : files) if (!key && f == m[0]) key = m[1];
+  if (!key) return -1;
+  for (size_t i = 0; i < sizeof(kMenuPages) / sizeof(kMenuPages[0]); ++i) if (!strcmp(key, kMenuPages[i])) return i;
+  return -1;
+}
+
+// what a hidden page answers with: plain, themed like the rest, and a way back
+static void sendPageOff(AsyncWebServerRequest *request, int idx) {
+  const char *name = kMenuPageNames[idx];
+  String html = F("<!DOCTYPE html><html lang=\"en\"><head><meta charset=\"utf-8\">"
+    "<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><title>Nomad &bull; ");
+  html += name;
+  html += F(" is turned off</title><link rel=\"stylesheet\" href=\"/master.css\"><script src=\"/theme-boot.js?v=5\"></script><script src=\"/theme-manager.js?v=5\"></script>"
+    "<style>body{min-height:100vh;display:grid;place-items:center;background:var(--bg);color:var(--text);margin:0;padding:20px;box-sizing:border-box}"
+    ".off{max-width:420px;text-align:center;background:var(--card-bg,var(--card));border:1px solid var(--card-border);border-radius:16px;padding:28px 22px}"
+    ".off h1{font-size:1.25rem;margin:0 0 8px;color:var(--text)}.off p{color:var(--muted);margin:0 0 18px;line-height:1.5}"
+    ".off a.go{display:inline-block;padding:10px 18px;border-radius:11px;background:var(--primary);color:#fff;text-decoration:none;font-weight:700}"
+    ".off small{display:block;margin-top:16px}.off small a{color:var(--muted);font-weight:600}</style></head><body><div class=\"off\"><h1>");
+  html += name;
+  html += F(" is turned off</h1><p>Everything else on the menu still works.</p>"
+    "<a class=\"go\" href=\"/menu\">Back to the menu</a>"
+    "<small><a href=\"/admin.html#pages\">Turn it back on (admin)</a></small></div></body></html>");
+  AsyncWebServerResponse *r = request->beginResponse(403, "text/html", html);
+  r->addHeader("Cache-Control", "no-store");
+  request->send(r);
+}
 
 void loadUiConfigFromSD() {
   if (!SD_MMC.exists(UI_CONFIG_PATH)) return;
@@ -1569,7 +1671,10 @@ void loadUiConfigFromSD() {
   String s = f.readString();
   f.close();
   s.trim();
-  if (s.length() > 0 && s.length() < 4096) g_uiConfigJson = s;
+  if (s.length() > 0 && s.length() < 4096) {
+    g_uiConfigJson = s;
+    refreshUiFlags(s);
+  }
 }
 
 bool saveSettings() {
@@ -1623,40 +1728,15 @@ bool saveSettings() {
   return success;
 }
 
-// --------------- Media Generation Stuff ------------
-bool isAlwaysGenerateEnabled() {
-    return SD_MMC.exists("/always_generate.flag");
-}
+#include "NomadAuth.h"   // the admin password, challenge sign-in, sessions (/auth/*)
+#include "NomadActivity.h"   // what is playing, for the admin Activity section, and stopping it
+#include "NomadUsage.h"      // what got used: busiest moment, data sent, plays, pages (admin Overview)
 
-void enableAlwaysGenerate() {
-    File f = SD_MMC.open("/always_generate.flag", FILE_WRITE);
-    if (f) {
-        f.print("1");
-        f.close();
-    }
-}
-
-void disableAlwaysGenerate() {
-    SD_MMC.remove("/always_generate.flag");
-}
-
-bool isOneTimeGenerateRequested() {
-    return SD_MMC.exists("/generate_once.flag");
-}
-
-void requestOneTimeGenerate() {
-    File f = SD_MMC.open("/generate_once.flag", FILE_WRITE);
-    if (f) {
-        f.print("1");
-        f.close();
-    }
-}
-
-void clearOneTimeGenerate() {
-    SD_MMC.remove("/generate_once.flag");
-}
-//------------------- delete recursive -------------
+// delete recursive
 bool deleteRecursive(String path) {
+  // Never delete the card root or /config, however the path is spelled. Deleting "/"
+  // would walk into //config too.
+  if (canonicalPath(path) == "/" || isConfigPath(path)) return false;
   File entry = SD_MMC.open(path);
   if (!entry) return false;
 
@@ -1681,14 +1761,12 @@ bool deleteRecursive(String path) {
 }
 
 
-// ───────────────── SD‑recovery globals ───────────────
+// SD recovery globals
 volatile bool sdErrorFlag            = false;
 unsigned long sdErrorCooldownUntil   = 0;
 
-// Mount as fast as the board will reliably go, stepping down on failure. Media mode
-// used to mount 1-bit at 20 MHz while USB mode ran 4-bit at 40 MHz on the same six
-// pins, capping large reads at ~625 KB/s. The last rung matches the old settings so
-// a board or card that cannot do 4-bit still comes up as before.
+// Mount as fast as the board will reliably go, stepping down on failure. The last
+// step is 1-bit at 20 MHz, for a board or card that can't do 4-bit.
 static const char *g_sdModeDesc = "not mounted";
 
 bool mountSDCard() {
@@ -1745,7 +1823,7 @@ bool tryRecoverSDCard() {
     }
 
     // couldnt get the stream map (something wedged holding it), remount under sdMutex alone.
-    // give back only what we took - releasing a mutex we don't hold frees it under its owner
+    // give back only what we took, releasing a mutex we don't hold frees it under its owner
     bool sdTaken = (!sdMutex) || (xSemaphoreTake(sdMutex, pdMS_TO_TICKS(3000)) == pdTRUE);
     if (!sdTaken) Serial.println("[SD] Recovery: sdMutex timeout, remounting without it.");
     SD_MMC.end();
@@ -1767,7 +1845,7 @@ String rfc3339Now() {
   return String(buf);
 }
 
-// Captive DNS lives in NomadDNS.cpp (targeted responder, not a wildcard hijack)
+// Captive DNS lives in NomadDNS.cpp
 AsyncWebServer server(80); // Web server on port 80
 std::map<AsyncWebServerRequest*, File> activeUploads;
 int connectedClients = 0;
@@ -1787,17 +1865,18 @@ bool lastWifiStatus = false;
 bool lastSDStatus = false;
 //Globals for SD scan
 unsigned long lastUpdateTime = 0;
-volatile bool requestIndexing = false;     // set by admin endpoint; consumed by index worker
-// true only when the boot change detector actually found changes and queued a reindex.
-// this is the CHECK's result, not the toggle - a boot with no changes indexes nothing.
+volatile bool requestIndexing = false;     // set by admin endpoint, consumed by index worker
+// true only when the boot change check found changes and queued a reindex.
+// a boot with no changes indexes nothing.
 volatile bool bootReindexQueued = false;
 volatile bool indexingInProgress = false;  // guard so we never run multiple index runs concurrently
 volatile bool settingsReady = false;       // set to true after loadSettings() runs
 
 // --- WiFi Mode (station) state ---
 bool g_staMode = false;             // true = boot joined an existing network instead of running the hotspot
-String g_staFailReason = "";        // why the last join attempt failed; written in setup() only, read by /api/wifi-mode
-volatile uint32_t g_wifiModeRestartAt = 0;  // millis deadline for a deferred restart after a wifi-mode change; 0 = none
+bool g_safeMode = false;            // NomadSupport.h: crashed SAFE_AFTER times in a row, heavy parts skipped this start
+String g_staFailReason = "";        // why the last join attempt failed, written in setup() only, read by /api/wifi-mode
+volatile uint32_t g_wifiModeRestartAt = 0;  // millis deadline for a deferred restart after a wifi-mode change, 0 = none
 
 // every generated URL (OPDS, m3u, DLNA) uses this: the assigned STA address
 // when joined to a home network, the AP address otherwise
@@ -1816,17 +1895,14 @@ int maskToCidr(IPAddress mask) {
 volatile bool sdScanInProgress = false;    // true while SD scan is performing its initial pass
 volatile bool sdScanCompleted = false;     // set to true after the initial SD scan completes
 
-volatile bool bootIndexAllowed = true;   
 
-unsigned long lastSDScanTime = 0;
-const unsigned long SD_SCAN_INTERVAL = 60000; // 60 seconds
-
-// ---------- background indexing control ----------
+// background indexing control
 
 // Update the UI with the number of connected users
 void updateUI(int userCount) {
     char buffer[10];
     snprintf(buffer, sizeof(buffer), "%d", userCount);
+    LvglLock lock;
     lv_label_set_text(ui_userlabel, buffer);
 }
 void updateToggleStatus() {
@@ -1835,6 +1911,7 @@ void updateToggleStatus() {
     bool currentWifiStatus = g_staMode ? (WiFi.status() == WL_CONNECTED)
                                        : (bool)(uint32_t)WiFi.softAPIP();
     if (currentWifiStatus != lastWifiStatus) {
+        LvglLock lock;
         if (currentWifiStatus) {
             lv_obj_add_state(ui_wifi, LV_STATE_CHECKED);
             if (!lastWifiStatus) {
@@ -1851,6 +1928,7 @@ void updateToggleStatus() {
 void updateSDStatus() {
     bool currentSDStatus = SD_MMC.cardType() != CARD_NONE;
     if (currentSDStatus != lastSDStatus) {
+        LvglLock lock;
         if (currentSDStatus) {
             lv_obj_add_state(ui_SDcard, LV_STATE_CHECKED);
             if (!lastSDStatus) {
@@ -1899,180 +1977,6 @@ void updateClientCount() {
         connectedClients = wifi_sta_list.num;
         updateUI(connectedClients);
     }
-}
-
-// Utility: extract base name (no path, no extension)
-String getFileBaseName(const String& name) {
-    String base = name.substring(name.lastIndexOf('/') + 1);
-    int dotIndex = base.lastIndexOf('.');
-    if (dotIndex != -1) base = base.substring(0, dotIndex);
-    return base;
-}
-bool isValidExtension(const String& filename, const std::vector<String>& exts) {
-  String nameLower = filename;
-  nameLower.toLowerCase();
-  for (const auto& ext : exts) {
-    if (nameLower.endsWith(ext)) return true;
-  }
-  return false;
-}
-
-void generateMediaJson(){
-  webLog("[MEDIA] Starting media index generation for all buckets", "info");
-  Serial.println("[Index] generateMediaJson() -> switched to NDJSON writer");
-  webLogf("indexing_progress", "Starting full media index generation for all buckets");
-
-  // ensure index dir
-  ensureIndexDir();
-
-  buildBucketIndex("/");       // writes root.index.ndjson
-  webLogf("indexing_progress", "Completed indexing root bucket (/)");
-  buildBucketIndex("/Movies"); // flat: files plus sidecar covers
-  webLogf("indexing_progress", "Completed indexing Movies bucket");
-  buildBucketIndex("/Shows");  // writes Shows.index.ndjson
-  webLogf("indexing_progress", "Completed indexing Shows bucket");
-  buildBucketIndex("/Music");  // writes Music.index.ndjson
-  webLogf("indexing_progress", "Completed indexing Music bucket");
-  buildBucketIndex("/Games");  // writes Games.index.ndjson (flat layout, no nested per-subfolder pass)
-  webLogf("indexing_progress", "Completed indexing Games bucket");
-
-File showsDir = SD.open("/Shows");
-  if(showsDir){
-    while(true){
-    File s = showsDir.openNextFile();
-    if(!s) break;
-    if(s.isDirectory()){
-    String showName = String(s.name());
-    String showPath = "/Shows";
-    if(!showPath.endsWith("/")) showPath += "/";
-    showPath += showName;
-    String fileToken = "Shows__" + sanitizeToken(showName) + ".nested.ndjson";
-    writeNDIndexForDir(showPath, fileToken);
-    Serial.printf("[Index] wrote per-show nested %s for %s\n", fileToken.c_str(), showPath.c_str());
-    }
-    s.close();
-    }
-    showsDir.close();
-  }
-
-  // Generate nested indexes for Music subfolders (Artist/Playlist level)
-  File musicDir = SD.open("/Music");
-  if(musicDir){
-    while(true){
-    File m = musicDir.openNextFile();
-    if(!m) break;
-    if(m.isDirectory()){
-    String musicSubName = String(m.name());
-    // Extract just the folder name (not full path)
-    int lastSlash = musicSubName.lastIndexOf('/');
-    if(lastSlash >= 0) musicSubName = musicSubName.substring(lastSlash + 1);
-    
-    String musicSubPath = "/Music/" + musicSubName;
-    String fileToken = "Music__" + sanitizeToken(musicSubName) + ".nested.ndjson";
-    writeNDIndexForDir(musicSubPath, fileToken);
-    Serial.printf("[Index] wrote per-music-folder nested %s for %s\n", fileToken.c_str(), musicSubPath.c_str());
-    }
-    m.close();
-    }
-    musicDir.close();
-  }
-
-  buildBucketIndex("/Books");
-  webLogf("indexing_progress", "Completed indexing Books bucket");
-  
-  File booksDir = SD.open("/Books");
-  if(booksDir){
-    while(true){
-      File b = booksDir.openNextFile();
-      if(!b) break;
-      if(b.isDirectory()){
-        String bookSubName = String(b.name());
-        int lastSlash = bookSubName.lastIndexOf('/');
-        if(lastSlash >= 0) bookSubName = bookSubName.substring(lastSlash + 1);
-        
-        String bookSubPath = "/Books/" + bookSubName;
-        
-        if (!isComicFolder(bookSubPath)) {
-          String fileToken = "Books__" + sanitizeToken(bookSubName) + ".nested.ndjson";
-          writeNDIndexForDir(bookSubPath, fileToken);
-          Serial.printf("[Index] wrote per-books-folder nested %s for %s\n", fileToken.c_str(), bookSubPath.c_str());
-        } else {
-          Serial.printf("[Index] Skipping comic folder nested index: %s\n", bookSubPath.c_str());
-        }
-      }
-      b.close();
-    }
-    booksDir.close();
-  }
-  // Gallery, Files, Cookbook and Workshop: flat bucket index plus one nested index per
-  // first-level subfolder, same shape as Music. Deeper folders are answered live by
-  // /listfiles, so one level is all the index needs.
-  const char *extraBuckets[] = { "/Gallery", "/Files", "/Cookbook", "/Workshop", NULL };
-  for (int eb = 0; extraBuckets[eb]; eb++) {
-    String broot = extraBuckets[eb];
-    buildBucketIndex(broot);
-    webLogf("indexing_progress", "Completed indexing %s bucket", broot.c_str());
-    File bdir = SD.open(broot);
-    if (bdir) {
-      while (true) {
-        File d = bdir.openNextFile();
-        if (!d) break;
-        if (d.isDirectory()) {
-          String subName = String(d.name());
-          int lastSlash = subName.lastIndexOf('/');
-          if (lastSlash >= 0) subName = subName.substring(lastSlash + 1);
-          String subPath = broot + "/" + subName;
-          String fileToken = broot.substring(1) + "__" + sanitizeToken(subName) + ".nested.ndjson";
-          writeNDIndexForDir(subPath, fileToken);
-          Serial.printf("[Index] wrote nested %s for %s\n", fileToken.c_str(), subPath.c_str());
-        }
-        d.close();
-      }
-      bdir.close();
-    }
-  }
-
-  String summary = "{\n  \"generated\": true,\n  \"buckets\": {\n";
-  // read index files to include counts
-  File idx = SD.open(INDEX_DIR);
-  if(idx){
-    while(true){
-      File f = idx.openNextFile();
-      if(!f) break;
-      String fname = String(f.name());
-      if(fname.endsWith(".index.ndjson") || fname.endsWith(".nested.ndjson")){
-        // read first line header
-        String header = f.readStringUntil('\n');
-        // try to parse count quickly by locating '"count":' substring
-        int pos = header.indexOf("\"count\":");
-        String countStr = "0";
-        if(pos >= 0){
-          int start = pos + 8;
-          int end = start;
-          while(end < header.length() && isDigit(header.charAt(end))) end++;
-          countStr = header.substring(start, end);
-        }
-        summary += "    \"" + fname + "\": " + countStr + ",\n";
-      }
-      f.close();
-    }
-    idx.close();
-  }
-  if(summary.endsWith(",\n")) summary = summary.substring(0, summary.length()-2) + "\n";
-  summary += "  }\n}\n";
-
-  // write summary to /media.json (small)
-  File mf = SD.open("/media.json", FILE_WRITE);
-  if(mf){
-    mf.print(summary);
-    mf.close();
-  } else {
-    Serial.println("[Index] failed to write /media.json");
-    webLogf("error", "Failed to write /media.json (card full or read-only?)");
-  }
-
-  webLog("[MEDIA] Media index generation completed successfully", "success");
-  Serial.println("[Index] Media JSON generation complete");
 }
 
 String absURL(const String &path) {
@@ -2148,7 +2052,7 @@ void handleOPDSBooks(AsyncWebServerRequest *request) {
         if (!file) break;
 
         // name() returns the bare entry name, so build the real path from the directory
-        // being walked. using name() as a path broke recursion into subfolders
+        // being walked
         String fileName = String(file.name());
         int lastSlash = fileName.lastIndexOf('/');
         if (lastSlash >= 0) fileName = fileName.substring(lastSlash + 1);
@@ -2268,36 +2172,49 @@ String urlDecode(const String& str) {
 #include <set>
 #include <utility> // for std::pair
 
-// Whether a file is a timed stream, decided by extension rather than by whichever
-// branch of the Content-Type chain happens to match it. That chain knows nothing
-// about .mkv, .mov, .ts or .m2ts, so those files were never counted as streams at
-// all - on a full card that is a lot of film and episodes going unmetered.
-static bool isTimedMediaExtension(const String &lowerPath) {
-  int dot = lowerPath.lastIndexOf('.');
-  if (dot < 0) return false;
-  String ext = lowerPath.substring(dot);   // includes the dot, e.g. ".mkv"
+// 1 = refuse playback while an index pass runs. Off because the indexer gives up
+// sdMutex every five entries, so streaming can share the card with it.
+#ifndef NOMAD_BLOCK_MEDIA_WHILE_INDEXING
+#define NOMAD_BLOCK_MEDIA_WHILE_INDEXING 0
+#endif
 
-  if (ext == ".mp4"  || ext == ".m4v"  || ext == ".mov"  || ext == ".mkv"
-   || ext == ".webm" || ext == ".ts"   || ext == ".m2ts" || ext == ".avi") return true;
+// Same ETag for a file whichever route sends it. A download started as a plain GET
+// (sendSdFile) resumes with a Range request here, and the browser only resumes if the
+// two agree. Low 32 bits of the size, same as sendSdFile.
+static String nomadEtag(time_t mtime, uint64_t size) {
+  char etag[40];
+  snprintf(etag, sizeof(etag), "\"%lx-%lx\"", (unsigned long)mtime, (unsigned long)size);
+  return String(etag);
+}
 
-  if (ext == ".mp3"  || ext == ".m4a"  || ext == ".flac" || ext == ".wav"
-   || ext == ".ogg"  || ext == ".opus" || ext == ".aac") return true;
-
-  return false;
+// Content-Disposition for a file the page asked to download: the plain filename= for old
+// browsers (ASCII, no quotes) and filename*= with the real name.
+static String nomadAttachment(const String &path) {
+  const String name = path.substring(path.lastIndexOf('/') + 1);
+  String ascii;
+  for (size_t i = 0; i < name.length(); ++i) {
+    const char c = name.charAt(i);
+    ascii += ((uint8_t)c < 0x20 || (uint8_t)c > 0x7e || c == '"' || c == '\\') ? '_' : c;
+  }
+  return "attachment; filename=\"" + ascii + "\"; filename*=UTF-8''" + urlencode(name);
 }
 
 void handleRangeRequest(AsyncWebServerRequest *request) {
+#if NOMAD_BLOCK_MEDIA_WHILE_INDEXING
   if (indexingTasksActive) {
     Serial.println("[RangeHandler] Blocked: indexing in progress");
     request->send(503, "text/plain", "Indexing in progress. Please wait...");
     return;
   }
+#endif
 
   String filePath;
   if (request->hasParam("file")) {
     filePath = request->getParam("file")->value();
   } else {
-    filePath = urlDecode(request->url());
+    // url() is already percent-decoded by the server, decoding it again breaks a
+    // literal % in a filename
+    filePath = request->url();
   }
 
   if (!filePath.startsWith("/")) filePath = "/" + filePath;
@@ -2307,15 +2224,15 @@ void handleRangeRequest(AsyncWebServerRequest *request) {
     return;
   }
 
-  // Admission control, in two parts. The reservation goes first because it is the only
-  // one of the two that is immune to arrival timing; see MEDIA_SLOTS above. Only timed
-  // media reserves - cover art and page assets come through here too and are over in
-  // milliseconds. A HEAD is a probe, not a stream, and never takes a slot.
+  // Admission control, in two parts: a media slot first (see MEDIA_SLOTS), then the
+  // memory floor. Only audio and video take a slot. A HEAD never takes one.
   MediaSlotGuard slot;
+  bool admitTimed = false;
   {
     String admitLower = filePath;
     admitLower.toLowerCase();
-    if (request->method() != HTTP_HEAD && isTimedMediaExtension(admitLower)) {
+    admitTimed = isTimedMediaExtension(admitLower);
+    if (request->method() != HTTP_HEAD && admitTimed) {
       if (!slot.take()) {
         Serial.printf("[RangeHandler] %d media responses in flight, refusing: %s\n",
                       (int)inFlightMediaResponses, filePath.c_str());
@@ -2327,11 +2244,16 @@ void handleRangeRequest(AsyncWebServerRequest *request) {
     }
   }
 
-  // Every extra response in flight costs DMA-capable heap, and the card stops being
-  // readable before the heap is actually gone. Turning one client away retryably is
-  // much cheaper than letting all of them start failing. The guard above releases the
-  // reservation on every return below it.
-  if (streamDmaFree() < STREAM_DMA_FLOOR) {
+  // Every response in flight costs DMA memory, and the card stops reading before the
+  // heap is actually gone. Turning one client away with a retry beats all of them failing.
+  // Cover art and page files get a lower floor, with a film playing the full floor
+  // turns most covers on a grid away.
+  // A film already playing gets the lowest floor. Open-ended replies are capped at 8 MB,
+  // so every viewer comes back about once a minute for the next piece, right after its
+  // last response gave its memory back. At the full floor those viewers stall.
+  const bool continuing = admitTimed && continuingStream(filePath, request);
+  const size_t admitFloor = continuing ? CONTINUE_DMA_FLOOR : admitTimed ? STREAM_DMA_FLOOR : SMALL_FILE_DMA_FLOOR;
+  if (streamDmaFree() < admitFloor) {
     Serial.printf("[RangeHandler] DMA heap %u below floor, refusing: %s\n",
                   (unsigned)streamDmaFree(), filePath.c_str());
     AsyncWebServerResponse *busy = request->beginResponse(503, "text/plain", "Server busy - retry shortly");
@@ -2340,11 +2262,11 @@ void handleRangeRequest(AsyncWebServerRequest *request) {
     return;
   }
 
-  // OPTIMIZATION: Reduce mutex timeout from 5000ms to 1000ms
+  // 1 s wait for the card
   if (sdMutex) {
     if (xSemaphoreTake(sdMutex, pdMS_TO_TICKS(1000)) != pdTRUE) {
       Serial.printf("[RangeHandler] SD mutex timeout for: %s\n", filePath.c_str());
-      request->send(503, "text/plain", "SD busy — retrying shortly");
+      request->send(503, "text/plain", "SD busy, retrying shortly");
       return;
     }
   }
@@ -2354,32 +2276,67 @@ void handleRangeRequest(AsyncWebServerRequest *request) {
   };
 
   bool fileExists = SD_MMC.exists(filePath);
+  if (!fileExists) {
+    // exists() also answers false when the lookup couldn't get a DMA bounce buffer,
+    // which happens under load. Ask once more before believing it, a failed allocation
+    // usually works on the next try.
+    fileExists = SD_MMC.exists(filePath);
+    if (fileExists) {
+      Serial.printf("[RangeHandler] Lookup failed once then succeeded: %s\n", filePath.c_str());
+    }
+  }
 
   if (!fileExists) {
-    Serial.printf("[RangeHandler] File not found: %s\n", filePath.c_str());
     releaseSd();
+    // Below the floor a failed lookup is probably memory, not a missing file. A 404 would
+    // tell the client to stop asking for something that's still there.
+    if (streamDmaFree() < admitFloor) {
+      Serial.printf("[RangeHandler] Lookup failed under memory pressure (%u free): %s\n",
+                    (unsigned)streamDmaFree(), filePath.c_str());
+      AsyncWebServerResponse *busy = request->beginResponse(503, "text/plain", "Server busy - retry shortly");
+      busy->addHeader("Retry-After", "1");
+      request->send(busy);
+      return;
+    }
+    Serial.printf("[RangeHandler] File not found: %s\n", filePath.c_str());
     request->send(404, "text/plain", "File not found");
     return;
   }
 
-  // 64-bit stat: fs::File::size() truncates modulo 4 GB, which would report a
-  // 5 GB file as 0.88 GB and reject every range past 4 GB.
-  uint64_t fileSize = SD_MMC.fileSize64(filePath.c_str());
-  releaseSd();
+  // 64-bit stat: fs::File::size() wraps at 4 GB, which would reject every range past it.
+  uint64_t fileSize = 0;
+  time_t fileMtime = 0;
+  SD_MMC.fileStat64(filePath.c_str(), fileSize, fileMtime);   // 0 for a folder or a missing file
+  const String etag = nomadEtag(fileMtime, fileSize);
 
   if (fileSize == 0) {
-    // could be a genuinely empty file, a directory, or an open failure - the
-    // exists() check above already passed, so treat it as unreadable
-    Serial.printf("[SD] size query failed or empty: '%s'\n", filePath.c_str());
+    // fileSize64 also answers 0 for a directory or an empty file. Only an open failure
+    // is an SD error. Flagging the others would remount the card and kill every stream.
+    File probe = SD_MMC.open(filePath, FILE_READ);
+    bool opened = (bool)probe;
+    bool isDir = opened && probe.isDirectory();
+    if (opened) probe.close();
+    releaseSd();
+    if (isDir) {
+      request->send(404, "text/plain", "Not a file");
+      return;
+    }
+    if (opened) {
+      request->send(200, "application/octet-stream", "");
+      return;
+    }
+    Serial.printf("[SD] open failed for existing path: '%s'\n", filePath.c_str());
     sdErrorFlag = true;
     sdErrorCooldownUntil = millis() + 5000;
     request->send(503, "text/plain", "SD error");
     return;
   }
+  releaseSd();
 
   if (request->method() == HTTP_HEAD) {
     AsyncWebServerResponse *headResponse = request->beginResponse(200, "application/octet-stream", "");
     headResponse->addHeader("Accept-Ranges", "bytes");
+    headResponse->addHeader("ETag", etag);
     headResponse->addHeader("Content-Length", String(fileSize));
     headResponse->addHeader("Cache-Control", "public, max-age=3600");
     headResponse->addHeader("Pragma", "no-cache");
@@ -2392,6 +2349,36 @@ void handleRangeRequest(AsyncWebServerRequest *request) {
 
   String rangeHeader = "";
   if (request->hasHeader("Range")) rangeHeader = request->header("Range");
+  // A browser resuming a download sends If-Range with the ETag it was first given. Same
+  // file: carry on from where it stopped. Changed: send the whole new file, a range would
+  // splice two files together (RFC 9110 13.1.5).
+  bool resumingDownload = false;
+  if (rangeHeader.length() && request->hasHeader("If-Range")) {
+    if (request->header("If-Range") == etag) resumingDownload = true;
+    else rangeHeader = "";
+  }
+  // A download wants the rest of the file in one reply. Only a player's open-ended range
+  // is cut short (below): it seeks soon anyway, and a long reply holds the stream handle.
+  const bool download = request->hasParam("download");
+  // the admin turned downloads off for this page (or for all): its download links stop,
+  // playing and reading in the page still work. a signed-in admin can still download
+  if (download && downloadsOffFor(filePath) && !(isAdminAuthRequired() && checkAdminAuth(request))) {
+    request->send(403, "application/json", "{\"error\":\"Downloads are turned off for this page\"}");
+    return;
+  }
+  const bool wholeRest = rangeHeader.length() == 0 || resumingDownload || download;
+  // fetching new firmware takes the memory replies use, players retry shortly
+  if (g_fwPausingMedia) {
+    AsyncWebServerResponse *busy = request->beginResponse(503, "text/plain", "Nomad is updating its firmware");
+    if (busy) { busy->addHeader("Retry-After", "30"); request->send(busy); } else request->send(503);
+    return;
+  }
+  // the admin stopped this device on this file (Activity, Stop): refused for a while, so a
+  // player that reconnects at once doesn't simply carry on
+  if (nomadActBlocked(request, filePath)) {
+    request->send(403, "application/json", "{\"error\":\"Stopped by the admin\"}");
+    return;
+  }
 
   uint64_t startByte = 0;
   uint64_t endByte = fileSize - 1;
@@ -2399,10 +2386,9 @@ void handleRangeRequest(AsyncWebServerRequest *request) {
 
   if (rangeHeader.length() && rangeHeader.startsWith("bytes=")) {
     int dashIndex = rangeHeader.indexOf('-');
-    // "bytes=-N" asks for the last N bytes, not the first N. reading it as start 0
-    // end N served the head of the file under a 206 that said otherwise
+    // "bytes=-N" asks for the last N bytes
     bool suffixRange = (dashIndex == 6);
-    // strtoull, not strtoul/toInt(): offsets into a >4 GB exFAT file need 64 bits
+    // strtoull: offsets into a >4 GB exFAT file need 64 bits
     if (dashIndex > 6) {
       startByte = (uint64_t)strtoull(rangeHeader.substring(6, dashIndex).c_str(), nullptr, 10);
     }
@@ -2424,12 +2410,12 @@ void handleRangeRequest(AsyncWebServerRequest *request) {
     }
   }
 
-  if (openEndedRange && (endByte - startByte) > (8ULL * 1024 * 1024)) {
+  if (openEndedRange && !wholeRest && (endByte - startByte) > (8ULL * 1024 * 1024)) {
     endByte = startByte + (8ULL * 1024 * 1024) - 1;
   }
 
   if (startByte >= fileSize) {
-    // RFC 9110: a start beyond EOF must be refused, not clamped
+    // RFC 9110: a start beyond EOF gets a 416
     AsyncWebServerResponse *r416 = request->beginResponse(416, "text/plain", "Range not satisfiable");
     r416->addHeader("Content-Range", "bytes */" + String(fileSize));
     request->send(r416);
@@ -2438,9 +2424,10 @@ void handleRangeRequest(AsyncWebServerRequest *request) {
   if (endByte >= fileSize) endByte = fileSize - 1;
   if (startByte > endByte) startByte = endByte;
 
-  // A response body must fit size_t, so cap any single reply. Returning fewer bytes
-  // than asked is legal as long as Content-Range says so.
-  const uint64_t MAX_RESPONSE_BYTES = 256ULL * 1024 * 1024;
+  // A response body must fit size_t, so cap any single reply. Fewer bytes than asked is
+  // fine as long as Content-Range says so. Downloads get nearly the full 4 GB, a smaller
+  // cap gets saved by some download managers as the whole file. Player ranges stay at 256 MB.
+  const uint64_t MAX_RESPONSE_BYTES = wholeRest ? 0xFFFFF000ULL : 256ULL * 1024 * 1024;
   if (endByte - startByte + 1 > MAX_RESPONSE_BYTES) {
     endByte = startByte + MAX_RESPONSE_BYTES - 1;
   }
@@ -2452,7 +2439,9 @@ void handleRangeRequest(AsyncWebServerRequest *request) {
   String pLower = filePath;
   pLower.toLowerCase();
 
-  bool isMediaStream = false;
+  // Go by the extension for whether this is a stream. The Content-Type chain below
+  // doesn't know .mkv, .mov, .ts or .m2ts, and those still need the DLNA headers.
+  bool isMediaStream = isTimedMediaExtension(pLower);
   if (pLower.endsWith(".epub")) mimeType = "application/epub+zip";
   else if (pLower.endsWith(".pdf")) mimeType = "application/pdf";
   else if (pLower.endsWith(".mp3")) { mimeType = "audio/mpeg"; isMediaStream = true; }
@@ -2478,16 +2467,17 @@ void handleRangeRequest(AsyncWebServerRequest *request) {
     webLog("Playing: " + fileName + " (" + humanSize(fileSize) + ") [Media]", "media");
   }
 
+  // Mark a stream as live. This defers the start of a full scan and slows the storage
+  // monitor. Don't call shutdownBackgroundTasksForStreaming() here, it stalls the request
+  // and drops queued index work.
   if (isMediaStream && contentLength > 10000) {
     mediaStreamingActive = true;
     lastStreamIoMs = millis();
-    shutdownBackgroundTasksForStreaming();
   }
 
   if (pLower.indexOf("/archive/") >= 0) {
     mediaStreamingActive = true;
     lastStreamIoMs = millis();
-    shutdownBackgroundTasksForStreaming();
   }
 
   uint32_t streamId = 0;
@@ -2504,20 +2494,42 @@ void handleRangeRequest(AsyncWebServerRequest *request) {
       uint32_t existingId = pidx->second;
       auto eit = streamingFiles.find(existingId);
 
-      // The old stack needed a "reopen instead of seek past 2 GB" guard here, because
-      // fs::File sat on newlib stdio and its signed 32-bit offset corrupted the FILE
-      // buffer on a reused handle. SdFat seeks 64-bit natively.
+      // a file replaced since this handle opened it (a save, a copy over it) is a new file,
+      // the old handle would serve the old contents
+      if (eit != streamingFiles.end() && eit->second.file.isOpen() && eit->second.file.size() != fileSize &&
+          !eit->second.inflight) {
+        streamUnpublish(eit->second.path, eit->first);
+        eit->second.file.close();
+        streamingFiles.erase(eit);
+        eit = streamingFiles.end();
+      }
       if (eit != streamingFiles.end() && eit->second.file.isOpen()) {
-        eit->second.file.seek(startByte);
-        eit->second.lastActivity = millis();
-        eit->second.lastEndByte = endByte;
-        streamId = existingId;
-        Serial.printf("[Stream] Reuse #%u seek %llu: %s (heap=%u)\n",
-                      streamId, (unsigned long long)startByte, filePath.c_str(),
-                      (unsigned)ESP.getFreeHeap());
-        if (sdMutex) xSemaphoreGive(sdMutex);
-        xSemaphoreGive(streamingFilesMutex);
-        goto stream_ready;
+        // Join this handle only when nothing else is reading it.
+        // Sequential playback stays on one handle, the previous chunk is done by the time
+        // the next range arrives. A resume or scrub while the first response is still
+        // filling gets its own handle, sharing makes both re-seek on every fill.
+        // No seek here: readAt() is the only positioned reader of a stream handle. If a
+        // plain file.read() is ever added to the fill closure, put the seek back.
+        const bool busy = eit->second.active &&
+                          (millis() - eit->second.lastActivity) < STREAM_BUSY_QUIET_MS;
+        if (!busy) {
+          eit->second.lastActivity = millis();
+          eit->second.lastEndByte = endByte;
+          eit->second.active = true;
+          eit->second.inflight++;
+          streamId = existingId;
+          Serial.printf("[Stream] Reuse #%u at %llu: %s (heap=%u)\n",
+                        streamId, (unsigned long long)startByte, filePath.c_str(),
+                        (unsigned)ESP.getFreeHeap());
+          if (sdMutex) xSemaphoreGive(sdMutex);
+          xSemaphoreGive(streamingFilesMutex);
+          goto stream_ready;
+        }
+        // Busy: open a second handle for this path. The existing one is left for its own
+        // response and goes on eviction or the 120 s idle reap. The new one becomes the
+        // published handle, so this reader's next chunk finds it.
+        Serial.printf("[Stream] #%u busy, private handle at %llu: %s\n",
+                      existingId, (unsigned long long)startByte, filePath.c_str());
       } else {
         streamPathIndex.erase(pidx);
         if (eit != streamingFiles.end()) streamingFiles.erase(eit);
@@ -2530,7 +2542,7 @@ void handleRangeRequest(AsyncWebServerRequest *request) {
         const String &ap = ait->second.path;
         if (ap.indexOf("/Archive/") >= 0 || ap.indexOf("/archive/") >= 0) {
           Serial.printf("[Stream] Archive single-handle: closing #%u (%s)\n", ait->first, ap.c_str());
-          streamPathIndex.erase(ait->second.path);
+          streamUnpublish(ait->second.path, ait->first);
           ait->second.file.close();
           ait = streamingFiles.erase(ait);
         } else {
@@ -2540,19 +2552,33 @@ void handleRangeRequest(AsyncWebServerRequest *request) {
     }
 
     if ((int)streamingFiles.size() >= MAX_CONCURRENT_STREAMS) {
-      uint32_t oldestId = 0;
-      unsigned long oldestTime = 0xFFFFFFFFUL;
+      // Evicting a handle that's still filling cuts that response short. Take the oldest
+      // idle handle first and only fall back to a live one if every slot is busy.
+      uint32_t oldestId = 0,        oldestAnyId = 0;
+      unsigned long oldestTime = 0xFFFFFFFFUL, oldestAnyTime = 0xFFFFFFFFUL;
+      const unsigned long evictNow = millis();
       for (auto &kv : streamingFiles) {
-        if (kv.second.lastActivity < oldestTime) {
+        // unsigned subtraction, so millis() rollover is fine
+        const bool kvBusy = kv.second.active &&
+                            (evictNow - kv.second.lastActivity) < STREAM_BUSY_QUIET_MS;
+        if (kv.second.lastActivity < oldestAnyTime) {
+          oldestAnyTime = kv.second.lastActivity;
+          oldestAnyId = kv.first;
+        }
+        if (!kvBusy && kv.second.lastActivity < oldestTime) {
           oldestTime = kv.second.lastActivity;
           oldestId = kv.first;
         }
+      }
+      if (!oldestId) {   // every slot is busy: fall back to the oldest of them
+        oldestId = oldestAnyId;
+        oldestTime = oldestAnyTime;
       }
       if (oldestId) {
         auto it = streamingFiles.find(oldestId);
         if (it != streamingFiles.end()) {
           Serial.printf("[Stream] Evicting #%u (%s)\n", oldestId, it->second.path.c_str());
-          streamPathIndex.erase(it->second.path);
+          streamUnpublish(it->second.path, it->first);
           it->second.file.close();
           streamingFiles.erase(it);
         }
@@ -2573,6 +2599,8 @@ void handleRangeRequest(AsyncWebServerRequest *request) {
     sh.path = filePath;
     sh.lastActivity = millis();
     sh.lastEndByte = endByte;
+    sh.active = true;
+    sh.inflight = 1;
     streamingFiles[streamId] = std::move(sh);  // NomadFile64 is move-only
     streamPathIndex[filePath] = streamId;
     activeStreams = streamingFiles.size();
@@ -2589,15 +2617,21 @@ void handleRangeRequest(AsyncWebServerRequest *request) {
 
   stream_ready:
 
-  // Read position for this response. streamPathIndex hands the same handle to every
-  // request for a path, so two clients playing one file used to read through one
-  // shared position. Each response seeks to its own offset first.
+  // Read position for this response. Two clients can share one handle, so each response
+  // keeps its own offset.
   auto streamPos = std::make_shared<uint64_t>(startByte);
+  // Per-response read-ahead (NomadReadAhead.h). Empty until the mode is on and a fill
+  // needs it, freed with the response.
+  auto raCache = std::make_shared<NomadReadAheadCache>();
+  // The last byte this response promised. A Content-Length response can't stop short,
+  // see the filler.
+  const uint64_t lastByte = endByte;
+  const String streamFilePath = filePath;
 
   AsyncWebServerResponse *response = request->beginResponse(
     mimeType,
     contentLength,
-    [streamId, streamPos, filePath, startByte](uint8_t *buffer, size_t maxLen, size_t index) -> size_t {
+    [streamId, streamPos, lastByte, streamFilePath, raCache](uint8_t *buffer, size_t maxLen, size_t index) -> size_t {
       // busy mutex isnt end-of-data: returning 0 truncates the response, TRY_AGAIN retries later
       if (streamingFilesMutex && xSemaphoreTake(streamingFilesMutex, pdMS_TO_TICKS(150)) != pdTRUE) {
         return RESPONSE_TRY_AGAIN;
@@ -2605,34 +2639,32 @@ void handleRangeRequest(AsyncWebServerRequest *request) {
 
       auto it = streamingFiles.find(streamId);
       if (it == streamingFiles.end()) {
-        // evicted mid-send. returning 0 would look like end-of-body and truncate
-        // the response (browser sees NS_ERROR_NET_RESET), so reopen and resume.
-        bool sdHeld = (!sdMutex) || (xSemaphoreTake(sdMutex, pdMS_TO_TICKS(1000)) == pdTRUE);
-        if (!sdHeld) {
-          xSemaphoreGive(streamingFilesMutex);
-          return RESPONSE_TRY_AGAIN;
+        // The handle was evicted, or reaped while a paused player stopped reading, with
+        // bytes still owed. Returning 0 doesn't end a Content-Length body, the response
+        // just re-polls forever holding the socket. Closing the client from here deletes
+        // the request we were called from. So re-open the file under the same id and
+        // carry on from streamPos.
+        StreamHandle sh;
+        bool reopened = false;
+        if (!sdMutex) {
+          reopened = sh.file.open(streamFilePath.c_str());
+        } else if (xSemaphoreTake(sdMutex, pdMS_TO_TICKS(150)) == pdTRUE) {
+          reopened = sh.file.open(streamFilePath.c_str());
+          xSemaphoreGive(sdMutex);
         }
-        // ported to NomadSD: open() takes a path and answers bool, and the handle is a
-        // NomadFile64, not an fs::File - main's version was written against SD_MMC.
-        // built in place because a StreamHandle owns its file and cannot be copied.
-        StreamHandle &sh = streamingFiles[streamId];
-        if (!sh.file.open(filePath.c_str())) {
-          streamingFiles.erase(streamId);
-          if (sdMutex) xSemaphoreGive(sdMutex);
+        if (!reopened) {
           xSemaphoreGive(streamingFilesMutex);
-          Serial.printf("[Stream] Reopen failed for #%u (%s) - truncating\n",
-                        streamId, filePath.c_str());
-          return 0;  // genuinely unrecoverable
+          return RESPONSE_TRY_AGAIN;   // busy or out of memory: ask again, never 0
         }
-        sh.file.seek(startByte + index);
-        sh.path = filePath;
+        sh.path = streamFilePath;
         sh.lastActivity = millis();
-        sh.lastEndByte = startByte + index;
-        streamPathIndex[filePath] = streamId;
-        if (sdMutex) xSemaphoreGive(sdMutex);
-        Serial.printf("[Stream] Reopened #%u at %lu (evicted mid-send): %s\n",
-                      streamId, (unsigned long)(startByte + index), filePath.c_str());
+        sh.lastEndByte = lastByte;
+        sh.active = true;
+        sh.inflight = 1;   // this reply, still open, its onDisconnect counts it down
+        streamingFiles[streamId] = std::move(sh);
         it = streamingFiles.find(streamId);
+        Serial.printf("[Stream] Re-opened #%u at %llu: %s\n",
+                      streamId, (unsigned long long)*streamPos, streamFilePath.c_str());
       }
 
       NomadFile64 &file = it->second.file;
@@ -2644,7 +2676,13 @@ void handleRangeRequest(AsyncWebServerRequest *request) {
 
       size_t bytesRead = 0;
       bool sdBusy = false;
-      if (!sdMutex) {
+      const uint64_t fillPos = *streamPos;
+      const int64_t fillT0 = esp_timer_get_time();
+      if (g_nomadAlignedReads && g_nomadRaDma) {
+        // aligned multi-sector reads into the DMA buffer, served from this response's cache
+        bytesRead = nomadReadAheadFill(*raCache, file, *streamPos, buffer, toRead, sdMutex, sdBusy);
+        *streamPos += bytesRead;
+      } else if (!sdMutex) {
         bytesRead = file.readAt(*streamPos, buffer, toRead);
         *streamPos += bytesRead;
       } else if (xSemaphoreTake(sdMutex, pdMS_TO_TICKS(1500)) == pdTRUE) {
@@ -2656,25 +2694,40 @@ void handleRangeRequest(AsyncWebServerRequest *request) {
       } else {
         sdBusy = true;  // transient: retry this fill later, don't truncate
       }
+      // Hand the handle back once this response has sent its range, so the next chunk
+      // rejoins it instead of opening a second one. A response that dies early never gets
+      // here, its handle is freed by going quiet (STREAM_BUSY_QUIET_MS).
+      if (!sdBusy && *streamPos > it->second.lastEndByte) {
+        it->second.active = false;
+      }
       xSemaphoreGive(streamingFilesMutex);
+      nomadFillNote(maxLen, buffer, fillPos, bytesRead,
+                    (uint32_t)(esp_timer_get_time() - fillT0), sdBusy);
 
-      return sdBusy ? RESPONSE_TRY_AGAIN : bytesRead;
+      if (sdBusy) return RESPONSE_TRY_AGAIN;
+      // An empty read with bytes still owed means the sdmmc bounce buffer didn't
+      // allocate (the range was clamped to the file size). Returning 0 would wedge the
+      // response, so ask again.
+      if (bytesRead == 0 && *streamPos <= lastByte) return RESPONSE_TRY_AGAIN;
+      return bytesRead;
     }
   );
 
-  // beginResponse answers NULL on low heap and dereferencing it panics async_tcp.
-  // closeStreamById gives back the handle this response would have owned.
+  // beginResponse returns NULL on low heap, and using it would panic async_tcp and take
+  // the whole server down. closeStreamById frees the handle the response would have owned.
   if (!response) {
     Serial.printf("[Stream] beginResponse OOM for %s (heap=%u)\n",
                   filePath.c_str(), (unsigned)ESP.getFreeHeap());
     closeStreamById(streamId);
-    request->send(503, "text/plain", "Server low on memory - retry");
+    AsyncWebServerResponse *oom = request->beginResponse(503, "text/plain", "Server low on memory - retry");
+    if (oom) { oom->addHeader("Retry-After", "1"); request->send(oom); }
+    else request->send(503, "text/plain", "Server low on memory - retry");
     return;
   }
 
   if (rangeHeader.length() > 0 || forcedPartial) {
     // forcedPartial: no Range was sent but the file is too big for one body, so
-    // answer 206 with an honest Content-Range instead of a truncated 200
+    // answer 206 with a real Content-Range instead of a truncated 200
     response->setCode(206);
     response->addHeader("Content-Range", "bytes " + String(startByte) + "-" + String(endByte) + "/" + String(fileSize));
   } else {
@@ -2685,6 +2738,8 @@ void handleRangeRequest(AsyncWebServerRequest *request) {
   response->addHeader("Access-Control-Allow-Methods", "GET, HEAD, OPTIONS");
   response->addHeader("Access-Control-Allow-Headers", "Range, Content-Type, Accept");
   response->addHeader("Accept-Ranges", "bytes");
+  response->addHeader("ETag", etag);
+  if (download) response->addHeader("Content-Disposition", nomadAttachment(filePath));
   response->addHeader("Content-Length", String(contentLength));
   response->addHeader("Cache-Control", "public, max-age=3600");
   response->addHeader("Connection", "close");
@@ -2695,12 +2750,32 @@ void handleRangeRequest(AsyncWebServerRequest *request) {
     response->addHeader("contentFeatures.dlna.org", "DLNA.ORG_OP=01;DLNA.ORG_CI=0;DLNA.ORG_FLAGS=01700000000000000000000000000000");
     response->addHeader("realTimeInfo.dlna.org", "DLNA.ORG_TLAG=*");
   }
-  // The reservation was taken at admission. Hand it to onDisconnect, which is a real
-  // end-of-response hook here because the response carries Connection: close, so one
-  // disconnect is one response. After release() the guard's destructor does nothing.
-  if (slot.idx >= 0) {
-    const int held = slot.release();
-    request->onDisconnect([held]() { mediaSlotGive(held); });
+  // Hand the media slot to onDisconnect. With Connection: close one disconnect is one
+  // response. After release() the guard's destructor does nothing.
+  // films, songs and downloads show in the admin Activity section, with this reply's read
+  // position as their progress
+  const uint32_t actId = (isMediaStream || download)
+      ? nomadActNote(request, filePath, fileSize, endByte, download, streamPos) : 0;
+  {
+    const uint32_t token = slot.token;
+    const int held = slot.release();   // -1 with no slot, which mediaSlotGive ignores
+    request->onDisconnect([held, token, actId, request, streamId]() {
+      mediaSlotGive(held, token);
+      nomadActGone(actId, request);
+      streamReplyDone(streamId);
+    });
+  }
+  // A bigger send window makes one viewer a lot faster, but every byte of it is internal
+  // DMA memory. Films split about 40 KB evenly (capped at NOMAD_MEDIA_SNDBUF each), and
+  // past that fall back to the core's 5,744 B, so the card reads keep the memory they need
+#if NOMAD_BENCH
+  if (!benchApplySndBuf(request))
+#endif
+  {
+    const int films = inFlightMediaResponses > 0 ? inFlightMediaResponses : 1;
+    uint32_t share = (40u * 1024u) / (uint32_t)films;
+    if (share > NOMAD_MEDIA_SNDBUF) share = NOMAD_MEDIA_SNDBUF;
+    nomadRaiseSndBuf(request, share > 5744 ? share : 0);
   }
   request->send(response);
 }
@@ -2733,11 +2808,9 @@ void handleListFiles(AsyncWebServerRequest *request) {
         return;
     }
 
-    // ArduinoJson 7 grows a document from the heap on demand: the number handed to
-    // DynamicJsonDocument is remembered and reported by capacity(), but it does not
-    // bound anything, and overflowed() only goes true on a real allocation failure.
-    // So the ceiling here is the ESP32's heap, and the whole response also has to fit
-    // in one String below. Bound it ourselves, generously, and say when we did.
+    // ArduinoJson 7 grows a document on demand, the size passed to DynamicJsonDocument
+    // doesn't limit anything and overflowed() only trips on a real allocation failure.
+    // The whole response also has to fit in one String, so cap it ourselves.
     static const size_t LIST_MAX_BYTES = 49152;   // ~800 entries, far past any real folder
     DynamicJsonDocument doc(LIST_MAX_BYTES);
     JsonArray arr = doc.to<JsonArray>();
@@ -2777,9 +2850,8 @@ void handleListFiles(AsyncWebServerRequest *request) {
     }
     if (file) file.close();   // breaking out of the loop leaves the handle open
 
-    // A marker entry rather than a header, because the response is a bare array.
-    // Callers that ignore it see the same list they always did; callers that read
-    // it know to go to the (uncapped) NDJSON index for the full listing.
+    // A marker entry, since the response is a bare array. Callers that read it know to
+    // go to the NDJSON index for the full listing.
     if (truncated) {
         JsonObject t = arr.createNestedObject();
         t["name"] = "";
@@ -2795,7 +2867,7 @@ void handleListFiles(AsyncWebServerRequest *request) {
     request->send(200, "application/json", response);
 }
 
-// ------------------------- ARCHIVE MANIFEST -------------------------
+// Archive manifest
 String escapeJsonString(const String &in) {
   String out;
   out.reserve(in.length());
@@ -2867,7 +2939,7 @@ void handleArchiveList(AsyncWebServerRequest *request) {
         lower.toLowerCase();
         String type = archiveTypeForExt(lower);
 
-        // id = filename minus extension; split parts (.zimaa) drop the suffix too so they share one id
+        // id = filename minus extension, split parts (.zimaa) drop the suffix too so they share one id
         String id = name;
         bool isSplitPart = false;
         int len = lower.length();
@@ -2888,8 +2960,8 @@ void handleArchiveList(AsyncWebServerRequest *request) {
           g = &groups.back();
         }
         if (isSplitPart) g->split = true;
-        // size() saturates at SIZE_MAX past 4 GB and means "ask fileSize64". a single ZIM
-        // over 4 GB is the reason the exFAT build exists
+        // size() sticks at SIZE_MAX past 4 GB, then ask fileSize64. big ZIMs are why the
+        // exFAT build exists
         uint64_t psz = (uint64_t)file.size();
         if (psz == (uint64_t)SIZE_MAX) psz = SD_MMC.fileSize64(file.path());
         g->parts.push_back(ArchivePart{ String("/Archive/") + name, psz });
@@ -2965,7 +3037,7 @@ void handleGamesList(AsyncWebServerRequest *request) {
       String name = String(file.name());
       int slash = name.lastIndexOf('/');
       if (slash >= 0) name = name.substring(slash + 1);
-      // Skip dotfiles and sibling cover art -- only ROM files count toward "has content".
+      // Skip dotfiles and cover art, only ROM files count toward "has content".
       String lower = name;
       lower.toLowerCase();
       if (!name.startsWith(".") && !lower.endsWith(".png") && !lower.endsWith(".jpg") && !lower.endsWith(".jpeg")) {
@@ -2991,33 +3063,28 @@ void handleGamesList(AsyncWebServerRequest *request) {
 }
 
 // Cheap directory scan for menu.html's Maps tile: region subfolders under /Maps that
-// have a manifest.json. per-region detail is fetched by the client, not parsed here.
-void handleMapsList(AsyncWebServerRequest *request) {
-  bool sdLocked = false;
-  if (sdMutex) {
-    if (xSemaphoreTake(sdMutex, pdMS_TO_TICKS(1000)) != pdTRUE) {
-      request->send(503, "application/json", "{\"error\":\"SD busy\"}");
-      return;
-    }
-    sdLocked = true;
+// have a manifest.json. The client fetches each region's details itself.
+// {"regions":[{"id","manifest"}...]}. *status is 503 if the card stayed busy.
+String mapsListJson(int *status) {
+  *status = 200;
+  if (sdMutex && xSemaphoreTake(sdMutex, pdMS_TO_TICKS(1000)) != pdTRUE) {
+    *status = 503;
+    return "{\"error\":\"SD busy\"}";
   }
-
   File root = SD_MMC.open("/Maps");
   if (!root || !root.isDirectory()) {
     if (root) root.close();
-    if (sdLocked) xSemaphoreGive(sdMutex);
-    AsyncWebServerResponse *r = request->beginResponse(200, "application/json", "{\"regions\":[]}");
-    r->addHeader("Access-Control-Allow-Origin", "*");
-    request->send(r);
-    return;
+    if (sdMutex) xSemaphoreGive(sdMutex);
+    return "{\"regions\":[]}";
   }
-
-  String resp; resp.reserve(6 * 1024);    // ~64 regions, no realloc churn
+  // Every US state is its own pack, plus the base packs and image maps: up to 160.
+  // ~70 bytes a region, a full card grows past the 6 KB reserve.
+  String resp; resp.reserve(6 * 1024);
   resp = "{\"regions\":[";
   bool first = true;
   int regionCount = 0;
   File entry = root.openNextFile();
-  while (entry && regionCount < 64) {
+  while (entry && regionCount < 160) {
     if (entry.isDirectory()) {
       String name = String(entry.name());
       int slash = name.lastIndexOf('/');
@@ -3037,16 +3104,104 @@ void handleMapsList(AsyncWebServerRequest *request) {
     yield();
   }
   root.close();
-  if (sdLocked) xSemaphoreGive(sdMutex);
-
+  if (sdMutex) xSemaphoreGive(sdMutex);
   resp += "]}";
-  AsyncWebServerResponse *r = request->beginResponse(200, "application/json", resp);
-  r->addHeader("Access-Control-Allow-Origin", "*");
-  request->send(r);
   Serial.printf("[MAPS] /api/maps-list: %d region(s), %u bytes\n", regionCount, (unsigned)resp.length());
+  return resp;
 }
 
-// ---- Multiplayer (HTTP polling) helpers -- all assume gameMutex is already held ----
+// The menu's optional tiles: whether each optional page has anything to show, in one
+// answer. Each check stops at the first thing it finds, and the answer is kept for 20 s.
+// (ints, not an enum, the prototypes Arduino generates go above any type declared here)
+#define MENU_ANY 0
+#define MENU_ZIM 1
+#define MENU_MAP 2
+static bool menuDirHas(const char *dir, int want) {
+  File d = SD_MMC.open(dir);
+  if (!d || !d.isDirectory()) { if (d) d.close(); return false; }
+  bool found = false;
+  for (File f = d.openNextFile(); f && !found; f = d.openNextFile()) {
+    String n = String(f.name());
+    n = n.substring(n.lastIndexOf('/') + 1);
+    const bool isDir = f.isDirectory();
+    f.close();
+    if (n.startsWith(".")) continue;
+    String low = n;
+    low.toLowerCase();
+    if (want == MENU_ANY) found = true;
+    else if (want == MENU_ZIM) found = !isDir && archiveTypeForExt(low) == "zim";
+    else found = isDir && SD_MMC.exists(String(dir) + "/" + n + "/manifest.json");
+  }
+  d.close();
+  return found;
+}
+
+static bool menuTranslatePacks() {
+  File f = SD_MMC.open("/Translate/manifest.json", FILE_READ);
+  if (!f) return false;
+  JsonDocument doc;
+  const bool ok = !deserializeJson(doc, f);
+  f.close();
+  if (!ok) return false;
+  JsonArray list = doc["packs"].is<JsonArray>() ? doc["packs"].as<JsonArray>() : doc["pairs"].as<JsonArray>();
+  return !list.isNull() && list.size() > 0;
+}
+
+static String g_menuJson;
+static uint32_t g_menuAt = 0;
+static SemaphoreHandle_t g_menuLock = nullptr;
+
+// Work the answer out again. Runs from loop() every 30 s, so a phone asking gets the kept
+// one (a fresh look can take over a second, depending on what else the card is doing).
+static bool menuFeaturesRefresh(uint32_t waitMs) {
+  if (sdMutex && xSemaphoreTake(sdMutex, pdMS_TO_TICKS(waitMs)) != pdTRUE) return false;
+  // Games shows whenever this firmware answers: Play Together works with no ROMs
+  const String j = String("{\"archive\":") + (menuDirHas("/Archive", MENU_ZIM) ? "true" : "false") +
+                   ",\"games\":true" +
+                   ",\"maps\":" + (menuDirHas("/Maps", MENU_MAP) ? "true" : "false") +
+                   ",\"translate\":" + (menuTranslatePacks() ? "true" : "false") +
+                   ",\"cookbook\":" + (menuDirHas("/Cookbook", MENU_ANY) ? "true" : "false") +
+                   ",\"workshop\":" + (menuDirHas("/Workshop", MENU_ANY) ? "true" : "false") + "}";
+  if (sdMutex) xSemaphoreGive(sdMutex);
+  xSemaphoreTake(g_menuLock, portMAX_DELAY);
+  g_menuJson = j;
+  g_menuAt = millis();
+  xSemaphoreGive(g_menuLock);
+  return true;
+}
+
+void nomadMenuTick() {
+  if (g_menuAt && millis() - g_menuAt < 30000) return;
+  static uint32_t tried = 0;
+  if (millis() - tried < 5000) return;          // card busy: not every loop
+  tried = millis();
+  menuFeaturesRefresh(200);
+}
+
+void handleMenuFeatures(AsyncWebServerRequest *request) {
+  if (!g_menuAt && !menuFeaturesRefresh(1500)) {   // only before loop() has had a go
+    AsyncWebServerResponse *busy = request->beginResponse(503, "application/json", "{\"error\":\"SD busy\"}");
+    busy->addHeader("Retry-After", "1");
+    request->send(busy);
+    return;
+  }
+  xSemaphoreTake(g_menuLock, portMAX_DELAY);
+  const String cached = g_menuJson;
+  xSemaphoreGive(g_menuLock);
+  AsyncWebServerResponse *r = request->beginResponse(200, "application/json", cached);
+  r->addHeader("Cache-Control", "no-store");
+  request->send(r);
+}
+
+void handleMapsList(AsyncWebServerRequest *request) {
+  int status = 200;
+  const String resp = mapsListJson(&status);
+  AsyncWebServerResponse *r = request->beginResponse(status, "application/json", resp);
+  r->addHeader("Access-Control-Allow-Origin", "*");
+  request->send(r);
+}
+
+// Multiplayer (HTTP polling) helpers. All assume gameMutex is already held.
 
 static void mpGenerateCode(char *out) {  // out must be MP_CODE_LEN bytes
   static const char kAlphabet[] = "23456789ABCDEFGHJKLMNPQRSTUVWXYZ";  // no 0/O/1/I
@@ -3121,7 +3276,7 @@ void handleMpCreate(AsyncWebServerRequest *request, uint8_t *data, size_t len, s
   memcpy(room.code, code, MP_CODE_LEN);
   strncpy(room.game, game, MP_GAME_LEN - 1);
   mpGenerateToken(room.token[0]);
-  room.seq = 0;  // 0 = empty/waiting state; turn = seq % 2, so seat 0 moves first
+  room.seq = 0;  // 0 = empty/waiting state, turn = seq % 2, so seat 0 moves first
   room.lastMs = millis();
   room.active = true;
 
@@ -3170,9 +3325,8 @@ void handleMpJoin(AsyncWebServerRequest *request, uint8_t *data, size_t len, siz
   memcpy(gameOut, room.game, MP_GAME_LEN);
   xSemaphoreGive(gameMutex);
 
-  // The room already knows which game it is; not saying so meant a Chess code typed
-  // into the Tic-Tac-Toe box joined the room and then desynced, instead of being
-  // refused by a client that could see the mismatch.
+  // Say which game the room is, so a client can refuse a Chess code typed into the
+  // Tic-Tac-Toe box instead of joining and desyncing.
   String resp = String("{\"token\":\"") + tokenOut + "\",\"seat\":1,\"game\":\"" +
                 escapeJsonString(String(gameOut)) + "\"}";
   AsyncWebServerResponse *r = request->beginResponse(200, "application/json", resp);
@@ -3281,9 +3435,8 @@ void handleMpState(AsyncWebServerRequest *request) {
     return;
   }
   MpRoom &room = mpRooms[slot];
-  // Polling is what a game between two thinking players looks like. Without this the
-  // room went untouched for MP_ROOM_IDLE_MS and was reclaimed underneath them - only
-  // a move counted as being alive, so any pause longer than two minutes ended the game.
+  // Polling counts as activity, otherwise a pause longer than MP_ROOM_IDLE_MS between
+  // moves gets the room reclaimed mid-game.
   room.lastMs = millis();
   bool changed = room.seq > since;
   bool joined = room.token[1][0] != '\0';
@@ -3311,20 +3464,21 @@ void handleRename(AsyncWebServerRequest *request) {
 
     String oldName = request->getParam("oldname", true)->value();
     String newName = request->getParam("newname", true)->value();
+    if ((isConfigPath(oldName) || isConfigPath(newName)) && !checkAdminAuth(request)) {
+        request->send(401, "application/json", "{\"error\":\"Unauthorized\"}");
+        return;
+    }
 
     Serial.printf("[RENAME] Attempting to rename: '%s' -> '%s'\n", oldName.c_str(), newName.c_str());
 
-    if (streamingFilesMutex && xSemaphoreTake(streamingFilesMutex, pdMS_TO_TICKS(100)) == pdTRUE) {
-        bool inUse = false;
-        for (auto &kv : streamingFiles) {
-          if (kv.second.path == oldName) { inUse = true; break; }
-        }
-        xSemaphoreGive(streamingFilesMutex);
-        if (inUse) {
+    switch (releaseStreamsFor(oldName)) {
+        case 1:
             Serial.printf("[RENAME] File is currently streaming: %s\n", oldName.c_str());
             request->send(409, "application/json", "{\"error\":\"File is currently in use\"}");
             return;
-        }
+        case -1:
+            request->send(503, "application/json", "{\"error\":\"Busy, try again\"}");
+            return;
     }
 
     if (sdMutex && xSemaphoreTake(sdMutex, pdMS_TO_TICKS(5000)) != pdTRUE) {
@@ -3362,8 +3516,8 @@ void handleRename(AsyncWebServerRequest *request) {
     }
     sourceFile.close();
 
-    // no settle delays in this handler. SdFat writes synchronously, so they
-    // only stalled the async_tcp event loop for every other client.
+    // no settle delays in this handler. SdFat writes synchronously, a delay just
+    // stalls async_tcp for every other client.
     bool renameSuccess = SD_MMC.rename(oldName, newName);
 
     if (!renameSuccess) {
@@ -3452,18 +3606,20 @@ void handleDelete(AsyncWebServerRequest *request) {
     }
 
     String filename = request->getParam("filename", true)->value();
+    if (isConfigPath(filename) && !checkAdminAuth(request)) {
+        request->send(401, "application/json", "{\"error\":\"Unauthorized\"}");
+        return;
+    }
 
-    if (streamingFilesMutex && xSemaphoreTake(streamingFilesMutex, pdMS_TO_TICKS(100)) == pdTRUE) {
-        bool inUse = false;
-        for (auto &kv : streamingFiles) {
-          if (kv.second.path == filename) { inUse = true; break; }
-        }
-        xSemaphoreGive(streamingFilesMutex);
-        if (inUse) {
+    // for a folder this checks everything inside it too
+    switch (releaseStreamsFor(filename)) {
+        case 1:
             Serial.printf("[DELETE] File is currently streaming: %s\n", filename.c_str());
             request->send(409, "application/json", "{\"error\":\"File is currently in use\"}");
             return;
-        }
+        case -1:
+            request->send(503, "application/json", "{\"error\":\"Busy, try again\"}");
+            return;
     }
 
     if (sdMutex && xSemaphoreTake(sdMutex, pdMS_TO_TICKS(5000)) != pdTRUE) {
@@ -3527,7 +3683,7 @@ void handleDelete(AsyncWebServerRequest *request) {
         request->send(500, "application/json", "{\"error\":\"Delete failed\"}");
     }
 }
-// ---------- SD usage persistence helpers ----------
+// SD usage persistence helpers
 // File used to persist the last known usage %
 // Save usage atomically
 void saveSdUsageToFile(uint64_t totalBytes, uint64_t usedBytes, unsigned long tsMillis = 0) {
@@ -3605,10 +3761,9 @@ bool refreshCachedTotalsFromStat(uint64_t &outStatUsedBytes, uint32_t mutexTimeo
   }
   uint64_t total = SD_MMC.totalBytes();
 
-  // usedBytes() is cheap on FAT32 because it reads the FSInfo free count, but on exFAT
-  // it walks the whole allocation bitmap and holds the SdFat lock for seconds. On the
-  // 10s monitor tick that left every SD-touching handler stuck long enough to trip the
-  // watchdog on async_tcp. Recompute rarely and reuse the last value in between.
+  // usedBytes() is cheap on FAT32, but on exFAT it walks the whole allocation bitmap and
+  // holds the SdFat lock for seconds, long enough to trip the async_tcp watchdog.
+  // Recompute rarely and reuse the last value in between.
   static uint64_t lastUsedBytes = 0;
   static unsigned long lastUsedMs = 0;
   static bool haveUsedBytes = false;
@@ -3668,7 +3823,7 @@ void reconcileStatTrust(uint64_t walkedUsedBytes) {
   g_sdStatTrusted = agrees;
 }
 
-// ---------- Disk-usage ----------
+// Disk usage
 
 static std::map<String, BreakdownStats> g_lastBreakdown;
 
@@ -3690,8 +3845,7 @@ std::vector<std::pair<String, BreakdownStats>> sortedBreakdownEntries(const std:
 void saveSdBreakdownToFile(const std::map<String, BreakdownStats> &breakdown) {
   std::vector<std::pair<String, BreakdownStats>> entries = sortedBreakdownEntries(breakdown);
 
-  // Sized off actual entry count rather than a flat guess, same pattern already used
-  // for handleListFiles's DynamicJsonDocument(8192).
+  // Sized off the actual entry count
   size_t docSize = JSON_ARRAY_SIZE(entries.size()) + entries.size() * JSON_OBJECT_SIZE(4) + entries.size() * 48 + 128;
   DynamicJsonDocument doc(docSize);
   doc["ts"] = millis();
@@ -3759,38 +3913,37 @@ bool loadSdBreakdownFromFile() {
   return true;
 }
 
-void scanSDCardUsage() {
+// Full walk of the card into cachedUsedBytes and g_lastBreakdown. Takes sdMutex itself
+// and hands it back every ~50 ms, so streams and page loads keep working during the
+// 10-20 minutes a big card takes. Totals are only saved at the end, so an abandoned walk
+// leaves the previous numbers in place.
+// Returns false if the walk couldn't start or lost the card part way.
+bool scanSDCardUsage() {
   const unsigned long minScanIntervalMs = 15UL * 60UL * 1000UL;
   if (lastScanTime != 0 && (millis() - lastScanTime) < minScanIntervalMs) {
     Serial.printf("[SDBAR] scan skipped: last scan %lu ms ago (min %lu ms)\n", millis() - lastScanTime, minScanIntervalMs);
-    return;
+    return false;
+  }
+  if (sdMutex && xSemaphoreTake(sdMutex, pdMS_TO_TICKS(10000)) != pdTRUE) {
+    Serial.println("[SDScan] Failed to acquire mutex for SD scan");
+    webLog("[SD Scan] Failed to acquire SD lock - will retry later", "warning");
+    return false;
   }
 
-  cachedUsedBytes  = 0;
   uint64_t reportedTotal = SD_MMC.cardSize();
-  uint32_t startMs = millis();
-  uint64_t lastSavedBytes = 0;
-
-  if (reportedTotal > 0) {
-    if (reportedTotal < cachedUsedBytes) {
-      if ((reportedTotal * 512ULL) >= cachedUsedBytes) {
-        reportedTotal *= 512ULL;
-      } else if ((reportedTotal * 1024ULL) >= cachedUsedBytes) {
-        reportedTotal *= 1024ULL;
-      } else {
-        reportedTotal *= 512ULL;
-      }
-    }
-  } else {
+  if (reportedTotal == 0) {
     reportedTotal = cachedTotalBytes > 0 ? cachedTotalBytes : (64ULL * 1024ULL * 1024ULL * 1024ULL);
   }
   cachedTotalBytes = reportedTotal;
 
+  uint32_t startMs = millis();
+  uint64_t walked = 0;
+  uint64_t lastSavedBytes = 0;
+  uint64_t lastAnnounced = 0;
   const uint32_t tickBudgetMs = 50;
   uint32_t lastYield = millis();
-  uint64_t lastAnnounced = 0;
 
-  g_lastBreakdown.clear();
+  std::map<String, BreakdownStats> breakdown;   // committed to g_lastBreakdown at the end
   auto topLevelBucketFor = [](const String &path) -> String {
     int slash = path.indexOf('/', 1);
     return (slash < 0) ? String("/") : path.substring(0, slash);
@@ -3817,50 +3970,65 @@ void scanSDCardUsage() {
 
       if (entry.isDirectory()) {
         dirStack.push_back(entryPath);
-        if (entryPath != "/") g_lastBreakdown[topLevelBucketFor(entryPath)].dirs++;
+        if (entryPath != "/") breakdown[topLevelBucketFor(entryPath)].dirs++;
         entry.close();
       } else {
         uint64_t fileSize = entry.size();
         entry.close();
-        // saturated size means the file is past 4 GB; get the real one so the
+        // saturated size means the file is past 4 GB, get the real one so the
         // usage total is not short by 4 GB for every such file
         if (fileSize == (uint64_t)SIZE_MAX) fileSize = SD_MMC.fileSize64(entryPath.c_str());
 
-        cachedUsedBytes += fileSize;
-        BreakdownStats &bucket = g_lastBreakdown[topLevelBucketFor(entryPath)];
+        walked += fileSize;
+        BreakdownStats &bucket = breakdown[topLevelBucketFor(entryPath)];
         bucket.bytes += fileSize;
         bucket.files++;
 
-        if ((cachedUsedBytes - lastAnnounced) > (2ULL * 1024ULL * 1024ULL * 1024ULL)) {
-          sdbarDirty = true;
-          lastAnnounced = cachedUsedBytes;
-          float usedGB = (float)cachedUsedBytes / (1024.0 * 1024.0 * 1024.0);
+        if ((walked - lastAnnounced) > (2ULL * 1024ULL * 1024ULL * 1024ULL)) {
+          lastAnnounced = walked;
+          float usedGB = (float)walked / (1024.0 * 1024.0 * 1024.0);
           float totalGB = (float)cachedTotalBytes / (1024.0 * 1024.0 * 1024.0);
           webLogf("info", "SD scan progress: %.1f GB / %.1f GB scanned", usedGB, totalGB);
 
-          // Same checkpoint (every 2GB) doubles as the screen-progress throttle -
-          // no separate timer needed, and it can't flood the small lvglQueue.
+          // Same checkpoint (every 2GB) throttles the screen progress, so it can't
+          // flood the small lvglQueue.
           int pct = (totalGB > 0.0f) ? (int)((usedGB / totalGB) * 100.0f) : 0;
           char screenBuf[80];
           snprintf(screenBuf, sizeof(screenBuf), "Scanning SD card...\n%.1f / %.1f GB (%d%%)\n\nDo not unplug!",
                     usedGB, totalGB, pct);
           lvglSendMsg(screenBuf, true);
         }
-        
-        if ((cachedUsedBytes - lastSavedBytes) > (32ULL * 1024ULL * 1024ULL)) {
-          saveSdUsageToFile(cachedTotalBytes, cachedUsedBytes, millis());
-          lastSavedBytes = cachedUsedBytes;
+
+        if ((walked - lastSavedBytes) > (32ULL * 1024ULL * 1024ULL)) {
+          saveSdUsageToFile(cachedTotalBytes, walked, millis());
+          lastSavedBytes = walked;
         }
       }
 
       if ((millis() - lastYield) > tickBudgetMs) {
         lastYield = millis();
-        vTaskDelay(pdMS_TO_TICKS(1));
+        // hand the card to whoever is waiting (a stream fill, a page load) before
+        // carrying on. The open directory handle survives the gap, SdFat keeps its
+        // own position.
+        if (sdMutex) {
+          xSemaphoreGive(sdMutex);
+          vTaskDelay(pdMS_TO_TICKS(10));
+          if (xSemaphoreTake(sdMutex, pdMS_TO_TICKS(10000)) != pdTRUE) {
+            dir.close();
+            Serial.println("[SDBAR] scan abandoned: card stayed busy for 10 s, keeping previous totals");
+            webLog("[SD Scan] Stopped early - the card stayed busy. Previous totals kept.", "warning");
+            return false;
+          }
+        } else {
+          vTaskDelay(pdMS_TO_TICKS(1));
+        }
       }
     }
     dir.close();
   }
 
+  cachedUsedBytes = walked;
+  g_lastBreakdown.swap(breakdown);
   reconcileStatTrust(cachedUsedBytes);
 
   saveSdUsageToFile(cachedTotalBytes, cachedUsedBytes, millis());
@@ -3868,19 +4036,18 @@ void scanSDCardUsage() {
 
   lastScanTime = millis();
   sdbarDirty = true;
-
+  if (sdMutex) xSemaphoreGive(sdMutex);
 
   Serial.printf("[SDBAR] SD card scan complete: used=%llu bytes, total=%llu bytes, duration=%u ms\n",
     (unsigned long long)cachedUsedBytes, (unsigned long long)cachedTotalBytes, (unsigned) (millis() - startMs));
 
-  float usedMB = (float)cachedUsedBytes / (1024.0 * 1024.0);
-  float totalMB = (float)cachedTotalBytes / (1024.0 * 1024.0);
-  float usedGB = usedMB / 1024.0;
-  float totalGB = totalMB / 1024.0;
+  float usedGB = (float)cachedUsedBytes / (1024.0 * 1024.0 * 1024.0);
+  float totalGB = (float)cachedTotalBytes / (1024.0 * 1024.0 * 1024.0);
   float percent = (totalGB > 0.0f) ? (usedGB / totalGB) * 100.0f : 0.0f;
 
   webLogf("success", "SD card scan complete: %.1f GB used of %.1f GB total (%.1f%% full)",
     usedGB, totalGB, percent);
+  return true;
 }
 void handleSDInfo(AsyncWebServerRequest *request) {
     DynamicJsonDocument doc(256);
@@ -3907,29 +4074,18 @@ static inline int calcUsagePct(uint64_t used, uint64_t total) {
   return (int)(pct > 100 ? 100 : pct);
 }
 
-bool checkGenerateFlagFile() {
-    if (SD_MMC.exists("/.generate_flag")) {
-        Serial.println("[BOOT] Found /.generate_flag, will generate media.json");
-        SD_MMC.remove("/.generate_flag");
-        return true;
-    }
-    return false;
-}
 void handleConnector(AsyncWebServerRequest *request) {
-  // 1) Get 'dir' from POST body
   String dir = "/";
   if (request->hasParam("dir", true)) {
     dir = request->getParam("dir", true)->value();
   }
   if (!dir.endsWith("/")) dir += "/";
 
-  // 2) Acquire mutex before SD card access
   if (sdMutex && xSemaphoreTake(sdMutex, pdMS_TO_TICKS(3000)) != pdTRUE) {
     request->send(503, "text/plain", "SD card busy");
     return;
   }
 
-  // 3) Open the directory
   File root = SD_MMC.open(dir);
   if (!root || !root.isDirectory()) {
     if (sdMutex) xSemaphoreGive(sdMutex);
@@ -3937,22 +4093,25 @@ void handleConnector(AsyncWebServerRequest *request) {
     return;
   }
 
-  // 4) Build the HTML <ul> tree
   String html = "<ul class=\"jqueryFileTree\" style=\"display: none;\">";
   html.reserve(2048);
   root.rewindDirectory();
   File entry;
   while ((entry = root.openNextFile())) {
     String name = entry.name();
+    // the file browser parses this with innerHTML, so names are escaped like any
+    // other text going into a page
+    const String rel = nomadHtmlEscape(dir + name);
+    const String label = nomadHtmlEscape(name);
     if (entry.isDirectory()) {
       html += "<li class=\"directory collapsed\">"
-           "<a href=\"#\" rel=\"" + dir + name + "/\">" + name + "</a>"
+           "<a href=\"#\" rel=\"" + rel + "/\">" + label + "</a>"
            "</li>";
     } else {
       int dot = name.lastIndexOf('.');
-      String ext = dot > 0 ? name.substring(dot+1) : "";
+      String ext = dot > 0 ? nomadHtmlEscape(name.substring(dot+1)) : "";
       html += "<li class=\"file ext_" + ext + "\">"
-           "<a href=\"#\" rel=\"" + dir + name + "\">" + name + "</a>"
+           "<a href=\"#\" rel=\"" + rel + "\">" + label + "</a>"
            "</li>";
     }
     entry.close();
@@ -3965,7 +4124,6 @@ void handleConnector(AsyncWebServerRequest *request) {
   // with "SD busy" until reboot
   if (sdMutex) xSemaphoreGive(sdMutex);
 
-  // 4) Respond
   request->send(200, "text/html", html);
 }
 void handleMkdir(AsyncWebServerRequest *request) {
@@ -4016,15 +4174,20 @@ void applyRGBSettings() {
     RGB_SetMode(1);  // Rainbow mode
   }
 }
-// mDNS responder: makes http://nomad.local/ work alongside 192.168.4.1. Apple,
-// Android and Linux resolve .local only via multicast, so the wildcard captive DNS
-// does not cover it. Must be restarted whenever the AP interface is torn down.
+// mDNS responder: makes http://nomad.local/ work alongside 192.168.4.1. .local only
+// resolves via multicast, so our captive DNS doesn't cover it. Must be restarted
+// whenever the AP interface is torn down.
 const char* MDNS_HOSTNAME = "nomad";
+// nomad.local only works where multicast does (Android has no system mDNS resolver).
+// nomad.lan is a normal name that our DNS responder on :53 answers. Advertise both.
+const char* UNICAST_HOSTNAME = "nomad.lan";
 
-// MDNS.end() is a bare mdns_free() with no "is it running" check, so calling it when
-// the responder was never started, or after its netif is gone, walks freed pcb memory
-// and panics. Track state ourselves and always stop before the interface goes away.
+// MDNS.end() has no "is it running" check, so calling it when the responder never
+// started, or after its netif is gone, panics. Track state ourselves and always stop
+// before the interface goes away.
 static bool g_mdnsRunning = false;
+static bool g_dnsOffered = false;
+static bool g_captivePortalUri = false;
 
 void stopNomadMDNS() {
   if (!g_mdnsRunning) return;
@@ -4082,7 +4245,55 @@ void ensureApDhcpServer(const char *phase) {
   }
 }
 
-// ---------------- WiFi Mode (join an existing network) ----------------
+// By default the softAP's DHCP hands out an address, netmask and router but no DNS
+// server. dhcps only sends option 6 when OFFER_DNS is set, and the Arduino core only
+// sets it inside WiFi.softAPConfig(). Without it nomad.lan never resolves, our :53
+// responder never gets a query and the sign-in popup never appears.
+// Call after the AP is up. dhcps has to be stopped to take an option, which is fine at
+// boot since no client has connected yet.
+void apAdvertiseDns() {
+  esp_netif_t *ap = esp_netif_get_handle_from_ifkey("WIFI_AP_DEF");
+  if (!ap) {
+    Serial.println("[DNS] AP netif unavailable - cannot advertise a DNS server");
+    return;
+  }
+
+  esp_netif_dns_info_t dns = {};
+  dns.ip.type = ESP_IPADDR_TYPE_V4;
+  dns.ip.u_addr.ip4.addr = (uint32_t)WiFi.softAPIP();
+  esp_err_t eSet = esp_netif_set_dns_info(ap, ESP_NETIF_DNS_MAIN, &dns);
+
+  esp_netif_dhcps_stop(ap);
+  // esp_netif reads this as a boolean and sets OFFER_DNS itself, and the GET reports a
+  // plain 1 back. So 0x02 in and 0x01 out both mean "enabled".
+  uint8_t offer = 0x02;  // OFFER_DNS from dhcpserver.h, inlined to avoid an lwIP include
+  esp_err_t eOpt = esp_netif_dhcps_option(ap, ESP_NETIF_OP_SET,
+                                          ESP_NETIF_DOMAIN_NAME_SERVER, &offer, sizeof(offer));
+  esp_netif_dhcps_start(ap);
+
+  // Read back after the restart. A GET while dhcps is stopped fails without writing
+  // the buffer, which looks like the option didn't stick.
+  uint8_t back = 0;
+  esp_err_t eGet = esp_netif_dhcps_option(ap, ESP_NETIF_OP_GET,
+                                          ESP_NETIF_DOMAIN_NAME_SERVER, &back, sizeof(back));
+
+  g_dnsOffered = (eOpt == ESP_OK) && (eGet == ESP_OK) && (back != 0);
+  Serial.printf("[DNS] DHCP option 6 (DNS server) -> %s : set=%s opt=%s readback=%s/0x%02X\n",
+                WiFi.softAPIP().toString().c_str(),
+                eSet == ESP_OK ? "ok" : esp_err_to_name(eSet),
+                eOpt == ESP_OK ? "ok" : esp_err_to_name(eOpt),
+                eGet == ESP_OK ? "ok" : esp_err_to_name(eGet), back);
+
+#if ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(5, 4, 2)
+  // RFC 8910: hand the portal URL over DHCP as well (option 114). iOS 14+, Android 11+
+  // and Windows use it to open the sign-in sheet straight at us.
+  g_captivePortalUri = WiFi.AP.enableDhcpCaptivePortal();
+  Serial.printf("[DNS] DHCP option 114 (captive portal URI) %s\n",
+                g_captivePortalUri ? "advertised" : "not set");
+#endif
+}
+
+// WiFi Mode (join an existing network).
 // Try to join settings.staSSID. Runs in setup() before any background task, so
 // pumping LVGL directly here is safe. Returns false on timeout/auth failure and
 // leaves the radio OFF so the caller can bring up the hotspot cleanly.
@@ -4093,9 +4304,9 @@ bool startStationMode() {
   webLogf("info", "WiFi Mode: joining network '%s'%s", settings.staSSID.c_str(),
           settings.staPersist ? " (auto-reconnect)" : " (until power cycle)");
 
-  WiFi.persistent(false);      // our copy lives in settings.json; keep the core out of NVS
+  WiFi.persistent(false);      // our copy lives in settings.json, keep the core out of NVS
   WiFi.mode(WIFI_STA);
-  WiFi.setSleep(false);        // modem sleep adds latency to every request; we are a server
+  WiFi.setSleep(false);        // modem sleep adds latency to every request
   WiFi.setAutoReconnect(true); // ride out router reboots without user action
   WiFi.begin(settings.staSSID.c_str(), settings.staPassword.length() ? settings.staPassword.c_str() : NULL);
 
@@ -4104,7 +4315,7 @@ bool startStationMode() {
   bool cancelled = false;
   while (WiFi.status() != WL_CONNECTED && millis() - start < JOIN_TIMEOUT_MS) {
     // escape hatch: side button during the wait forces hotspot mode and turns
-    // auto-reconnect off. safe to poll here - the USB-mode interrupt on this
+    // auto-reconnect off. safe to poll here, the USB-mode interrupt on this
     // pin isnt attached until the end of setup()
     if (digitalRead(BOOT_BUTTON_PIN) == LOW) {
       cancelled = true;
@@ -4188,18 +4399,28 @@ void startNetwork() {
       }
     }
     ensureApDhcpServer("boot-initial");  // make sure clients get a lease, not APIPA (issue #126)
+#if NOMAD_AP_HT20
+    // The softAP defaults to 40 MHz, which on channel 1 also covers 5-6 where most
+    // neighbours sit, and phones mostly refuse 40 MHz on 2.4 GHz anyway.
+    esp_wifi_set_bandwidth(WIFI_IF_AP, WIFI_BW_HT20);
+#endif
+#if NOMAD_BENCH
+    benchApplyBootRadio();               // a radio state stored by /bench/radio?persist=1
+#endif
     webLogf("success", "WiFi Access Point started successfully - IP: %s", WiFi.softAPIP().toString().c_str());
+    apAdvertiseDns();                    // without this no client ever asks us to resolve anything
     nomadDnsSetCatchAll(settings.dnsCatchAll);
     nomadDnsStart(WiFi.softAPIP());
     startNomadMDNS();
   }
-  webLogf("info", "Device also reachable at http://%s.local/", MDNS_HOSTNAME);
+  webLogf("info", "Device also reachable at http://%s/ and, where multicast works, http://%s.local/",
+          UNICAST_HOSTNAME, MDNS_HOSTNAME);
 
-  // DLNA discovery. The HTTP routes are registered with the rest of the server;
-  // this binds the SSDP multicast listener on whichever netif just came up.
-  dlnaSetEnabled(settings.dlnaEnabled);
+  // DLNA discovery. The HTTP routes are registered with the rest of the server.
+  // This binds the SSDP multicast listener on whichever netif just came up.
+  dlnaSetEnabled(settings.dlnaEnabled && !g_safeMode);   // safe mode: TV support waits for a normal start
   dlnaRestart();
-  webLogf("info", "DLNA TV support %s", settings.dlnaEnabled ? "enabled" : "disabled");
+  webLogf("info", "DLNA TV support %s", settings.dlnaEnabled && !g_safeMode ? "enabled" : "disabled");
 
   // hand the boot screen back to the rest of setup()
   lv_textarea_set_text(ui_MediaGen, "Booting...");
@@ -4219,32 +4440,25 @@ void sdScanTask(void* pvParameters) {
   sdScanInProgress = true;
   sdScanCompleted = false;
 
-  if (sdMutex && xSemaphoreTake(sdMutex, pdMS_TO_TICKS(10000)) == pdTRUE) {
-    scanSDCardUsage(); // pushes its own throttled screen progress as it walks
-    sdbarDirty = true;
-    xSemaphoreGive(sdMutex);
-  } else {
-    Serial.println("[SDScan] Failed to acquire mutex for SD scan");
-    webLog("[SD Scan] Failed to acquire SD lock - will retry later", "warning");
-  }
+  // takes and periodically yields sdMutex itself, so playback and page loads keep
+  // working while it walks, pushes its own throttled screen progress
+  scanSDCardUsage();
 
   sdScanInProgress = false;
   sdScanCompleted = true;
   lvglSendMsg("", false);
   Serial.println("[SDScan] SD scan complete; sdScanCompleted = true");
-  // Measured, not assumed: log real stack headroom so this can be verified on-device
-  // rather than sized from theory.
+  // the real stack headroom, to check the stack size on the device
   Serial.printf("[SDScan] Task stack high-water mark: %u bytes free (minimum seen)\n",
                 (unsigned)uxTaskGetStackHighWaterMark(NULL));
 
-  vTaskDelete(NULL);
+  nomadTaskExit();
 }
-void generateMediaJSON(){ generateMediaJson(); }
 
-// --- converts “how busy” into small work budgets and pauses.
+// How busy the server is, turned into small work budgets and pauses.
 static inline int getServerLoadScore() {
   // 0 = idle … higher = busier
-  // Count stations + uploads; cheap approximation but good enough to throttle.
+  // Count stations + uploads, cheap approximation but good enough to throttle.
   extern std::map<AsyncWebServerRequest*, File> activeUploads;
   int users   = getConnectedUserCount();
   int uploads = (int)activeUploads.size();
@@ -4253,9 +4467,7 @@ static inline int getServerLoadScore() {
 
 // Returns a pair: { entriesToProcessBeforePause, pauseMsAfterBatch }
 static inline std::pair<int,int> chooseWorkBudget() {
-  // Check if media streaming is active and reduce background work if so
   if (mediaStreamingActive) {
-    // Reduce background work when streaming media
     return { 10, 100 }; // Process fewer items with longer pauses
   }
 
@@ -4279,10 +4491,9 @@ void triggerIndexingIfNeeded(const String& filePath) {
     // Extract the parent directory for indexing
     String parentDir = parentDirFromPath(filePath);
 
-    // Only enqueue if we're not already streaming media
-    if (!mediaStreamingActive) {
-      enqueueIndexUpdateForPath(parentDir);
-    }
+    // Enqueue even while streaming, or a delete or rename during playback never gets
+    // reindexed. The worker drains the queue (max 16) during playback.
+    enqueueIndexUpdateForPath(parentDir);
   }
 }
 
@@ -4301,28 +4512,27 @@ void indexWorkerTask(void *param) {
       Serial.println("[IndexWorker] Shutting down to prioritize media streaming");
       indexWorkerTaskHandle = nullptr;
       indexingTasksActive = false;
-      vTaskDelete(NULL);
+      nomadTaskExit();
       return;
     }
 
-    if (requestIndexing && !indexingInProgress) {
-      // MEMORY CLEANUP: Free up as much memory as possible before indexing
+    // A live stream only defers the start of a full scan. No `continue`, the queue drain
+    // below still has to run or upload/rename/delete reindexes pile up past 16 and get
+    // dropped. requestIndexing is cleared inside the branch, so the scan runs once the
+    // stream ends.
+    if (requestIndexing && !indexingInProgress && !mediaStreamingActive) {
       Serial.printf("[IndexWorker] Pre-index heap check: free=%u\n", ESP.getFreeHeap());
 
-      // Force garbage collection of any lingering allocations
       vTaskDelay(pdMS_TO_TICKS(200));
 
       if (!enoughHeapForIndex(20000)) {
         Serial.println("[IndexWorker] Insufficient heap for indexing, clearing caches and retrying");
 
-        // Clear any cached data structures
-        g_lastIndexSkipLog.clear();
         lastIndexRequestMs.clear();
 
         vTaskDelay(pdMS_TO_TICKS(3000));
 
         if (!enoughHeapForIndex(20000)) {
-          // Try with minimum safe threshold for constrained systems
           if (ESP.getFreeHeap() < 27000) {
             Serial.printf("[IndexWorker] Critically low heap (free=%u), cannot safely index. Deferring.\n", ESP.getFreeHeap());
             vTaskDelay(pdMS_TO_TICKS(10000));
@@ -4390,9 +4600,6 @@ void indexWorkerTask(void *param) {
 
         buildBucketIndex(bucket);
 
-        // MEMORY CLEANUP: Clear temporary maps after each bucket
-        g_lastIndexSkipLog.clear();
-
         // Extended yield between buckets to prevent watchdog and allow background tasks
         Serial.printf("[IndexWorker] Bucket complete, yielding (heap=%u)\n", ESP.getFreeHeap());
         vTaskDelay(pdMS_TO_TICKS(500));
@@ -4400,7 +4607,9 @@ void indexWorkerTask(void *param) {
         // Process queued items after each bucket
         IndexBuildArgs *msg = nullptr;
         int processedCount = 0;
-        while (indexQueue && xQueueReceive(indexQueue, &msg, 0) == pdTRUE && msg && processedCount < 5) {
+        // test processedCount before the dequeue, or the last pass takes an item and
+        // leaks it
+        while (indexQueue && processedCount < 5 && xQueueReceive(indexQueue, &msg, 0) == pdTRUE && msg) {
           if (shutdownBackgroundTasks) {
             delete msg;
             break;
@@ -4411,8 +4620,6 @@ void indexWorkerTask(void *param) {
           delete msg;
           processedCount++;
 
-          // MEMORY CLEANUP: Yield and clear after each queued item
-          g_lastIndexSkipLog.clear();
           vTaskDelay(pdMS_TO_TICKS(pauseMs));
         }
       }
@@ -4422,7 +4629,7 @@ void indexWorkerTask(void *param) {
         if (f) { f.print("1"); f.close(); }
 
         // Show completion and trigger a storage scan (covers both first-time and
-        // regular full-index runs; there's no case where a reboot is needed here).
+        // regular full-index runs, there's no case where a reboot is needed here).
         lvglSendMsg("Filesystem update complete!\nUpdating storage info...", true);
         Serial.println("[IndexWorker] Index complete, triggering storage scan");
 
@@ -4451,9 +4658,7 @@ void indexWorkerTask(void *param) {
         xSemaphoreGive(indexingPathMutex);
       }
 
-      // MEMORY CLEANUP: Final cleanup after full indexing
       lastIndexRequestMs.clear();
-      g_lastIndexSkipLog.clear();
 
       continue;
     }
@@ -4466,7 +4671,7 @@ void indexWorkerTask(void *param) {
         Serial.println("[IndexWorker] Shutting down, discarding queued index request");
         indexWorkerTaskHandle = nullptr;
         indexingTasksActive = false;
-        vTaskDelete(NULL);
+        nomadTaskExit();
         return;
       }
 
@@ -4475,8 +4680,6 @@ void indexWorkerTask(void *param) {
         Serial.printf("[IndexWorker] Low heap (%u bytes), re-queuing %s\n", 
                      ESP.getFreeHeap(), msg->dir.c_str());
         
-        // MEMORY CLEANUP: Try clearing caches before re-queuing
-        g_lastIndexSkipLog.clear();
         vTaskDelay(pdMS_TO_TICKS(1000));
         
         // Try to re-queue for later
@@ -4514,9 +4717,6 @@ void indexWorkerTask(void *param) {
       writeNDIndexForDir(msg->dir, msg->out);
       delete msg;
 
-      // MEMORY CLEANUP: Clear after each live update
-      g_lastIndexSkipLog.clear();
-
       indexingTasksActive = false;
     } else {
       // Queue is empty, if we were showing an incremental-update message, clear it
@@ -4543,6 +4743,15 @@ static inline bool isBucketRootPath(const String &p) {
   return (nextSlash < 0);
 }
 
+// The path enqueueIndexUpdateForPath will actually build for `path`.
+// /Shows/* and /Music/* fold onto their bucket root, those indexes are recursive and
+// carry every nested entry. The /api/index handlers use this so they and the queue agree.
+String indexTargetForPath(const String &path) {
+  if (path.startsWith("/Music/")) return String("/Music");
+  if (path.startsWith("/Shows/")) return String("/Shows");
+  return path;
+}
+
 void enqueueIndexUpdateForPath(const String &path) {
   // Final safety net: never queue work for our own internal/system folders, no
   // matter which caller reaches this function.
@@ -4551,13 +4760,10 @@ void enqueueIndexUpdateForPath(const String &path) {
     return;
   }
 
-  String targetPath = path;
-  if (path.startsWith("/Music/")) {
-    targetPath = "/Music";
-    Serial.printf("[Index] Redirecting '%s' -> '%s' (Music bucket)\n", path.c_str(), targetPath.c_str());
-  } else if (path.startsWith("/Shows/")) {
-    targetPath = "/Shows";
-    Serial.printf("[Index] Redirecting '%s' -> '%s' (Shows bucket)\n", path.c_str(), targetPath.c_str());
+  String targetPath = indexTargetForPath(path);
+  if (targetPath != path) {
+    Serial.printf("[Index] Redirecting '%s' -> '%s' (bucket index is recursive)\n",
+                  path.c_str(), targetPath.c_str());
   }
 
   // Coalesce quickly repeated requests
@@ -4593,7 +4799,7 @@ void storageMonitorTask(void *param) {
         if (shutdownBackgroundTasks) {
             webLog("[StorageMonitor] Shutting down to prioritize media streaming", "warning");
             storageMonitorTaskHandle = nullptr;
-            vTaskDelete(NULL);
+            nomadTaskExit();
             return;
         }
 
@@ -4615,7 +4821,7 @@ void immediateEnqueueTopLevelTask(void *param) {
   if (!root || !root.isDirectory()) {
     if (root) root.close();
     Serial.println("[Index] immediateEnqueueTopLevelTask: root not available, exiting task");
-    vTaskDelete(NULL);
+    nomadTaskExit();
     return;
   }
 
@@ -4655,12 +4861,10 @@ void immediateEnqueueTopLevelTask(void *param) {
   root.close();
 
   Serial.println("[Index] immediateEnqueueTopLevelTask: enqueue complete, exiting");
-  vTaskDelete(NULL);
+  nomadTaskExit();
 }
 
-// Task lifecycle management functions for performance optimization
 void shutdownBackgroundTasksForStreaming() {
-  // Don't shut down if indexing is explicitly in progress
   if (indexingInProgress || indexingTasksActive) {
     Serial.println("[TaskMgr] Skipping shutdown - indexing is active");
     return;
@@ -4676,17 +4880,16 @@ void shutdownBackgroundTasksForStreaming() {
   }
 }
 
-void startBackgroundTasksIfNeeded() {
-  if (shutdownBackgroundTasks) {
-    Serial.println("[TaskMgr] Restarting background tasks");
-    webLog("[PERFORMANCE] Background tasks restarted", "success");
-    shutdownBackgroundTasks = false;
-
+// Recreate either background task whose handle is null. Leaves shutdownBackgroundTasks
+// alone, healing a dead task mustn't cancel a shutdown the admin asked for. Also covers
+// a task that failed to start at boot.
+void ensureBackgroundTasks() {
+  {
     // Restart indexWorkerTask if it was shut down
     if (indexWorkerTaskHandle == nullptr) {
       // Small delay to prevent immediate resource contention
       vTaskDelay(pdMS_TO_TICKS(50));
-      BaseType_t r = xTaskCreatePinnedToCore(indexWorkerTask, "IndexWorker", 16 * 1024, NULL, 2, &indexWorkerTaskHandle, 0);
+      BaseType_t r = nomadCreateTask(indexWorkerTask, "IndexWorker", 16 * 1024, NULL, 2, &indexWorkerTaskHandle, 0);
       if (r != pdPASS) {
         Serial.println("[TaskMgr] Failed to restart IndexWorker task");
         webLog("[ERROR] Failed to restart IndexWorker task", "error");
@@ -4699,7 +4902,7 @@ void startBackgroundTasksIfNeeded() {
     if (storageMonitorTaskHandle == nullptr) {
       // Small delay to prevent immediate resource contention
       vTaskDelay(pdMS_TO_TICKS(50));
-      BaseType_t r = xTaskCreatePinnedToCore(storageMonitorTask, "StorageMonitor", 4096, NULL, 1, &storageMonitorTaskHandle, 0);
+      BaseType_t r = nomadCreateTask(storageMonitorTask, "StorageMonitor", 4096, NULL, 1, &storageMonitorTaskHandle, 0);
       if (r != pdPASS) {
         Serial.println("[TaskMgr] Failed to restart StorageMonitor task");
         webLog("[ERROR] Failed to restart StorageMonitor task", "error");
@@ -4710,15 +4913,29 @@ void startBackgroundTasksIfNeeded() {
   }
 }
 
+// The operator's "restart background tasks" path: lift the kill switch, then heal. Only
+// POST /api/tasks?action=restart reaches this. Streaming must never call it, or finishing
+// a video would silently undo POST /api/tasks?action=shutdown.
+void startBackgroundTasksIfNeeded() {
+  if (shutdownBackgroundTasks) {
+    Serial.println("[TaskMgr] Restarting background tasks");
+    webLog("[PERFORMANCE] Background tasks restarted", "success");
+    shutdownBackgroundTasks = false;
+  }
+  ensureBackgroundTasks();
+}
+
 // Simple streaming timeout check 
 void checkStreamingTimeout() {
   const unsigned long STREAMING_IDLE_TIMEOUT = 15000; // 15 seconds
 
   // Restart background tasks once streaming has really been idle for a while.
   if (mediaStreamingActive && (millis() - lastStreamIoMs > STREAMING_IDLE_TIMEOUT)) {
-    Serial.println("[TaskMgr] Streaming idle timeout - restarting background tasks");
+    Serial.println("[TaskMgr] Streaming idle - clearing the streaming flag");
     mediaStreamingActive = false;
-    startBackgroundTasksIfNeeded();
+    // ensure, not startBackgroundTasksIfNeeded: the end of a playback should heal a task
+    // that died, but it must not lift an operator's shutdown.
+    ensureBackgroundTasks();
   }
 
   static unsigned long lastCleanup = 0;
@@ -4734,7 +4951,7 @@ void checkStreamingTimeout() {
             Serial.printf("[StreamCleanup] Idle #%u (%s, %lus)\n",
                           it->first, it->second.path.c_str(),
                           (unsigned long)((now - it->second.lastActivity) / 1000));
-            streamPathIndex.erase(it->second.path);
+            streamUnpublish(it->second.path, it->first);
             it->second.file.close();
             it = streamingFiles.erase(it);
             closed++;
@@ -4760,6 +4977,15 @@ void bootCoordinatorTask(void *pv) {
   int settingsWaitLoops = 0;
   while (!settingsReady && settingsWaitLoops++ < 100) {
     vTaskDelay(pdMS_TO_TICKS(50));
+  }
+
+  // safe mode: no index work at all this start, the indexes on the card are used as they are
+  if (g_safeMode) {
+    sdScanCompleted = true;
+    sdScanInProgress = false;
+    Serial.println("[BootCoord] safe mode -> no index work this start");
+    nomadTaskExit();
+    return;
   }
 
   // old firmware used one /media.json instead of per-bucket NDJSON. if its still here, nuke it and rebuild
@@ -4789,7 +5015,7 @@ void bootCoordinatorTask(void *pv) {
     requestIndexing = true;
     Serial.println("[BootCoord] First-time index build queued via normal scan path");
     Serial.println("[BootCoord] coordination done; exiting task");
-    vTaskDelete(NULL);
+    nomadTaskExit();
     return;
   }
 
@@ -4801,12 +5027,12 @@ void bootCoordinatorTask(void *pv) {
     sdScanCompleted = false;
     sdScanInProgress = false;
 
-    BaseType_t ir = xTaskCreatePinnedToCore(immediateEnqueueTopLevelTask, "IncScanBoot", 12 * 1024, NULL, 1, NULL, 1);
+    BaseType_t ir = nomadCreateTask(immediateEnqueueTopLevelTask, "IncScanBoot", 12 * 1024, NULL, 1, NULL, 1);
     if (ir == pdPASS) {
       Serial.println("[BootCoord] Top-level enqueue task started to populate index queue");
     }
 
-    // Note: requestIndexing was already set by setup() and may already be processing
+    // requestIndexing was already set by setup() and may already be processing
     Serial.println("[BootCoord] Reindex queued by setup(), directories being enqueued");
   } else {
     Serial.println("[BootCoord] No boot reindex -> indexes exist, storage loads from cache/on-demand");
@@ -4817,23 +5043,10 @@ void bootCoordinatorTask(void *pv) {
 
   vTaskDelay(pdMS_TO_TICKS(100));
   Serial.println("[BootCoord] boot coordination done; exiting task");
-  vTaskDelete(NULL);
+  nomadTaskExit();
 }
 
-// --- Captive portal throttled logging ---
-// Keeps a small table of recent clients and when they were last logged
-// so we only print one message per device per INTERVAL_MS.
-#define CAPTIVE_MAX_CLIENT_LOGS 32
-
-struct CaptiveLogEntry {
-  String id;
-  unsigned long ts;
-};
-
-static CaptiveLogEntry captiveLogs[CAPTIVE_MAX_CLIENT_LOGS];
-static uint8_t captiveLogCount = 0;
-
-// ---------- me-readable byte formatting ----------
+// human-readable byte formatting
 String humanSize(size_t bytes) {
   double b = (double)bytes;
   const char *units[] = { "B", "KB", "MB", "GB", "TB" };
@@ -4883,52 +5096,200 @@ String getMimeType(const String &path) {
   if (path.endsWith(".jpg") || path.endsWith(".jpeg")) return "image/jpeg";
   if (path.endsWith(".gif"))  return "image/gif";
   if (path.endsWith(".webp")) return "image/webp";
-  // carried over from the Gallery MIME fix: without these the static path answers
-  // application/octet-stream and the browser downloads the image instead of drawing it
-  if (path.endsWith(".avif")) return "image/avif";
-  if (path.endsWith(".bmp"))  return "image/bmp";
   if (path.endsWith(".ico"))  return "image/x-icon";
   if (path.endsWith(".ndjson")) return "application/x-ndjson";
   return "application/octet-stream"; // fallback safe binary
 }
-void serveProtectedFile(AsyncWebServerRequest *request, const String& filePath) {
-    if (sdMutex) {
-        if (xSemaphoreTake(sdMutex, pdMS_TO_TICKS(5000)) != pdTRUE) {
-            request->send(503, "text/plain", "SD busy");
-            return;
-        }
+// Serve one file off the card with an ETag of size+mtime. Pages are no-cache, so the
+// ETag saves re-reading big files like the menu and master.css on every visit. A match
+// is one lookup and a 304. Files the device writes carry the fake uptime clock, so the
+// test is equality. The body is read by NomadPageBody.h.
+// gzSibling: send filePath + ".gz" as filePath, with Content-Encoding: gzip.
+#include "NomadPageBody.h"
+static void sendSdFile(AsyncWebServerRequest *request, const String &filePath, const String &mime,
+                       const char *cacheControl, bool cors = false, bool gzSibling = false) {
+    if (mime == "text/html") {
+        const int page = pageIndexForFile(filePath);
+        if (page >= 0 && (g_hiddenMask & (1u << page))) { sendPageOff(request, page); return; }
+        usageNotePage(page);
     }
-    
-    auto releaseSd = [&](){
-        if (sdMutex) xSemaphoreGive(sdMutex);
-    };
-    
-    if (!SD_MMC.exists(filePath)) {
-        releaseSd();
+    const String cardPath = gzSibling ? filePath + ".gz" : filePath;
+    if (sdMutex && xSemaphoreTake(sdMutex, pdMS_TO_TICKS(1000)) != pdTRUE) {
+        request->send(503, "text/plain", "SD busy");
+        return;
+    }
+    uint64_t size = 0;
+    time_t mtime = 0;
+    const bool ok = SD_MMC.fileStat64(cardPath.c_str(), size, mtime);   // false for a folder too
+    if (sdMutex) xSemaphoreGive(sdMutex);
+    if (!ok) {
         request->send(404, "text/plain", "File not found");
         return;
     }
-    
-    String mime = getMimeType(filePath);
-    AsyncWebServerResponse *response = request->beginResponse(SD_MMC, filePath, mime);
-    releaseSd();
-    // same NULL check as the streaming path: a failed allocation here used to panic
-    if (!response) {
-        Serial.printf("[Static] beginResponse OOM for %s (heap=%u)\n",
-                      filePath.c_str(), (unsigned)ESP.getFreeHeap());
-        request->send(503, "text/plain", "Server low on memory - retry");
+
+    const String etag = nomadEtag(mtime, size);
+
+    if (request->hasHeader("If-None-Match") && request->getHeader("If-None-Match")->value() == etag) {
+        AsyncWebServerResponse *r = request->beginResponse(304);
+        r->addHeader("ETag", etag);
+        r->addHeader("Cache-Control", cacheControl);
+        if (cors) r->addHeader("Access-Control-Allow-Origin", "*");
+        request->send(r);
         return;
     }
-    // pages themselves are never cached: a stale page kept serving old bugs
-    // for 10 minutes after every update. JS/CSS stay cached and use ?v= tags.
-    if (mime == "text/html") response->addHeader("Cache-Control", "no-cache");
-    else response->addHeader("Cache-Control", "public, max-age=600");
+    // a whole-file reply's length is a size_t: a 4 GB file in /Files goes the way films do
+    if (size >= 0xFFFFFFFFull && !gzSibling) {
+        request->redirect("/media?file=" + nomadQueryEncode(filePath));
+        return;
+    }
+
+    AsyncWebServerResponse *response = nomadPageResponse(request, cardPath, mime, size);
+    // Same OOM guard as the streaming path
+    if (!response) {
+        Serial.printf("[Static] no response for %s (heap=%u)\n",
+                      filePath.c_str(), (unsigned)ESP.getFreeHeap());
+        AsyncWebServerResponse *busy = request->beginResponse(503, "text/plain", "Server busy - retry");
+        if (busy) { busy->addHeader("Retry-After", "1"); request->send(busy); }
+        return;
+    }
+    response->addHeader("ETag", etag);
+    response->addHeader("Cache-Control", cacheControl);
+    // no Accept-Ranges here, the library already sends "none" and this reply is always
+    // the whole file
+    if (gzSibling) response->addHeader("Content-Encoding", "gzip");
+    usageNoteSent(size);
+    if (cors) response->addHeader("Access-Control-Allow-Origin", "*");
     request->send(response);
 }
-// ------------- Main Setup -------------------
+
+// Nomad-Tools' Speed up games keeps a ROM as Game.gba.gz (a GBA ROM is about 40% of its
+// size gzipped) and deletes Game.gba. The page still asks for Game.gba, so the emulator
+// gets the same URL, bytes and save-file name.
+static bool nomadOnlyGzSibling(const String &path) {
+  if (sdMutex && xSemaphoreTake(sdMutex, pdMS_TO_TICKS(1000)) != pdTRUE) return false;
+  const bool gz = !SD_MMC.exists(path) && SD_MMC.exists(path + ".gz");
+  if (sdMutex) xSemaphoreGive(sdMutex);
+  return gz;
+}
+
+void serveProtectedFile(AsyncWebServerRequest *request, const String& filePath) {
+    String mime = getMimeType(filePath);
+    // pages are never cached so an update shows right away. JS/CSS stay cached and use
+    // ?v= tags. Both revalidate by ETag, so it's a 304 instead of a re-download.
+    sendSdFile(request, filePath, mime, mime == "text/html" ? "no-cache" : "public, max-age=600");
+}
+// Main setup
+// -DNOMAD_BENCH=1 adds the /bench/* measurement endpoints. Never set in a shipped build.
+#ifndef NOMAD_BENCH
+#define NOMAD_BENCH 0
+#endif
+#if NOMAD_BENCH
+#include "NomadBench.h"
+#endif
+#include "NomadUpdate.h"   // interface updates over the internet, from the admin panel
+#include "NomadHealth.h"   // Check videos: headers only, results for admin and the file browser
+#include "NomadStorageHealth.h"   // the card: who made it, read errors since boot, a quick read check
+#include "NomadFirmware.h"   // new firmware over the air or from a file, checked, with a way back
+#include "NomadSupport.h"    // safe mode after repeated crashes, and the support file's build/crash part
+#include "NomadParty.h"      // watch together: a host, a code, everyone at the same moment, and voting
+#include "NomadZimServe.h"  // archive pages served from the ZIM by the Nomad, for phones without a service worker
+#include "NomadChat.h"      // the chat page's messages: numbered as they arrive, kept in PSRAM, logged to /.chat
+
+// Uploads.
+// A file is written into a hidden part file next to where it goes and renamed into place
+// once all of it is there, so a dropped connection never leaves a broken file under the
+// real name. With total= the page sends the file in slices and can pick up where it
+// stopped after a dropped connection or a reload:
+//   GET  /upload-status?path=/Gallery/a.jpg&total=N  {"size":-1|n,"part":-1|n,"free":-1|n}
+//   POST /upload?dir=/Gallery&total=N&offset=K       multipart, one slice of the file
+//   POST /upload-cancel  path=/Gallery/a.jpg&total=N  drops the part
+// Without total= (the theme and menu files) a request is the whole file, and a part it
+// leaves unfinished is removed.
+struct NomadUpload {
+  File f;
+  String part, finalPath;
+  uint64_t total = 0, have = 0;
+  int failCode = 0;              // set once a write fails: later chunks are dropped
+  const char *failMsg = "";
+};
+static std::map<AsyncWebServerRequest *, NomadUpload> g_uploads;
+
+// .<name>.<total>.nomad-part: hidden, so no index or listing shows it, and tied to the
+// size, so a different file under the same name never resumes onto it
+static String nomadPartPath(const String &finalPath, uint64_t total) {
+  const int slash = finalPath.lastIndexOf('/');
+  String p = finalPath.substring(0, slash + 1) + "." + finalPath.substring(slash + 1);
+  if (total) {
+    char n[24];
+    snprintf(n, sizeof(n), ".%llu", (unsigned long long)total);
+    p += n;
+  }
+  return p + ".nomad-part";
+}
+
+// free space as last measured (-1 unknown). usedBytes() can hold the card for seconds
+// on exFAT, so this uses the cached figure. A failed write is the backstop.
+static int64_t nomadFreeBytes() {
+  if (cachedTotalBytes == 0) return -1;
+  return cachedUsedBytes >= cachedTotalBytes ? 0 : (int64_t)(cachedTotalBytes - cachedUsedBytes);
+}
+
+static uint64_t nomadU64Param(AsyncWebServerRequest *request, const char *name) {
+  const String v = nomadParamValue(request, name);
+  return v.length() ? (uint64_t)strtoull(v.c_str(), nullptr, 10) : 0;
+}
+
+static void nomadUploadJson(AsyncWebServerRequest *request, int code, const String &body) {
+  AsyncWebServerResponse *r = request->beginResponse(code, "application/json", body);
+  if (!r) { request->send(code); return; }
+  r->addHeader("Cache-Control", "no-store");
+  if (code == 503) r->addHeader("Retry-After", "2");
+  request->send(r);
+}
+
+// New root folders are admin only, but the guard only sees the file's path, and /upload
+// and /save create the file's folder: /Anything/x.bin would make /Anything. Same rule as
+// /mkdir. The caller holds sdMutex.
+static bool nomadMakesRootFolder(const String &fullPath) {
+  const int top = fullPath.indexOf('/', 1);
+  if (top <= 0) return false;
+  const String root = fullPath.substring(0, top);
+  return !isCommunityPath(root) && !SD_MMC.exists(root);
+}
+
+// the upload's full path from dir= (form field or query) and the file's name, or "" with
+// the refusal already sent
+static String nomadUploadTarget(AsyncWebServerRequest *request, const String &filename) {
+  String dir = nomadParamValue(request, "dir");
+  if (!dir.length()) dir = "/";
+  if (!dir.startsWith("/")) dir = "/" + dir;
+  if (dir.endsWith("/")) dir.remove(dir.length() - 1);
+  const String fullPath = dir + "/" + filename;
+  // same traversal guard as /save and /mkdir. dot names are fine (the menu keeps
+  // /.search-index.json), only a name that looks like an upload part is refused
+  if (fullPath.indexOf("..") >= 0 || filename.indexOf('/') >= 0 || filename.endsWith(".nomad-part")) {
+    nomadUploadJson(request, 400, "{\"error\":\"Invalid path\"}");
+    return String();
+  }
+  // Chunks arrive before the server's middleware runs, so the write rules have to be
+  // asked here: /config, the interface files and the uploads switch.
+  if (!nomadUploadAllowed(request, fullPath)) return String();
+  if (!checkAdminAuth(request) && nomadMakesRootFolder(fullPath)) {
+    nomadUploadJson(request, 401, "{\"error\":\"Admin login required to make a new folder there\"}");
+    return String();
+  }
+  if (isConfigPath(fullPath) && !checkAdminAuth(request)) {
+    nomadUploadJson(request, 401, "{\"error\":\"Unauthorized\"}");
+    return String();
+  }
+  return fullPath;
+}
+
 void setup() {
     Serial.begin(115200);
     delay(100);
+    nomadFirmwareBoot();   // new firmware proving itself, or the result of going back
+    nomadSafeBoot();       // count crash restarts, safe mode at three in a row, read the stored crash
     Serial.println("=== Booting Nomad (debug) ===");
     // Crash Diagnostic, checks what went wrong, and helps me when yall send me logs.
     {
@@ -5029,6 +5390,9 @@ Serial.println("SD Card initialized successfully!");
       }
     }
 
+    if (!lvglMutex) lvglMutex = xSemaphoreCreateRecursiveMutex();
+    if (!g_taskReapQueue) g_taskReapQueue = xQueueCreate(8, sizeof(TaskHandle_t));
+
     // make the log mutex before the web server comes up so log writers cant race the reader
     if (!webLogMutex) {
       webLogMutex = xSemaphoreCreateMutex();
@@ -5080,16 +5444,28 @@ Serial.println("SD Card initialized successfully!");
     if (!cfgWriteQueue) {
       cfgWriteQueue = xQueueCreate(8, sizeof(ConfigWriteJob *));
       if (cfgWriteQueue) {
-        xTaskCreatePinnedToCore(configWriterTask, "CfgWriter", 6 * 1024, NULL, 1, NULL, 1);
+        nomadCreateTask(configWriterTask, "CfgWriter", 6 * 1024, NULL, 1, NULL, 1);
         Serial.println("[CFGW] config writer task started");
       } else {
         Serial.println("[WARN] cfgWriteQueue creation failed, config writes stay inline");
       }
     }
     loadUiConfigFromSD();
+    nomadUsageLoad();
 
     Serial.println("Loading Settings...");
     loadSettings();
+#ifdef NOMAD_RESET_ADMIN_PASSWORD
+    // a forgotten admin password: build with -DNOMAD_RESET_ADMIN_PASSWORD=1, flash, let it
+    // boot once (the password and every kept sign-in are cleared), then flash a normal build
+    if (settings.adminPassword.length()) {
+      settings.adminPassword = "";
+      saveSettings();
+      SD_MMC.remove("/config/sessions.json");
+      Serial.println("[Auth] admin password cleared by NOMAD_RESET_ADMIN_PASSWORD");
+    }
+#endif
+    nomadAuthLoad();      // devices kept signed in, from before the restart
     settingsReady = true; // signal background tasks the settings are loaded
     Serial.printf("[SETTINGS] autoGenerateMedia = %s\n", settings.autoGenerateMedia ? "true" : "false");
     startNetwork();  // hotspot or WiFi Mode (station), decided by settings + the one-shot flag
@@ -5126,11 +5502,14 @@ Serial.println("SD Card initialized successfully!");
 
     bool oneTimeReindexRequested = generateOnce || needsReindexAfterUsb;
 
-    // "check for new files on boot" (autoGenerateMedia) gates the change detector, it does
-    // NOT reindex every boot. ON = reindex only if something changed, OFF = boot normally
-    // and clear pending flags. a never-indexed card is force-built earlier regardless.
+    // "check for new files on boot" (autoGenerateMedia) turns the change check on or off.
+    // ON = reindex only if something changed, OFF = boot normally and clear pending flags.
+    // a never-indexed card gets built earlier either way.
 
-    if (settings.autoGenerateMedia && oneTimeReindexRequested) {
+    if (g_safeMode) {
+      // flags stay where they are, so a normal start still picks the changes up
+      Serial.println("[BOOT] Safe mode -> skipping the boot check for new files");
+    } else if (settings.autoGenerateMedia && oneTimeReindexRequested) {
       requestIndexing = true;
       bootReindexQueued = true;
       Serial.println("[BOOT] Boot check ON + filesystem changes detected -> queued reindex");
@@ -5144,7 +5523,7 @@ Serial.println("SD Card initialized successfully!");
         Serial.println("[BOOT] Cleared post-USB reindex flag");
       }
     } else if (settings.autoGenerateMedia) {
-      // toggle on but nothing changed - no blind reindex, thats the whole point
+      // toggle on but nothing changed, so no reindex
       Serial.println("[BOOT] Boot check ON but no filesystem changes detected -> booting normally");
     } else {
       Serial.println("[BOOT] Boot check OFF -> booting normally (manual index only)");
@@ -5175,20 +5554,24 @@ Serial.println("SD Card initialized successfully!");
     } else {
       Serial.println("[SDBAR] Restored SD usage snapshot from disk; will skip heavy boot scan if configured.");
     }
-    // Breakdown is separate from the totals snapshot above and is purely additive, a miss here just means an empty breakdown
-    // table until the next scan, not a degraded boot.
+    // Breakdown is separate from the totals above. A miss here just means an empty
+    // breakdown table until the next scan.
     loadSdBreakdownFromFile();
 
     Set_Backlight(settings.brightness);  // now using loaded value
     updateSDBAR(); // will show cached values loaded above (if any)
 
-    // Start the storage monitor (unchanged)
-    xTaskCreatePinnedToCore(storageMonitorTask, "StorageMonitor", 4096, NULL, 1, &storageMonitorTaskHandle, 0);
-
-    // Continue registering handlers (unchanged)
+    // Start the storage monitor
+    nomadCreateTask(storageMonitorTask, "StorageMonitor", 4096, NULL, 1, &storageMonitorTaskHandle, 0);
 
     delay(2000);
-    // Captive DNS already started by startNetwork() (hotspot only - never on a home network)
+#if NOMAD_ROUTES_PSRAM
+    // Everything malloc'd while the routes are made goes to PSRAM. Routes are small
+    // objects but there are a lot of them, and otherwise they sit in the internal RAM
+    // films need. Routes are only read on the network task, never while flash is written.
+    heap_caps_malloc_extmem_enable(16);
+#endif
+    // Captive DNS already started by startNetwork() (hotspot only, never on a home network)
     //OPDS Endpoint (still needs fixing)
     server.on("/opds/root.xml", HTTP_GET, handleOPDSRoot);
     server.on("/opds/books.xml", HTTP_GET, handleOPDSBooks);
@@ -5275,9 +5658,8 @@ Serial.println("SD Card initialized successfully!");
         request->redirect("/playlist.m3u");
     });
 
-    // Real DLNA/UPnP MediaServer lives in NomadDLNA.cpp: SSDP discovery, device
-    // description and ContentDirectory Browse fed by the NDJSON indexes. The old hand
-    // rolled XML stubs were HTTP only and no TV ever asked for them.
+    // DLNA/UPnP MediaServer lives in NomadDLNA.cpp: SSDP discovery, device description
+    // and ContentDirectory Browse fed by the NDJSON indexes.
     dlnaRegisterRoutes(server);
 
     // Set LED mode: solid (0), rainbow (1), etc.
@@ -5335,6 +5717,32 @@ Serial.println("SD Card initialized successfully!");
     );
 
     server.on("/sdinfo", HTTP_GET, handleSDInfo);
+  // Name resolution diagnostics.
+    // "nomad.local doesn't work" has three causes that look the same from a browser:
+    // the client was never told to ask us (dnsOffered false), it asked and we said no
+    // (queries and nxdomain climbing), or it never asks over unicast because .local is
+    // mDNS only. dnsQueries tells them apart.
+    server.on("/api/netdiag", HTTP_GET, [](AsyncWebServerRequest *request) {
+      uint32_t q = 0, a = 0, nx = 0;
+      String last;
+      nomadDnsStats(q, a, nx, last);
+      String j = "{";
+      j += "\"mode\":\"" + String(g_staMode ? "station" : "hotspot") + "\"";
+      j += ",\"ip\":\"" + nomadLocalIP().toString() + "\"";
+      j += ",\"mdnsRunning\":" + String(g_mdnsRunning ? "true" : "false");
+      j += ",\"mdnsName\":\"" + String(MDNS_HOSTNAME) + ".local\"";
+      j += ",\"unicastName\":\"" + String(UNICAST_HOSTNAME) + "\"";
+      j += ",\"dnsOffered\":" + String(g_dnsOffered ? "true" : "false");
+      j += ",\"captivePortalUri\":" + String(g_captivePortalUri ? "true" : "false");
+      j += ",\"dnsCatchAll\":" + String(settings.dnsCatchAll ? "true" : "false");
+      j += ",\"dnsQueries\":" + String((unsigned long)q);
+      j += ",\"dnsAnswered\":" + String((unsigned long)a);
+      j += ",\"dnsNxdomain\":" + String((unsigned long)nx);
+      j += ",\"dnsLastName\":\"" + last + "\"";
+      j += "}";
+      request->send(200, "application/json", j);
+    });
+
     server.on("/api/sd-breakdown", HTTP_GET, [](AsyncWebServerRequest *request){
       std::vector<std::pair<String, BreakdownStats>> entries = sortedBreakdownEntries(g_lastBreakdown);
 
@@ -5373,7 +5781,7 @@ Serial.println("SD Card initialized successfully!");
       // Don't start indexing on top of a running full-card scan (the same heavy
       // concurrent-SD situation, from the other direction).
       if (sdScanInProgress) {
-        request->send(409, "text/plain", "A full SD scan is running - try again once it finishes");
+        request->send(409, "text/plain", "A full SD scan is running. Try again once it finishes.");
         webLog("[ADMIN] Index request ignored - full SD scan in progress", "warning");
         return;
       }
@@ -5387,10 +5795,9 @@ Serial.println("SD Card initialized successfully!");
       requestIndexing = true;
 
       // manual index is always full, so enqueue the non-bucket top-level folders too
-      // (the boot enqueue only runs on detected changes now). same 12 KB as the boot call
-      // site, this one used to get half the stack so a card with many top level folders
-      // could blow the stack only when started from the admin page
-      BaseType_t tr = xTaskCreatePinnedToCore(immediateEnqueueTopLevelTask, "ImmediateEnq", 12 * 1024, NULL, 1, NULL, 1);
+      // (the boot enqueue only runs on detected changes). same 12 KB stack as the boot
+      // call, a card with many top level folders needs it
+      BaseType_t tr = nomadCreateTask(immediateEnqueueTopLevelTask, "ImmediateEnq", 12 * 1024, NULL, 1, NULL, 1);
       if (tr == pdPASS) {
         webLog("[ADMIN] Starting immediate index task", "info");
       } else {
@@ -5409,59 +5816,15 @@ Serial.println("SD Card initialized successfully!");
       webLog("[ADMIN] Index queued for background processing", "info");
     });
 
-    // ---------------- static + Archive handlers ----------------
+    // static + Archive handlers
 
-    // Make sure OPTIONS preflight for asset routes will not block
-    server.on("^\\/assets\\/.*$", HTTP_OPTIONS, [](AsyncWebServerRequest *request){
-      AsyncWebServerResponse *resp = request->beginResponse(200, "text/plain", "");
-      resp->addHeader("Access-Control-Allow-Origin", "*");
-      resp->addHeader("Access-Control-Allow-Methods", "GET, HEAD, OPTIONS");
-      resp->addHeader("Access-Control-Allow-Headers", "Range, Content-Type, Accept");
-      request->send(resp);
-    });
 
-    // Note: /Archive/* GET/HEAD/etc. is handled by the single HTTP_ANY route registered below,
-    // which delegates to handleRangeRequest and fully covers GET.
-
-    server.on("/debug/sdexists", HTTP_GET, [](AsyncWebServerRequest *request){
-      if (!request->hasParam("path")) {
-        request->send(400, "text/plain", "supply ?path=/assets/.. or /Archive/..");
-        return;
-      }
-      String p = request->getParam("path")->value();
-      if (sdMutex && xSemaphoreTake(sdMutex, pdMS_TO_TICKS(1000)) != pdTRUE) {
-        request->send(503, "text/plain", "SD busy");
-        return;
-      }
-      bool exist = SD_MMC.exists(p.c_str());
-      if (sdMutex) xSemaphoreGive(sdMutex);
-      String out = String("{\"path\":\"") + p + String("\",\"exists\":") + (exist ? "true" : "false") + "}";
-      request->send(200, "application/json", out);
-    });
-
-    server.on("/assets/check", HTTP_GET, [](AsyncWebServerRequest *request){
-      // query param ?file=/assets/... 
-      if (request->hasParam("file")) {
-        String p = request->getParam("file")->value();
-        if (sdMutex && xSemaphoreTake(sdMutex, pdMS_TO_TICKS(1000)) != pdTRUE) {
-          request->send(503, "text/plain", "SD busy");
-          return;
-        }
-        bool ok = SD_MMC.exists(p);
-        if (sdMutex) xSemaphoreGive(sdMutex);
-        String res = String("{\"file\":") + "\"" + p + "\"" + ",\"exists\":" + (ok?"true":"false") + "}";
-        request->send(200, "application/json", res);
-      } else {
-        request->send(400, "text/plain", "use ?file=/assets/..");
-      }
-    });
     // Advanced-content manifest (ZIMs today; ROMs/map tiles later (hopes and prayers)).
-    // The /zim-list alias for the same data is gone - nothing ever called it.
     server.on("/api/archive-list", HTTP_GET, handleArchiveList);
     server.on("/api/games-list", HTTP_GET, handleGamesList);
     server.on("/api/maps-list", HTTP_GET, handleMapsList);
 
-    // Multiplayer (HTTP polling; see the MpRoom store + handlers above for the design notes).
+    // Multiplayer (HTTP polling, see the MpRoom store + handlers above for the design notes).
     server.on("/api/mp/create", HTTP_POST, [](AsyncWebServerRequest *request){}, NULL, handleMpCreate);
     server.on("/api/mp/join", HTTP_POST, [](AsyncWebServerRequest *request){}, NULL, handleMpJoin);
     server.on("/api/mp/move", HTTP_POST, [](AsyncWebServerRequest *request){}, NULL, handleMpMove);
@@ -5474,36 +5837,17 @@ Serial.println("SD Card initialized successfully!");
         response->addHeader("Access-Control-Max-Age", "86400"); // optional: cache preflight for 1 day
         request->send(response);
     });
-   // ---------- Serve /assets/* with correct MIME types & headers ----------
+   // Serve /assets/* with correct MIME types & headers
     server.on("/assets/*", HTTP_GET, [](AsyncWebServerRequest *request){
       String url = request->url(); // e.g. "/assets/foliate/vendor/pdf.mjs"
       if (url.length() == 0) { request->send(400); return; }
 
-      const String sdPath = url;
-
-      // sdMutex first: a bare exists() waits on the SdFat lock forever, and a background
-      // task holding it parks async_tcp into the watchdog. every page pulls JS and CSS here.
-      if (sdMutex && xSemaphoreTake(sdMutex, pdMS_TO_TICKS(1000)) != pdTRUE) {
-        request->send(503, "text/plain", "SD busy");
-        return;
-      }
-      bool exists = SD_MMC.exists(sdPath.c_str());
-      if (sdMutex) xSemaphoreGive(sdMutex);
-
-      if (!exists) {
-        Serial.printf("[ASSETS] not found: %s\n", sdPath.c_str());
-        request->send(404, "text/plain", "not found");
-        return;
-      }
-
-      String mime = mimeForPath(sdPath); // call the top-level helper
-      AsyncWebServerResponse *resp = request->beginResponse(SD_MMC, sdPath.c_str(), mime.c_str());
-
-      // Helpful headers for libraries (PDF.js, wasm, fonts, etc.)
-      resp->addHeader("Access-Control-Allow-Origin", "*");
-      resp->addHeader("Accept-Ranges", "bytes");
-      resp->addHeader("Cache-Control", "public, max-age=600");
-      request->send(resp);
+      // sendSdFile takes sdMutex with a timeout before touching the card: a bare
+      // exists() waits on the SdFat lock forever, and a background task holding it
+      // parks async_tcp into the watchdog. every page pulls JS and CSS here.
+      // CORS headers stay on for the libraries that fetch their own files (PDF.js
+      // worker, wasm).
+      sendSdFile(request, url, mimeForPath(url), "public, max-age=600", true);
     });
 
     // CORS preflight for /assets/*
@@ -5516,28 +5860,21 @@ Serial.println("SD Card initialized successfully!");
       request->send(r);
     });
 
-    // Note: /Books/* GET/HEAD/etc. is handled by the single HTTP_ANY route registered below,
-    // which delegates to handleRangeRequest and fully covers GET.
-
     // Captive triggers for Apple & Android devices. no-cache: a cached copy
     // of the portal page is how phones keep showing a stale landing screen
     server.on("/hotspot-detect.html", HTTP_GET, [](AsyncWebServerRequest *request) {
         Serial.println("Apple captive portal request detected, serving appleindex.html");
-        AsyncWebServerResponse *r = request->beginResponse(SD_MMC, "/appleindex.html", "text/html");
-        r->addHeader("Cache-Control", "no-cache");
-        request->send(r);
+        nomadSendCardFile(request, "/appleindex.html", "text/html", "no-cache");
     });
 
     server.on("/generate_204", HTTP_GET, [](AsyncWebServerRequest *request) {
         Serial.println("Android/NORMAL captive portal request detected, serving index.html");
-        AsyncWebServerResponse *r = request->beginResponse(SD_MMC, "/index.html", "text/html");
-        r->addHeader("Cache-Control", "no-cache");
-        request->send(r);
+        nomadSendCardFile(request, "/index.html", "text/html", "no-cache");
     });
     // the rest of the OS/browser connectivity probe paths. serving the portal page
     // instead of the expected token is what flips each one into "sign in to network".
     // extension-less probes (/gen_204, /nm, /mobile/status.php ...) already land on
-    // the portal via onNotFound; these dotted ones would 404 as file lookups.
+    // the portal via onNotFound, these dotted ones would 404 as file lookups.
     {
       static const struct { const char *path; bool apple; } kProbePaths[] = {
         { "/connecttest.txt", false },            // windows NCSI
@@ -5552,9 +5889,7 @@ Serial.println("SD Card initialized successfully!");
       for (const auto &p : kProbePaths) {
         const char *page = p.apple ? "/appleindex.html" : "/index.html";
         server.on(p.path, HTTP_GET, [page](AsyncWebServerRequest *request) {
-          AsyncWebServerResponse *r = request->beginResponse(SD_MMC, page, "text/html");
-          r->addHeader("Cache-Control", "no-cache");
-          request->send(r);
+          nomadSendCardFile(request, page, "text/html", "no-cache");
         });
       }
     }
@@ -5585,7 +5920,7 @@ Serial.println("SD Card initialized successfully!");
         { "queue",       "/queue.html" },
         { "cookbook",    "/cookbook.html" },
         { "workshop",    "/workshop.html" },
-        // iframed by admin.html; without a route it fell to onNotFound
+        // iframed by admin.html, without a route it fell to onNotFound
         { "theme-ui",    "/theme-customization-ui.html" },
       };
       for (const auto &route : kPageRoutes) {
@@ -5609,22 +5944,23 @@ Serial.println("SD Card initialized successfully!");
             return;
         }
         
-        // Books and archives are big and get seeked: give direct links the ranged
-        // handler. The ^/Books/.*$ regex routes meant to do this never matched, since
-        // ASYNCWEBSERVER_REGEX is not defined in this build; every such URL fell
-        // through here to a whole-file response that ignored Range.
-        //
-        // Timed media joins them, for the same reason plus one more. A direct link to
-        // /Movies/film.mp4 - which is what DLNA players, external players and anything
-        // not using the site's own /media?file= URL actually request - fell through to
-        // sendSdFile, and so got no Range support AND no admission control: it was the
-        // one way to start a stream that never touched the reservation above. The
-        // frontend was unaffected because it streams through /media, which is why this
-        // stayed invisible.
+        // Direct links to big, seeked files go to the ranged handler: books, archives,
+        // audio and video (DLNA and external players link straight to them), anything
+        // asked for by byte range, and the map packs (a map reads one .pmtiles or
+        // roads.bin in many small ranges). Regex routes don't work in this build
+        // (ASYNCWEBSERVER_REGEX isn't defined), so it's done here.
+        // a ROM kept gzipped is sent whole, before the Range routing, which would only
+        // look for the file under its own name
+        if (url.startsWith("/Games/") && !url.endsWith(".gz") && nomadOnlyGzSibling(url)) {
+            sendSdFile(request, url, mimeForPath(url), "public, max-age=600", false, true);
+            return;
+        }
+
         String routeLower = url;
         routeLower.toLowerCase();
         if (url.startsWith("/Books/") || url.startsWith("/Archive/") ||
-            isTimedMediaExtension(routeLower)) {
+            isTimedMediaExtension(routeLower) || request->hasHeader("Range") ||
+            routeLower.endsWith(".pmtiles") || (url.startsWith("/Maps/") && routeLower.endsWith(".bin"))) {
             handleRangeRequest(request);
             return;
         }
@@ -5635,190 +5971,252 @@ Serial.println("SD Card initialized successfully!");
             url.startsWith("/Shows") || url.startsWith("/Archive") || url.startsWith("/Games") ||
             url.startsWith("/Maps")) {
 
-            // ex-serveStatic buckets: route them through handleRangeRequest so reads
-            // stay under sdMutex. Only these two - root pages must serve during indexing.
-            if (url.startsWith("/Gallery/") || url.startsWith("/Files/")) {
-                handleRangeRequest(request);
+            String filePath = url;
+            if (!filePath.startsWith("/")) filePath = "/" + filePath;
+            if (isConfigPath(filePath)) {
+                request->send(404, "text/plain", "File not found");
                 return;
             }
 
-            // Handle as file request with SD mutex protection
-            String filePath = url;
-            if (!filePath.startsWith("/")) filePath = "/" + filePath;
-            
-            // Take SD mutex before any SD operations
-            if (sdMutex) {
-                if (xSemaphoreTake(sdMutex, pdMS_TO_TICKS(5000)) != pdTRUE) {
-                    request->send(503, "text/plain", "SD busy");
-                    return;
-                }
-            }
-            
-            auto releaseSd = [&](){
-                if (sdMutex) xSemaphoreGive(sdMutex);
-            };
-            // Check if file exists
-                          
-            bool fileExists = SD_MMC.exists(filePath);
-
-            if (!fileExists) {
-                releaseSd();
-                
-                // Try index.html for directory requests
+            // a bare directory URL falls back to its index.html
+            if (filePath.indexOf('.') < 0) {
                 if (!filePath.endsWith("/")) filePath += "/";
                 filePath += "index.html";
-                
-                if (sdMutex && xSemaphoreTake(sdMutex, pdMS_TO_TICKS(5000)) != pdTRUE) {
-                    request->send(503, "text/plain", "SD busy");
-                    return;
-                }
-                
-                bool indexExists = SD_MMC.exists(filePath);
-
-                if (!indexExists) {
-                    releaseSd();
-                    request->send(404, "text/plain", "File not found");
-                    return;
-                }
             }
-            
-            // Serve the file
-            String mime = getMimeType(filePath);
-            AsyncWebServerResponse *response = request->beginResponse(SD_MMC, filePath, mime);
-            releaseSd();
 
-            response->addHeader("Accept-Ranges", "bytes");
-            // same rule as serveProtectedFile: pages are never cached, a stale
-            // page keeps serving old bugs for its whole cache lifetime
-            if (mime == "text/html") response->addHeader("Cache-Control", "no-cache");
-            else response->addHeader("Cache-Control", "public, max-age=600");
-            request->send(response);
+            // Gallery and Files hold whatever people put there, in any case and in
+            // formats getMimeType() doesn't list (.avif, .WEBP), so they use the full
+            // table. Otherwise those reach the browser as text/plain and download.
+            const bool userBucket = filePath.startsWith("/Gallery/") || filePath.startsWith("/Files/");
+            String mime = userBucket ? mimeForPath(filePath) : getMimeType(filePath);
+            // same rule as serveProtectedFile: pages revalidate every time. The
+            // emulator cores (big, never edited on the card) and the two user buckets
+            // can sit in the browser cache for a day.
+            const char *cc = (mime == "text/html") ? "no-cache"
+                           : (userBucket || filePath.startsWith("/EmulatorJS/")) ? "public, max-age=86400"
+                           : "public, max-age=600";
+            sendSdFile(request, filePath, mime, cc);
             return;
         }
 
-    // Handle captive portal redirects for non-file requests (hotspot only; on a
+    // Handle captive portal redirects for non-file requests (hotspot only, on a
     // home network a mistyped URL should get the normal landing page)
     if (!g_staMode && userAgent.length()) {
         if (userAgent.indexOf("iPhone") >= 0 || userAgent.indexOf("iPad") >= 0 || userAgent.indexOf("Macintosh") >= 0) {
-            AsyncWebServerResponse *r = request->beginResponse(SD_MMC, "/appleindex.html", "text/html");
-            r->addHeader("Cache-Control", "no-cache");
-            request->send(r);
+            nomadSendCardFile(request, "/appleindex.html", "text/html", "no-cache");
             return;
         }
     }
 
     {
-      AsyncWebServerResponse *r = request->beginResponse(SD_MMC, "/index.html", "text/html");
-      r->addHeader("Cache-Control", "no-cache");
-      request->send(r);
+      nomadSendCardFile(request, "/index.html", "text/html", "no-cache");
     }
 });
-    // /Gallery and /Files were serveStatic mounts - the only SD reads with no
-    // sdMutex, no busy-503 and no OOM guard. Now handled in onNotFound instead.
+    // /Gallery and /Files are served from onNotFound, don't use serveStatic for them:
+    // it skips sdMutex, the busy 503 and the OOM guard.
+// what a page needs before it sends anything: is the file already there, how much of it
+// is, and will it fit. Answers only where this visitor could upload.
+server.on("/upload-status", HTTP_GET, [](AsyncWebServerRequest *request) {
+  const String path = nomadParamValue(request, "path");
+  const int slash = path.lastIndexOf('/');
+  if (slash < 0) { nomadUploadJson(request, 400, "{\"error\":\"Invalid path\"}"); return; }
+  if (!nomadUploadAllowed(request, path)) return;
+  const uint64_t total = nomadU64Param(request, "total");
+  if (sdMutex && xSemaphoreTake(sdMutex, pdMS_TO_TICKS(2000)) != pdTRUE) {
+    nomadUploadJson(request, 503, "{\"error\":\"SD busy\"}");
+    return;
+  }
+  uint64_t size = 0, part = 0;
+  time_t t;
+  const bool exists = SD_MMC.fileStat64(path.c_str(), size, t) || SD_MMC.exists(path);
+  const bool hasPart = total && SD_MMC.fileStat64(nomadPartPath(path, total).c_str(), part, t);
+  if (sdMutex) xSemaphoreGive(sdMutex);
+  char body[96];
+  snprintf(body, sizeof(body), "{\"size\":%lld,\"part\":%lld,\"free\":%lld}",
+           exists ? (long long)size : -1LL, hasPart ? (long long)part : -1LL, (long long)nomadFreeBytes());
+  nomadUploadJson(request, 200, body);
+});
+
+// the page gave up on a file: its part goes, so it doesn't sit on the card
+server.on("/upload-cancel", HTTP_POST, [](AsyncWebServerRequest *request) {
+  const String path = nomadParamValue(request, "path");
+  const uint64_t total = nomadU64Param(request, "total");
+  if (path.lastIndexOf('/') < 0 || !total) { nomadUploadJson(request, 400, "{\"error\":\"Invalid path\"}"); return; }
+  if (!nomadUploadAllowed(request, path)) return;
+  const String part = nomadPartPath(path, total);
+  for (auto &u : g_uploads) {
+    if (u.second.part == part) { nomadUploadJson(request, 409, "{\"error\":\"busy\"}"); return; }
+  }
+  if (sdMutex && xSemaphoreTake(sdMutex, pdMS_TO_TICKS(2000)) != pdTRUE) {
+    nomadUploadJson(request, 503, "{\"error\":\"SD busy\"}");
+    return;
+  }
+  SD_MMC.remove(part);
+  if (sdMutex) xSemaphoreGive(sdMutex);
+  nomadUploadJson(request, 200, "{\"status\":\"cancelled\"}");
+});
+
 server.on(
   "/upload", HTTP_POST,
-  // Final response when upload is complete
-  [](AsyncWebServerRequest *request) {
-    // Response is handled during final chunk or error
-  },
-  // Upload handler
+  // the answer is sent from the last chunk, or from whichever chunk refused the upload
+  [](AsyncWebServerRequest *request) {},
   [](AsyncWebServerRequest *request, const String &filename, size_t index,
      uint8_t *data, size_t len, bool final) {
+    auto it = g_uploads.find(request);
+    if (index != 0 && it == g_uploads.end()) return;     // refused on its first chunk
 
-    static std::map<AsyncWebServerRequest *, File> uploads;
-
-    // Every chunk touches the card. Same rule as the media upload handler: hold the SD
-    // lock for this callback and drop the upload if the card stays busy too long.
+    // Every chunk touches the card: hold the SD lock for this callback. A card that stays
+    // busy fails the upload with a 503 the page retries, the part keeps what was written.
     if (sdMutex && xSemaphoreTake(sdMutex, pdMS_TO_TICKS(3000)) != pdTRUE) {
-      auto it = uploads.find(request);
-      if (it != uploads.end()) {
-        Serial.println("[Upload] SD busy too long, abandoning upload");
-        it->second.close();
-        uploads.erase(it);
-      }
-      if (index == 0 || final) {
-        request->send(503, "application/json", "{\"error\":\"SD busy\"}");
+      if (it != g_uploads.end()) {
+        NomadUpload &u = it->second;
+        if (!u.failCode) { u.failCode = 503; u.failMsg = "SD busy"; }
+        if (final) {
+          const String body = String("{\"error\":\"SD busy\",\"have\":") + String((unsigned long long)u.have) + "}";
+          // the part is closed under the lock, if the card is still busy, onDisconnect does it
+          if (!sdMutex || xSemaphoreTake(sdMutex, pdMS_TO_TICKS(5000)) == pdTRUE) {
+            if (u.f) u.f.close();
+            if (!u.total) SD_MMC.remove(u.part);
+            if (sdMutex) xSemaphoreGive(sdMutex);
+            g_uploads.erase(it);
+          }
+          nomadUploadJson(request, 503, body);
+        }
+      } else {
+        nomadUploadJson(request, 503, "{\"error\":\"SD busy\"}");
       }
       return;
     }
+    struct Release { ~Release() { if (sdMutex) xSemaphoreGive(sdMutex); } } release;
 
-    // Begin upload
     if (index == 0) {
-      String dir = "/";
-      if (request->hasParam("dir", true)) {
-        dir = request->getParam("dir", true)->value();
+      const String fullPath = nomadUploadTarget(request, filename);
+      if (!fullPath.length()) return;
+      const uint64_t total = nomadU64Param(request, "total");
+      const uint64_t offset = nomadU64Param(request, "offset");
+      const String part = nomadPartPath(fullPath, total);
+      for (auto &u : g_uploads) {
+        if (u.second.part == part) {               // two phones sending the same file
+          nomadUploadJson(request, 409, "{\"error\":\"busy\"}");
+          return;
+        }
       }
-
-      if (!dir.startsWith("/")) dir = "/" + dir;
-      if (dir.endsWith("/")) dir.remove(dir.length() - 1);
-
-      String fullPath = dir + "/" + filename;
-
-      // same traversal guard /save and /mkdir already have
-      if (fullPath.indexOf("..") >= 0) {
-        if (sdMutex) xSemaphoreGive(sdMutex);
-        request->send(400, "application/json", "{\"error\":\"Invalid path\"}");
-        return;
-      }
-
-      // Check for duplicate
       if (SD_MMC.exists(fullPath)) {
         Serial.println("[Upload] Duplicate file detected: " + fullPath);
-        if (sdMutex) xSemaphoreGive(sdMutex);
-        request->send(409, "application/json", "{\"error\":\"File already exists\"}");
+        nomadUploadJson(request, 409, "{\"error\":\"File already exists\"}");
         return;
       }
-
+      const int64_t freeNow = nomadFreeBytes();
+      if (total && freeNow >= 0 && total > offset && (int64_t)(total - offset) > freeNow) {
+        nomadUploadJson(request, 507, "{\"error\":\"Card full\",\"free\":" + String((long long)freeNow) + "}");
+        return;
+      }
       // Ensure directory exists
-      int slashPos = fullPath.lastIndexOf('/');
-      if (slashPos != -1) {
-        String folder = fullPath.substring(0, slashPos);
-        if (!SD_MMC.exists(folder)) {
-          SD_MMC.mkdir(folder);
-        }
-      }
+      const String folder = fullPath.substring(0, fullPath.lastIndexOf('/'));
+      if (folder.length() && !SD_MMC.exists(folder)) SD_MMC.mkdir(folder);
 
-      File f = SD_MMC.open(fullPath, FILE_WRITE);
+      File f;
+      if (offset == 0) {
+        f = SD_MMC.open(part, FILE_WRITE);         // starts over: any earlier part is cut to 0
+      } else {
+        // carry on only from exactly where the part ends, so nothing is doubled or skipped
+        const uint64_t have = SD_MMC.fileSize64(part.c_str());
+        if (have != offset) {
+          nomadUploadJson(request, 409, "{\"error\":\"offset\",\"have\":" + String((unsigned long long)have) + "}");
+          return;
+        }
+        f = SD_MMC.open(part, FILE_APPEND);
+      }
       if (!f) {
-        webLogf("error", "Upload failed to open file: %s", fullPath.c_str());
-        Serial.println("[Upload] Failed to open file: " + fullPath);
-        if (sdMutex) xSemaphoreGive(sdMutex);
-        request->send(500, "application/json", "{\"error\":\"Failed to open file\"}");
+        webLogf("error", "Upload failed to open file: %s", part.c_str());
+        nomadUploadJson(request, 500, "{\"error\":\"Failed to open file\"}");
         return;
       }
-
-      uploads[request] = f;
-      // Aborted uploads never deliver a final chunk. Without this the File stays open and
-      // the entry keeps a dead request pointer, so retrying the same name 409s until reboot.
+      NomadUpload &u = g_uploads[request];
+      u.f = f;
+      u.part = part;
+      u.finalPath = fullPath;
+      u.total = total;
+      u.have = offset;
+      it = g_uploads.find(request);
+      // An aborted upload never delivers a final chunk. The part stays for the page to
+      // carry on from. A whole-file upload (no total) can't, so its part goes.
       request->onDisconnect([request]() {
-        auto it = uploads.find(request);
-        if (it != uploads.end()) {
-          Serial.println("[Upload] Client disconnected mid-upload, closing partial file");
-          it->second.close();
-          uploads.erase(it);
+        auto d = g_uploads.find(request);
+        if (d == g_uploads.end()) return;
+        Serial.println("[Upload] Client disconnected mid-upload");
+        if (!sdMutex || xSemaphoreTake(sdMutex, pdMS_TO_TICKS(3000)) == pdTRUE) {
+          if (d->second.f) d->second.f.close();
+          if (!d->second.total) SD_MMC.remove(d->second.part);
+          if (sdMutex) xSemaphoreGive(sdMutex);
         }
+        g_uploads.erase(d);
       });
-      Serial.println("[Upload] Started: " + fullPath);
+      Serial.printf("[Upload] Started: %s at %llu of %llu\n", fullPath.c_str(),
+                    (unsigned long long)offset, (unsigned long long)total);
     }
 
-    // Continue writing data
-    if (uploads.count(request)) {
-      uploads[request].write(data, len);
+    NomadUpload &u = it->second;
+    if (!u.failCode && len) {
+      const size_t w = u.f.write(data, len);
+      u.have += w;
+      if (w != len) {
+        // a write the card refused: full, or no memory for the transfer just now
+        u.f.close();
+        const int64_t freeNow = nomadFreeBytes();
+        const bool full = freeNow >= 0 && freeNow < (int64_t)(4 * 1024 * 1024);
+        u.failCode = full ? 507 : 503;
+        u.failMsg = full ? "Card full" : "Write failed";
+        webLogf("error", "Upload write failed at %llu: %s", (unsigned long long)u.have, u.part.c_str());
+        if (!u.total) SD_MMC.remove(u.part);
+      }
     }
+    if (!final) return;
 
-    // Finalize upload
-    if (final && uploads.count(request)) {
-      uploads[request].close();
-      uploads.erase(request);
-      Serial.println("[Upload] Finished");
-      if (sdMutex) xSemaphoreGive(sdMutex);
-      request->send(200, "application/json", "{\"status\":\"Upload successful\"}");
+    if (u.failCode) {
+      if (u.f) u.f.close();
+      nomadUploadJson(request, u.failCode, String("{\"error\":\"") + u.failMsg + "\",\"have\":" + String((unsigned long long)u.have) + "}");
+      g_uploads.erase(it);
       return;
     }
-    if (sdMutex) xSemaphoreGive(sdMutex);
+    u.f.close();
+    if (u.total && u.have < u.total) {             // one slice of several: more to come
+      nomadUploadJson(request, 200, "{\"status\":\"partial\",\"have\":" + String((unsigned long long)u.have) + "}");
+      g_uploads.erase(it);
+      return;
+    }
+    if (u.total && u.have != u.total) {            // more than the file's size: start over
+      SD_MMC.remove(u.part);
+      nomadUploadJson(request, 409, "{\"error\":\"offset\",\"have\":0}");
+      g_uploads.erase(it);
+      return;
+    }
+    // All there: into place. If the name was taken meanwhile, the next free "name (2).ext".
+    String dest = u.finalPath;
+    if (SD_MMC.exists(dest)) {
+      const int slash = dest.lastIndexOf('/'), dot = dest.lastIndexOf('.');
+      const String stem = dot > slash ? dest.substring(0, dot) : dest;
+      const String ext = dot > slash ? dest.substring(dot) : String();
+      for (int n = 2; n < 100 && SD_MMC.exists(dest); ++n) dest = stem + " (" + n + ")" + ext;
+    }
+    if (!SD_MMC.rename(u.part, dest)) {
+      webLogf("error", "Upload could not be moved into place: %s", dest.c_str());
+      nomadUploadJson(request, 500, "{\"error\":\"Could not save the file\"}");
+      g_uploads.erase(it);
+      return;
+    }
+    cachedUsedBytes += u.have;                     // until the next measurement
+    Serial.println("[Upload] Finished: " + dest);
+    String body = "{\"status\":\"done\",\"path\":\"";
+    for (size_t i = 0; i < dest.length(); ++i) {
+      const char c = dest.charAt(i);
+      if (c == '"' || c == '\\') body += '\\';
+      if ((uint8_t)c >= 0x20) body += c;
+    }
+    nomadUploadJson(request, 200, body + "\",\"size\":" + String((unsigned long long)u.have) + "}");
+    g_uploads.erase(it);
   }
 );
-
 server.on("/list-assets", HTTP_GET, [](AsyncWebServerRequest *request){
   if (!request->hasParam("dir")) {
     request->send(400, "application/json", "{\"error\":\"Missing dir\"}");
@@ -5885,6 +6283,10 @@ server.on("/mkdir", HTTP_POST, [](AsyncWebServerRequest *request) {
         request->send(400, "text/plain", "Invalid directory name");
         return;
     }
+    if (isConfigPath(dirName) && !checkAdminAuth(request)) {
+        request->send(401, "text/plain", "Unauthorized");
+        return;
+    }
 
     // Remove trailing slash, if present
     if (dirName.endsWith("/")) {
@@ -5921,16 +6323,6 @@ server.on("/delete", HTTP_POST, handleDelete);
 server.on("/connector", HTTP_POST, [](AsyncWebServerRequest *request){
     handleConnector(request);
 });
-server.on("^\\/Books\\/.*$", HTTP_ANY, [](AsyncWebServerRequest *request){
-  Serial.printf("[BOOKS ROUTE ANY] delegating to handleRangeRequest for %s (method=%d)\n", request->url().c_str(), request->method());
-  handleRangeRequest(request);
-});
-server.on("^\\/Archive\\/.*$", HTTP_ANY, [](AsyncWebServerRequest *request){
-  Serial.printf("[ARCHIVE ROUTE ANY] delegating to handleRangeRequest for %s (method=%d)\n", request->url().c_str(), request->method());
-  handleRangeRequest(request);
-});
-// NOTE: the regex routes above need ASYNCWEBSERVER_REGEX, which this build doesn't
-// define - they never match, so /Books and /Archive fall through to onNotFound.
 
 
 server.on("/save", HTTP_POST, [](AsyncWebServerRequest *request){
@@ -5944,10 +6336,21 @@ server.on("/save", HTTP_POST, [](AsyncWebServerRequest *request){
   if (path.indexOf("..") >= 0) {
     return request->send(400, "text/plain", "Invalid path");
   }
+  if (isConfigPath(path) && !checkAdminAuth(request)) {
+    return request->send(401, "text/plain", "Unauthorized");
+  }
+  if (!checkAdminAuth(request)) {
+    if (sdMutex && xSemaphoreTake(sdMutex, pdMS_TO_TICKS(2000)) != pdTRUE)
+      return request->send(503, "text/plain", "SD busy");
+    const bool newRoot = nomadMakesRootFolder(path);
+    if (sdMutex) xSemaphoreGive(sdMutex);
+    if (newRoot) return request->send(401, "text/plain", "Admin login required to make a new folder there");
+  }
 
-  // The write used to happen here on async_tcp, and on a nearly full card the free
-  // cluster hunt took long enough to trip the task watchdog. The config writer task
-  // does the atomic write now, OK means the write is queued.
+  // The config writer task does the write (see queueConfigWrite), OK means it's queued.
+  // the file is about to be replaced: drop any handle still on the old one, or the next
+  // read is served the old contents from it
+  if (releaseStreamsFor(path) == 1) return request->send(409, "text/plain", "File is in use");
   if (!queueConfigWrite(path, content)) {
     return request->send(503, "text/plain", "Write queue full, try again");
   }
@@ -5957,6 +6360,8 @@ server.on("/save", HTTP_POST, [](AsyncWebServerRequest *request){
 
 // GET is open (pages need it to know what to hide), POST is admin only.
 // State lives in RAM so reads never touch the card.
+g_menuLock = xSemaphoreCreateMutex();   // before loop() or a phone can reach it
+server.on("/api/menu", HTTP_GET, handleMenuFeatures);
 server.on("/api/ui-config", HTTP_GET, [](AsyncWebServerRequest *request){
   String copy = "{}";
   if (!uiCfgMutex || xSemaphoreTake(uiCfgMutex, pdMS_TO_TICKS(200)) == pdTRUE) {
@@ -5995,6 +6400,11 @@ server.on("/api/ui-config", HTTP_POST, [](AsyncWebServerRequest *request){
   }
   out["downloadsDisabled"] = in["downloadsDisabled"] | false;
   out["uploadsDisabled"] = in["uploadsDisabled"] | false;
+  // per page, only names the firmware knows
+  for (const char *list : { "dlOff", "ulOff" }) {
+    JsonArray a = out[list].to<JsonArray>();
+    for (JsonVariant v : in[list].as<JsonArray>()) { const char *k = v | ""; if (pageBit(k)) a.add(k); }
+  }
   String motd = String((const char *)(in["motd"] | ""));
   if (motd.length() > 120) motd = motd.substring(0, 120);
   out["motd"] = motd;
@@ -6006,6 +6416,7 @@ server.on("/api/ui-config", HTTP_POST, [](AsyncWebServerRequest *request){
     g_uiConfigJson = json;
     if (uiCfgMutex) xSemaphoreGive(uiCfgMutex);
   }
+  refreshUiFlags(json);
 
   bool queued = queueConfigWrite(UI_CONFIG_PATH, json);
   webLogf("info", "UI config updated (%s)", queued ? "write queued" : "WRITE QUEUE FULL");
@@ -6018,9 +6429,8 @@ server.on("/settings", HTTP_GET, [](AsyncWebServerRequest *request){
   StaticJsonDocument<512> doc;
   doc["rgbMode"] = settings.rgbMode;
   doc["rgbColor"] = settings.rgbColor;
-  // Do not hand out the real admin secret. /auth/login accepts whatever is stored here
-  // as the credential, so echoing it to an unauthenticated caller let any guest on the
-  // AP send it straight back and become admin. The UI only checks empty vs set.
+  // Never send the real admin secret. /auth/login accepts whatever is stored here, so
+  // any guest could send it straight back and become admin. The UI only checks empty vs set.
   bool adminPwSet = settings.adminPassword.length() > 0 && settings.adminPassword != "null";
   doc["adminPassword"] = adminPwSet ? "__set__" : "";
   doc["adminPasswordSet"] = adminPwSet;
@@ -6059,12 +6469,24 @@ server.on("/settings", HTTP_POST, [](AsyncWebServerRequest *request){
 
   if (doc.containsKey("rgbMode")) settings.rgbMode = doc["rgbMode"].as<String>();
   if (doc.containsKey("rgbColor")) settings.rgbColor = doc["rgbColor"].as<String>();
+  // older pages set the password here as typed, it still gets stored salted
+  // (POST /auth/password is the normal way, and never sends the password itself)
   if (doc.containsKey("adminPassword")) {
-    settings.adminPassword = doc["adminPassword"].as<String>();
-    adminSessionToken = ""; // password changed/cleared - existing sessions must re-authenticate
+    const String pw = doc["adminPassword"].as<String>();
+    if (pw.length() == 0 || pw == "null") authStoreRecord("");
+    else authSetPlain(pw);
   }
-  if (doc.containsKey("wifiSSID")) settings.wifiSSID = doc["wifiSSID"].as<String>();
-  if (doc.containsKey("wifiPassword")) settings.wifiPassword = doc["wifiPassword"].as<String>();
+  if (doc.containsKey("wifiSSID")) {
+    const String ssid = doc["wifiSSID"].as<String>();
+    if (ssid.length() && ssid.length() <= 32) settings.wifiSSID = ssid;
+  }
+  // Only take a password WPA2 can use (8-63 chars). An empty one from a page that never
+  // saw the real password would open the hotspot, so open has to be asked for (wifiOpen).
+  if (doc.containsKey("wifiPassword")) {
+    const String pw = doc["wifiPassword"].as<String>();
+    if (pw.length() >= 8 && pw.length() <= 63 && pw != "__set__") settings.wifiPassword = pw;
+    else if (pw.length() == 0 && (doc["wifiOpen"] | false)) settings.wifiPassword = "";
+  }
   if (doc.containsKey("brightness")) settings.brightness = constrain(doc["brightness"].as<int>(), 0, 100);
   if (doc.containsKey("autoGenerateMedia")) settings.autoGenerateMedia = doc["autoGenerateMedia"].as<bool>();
   if (doc.containsKey("dlnaEnabled")) {
@@ -6092,39 +6514,9 @@ server.on("/settings", HTTP_POST, [](AsyncWebServerRequest *request){
   }
 });
 
-// POST /auth/login - verify the SHA-256 password hash and issue a session token.
-server.on("/auth/login", HTTP_POST, [](AsyncWebServerRequest *request){
-  if (!isAdminAuthRequired()) {
-    adminSessionToken = generateSessionToken();
-    request->send(200, "application/json", "{\"token\":\"" + adminSessionToken + "\"}");
-    return;
-  }
-  if (!request->hasParam("body", true)) {
-    request->send(400, "application/json", "{\"error\":\"Missing body\"}");
-    return;
-  }
-  StaticJsonDocument<256> doc;
-  DeserializationError error = deserializeJson(doc, request->getParam("body", true)->value());
-  if (error) {
-    request->send(400, "application/json", "{\"error\":\"Invalid JSON\"}");
-    return;
-  }
-  String hash = doc["hash"] | "";
-  if (hash.length() == 0 || !hash.equals(settings.adminPassword)) {
-    request->send(401, "application/json", "{\"error\":\"Invalid password\"}");
-    return;
-  }
-  adminSessionToken = generateSessionToken();
-  request->send(200, "application/json", "{\"token\":\"" + adminSessionToken + "\"}");
-});
+nomadAuthRegister(server);   // /auth/challenge, /auth/login, /auth/logout, /auth/sessions, /auth/password
 
-// POST /auth/logout - drop the current session token.
-server.on("/auth/logout", HTTP_POST, [](AsyncWebServerRequest *request){
-  adminSessionToken = "";
-  request->send(200, "application/json", "{\"status\":\"ok\"}");
-});
-
-// ---------------- WiFi Mode (admin popup) ----------------
+// WiFi Mode (admin popup).
 // Status for the popup. Admin-only: it names the configured home network.
 server.on("/api/wifi-mode", HTTP_GET, [](AsyncWebServerRequest *request){
   if (!checkAdminAuth(request)) { request->send(401, "application/json", "{\"error\":\"Unauthorized\"}"); return; }
@@ -6183,7 +6575,7 @@ server.on("/api/wifi-mode", HTTP_POST, [](AsyncWebServerRequest *request){
     }
     settings.staSSID = ssid;
     settings.staPersist = doc["persist"] | false;
-    // persist rides settings.json every boot; one-shot arms the NVS flag that a
+    // persist rides settings.json every boot, one-shot arms the NVS flag that a
     // power cycle clears. never leave both active or "disable by unplugging" lies.
     if (settings.staPersist) clear_sta_once_flag(); else set_sta_once_flag();
     if (!saveSettings()) {
@@ -6232,7 +6624,7 @@ server.on("/api/wifi-scan", HTTP_GET, [](AsyncWebServerRequest *request){
   DynamicJsonDocument doc(4096);
   doc["status"] = "done";
   JsonArray nets = doc.createNestedArray("networks");
-  int count = n > 20 ? 20 : n;  // results come strongest-first; the popup needs no page 2
+  int count = n > 20 ? 20 : n;  // results come strongest-first, the popup needs no page 2
   for (int i = 0; i < count; i++) {
     String ssid = WiFi.SSID(i);
     if (!ssid.length()) continue;  // hidden network: nothing to click on
@@ -6326,12 +6718,14 @@ server.on("/api/wifi-scan", HTTP_GET, [](AsyncWebServerRequest *request){
 
   // Web console logs endpoint
   server.on("/console-logs", HTTP_GET, [](AsyncWebServerRequest *request){
+    // the log names files people delete and the networks the device joins
+    if (!checkAdminAuth(request)) { request->send(401, "application/json", "{\"error\":\"Unauthorized\"}"); return; }
     // heap, not stack: 50 entries with copied message Strings overflow a 2KB
     // pool and the overflowed rows silently serialize as {}
     DynamicJsonDocument doc(8192);
     JsonArray logs = doc.createNestedArray("logs");
 
-    // hold the lock for the whole copy - a webLog() realloc mid-copy would corrupt the heap.
+    // hold the lock for the whole copy, a webLog() realloc mid-copy would corrupt the heap.
     // once doc owns its copies we can release and serialize
     bool locked = (webLogMutex && xSemaphoreTake(webLogMutex, pdMS_TO_TICKS(200)) == pdTRUE);
     if (webLogMutex && !locked) {
@@ -6350,6 +6744,7 @@ server.on("/api/wifi-scan", HTTP_GET, [](AsyncWebServerRequest *request){
     }
 
     if (locked) xSemaphoreGive(webLogMutex);
+    doc["now"] = millis();   // the entries' times are uptime too: the page shows "5 min ago" from this
 
     String payload;
     serializeJson(doc, payload);
@@ -6373,7 +6768,7 @@ server.on("/api/wifi-scan", HTTP_GET, [](AsyncWebServerRequest *request){
       }
 
       if (doc.containsKey("value")) {
-        // Clamp to Set_Backlight's valid 0-100 range; out-of-range values are
+        // Clamp to Set_Backlight's valid 0-100 range, out-of-range values are
         // silently dropped by Set_Backlight and would corrupt the slider display.
         settings.brightness = constrain(doc["value"].as<int>(), 0, 100);
         Set_Backlight(settings.brightness);  // Apply brightness immediately, at long last
@@ -6407,7 +6802,6 @@ server.on("/api/wifi-scan", HTTP_GET, [](AsyncWebServerRequest *request){
       Serial.println("Entering deep sleep...");
       esp_deep_sleep_start();
   });
-  // 2) Restart the device
   server.on("/restart", HTTP_POST, [](AsyncWebServerRequest *request){
     if (!checkAdminAuth(request)) { request->send(401, "application/json", "{\"error\":\"Unauthorized\"}"); return; }
     webLogf("info", "Restart requested");
@@ -6451,13 +6845,48 @@ server.on("/api/wifi-scan", HTTP_GET, [](AsyncWebServerRequest *request){
     ensureIndexDir();
 
     bool haveIndex = SD_MMC.exists(fullPath);
+
+    // A miss only means "one is coming" if a build would produce this file, or the page
+    // polls a 202 forever. exists() isn't enough, writeNDIndexForDir also gives up on a
+    // path that is a file.
+    const bool willBuildThisFile = (indexTargetForPath(indexPath) == indexPath) &&
+                                   !shouldSkipIndexingPath(indexPath);
+    bool haveDir = true;
+    if (!haveIndex && willBuildThisFile) {
+      haveDir = SD_MMC.exists(indexPath);
+      if (haveDir) {
+        File d = SD_MMC.open(indexPath);
+        haveDir = (d && d.isDirectory());
+        if (d) d.close();
+      }
+    }
     if (sdMutex) xSemaphoreGive(sdMutex);
 
-    // If index exists, serve it
+    // If index exists, serve it. Its header carries a signature of the folder's contents,
+    // used as an ETag so a repeat visit is a 304 instead of the whole index again.
     if (haveIndex) {
-      AsyncWebServerResponse *resp = request->beginResponse(SD_MMC, fullPath, "application/x-ndjson");
-      resp->addHeader("Cache-Control", "no-cache, no-store");
-      request->send(resp);
+      const String etag = indexEtag(fullPath);
+      if (etag.length() && request->hasHeader("If-None-Match") && request->header("If-None-Match") == etag) {
+        AsyncWebServerResponse *same = request->beginResponse(304);
+        same->addHeader("ETag", etag);
+        same->addHeader("Cache-Control", "no-cache");
+        request->send(same);
+        return;
+      }
+      nomadSendCardFile(request, fullPath, "application/x-ndjson", etag.length() ? "no-cache" : "no-cache, no-store", etag);
+      return;
+    }
+
+    // No index, and none is coming: the queue would build a different file (/Shows/* and
+    // /Music/* fold onto their bucket root, and queuing those rebuilds the whole bucket
+    // on every poll), indexing skips the path (/Archive, /config, dot folders), or there's
+    // no directory here. So 404: NomadList falls back to /listfiles and the file browser
+    // to /connector.
+    if (!haveDir || !willBuildThisFile) {
+      Serial.printf("[Index] Request for '%s' - no index for this path, not enqueuing\n",
+                    indexPath.c_str());
+      request->send(404, "application/json",
+        "{\"error\":\"no index for this path\",\"path\":\"" + jsonEscape(indexPath) + "\"}");
       return;
     }
 
@@ -6499,39 +6928,50 @@ server.on("/api/wifi-scan", HTTP_GET, [](AsyncWebServerRequest *request){
 
     bool haveNested = SD_MMC.exists(fullPath);
 
-    // If the index exists already, serve it as JSON. The mutex stays held through the
-    // whole read: releasing it before open()+readStringUntil left the biggest part of
-    // the handler unguarded.
+    // If the index exists, stream it from the file as JSON a piece at a time. A bucket
+    // index can be hundreds of KB, so don't build it in RAM (AsyncResponseStream buffers
+    // the whole body).
     if (haveNested) {
-      File file = SD_MMC.open(fullPath, FILE_READ);
-      if (file) {
-        AsyncResponseStream *stream = request->beginResponseStream("application/json");
-        stream->addHeader("Cache-Control", "no-cache, no-store");
-        stream->printf("{\"status\":\"ready\",\"path\":\"%s\",\"entries\":[", path.c_str());
-
-        bool headerSkipped = false;
-        bool first = true;
-        while (file.available()) {
-          String line = file.readStringUntil('\n');
-          line.trim();
-          if (line.length() == 0) continue;
-          if (!headerSkipped) {
-            headerSkipped = true;
-            continue;
-          }
-          if (!first) stream->print(",");
-          stream->print(line);
-          first = false;
-        }
-        file.close();
-        if (sdMutex) xSemaphoreGive(sdMutex);
-
-        stream->print("]}");
-        request->send(stream);
+      auto st = std::make_shared<NestedIndexStream>();
+      st->prefix = "{\"status\":\"ready\",\"path\":\"" + jsonEscape(path) + "\",\"entries\":[";
+      const bool opened = st->f.open(fullPath.c_str());
+      if (sdMutex) xSemaphoreGive(sdMutex);
+      if (opened) {
+        AsyncWebServerResponse *resp = request->beginChunkedResponse("application/json",
+          [st](uint8_t *buf, size_t maxLen, size_t) -> size_t { return st->fill(buf, maxLen); });
+        resp->addHeader("Cache-Control", "no-cache, no-store");
+        request->send(resp);
+        return;
+      }
+      if (sdMutex && xSemaphoreTake(sdMutex, pdMS_TO_TICKS(1000)) != pdTRUE) {
+        request->send(503, "application/json", "{\"error\":\"SD busy\"}");
         return;
       }
     }
+    // Same question as /api/index, asked in the same place: inside the mutex this handler
+    // still holds, and only because the index was not there to serve.
+    const bool willBuildThisFile = (indexTargetForPath(path) == path) &&
+                                   !shouldSkipIndexingPath(path);
+    bool haveDir = true;
+    if (willBuildThisFile) {
+      haveDir = SD_MMC.exists(path);
+      if (haveDir) {
+        File d = SD_MMC.open(path);
+        haveDir = (d && d.isDirectory());
+        if (d) d.close();
+      }
+    }
     if (sdMutex) xSemaphoreGive(sdMutex);
+
+    // 404, not 202: a 202 counts as ok() in fetch, so the file browser would cache this
+    // status object as an empty listing. Same rules as /api/index above.
+    if (!haveDir || !willBuildThisFile) {
+      Serial.printf("[Index] Request for '%s' - no nested index for this path, not enqueuing\n",
+                    path.c_str());
+      request->send(404, "application/json",
+        "{\"error\":\"no index for this path\",\"path\":\"" + jsonEscape(path) + "\"}");
+      return;
+    }
 
     // Always enqueue to background worker, no inline builds (prevents blocking)
     Serial.printf("[Index] Request for '%s' - index missing, enqueuing to background worker\n", path.c_str());
@@ -6546,13 +6986,15 @@ server.on("/api/wifi-scan", HTTP_GET, [](AsyncWebServerRequest *request){
   server.on("/api/reindex", HTTP_POST, [](AsyncWebServerRequest *request){
     if (!checkAdminAuth(request)) { request->send(401, "application/json", "{\"error\":\"Unauthorized\"}"); return; }
 
-    if (indexingInProgress) {
+    // Any indexing at all (running, its tasks still busy, or a full index queued) turns
+    // this away. Checking indexingInProgress alone could mark a running full index as done.
+    if (indexingInProgress || indexingTasksActive || requestIndexing) {
       request->send(409, "application/json", "{\"error\":\"Index already in progress\"}");
       webLog("[ADMIN] Reindex request ignored - indexing already in progress", "warning");
       return;
     }
     if (sdScanInProgress) {
-      request->send(409, "application/json", "{\"error\":\"A full SD scan is running - try again once it finishes\"}");
+      request->send(409, "application/json", "{\"error\":\"A full SD scan is running. Try again once it finishes.\"}");
       webLog("[ADMIN] Reindex request ignored - full SD scan in progress", "warning");
       return;
     }
@@ -6562,20 +7004,18 @@ server.on("/api/wifi-scan", HTTP_GET, [](AsyncWebServerRequest *request){
     else if(request->hasParam("path")) path = request->getParam("path")->value();            // from query
     path = normalizePath(path);
 
-    // respond immediately
-    String j = "{\"status\":\"accepted\",\"path\":\"" + path + "\"}";
-    request->send(202, "application/json", j);
-
-    // spawn FreeRTOS task to do reindex
+    // claimed here, before anything else can start an index, and only answered once the
+    // task exists, so a task that never started doesn't look fine
+    indexingInProgress = true;
+    indexingTasksActive = true;
     String *arg = new String(path);
-    BaseType_t ok = xTaskCreatePinnedToCore([](void *pv){
+    BaseType_t ok = nomadCreateTask([](void *pv){
       String p = *((String*)pv);
       delete (String*)pv;
       Serial.printf("[ReindexTask] start %s\n", p.c_str());
       webLogf("info", "Reindex of '%s' requested", p.c_str());
 
-      indexingInProgress = true;
-      indexingTasksActive = true;
+      // (indexingInProgress and indexingTasksActive were claimed by the route)
       if (indexingPathMutex && xSemaphoreTake(indexingPathMutex, pdMS_TO_TICKS(100)) == pdTRUE) {
         currentIndexingPath = p;
         g_currentBucketNum = 0;
@@ -6584,7 +7024,7 @@ server.on("/api/wifi-scan", HTTP_GET, [](AsyncWebServerRequest *request){
         xSemaphoreGive(indexingPathMutex);
       }
 
-      // Shown immediately so there's no dead screen while the directory is opened;
+      // Shown immediately so there's no dead screen while the directory is opened.
       // writeNDIndexForDir takes over with live item-count progress once walking starts.
       char reindexScreenBuf[80];
       snprintf(reindexScreenBuf, sizeof(reindexScreenBuf), "Indexing: %s\n\nDo not unplug!", p.c_str());
@@ -6620,13 +7060,18 @@ server.on("/api/wifi-scan", HTTP_GET, [](AsyncWebServerRequest *request){
 
       webLogf("success", "Reindex of '%s' complete", p.c_str());
       Serial.printf("[ReindexTask] finished %s\n", p.c_str());
-      vTaskDelete(NULL);
+      nomadTaskExit();
     }, "ReindexTask", 12*1024, arg, 1, NULL, 1);
 
     if(ok != pdPASS){
       Serial.println("[/api/reindex] task create failed");
       delete arg;
+      indexingInProgress = false;
+      indexingTasksActive = false;
+      request->send(503, "application/json", "{\"error\":\"No memory to start the index, try again\"}");
+      return;
     }
+    request->send(202, "application/json", "{\"status\":\"accepted\",\"path\":\"" + path + "\"}");
   });
   // fast path: reads SD_MMC's allocation metadata instead of walking files, so it
   // answers synchronously (no task/polling), usually sub-100ms
@@ -6654,7 +7099,7 @@ server.on("/api/wifi-scan", HTTP_GET, [](AsyncWebServerRequest *request){
   server.on("/api/sd-scan", HTTP_POST, [](AsyncWebServerRequest *request){
     if (!checkAdminAuth(request)) { request->send(401, "application/json", "{\"error\":\"Unauthorized\"}"); return; }
 
-    // dont walk the whole card while indexing - two heavy SD tasks under low heap was
+    // dont walk the whole card while indexing, two heavy SD tasks under low heap was
     // the heap corruption cause. indexing refreshes totals on its own, so just wait
     if (indexingInProgress || indexingTasksActive || requestIndexing) {
       request->send(409, "application/json",
@@ -6672,7 +7117,7 @@ server.on("/api/wifi-scan", HTTP_GET, [](AsyncWebServerRequest *request){
       unsigned long waitMs = minScanIntervalMs - (millis() - lastScanTime);
       StaticJsonDocument<160> doc;
       doc["status"] = "cooldown";
-      doc["message"] = "A full scan ran recently - please wait before running another";
+      doc["message"] = "A full scan ran recently. Try again later.";
       doc["retryAfterMs"] = waitMs;
       String payload;
       serializeJson(doc, payload);
@@ -6688,17 +7133,9 @@ server.on("/api/wifi-scan", HTTP_GET, [](AsyncWebServerRequest *request){
     serializeJson(ackDoc, ackPayload);
     request->send(202, "application/json", ackPayload);
 
-    // sdScanTask logs a real uxTaskGetStackHighWaterMark() on exit so this size gets
-    // verified on-device rather than assumed.
-    uint32_t stackSize = 12 * 1024;
-    uint32_t freeHeap = ESP.getFreeHeap();
-    if (freeHeap > 35000) {
-      stackSize = 20 * 1024;
-    } else {
-      Serial.printf("[API] Heap too low for full-size deep-scan stack (%u bytes), using smaller stack\n", freeHeap);
-    }
-
-    BaseType_t ok = xTaskCreatePinnedToCore(sdScanTask, "ManualSDScan", stackSize, NULL, 1, NULL, 1);
+    // stack lives in PSRAM, so the full size doesn't depend on free internal heap.
+    // sdScanTask still logs its real high-water mark on exit.
+    BaseType_t ok = nomadCreateTask(sdScanTask, "ManualSDScan", 20 * 1024, NULL, 1, NULL, 1);
 
     if (ok != pdPASS) {
       webLog("[API] SD scan task creation failed", "error");
@@ -6734,23 +7171,22 @@ server.on("/api/wifi-scan", HTTP_GET, [](AsyncWebServerRequest *request){
     }
   });
 
-  // GET /api/health -> one cheap answer to "is this thing all right", for the admin
-  // page and for anyone debugging from a phone. Every field is a global that is already
-  // maintained; nothing here walks the card. In particular free space comes from
-  // cachedUsedBytes and NEVER from the free-cluster hunt, which takes tens of seconds on
-  // a full card and would hold sdMutex for all of it.
+  // GET /api/health -> one cheap "is this thing all right" for the admin page and for
+  // debugging from a phone. Every field is an existing global, nothing here touches the
+  // card. Free space comes from cachedUsedBytes, NEVER the free-cluster count, which can
+  // hold sdMutex for tens of seconds on a full card.
   server.on("/api/health", HTTP_GET, [](AsyncWebServerRequest *request){
     const bool cardOk   = !sdErrorFlag;
     const bool indexing = indexingInProgress;
     const bool scanning = sdScanInProgress;
-    // This board has no on-device thumbnailer - that is the P4's nomadThumbsBusy().
-    // Covers are generated on a PC here, so there is never thumbnail work in flight.
+    // This board has no on-device thumbnailer (covers are made on a PC), so never busy
+    // with thumbnails.
     const bool thumbing = false;
     const bool busy     = indexing || scanning || thumbing;
 
     String json = "{";
-    // g_settingsUnbacked is a P4 per-volume concept: settings with no writable volume
-    // behind them. Settings always live on the card here, so sdErrorFlag covers it.
+    // Settings always live on the card on this board, so sdErrorFlag covers whether
+    // they can be saved.
     json += "\"ok\":" + String(cardOk ? "true" : "false") + ",";
     json += "\"uptimeMs\":" + String((unsigned long)millis()) + ",";
     json += "\"card\":{";
@@ -6758,9 +7194,8 @@ server.on("/api/wifi-scan", HTTP_GET, [](AsyncWebServerRequest *request){
     json += "\"usedBytes\":" + String((unsigned long long)cachedUsedBytes) + ",";
     json += "\"totalBytes\":" + String((unsigned long long)cachedTotalBytes);
     json += "},";
-    // settingsBacked false means the config could not be written - the device is running
-    // on defaults and will forget everything on the next boot. It is the one state here
-    // that looks fine and is not.
+    // settingsBacked false means the config can't be written. The device is running on
+    // defaults and will forget everything on the next boot, even though it looks fine.
     json += "\"settingsBacked\":" + String(cardOk ? "true" : "false") + ",";   // the card is the only backing store on this board
     json += "\"busy\":" + String(busy ? "true" : "false") + ",";
     json += "\"indexing\":" + String(indexing ? "true" : "false") + ",";
@@ -6800,8 +7235,8 @@ server.on("/api/wifi-scan", HTTP_GET, [](AsyncWebServerRequest *request){
     json += "\"used\":" + String(usedHeap) + ",";
     json += "\"usage\":" + String(heapUsage, 1);
     json += "},";
-    // DMA-capable free is what the card actually needs; plain free heap can look
-    // healthy while sdmmc is already failing to get a bounce buffer.
+    // DMA-capable free is what the card actually needs. Plain free heap can look fine
+    // while sdmmc is already failing to get a bounce buffer.
     json += "\"dmaFree\":" + String((unsigned)streamDmaFree()) + ",";
     json += "\"mediaInFlight\":" + String((int)inFlightMediaResponses) + ",";
     json += "\"mediaSlots\":" + String((int)MEDIA_SLOTS) + ",";
@@ -6814,11 +7249,9 @@ server.on("/api/wifi-scan", HTTP_GET, [](AsyncWebServerRequest *request){
 
     request->send(200, "application/json", json);
   });
-  // Entering ROM download mode is handled by loop(), not here. This handler runs on
-  // async_tcp: the old version re-initialized the display stack on that task (LVGL is
-  // owned by loop) then called esp_restart(), whose shutdown often reset the chip
-  // without honoring the force-download flag. that is why flash mode usually failed
-  // straight back into normal boot.
+  // Entering ROM download mode is done in loop(), not here. This runs on async_tcp,
+  // which mustn't touch LVGL, and a plain esp_restart() often skips the force-download
+  // flag and boots normally.
   server.on("/flash-mode", HTTP_POST, [](AsyncWebServerRequest *request){
       if (!checkAdminAuth(request)) { request->send(401, "application/json", "{\"error\":\"Unauthorized\"}"); return; }
       Serial.println(">>> /flash-mode handler hit");
@@ -6835,12 +7268,41 @@ server.on("/api/wifi-scan", HTTP_GET, [](AsyncWebServerRequest *request){
   });
 
 
-// ─── USB‑mode switch: jump to USB MSC on Boot‑button press ───
+// USB mode switch: jump to USB MSC on Boot button press
 attachInterrupt(BOOT_BUTTON_PIN, [](){
   bootButtonPressed = true;
 }, FALLING);
+// Path rules for every request, routes and catch-all alike (NomadGuardWeb.h)
+  installNomadGuard(server, NomadGuardHooks{
+    [](AsyncWebServerRequest *request) { return checkAdminAuth(request); },
+    // the upload switches bind everyone but a signed-in admin (where there is a password:
+    // without one there is no telling the owner from a guest, so they bind the owner too)
+    [](AsyncWebServerRequest *request, const String &path) {
+      return guestWritesOffFor(path) && !(isAdminAuthRequired() && checkAdminAuth(request));
+    },
+    []() { return g_staMode; },
+  });
 // Start the web server
+#if NOMAD_BENCH
+  nomadBenchRegister(server);
+#endif
+  nomadUpdateRegister(server);
+  nomadHealthRegister(server);
+  nomadActRegister(server);
+  nomadStorageHealthRegister(server);
+  nomadFirmwareRegister(server);
+  nomadSupportRegister(server);
+  nomadPartyRegister(server);
+  nomadUsageRegister(server);
+#ifndef NOMAD_NO_ZIMSERVE
+  nomadZimRegister(server);
+#endif
+  nomadChatRegister(server);
+#if NOMAD_ROUTES_PSRAM
+  heap_caps_malloc_extmem_enable(CONFIG_SPIRAM_MALLOC_ALWAYSINTERNAL);   // back to the core's own rule
+#endif
   server.begin();
+  nomadFirmwareServerUp();
   lv_textarea_set_text(ui_MediaGen, "");
   lv_obj_add_flag(ui_MediaGen, LV_OBJ_FLAG_HIDDEN);
   if (ui_Spinner1) lv_obj_add_flag(ui_Spinner1, LV_OBJ_FLAG_HIDDEN); // boot complete, stop the perpetual redraw
@@ -6853,12 +7315,15 @@ attachInterrupt(BOOT_BUTTON_PIN, [](){
     t = xTaskCreatePinnedToCore(+[](void *param){
       (void)param;
       for (;;) {
-        if (lcdRotatePending) {
-          lcdRotatePending = false;
-          LCD_SetRotation180(settings.flipScreen);
-          lv_obj_invalidate(lv_scr_act());  // panel RAM shows mirrored until fully repainted
+        {
+          LvglLock lock;
+          if (lcdRotatePending) {
+            lcdRotatePending = false;
+            LCD_SetRotation180(settings.flipScreen);
+            lv_obj_invalidate(lv_scr_act());  // panel RAM shows mirrored until fully repainted
+          }
+          Timer_Loop();
         }
-        Timer_Loop();
 
         // RGB updates are time-sensitive for visual smoothness
         if (currentLEDMode == 1) {
@@ -6866,11 +7331,12 @@ attachInterrupt(BOOT_BUTTON_PIN, [](){
         }
 
 
-        vTaskDelay(pdMS_TO_TICKS(10)); // ~100Hz servicing; yields CPU to other tasks
+        vTaskDelay(pdMS_TO_TICKS(10)); // ~100Hz servicing, yields CPU to other tasks
       }
       vTaskDelete(NULL);
     }, "StreamingTask", 8 * 1024, NULL, 2, NULL, 1);
     if (t == pdPASS) {
+      g_lvglPumpTaskUp = true;
       webLog("[SYSTEM] Streaming task started", "success");
     } else {
       webLog("[SYSTEM] Failed to start streaming task", "error");
@@ -6908,7 +7374,7 @@ attachInterrupt(BOOT_BUTTON_PIN, [](){
         vTaskDelay(pdMS_TO_TICKS(200));
       }
       vTaskDelete(NULL);
-    }, "UiTask", 8 * 1024, NULL, 1, NULL, 1); // was 6KB, bumped after a stack canary crash at boot
+    }, "UiTask", 8 * 1024, NULL, 1, NULL, 1); // 6KB hit a stack canary crash at boot
     if (t == pdPASS) {
       webLog("[SYSTEM] UI/background task started", "success");
     } else {
@@ -6920,7 +7386,7 @@ attachInterrupt(BOOT_BUTTON_PIN, [](){
   // heavy indexing in background without blocking boot.
   static bool indexWorkerStarted = false;
   if (!indexWorkerStarted && indexQueue) {
-    BaseType_t r = xTaskCreatePinnedToCore(indexWorkerTask, "IndexWorker", 16 * 1024, NULL, 2, &indexWorkerTaskHandle, 0);
+    BaseType_t r = nomadCreateTask(indexWorkerTask, "IndexWorker", 16 * 1024, NULL, 2, &indexWorkerTaskHandle, 0);
     if (r == pdPASS) {
       Serial.println("[IndexWorker] Task started");
       webLog("[SYSTEM] Index worker task started successfully", "success");
@@ -6932,6 +7398,7 @@ attachInterrupt(BOOT_BUTTON_PIN, [](){
   }
 
   webLog("[SYSTEM] System initialization complete - ready for use", "success");
+  nomadSafeLog();
   // re-print reset reason here since USB-CDC reconnects after the early print and misses it.
   // 4=PANIC 5=INT_WDT 6=TASK_WDT 9=BROWNOUT 3=SW
   {
@@ -6961,23 +7428,30 @@ attachInterrupt(BOOT_BUTTON_PIN, [](){
   }
 
   // Spawn bootCoordinatorTask so it can schedule boot-time scans without blocking setup.
-  BaseType_t br = xTaskCreatePinnedToCore(bootCoordinatorTask, "BootCoord", 8 * 1024, NULL, 1, NULL, 1);
+  BaseType_t br = nomadCreateTask(bootCoordinatorTask, "BootCoord", 8 * 1024, NULL, 1, NULL, 1);
   if (br != pdPASS) {
     Serial.println("[BootCoord] Failed to spawn Boot Coordinator");
   } else {
     Serial.println("[BootCoord] Task spawned");
   }
 }
-// ==================== MAIN LOOP ====================
+// main loop
 
 void loop() {
+    nomadFirmwareTick();
+    nomadSafeTick();
+    nomadUsageTick();
     if (g_enterFlashMode) {
       g_enterFlashMode = false;
-      // show the message from the task that owns LVGL, on the screen already up, no
-      // re-init. the ST7789 keeps its framebuffer through the reset
-      lv_obj_clear_flag(ui_MediaGen, LV_OBJ_FLAG_HIDDEN);
-      lv_textarea_set_text(ui_MediaGen, "Flashing Mode, Ready for Update");
-      for (int i = 0; i < 6; ++i) { lv_timer_handler(); delay(30); }
+      // paint the notice on the screen already up, no re-init. the ST7789 keeps its
+      // framebuffer through the reset. held under the LVGL lock like every other
+      // post-setup lv_* call
+      {
+        LvglLock lock;
+        lv_obj_clear_flag(ui_MediaGen, LV_OBJ_FLAG_HIDDEN);
+        lv_textarea_set_text(ui_MediaGen, "Flashing Mode, Ready for Update");
+        for (int i = 0; i < 6; ++i) { lv_timer_handler(); delay(30); }
+      }
       delay(150);   // let the HTTP response finish leaving the radio
       // The core's own download-mode path (same one the 1200-baud touch uses): registers a
       // shutdown handler so RTC_CNTL_FORCE_DOWNLOAD_BOOT is written last, and switches the
@@ -7000,10 +7474,12 @@ void loop() {
       Serial.println("[WiFiMode] Applying WiFi mode change -> restart");
       ESP.restart();
     }
-    Timer_Loop();
-
-    if (currentLEDMode == 1) {
-        RGB_Lamp_Loop(2);
+    // StreamingTask pumps LVGL and the rainbow at 100 Hz. loop() only steps in if that
+    // task never started, two tasks in lv_timer_handler() at once is trouble.
+    if (!g_lvglPumpTaskUp) {
+      LvglLock lock;
+      Timer_Loop();
+      if (currentLEDMode == 1) RGB_Lamp_Loop(2);
     }
     if (sdErrorFlag) {
         if (millis() > sdErrorCooldownUntil && tryRecoverSDCard()) {
@@ -7020,6 +7496,9 @@ void loop() {
     }
 
     dlnaTick();  // periodic SSDP alive announcements, cheap no-op when off
+    nomadReapTasks();  // free background tasks that have finished (their stacks are in PSRAM)
+    nomadChatTick();   // new chat messages onto the card, once a second
+    nomadMenuTick();   // the menu's optional tiles, looked at again every 30 s
 
     delay(10);
 }
@@ -7035,15 +7514,3 @@ void RGB_SetMode(uint8_t mode) {
         Set_Color(solidG, solidR, solidB);
     }
 }
-static unsigned long lastSweepMs = 0;
-void memorySweepIfNeeded() {
-  unsigned long now = millis();
-  if (now - lastSweepMs < 5000) return; // run every 5s
-  lastSweepMs = now;
-
-  size_t freeHeap = ESP.getFreeHeap();
-  if (freeHeap < 70000) {  //might tune this a bit 
-    Serial.printf("[MEMSWEEP] low freeHeap=%u; doing sweep\n", (unsigned)freeHeap);
-    yield();
-  }
-} 

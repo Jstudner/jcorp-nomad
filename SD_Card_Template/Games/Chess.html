@@ -7,8 +7,8 @@
 <title>Nomad • Chess</title>
 <link rel="icon" href="favicon.ico" type="image/x-icon">
 <link rel="stylesheet" href="/master.css">
-<script src="/theme-boot.js"></script>
-<script src="/theme-manager.js"></script>
+<script src="/theme-boot.js?v=5"></script>
+<script src="/theme-manager.js?v=5"></script>
 <script src="/assets/chess.min.js"></script>
 <script src="/assets/mp-client.js"></script>
 <style>
@@ -71,7 +71,7 @@
   </main>
 
 <script>
-// If the engine script failed to load/parse, say so instead of leaving dead buttons.
+// a missing engine gets a message, not dead buttons
 if (typeof Chess === 'undefined') {
   document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('lobbyMsg').textContent =
@@ -92,7 +92,7 @@ const canPlay = () => MP.room.joined && !game.game_over() &&
                       game.turn() === myColor() && MP.myTurn();
 
 function squares(){
-  // Board rows top->bottom; White sees rank 8 first, Black is flipped.
+  // Board rows top->bottom. White sees rank 8 first, Black is flipped.
   const files = ['a','b','c','d','e','f','g','h'];
   const ranks = [8,7,6,5,4,3,2,1];
   const rows = [];
@@ -131,7 +131,7 @@ function updateStatus(){
     !(MP.room.joined && game.game_over()));
   const me = myColor() === 'w' ? 'White' : 'Black';
   if (!MP.room.joined){
-    statusEl.textContent = `Share the code and wait for Black to join… (you are ${me})`;
+    statusEl.textContent = `Waiting for Black to join… (you are ${me})`;
   } else if (game.in_checkmate()){
     const winner = game.turn() === 'w' ? 'Black' : 'White';
     statusEl.textContent = `Checkmate! ${winner} wins${winner === me ? ', that is you!' : ''}`;
@@ -184,9 +184,8 @@ function onUpdate(stateStr){
   render();
 }
 
-/* Rematch in the same room, same code. Colors stay with their seats, and
-   chess rules fix the first mover, so the reset pins seat 0 (White) to move
-   first instead of the default alternation. */
+/* Rematch in the same room. Colors stay with their seats and White moves first,
+   so the reset pins seat 0 instead of alternating. */
 async function playAgain(){
   try {
     const fresh = new Chess();

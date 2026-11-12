@@ -1,0 +1,675 @@
+<!DOCTYPE html>
+<!-- Version 1 -->
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/>
+<title>Nomad • Toolkit</title>
+<link rel="icon" href="/favicon.ico" type="image/x-icon">
+<link rel="stylesheet" href="/master.css">
+<script src="/theme-boot.js?v=5"></script>
+<script src="/theme-manager.js?v=5"></script>
+<style>
+  /* Every tool runs in the page with no hardware or secure context needed, and keeps its
+     state in localStorage, so a reload or a locked phone picks up where it was. */
+  *{box-sizing:border-box}
+  body{background:var(--bg);color:var(--text);min-height:100vh}
+  [hidden]{display:none !important}
+  main.tk{max-width:760px;margin:0 auto;padding:12px 12px 48px}
+  .tk-tabs{display:flex;gap:6px;overflow-x:auto;scrollbar-width:none;padding:2px 0 10px;position:sticky;top:0;z-index:5;background:var(--bg)}
+  .tk-tabs::-webkit-scrollbar{display:none}
+  .tk-tabs button{flex:0 0 auto;border:1px solid var(--card-border);background:var(--card-bg,var(--card));color:var(--text);
+    border-radius:999px;padding:8px 14px;font:inherit;font-weight:700;font-size:.88rem;cursor:pointer;white-space:nowrap}
+  .tk-tabs button.on{background:var(--primary);border-color:var(--primary);color:#fff}
+  .tk-card{background:var(--card-bg,var(--card));border:1px solid var(--card-border);border-radius:14px;padding:16px;margin-bottom:12px}
+  .tk-card h2{margin:0 0 12px;font-size:1rem;font-weight:800;color:var(--text)}
+  .tk-row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+  .tk-row.end{justify-content:flex-end}
+  .tk-btn{min-height:44px;padding:0 16px;border-radius:12px;border:1px solid var(--card-border);background:var(--bg);color:var(--text);
+    font:inherit;font-weight:700;font-size:.95rem;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;gap:6px;user-select:none}
+  .tk-btn.primary{background:var(--primary);border-color:var(--primary);color:#fff}
+  .tk-btn.danger{color:#e5484d;border-color:color-mix(in srgb,#e5484d 40%,transparent)}
+  .tk-btn.big{min-height:64px;font-size:1.4rem;min-width:64px}
+  .tk-btn.grow{flex:1}
+  .tk-in{height:44px;padding:0 12px;border-radius:12px;border:1px solid var(--card-border);background:var(--bg);color:var(--text);font:inherit;font-size:1rem;min-width:0}
+  select.tk-in{padding-right:28px}
+  textarea.tk-in{height:auto;min-height:110px;padding:10px 12px;width:100%;resize:vertical;line-height:1.4}
+  .tk-muted{color:var(--muted);font-size:.85rem}
+  .tk-big{font-size:3rem;font-weight:800;font-variant-numeric:tabular-nums;text-align:center;line-height:1.1;margin:6px 0 12px;letter-spacing:.02em}
+  .tk-list{list-style:none;margin:10px 0 0;padding:0}
+  .tk-list li{display:flex;justify-content:space-between;gap:10px;padding:8px 2px;border-top:1px solid var(--card-border);font-variant-numeric:tabular-nums}
+
+  /* timers */
+  .tm{border:1px solid var(--card-border);border-radius:12px;padding:12px;margin-bottom:10px;background:var(--bg)}
+  .tm.ring{border-color:#e5484d;box-shadow:0 0 0 3px color-mix(in srgb,#e5484d 30%,transparent);animation:tk-ring .6s steps(2) infinite}
+  @keyframes tk-ring{50%{background:color-mix(in srgb,#e5484d 14%,var(--bg))}}
+  .tm-top{display:flex;gap:8px;align-items:center}
+  .tm-top .tk-in{flex:1}
+  .tm-time{font-size:2.4rem;font-weight:800;font-variant-numeric:tabular-nums;text-align:center;margin:8px 0}
+  .tm-set{display:flex;gap:6px;justify-content:center;align-items:center;margin-bottom:8px}
+  .tm-set .tk-in{width:4.2rem;text-align:center}
+  .tm-quick{display:flex;gap:6px;justify-content:center;flex-wrap:wrap;margin-bottom:8px}
+  .tm-quick button{min-height:36px;padding:0 10px;border-radius:999px;border:1px solid var(--card-border);background:var(--card-bg,var(--card));color:var(--text);font:inherit;font-size:.82rem;font-weight:700;cursor:pointer}
+
+  /* counters and scoreboard */
+  .ct{display:flex;align-items:center;gap:8px;padding:10px 0;border-top:1px solid var(--card-border)}
+  .ct:first-child{border-top:0}
+  .ct .tk-in{flex:1;min-width:0}
+  .ct .n{min-width:3.2rem;text-align:center;font-size:1.6rem;font-weight:800;font-variant-numeric:tabular-nums}
+  .ct.lead .n{color:var(--primary)}
+  /* wide: name, minus, count, plus, remove on one line. narrow: name and remove, then the
+     big buttons on a line of their own, so the name isn't squeezed to a word */
+  .ct .tk-in{order:0}.ct [data-a=dec]{order:1}.ct .n{order:2}.ct [data-a=inc]{order:3}.ct [data-a=del]{order:4}
+  .ct .brk{display:none}
+  @media (max-width:520px){
+    .ct{flex-wrap:wrap}
+    .ct [data-a=del]{order:1}.ct .brk{display:block;order:2;flex-basis:100%;height:0}
+    .ct [data-a=dec]{order:3;flex:1}.ct .n{order:4;flex:1}.ct [data-a=inc]{order:5;flex:1}
+  }
+
+  /* dice, coin, cards */
+  .dice{display:flex;flex-wrap:wrap;gap:10px;justify-content:center;margin:12px 0}
+  .die{width:64px;height:64px;border-radius:14px;display:grid;place-items:center;font-size:1.7rem;font-weight:800;
+    background:var(--bg);border:2px solid var(--card-border);font-variant-numeric:tabular-nums}
+  .die.roll{animation:tk-roll .35s ease-out}
+  @keyframes tk-roll{0%{transform:rotate(-25deg) scale(.8)}100%{transform:none}}
+  .coin{width:130px;height:130px;border-radius:50%;margin:10px auto 14px;display:grid;place-items:center;font-size:1.3rem;font-weight:800;
+    background:color-mix(in srgb,#f5b301 75%,var(--bg));color:#3b2a00;border:4px solid color-mix(in srgb,#b37f00 80%,transparent)}
+  .coin.flip{animation:tk-flip .6s ease-out}
+  @keyframes tk-flip{0%{transform:rotateY(0)}100%{transform:rotateY(1080deg)}}
+  .cards{display:flex;flex-wrap:wrap;gap:8px;justify-content:center;margin:12px 0;min-height:96px}
+  .pc{width:62px;height:88px;border-radius:9px;background:#fff;border:1px solid #cbd5e1;box-shadow:0 2px 6px rgba(0,0,0,.12);
+    display:flex;flex-direction:column;justify-content:space-between;padding:5px 7px;color:#111;font-weight:800}
+  .pc.red{color:#d11d2c}
+  .pc .s{font-size:1.5rem;align-self:center}
+  .pc .r{font-size:1rem}
+  .pc .r.b{align-self:flex-end;transform:rotate(180deg)}
+
+  /* picker */
+  .teams{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px;margin-top:12px}
+  .team{border:1px solid var(--card-border);border-radius:12px;padding:10px;background:var(--bg)}
+  .team b{display:block;margin-bottom:6px;color:var(--primary)}
+  .picked{font-size:2rem;font-weight:800;text-align:center;margin:14px 0 6px;overflow-wrap:anywhere}
+
+  /* converter */
+  .cv{display:grid;grid-template-columns:1fr auto 1fr;gap:8px;align-items:center}
+  .cv .tk-in{width:100%}
+  .cv .eq{font-weight:800;color:var(--muted);text-align:center}
+  @media (max-width:520px){.cv{grid-template-columns:1fr}.cv .eq{transform:rotate(90deg)}}
+
+  /* calculator */
+  .calc-out{background:var(--bg);border:1px solid var(--card-border);border-radius:12px;padding:10px 14px;text-align:right;margin-bottom:10px;min-height:86px}
+  .calc-out .ex{color:var(--muted);font-size:.95rem;min-height:1.3em;overflow-wrap:anywhere}
+  .calc-out .val{font-size:2.2rem;font-weight:800;font-variant-numeric:tabular-nums;overflow-wrap:anywhere}
+  .keys{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}
+  .keys button{min-height:58px;border-radius:12px;border:1px solid var(--card-border);background:var(--bg);color:var(--text);font:inherit;font-size:1.3rem;font-weight:700;cursor:pointer}
+  .keys button.op{background:color-mix(in srgb,var(--primary) 14%,var(--bg));color:var(--primary)}
+  .keys button.eq{background:var(--primary);color:#fff;border-color:var(--primary)}
+
+  /* metronome */
+  .beats{display:flex;gap:10px;justify-content:center;margin:14px 0}
+  .beat{width:22px;height:22px;border-radius:50%;background:color-mix(in srgb,var(--muted) 30%,transparent)}
+  .beat.on{background:var(--primary)}
+  .beat.first.on{background:#e5484d}
+  input[type=range].tk-range{width:100%;accent-color:var(--primary)}
+</style>
+</head>
+<body>
+  <header>
+    <h1>Toolkit</h1>
+    <a class="back-btn" href="/games.html">← Back to Games</a>
+  </header>
+
+  <main class="tk">
+    <nav class="tk-tabs" id="tabs" aria-label="Tools"></nav>
+
+    <section data-tool="timers" hidden>
+      <div class="tk-card">
+        <h2>Timers</h2>
+        <div id="timers"></div>
+        <div class="tk-row"><button class="tk-btn primary grow" id="tmAdd">Add a timer</button></div>
+      </div>
+    </section>
+
+    <section data-tool="stopwatch" hidden>
+      <div class="tk-card">
+        <h2>Stopwatch</h2>
+        <div class="tk-big" id="swTime">0:00.00</div>
+        <div class="tk-row">
+          <button class="tk-btn primary grow" id="swGo">Start</button>
+          <button class="tk-btn grow" id="swLap">Lap</button>
+          <button class="tk-btn grow" id="swReset">Reset</button>
+        </div>
+        <ol class="tk-list" id="swLaps"></ol>
+      </div>
+    </section>
+
+    <section data-tool="tally" hidden>
+      <div class="tk-card">
+        <h2>Tally counters</h2>
+        <div id="tally"></div>
+        <div class="tk-row" style="margin-top:10px">
+          <button class="tk-btn primary grow" id="tlAdd">Add a counter</button>
+          <button class="tk-btn" id="tlZero">All to zero</button>
+        </div>
+      </div>
+    </section>
+
+    <section data-tool="dice" hidden>
+      <div class="tk-card">
+        <h2>Dice</h2>
+        <div class="tk-row">
+          <label class="tk-muted" for="dcN">Dice</label>
+          <select class="tk-in" id="dcN"></select>
+          <label class="tk-muted" for="dcS">Sides</label>
+          <select class="tk-in" id="dcS"></select>
+        </div>
+        <div class="dice" id="dcOut"></div>
+        <div class="tk-big" id="dcTotal" style="font-size:2rem">Roll</div>
+        <div class="tk-row"><button class="tk-btn primary grow big" id="dcRoll">Roll</button></div>
+      </div>
+      <div class="tk-card">
+        <h2>Coin</h2>
+        <div class="coin" id="cnFace">?</div>
+        <div class="tk-row"><button class="tk-btn primary grow" id="cnFlip">Flip</button></div>
+        <p class="tk-muted" id="cnCount" style="text-align:center;margin:10px 0 0"></p>
+      </div>
+    </section>
+
+    <section data-tool="cards" hidden>
+      <div class="tk-card">
+        <h2>Playing cards</h2>
+        <p class="tk-muted" id="pcLeft" style="margin:0"></p>
+        <div class="cards" id="pcHand"></div>
+        <div class="tk-row">
+          <button class="tk-btn primary grow" id="pcDraw">Draw</button>
+          <select class="tk-in" id="pcHow" aria-label="How many to draw"></select>
+          <button class="tk-btn" id="pcClear">Clear hand</button>
+          <button class="tk-btn" id="pcShuffle">Shuffle all</button>
+        </div>
+      </div>
+    </section>
+
+    <section data-tool="score" hidden>
+      <div class="tk-card">
+        <h2>Scoreboard</h2>
+        <div id="score"></div>
+        <div class="tk-row" style="margin-top:10px">
+          <button class="tk-btn primary grow" id="scAdd">Add a player</button>
+          <button class="tk-btn" id="scZero">Scores to zero</button>
+        </div>
+        <div class="tk-row" style="margin-top:8px">
+          <label class="tk-muted" for="scStep">Each tap adds</label>
+          <select class="tk-in" id="scStep"></select>
+        </div>
+      </div>
+    </section>
+
+    <section data-tool="picker" hidden>
+      <div class="tk-card">
+        <h2>Random picker</h2>
+        <label class="tk-muted" for="pkNames">Names, one per line</label>
+        <textarea class="tk-in" id="pkNames" placeholder="Alex&#10;Sam&#10;Jordan"></textarea>
+        <div class="tk-row" style="margin-top:10px">
+          <button class="tk-btn primary grow" id="pkOne">Pick one</button>
+          <button class="tk-btn grow" id="pkOrder">Random order</button>
+        </div>
+        <div class="tk-row" style="margin-top:8px">
+          <button class="tk-btn grow" id="pkTeams">Split into teams</button>
+          <select class="tk-in" id="pkN" aria-label="How many teams"></select>
+        </div>
+        <div id="pkOut"></div>
+      </div>
+    </section>
+
+    <section data-tool="convert" hidden>
+      <div class="tk-card">
+        <h2>Unit converter</h2>
+        <div class="tk-row" style="margin-bottom:10px">
+          <select class="tk-in" id="cvKind" aria-label="What to convert"></select>
+        </div>
+        <div class="cv">
+          <div><input class="tk-in" id="cvA" type="number" inputmode="decimal" step="any" aria-label="From value"><select class="tk-in" id="cvFrom" aria-label="From unit" style="margin-top:6px;width:100%"></select></div>
+          <div class="eq">=</div>
+          <div><input class="tk-in" id="cvB" type="number" inputmode="decimal" step="any" aria-label="To value"><select class="tk-in" id="cvTo" aria-label="To unit" style="margin-top:6px;width:100%"></select></div>
+        </div>
+        <div class="tk-row end" style="margin-top:10px"><button class="tk-btn" id="cvSwap">Swap</button></div>
+      </div>
+    </section>
+
+    <section data-tool="calc" hidden>
+      <div class="tk-card">
+        <h2>Calculator</h2>
+        <div class="calc-out"><div class="ex" id="clEx"></div><div class="val" id="clVal">0</div></div>
+        <div class="keys" id="clKeys"></div>
+      </div>
+    </section>
+
+    <section data-tool="metro" hidden>
+      <div class="tk-card">
+        <h2>Metronome</h2>
+        <div class="tk-big" id="mtBpm">100</div>
+        <p class="tk-muted" style="text-align:center;margin:-8px 0 8px">beats a minute</p>
+        <input type="range" class="tk-range" id="mtRange" min="30" max="240" value="100" aria-label="Beats a minute">
+        <div class="beats" id="mtBeats"></div>
+        <div class="tk-row">
+          <button class="tk-btn" id="mtDown">−</button>
+          <button class="tk-btn primary grow big" id="mtGo">Start</button>
+          <button class="tk-btn" id="mtUp">+</button>
+        </div>
+        <div class="tk-row" style="margin-top:8px">
+          <button class="tk-btn grow" id="mtTap">Tap tempo</button>
+          <label class="tk-muted" for="mtSig">Beats a bar</label>
+          <select class="tk-in" id="mtSig"></select>
+        </div>
+      </div>
+    </section>
+  </main>
+
+<script>
+'use strict';
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const rnd = (n) => {   // a fair whole number below n
+  if (window.crypto && crypto.getRandomValues) {
+    const a = new Uint32Array(1), lim = Math.floor(0x100000000 / n) * n;
+    do { crypto.getRandomValues(a); } while (a[0] >= lim);
+    return a[0] % n;
+  }
+  return Math.floor(Math.random() * n);
+};
+const shuffle = (arr) => { for (let i = arr.length - 1; i > 0; i--) { const j = rnd(i + 1); [arr[i], arr[j]] = [arr[j], arr[i]]; } return arr; };
+const options = (sel, list, value) => { sel.innerHTML = list.map(([v, t]) => `<option value="${esc(v)}">${esc(t)}</option>`).join(''); if (value != null) sel.value = String(value); };
+
+// every tool's state, kept on this device
+const Store = {
+  key: 'nomad_toolkit_v1',
+  data: (() => { try { return JSON.parse(localStorage.getItem('nomad_toolkit_v1') || '{}') || {}; } catch (e) { return {}; } })(),
+  get(k, d) { return this.data[k] !== undefined ? this.data[k] : d; },
+  set(k, v) { this.data[k] = v; try { localStorage.setItem(this.key, JSON.stringify(this.data)); } catch (e) {} },
+};
+
+// sound: Web Audio, no files
+let audio = null;
+function ac() {
+  if (!audio) { const A = window.AudioContext || window.webkitAudioContext; if (!A) return null; audio = new A(); }
+  if (audio.state === 'suspended') audio.resume().catch(() => {});
+  return audio;
+}
+function beep(freq, len, when, vol) {
+  const a = ac(); if (!a) return;
+  const t = when || a.currentTime, o = a.createOscillator(), g = a.createGain();
+  o.frequency.value = freq; o.type = 'square';
+  g.gain.setValueAtTime(vol || 0.15, t);
+  g.gain.exponentialRampToValueAtTime(0.0001, t + len);
+  o.connect(g); g.connect(a.destination);
+  o.start(t); o.stop(t + len + 0.02);
+}
+
+// keep the screen on while something is counting, where the browser allows it
+const Awake = {
+  lock: null, want: 0,
+  async hold(on) {
+    this.want = Math.max(0, this.want + (on ? 1 : -1));
+    try {
+      if (this.want && !this.lock && navigator.wakeLock) this.lock = await navigator.wakeLock.request('screen');
+      if (!this.want && this.lock) { await this.lock.release(); this.lock = null; }
+    } catch (e) { this.lock = null; }   // not on an http page, or refused: the tools still work
+  },
+};
+document.addEventListener('visibilitychange', () => { if (!document.hidden && Awake.want && !Awake.lock) { Awake.want--; Awake.hold(true); } });
+
+// tabs
+const TOOLS = [['timers', 'Timers'], ['stopwatch', 'Stopwatch'], ['tally', 'Tally'], ['dice', 'Dice & coin'], ['cards', 'Cards'],
+               ['score', 'Scoreboard'], ['picker', 'Picker'], ['convert', 'Convert'], ['calc', 'Calculator'], ['metro', 'Metronome']];
+$('tabs').innerHTML = TOOLS.map(([k, t]) => `<button data-t="${k}">${t}</button>`).join('');
+function show(tool) {
+  if (!TOOLS.some(([k]) => k === tool)) tool = 'timers';
+  document.querySelectorAll('[data-tool]').forEach((s) => { s.hidden = s.dataset.tool !== tool; });
+  document.querySelectorAll('#tabs button').forEach((b) => b.classList.toggle('on', b.dataset.t === tool));
+  const on = document.querySelector(`#tabs [data-t="${tool}"]`);
+  if (on && on.scrollIntoView) on.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+  Store.set('tool', tool);
+}
+$('tabs').addEventListener('click', (e) => { const b = e.target.closest('[data-t]'); if (b) show(b.dataset.t); });
+
+// timers: several at once; the end time is kept, so a reload carries on
+let timers = Store.get('timers', [{ name: 'Timer 1', total: 300, left: 300, end: 0 }]);
+const fmt = (s) => { s = Math.max(0, Math.ceil(s)); const h = Math.floor(s / 3600), m = Math.floor(s % 3600 / 60), x = s % 60;
+  return (h ? h + ':' + String(m).padStart(2, '0') : m) + ':' + String(x).padStart(2, '0'); };
+const saveTimers = () => Store.set('timers', timers);
+function timerLeft(t) { return t.end ? (t.end - Date.now()) / 1000 : t.left; }
+function drawTimers() {
+  $('timers').innerHTML = timers.map((t, i) => {
+    const running = !!t.end, left = timerLeft(t);
+    const h = Math.floor(t.total / 3600), m = Math.floor(t.total % 3600 / 60), s = t.total % 60;
+    return `<div class="tm${t.ring ? ' ring' : ''}" data-i="${i}">
+      <div class="tm-top"><input class="tk-in" data-a="name" value="${esc(t.name)}" aria-label="Timer name" maxlength="30">
+        <button class="tk-btn danger" data-a="del" aria-label="Remove this timer">✕</button></div>
+      <div class="tm-time" data-time>${fmt(left)}</div>
+      ${running || t.ring ? '' : `<div class="tm-set">
+        <input class="tk-in" data-a="h" type="number" min="0" max="23" value="${h}" aria-label="Hours">:
+        <input class="tk-in" data-a="m" type="number" min="0" max="59" value="${m}" aria-label="Minutes">:
+        <input class="tk-in" data-a="s" type="number" min="0" max="59" value="${s}" aria-label="Seconds"></div>
+        <div class="tm-quick">${[[60, '1 min'], [180, '3 min'], [300, '5 min'], [600, '10 min'], [900, '15 min'], [1800, '30 min']]
+          .map(([v, l]) => `<button data-a="quick" data-v="${v}">${l}</button>`).join('')}</div>`}
+      <div class="tk-row">${t.ring
+        ? '<button class="tk-btn primary grow" data-a="stop">Stop the alarm</button>'
+        : `<button class="tk-btn primary grow" data-a="go">${running ? 'Pause' : (t.left < t.total && t.left > 0 ? 'Resume' : 'Start')}</button>
+           <button class="tk-btn grow" data-a="reset">Reset</button>`}</div>
+    </div>`;
+  }).join('');
+}
+function setTotal(i, secs) {
+  const t = timers[i];
+  t.total = Math.max(1, Math.min(86399, secs | 0));
+  t.left = t.total; t.end = 0; t.ring = false;
+  saveTimers(); drawTimers();
+}
+$('timers').addEventListener('click', (e) => {
+  const b = e.target.closest('[data-a]'); if (!b || b.tagName === 'INPUT') return;
+  const i = +b.closest('.tm').dataset.i, t = timers[i];
+  ac();   // a tap is what lets the alarm sound later
+  if (b.dataset.a === 'del') { if (t.end) Awake.hold(false); timers.splice(i, 1); }
+  else if (b.dataset.a === 'quick') { setTotal(i, +b.dataset.v); return; }
+  else if (b.dataset.a === 'go') {
+    if (t.end) { t.left = timerLeft(t); t.end = 0; Awake.hold(false); }
+    else { if (t.left <= 0) t.left = t.total; t.end = Date.now() + t.left * 1000; Awake.hold(true); }
+  } else if (b.dataset.a === 'reset') { if (t.end) Awake.hold(false); t.end = 0; t.left = t.total; t.ring = false; }
+  else if (b.dataset.a === 'stop') { t.ring = false; t.left = t.total; t.end = 0; }
+  saveTimers(); drawTimers();
+});
+$('timers').addEventListener('change', (e) => {
+  const el = e.target.closest('[data-a]'); if (!el) return;
+  const box = el.closest('.tm'), i = +box.dataset.i;
+  if (el.dataset.a === 'name') { timers[i].name = el.value.trim() || 'Timer'; saveTimers(); return; }
+  const v = (a) => Math.max(0, +box.querySelector(`[data-a="${a}"]`).value || 0);
+  setTotal(i, v('h') * 3600 + v('m') * 60 + v('s'));
+});
+$('tmAdd').onclick = () => { timers.push({ name: 'Timer ' + (timers.length + 1), total: 300, left: 300, end: 0 }); saveTimers(); drawTimers(); };
+let ringBeat = 0;
+setInterval(() => {
+  let changed = false, ringing = false;
+  timers.forEach((t, i) => {
+    if (t.end && timerLeft(t) <= 0) { t.end = 0; t.left = 0; t.ring = true; changed = true; Awake.hold(false); }
+    if (t.ring) ringing = true;
+    const el = document.querySelector(`.tm[data-i="${i}"] [data-time]`);
+    if (el && t.end) el.textContent = fmt(timerLeft(t));
+  });
+  if (changed) { saveTimers(); drawTimers(); }
+  // a ringing timer keeps calling until someone stops it
+  if (ringing && ++ringBeat % 4 === 0) { const a = ac(); if (a) { beep(880, 0.12, a.currentTime, 0.25); beep(880, 0.12, a.currentTime + 0.18, 0.25); } }
+}, 250);
+
+// stopwatch
+let sw = Store.get('sw', { start: 0, acc: 0, laps: [] });
+const swNow = () => sw.acc + (sw.start ? Date.now() - sw.start : 0);
+const swFmt = (ms) => { const m = Math.floor(ms / 60000), s = Math.floor(ms % 60000 / 1000), c = Math.floor(ms % 1000 / 10);
+  return m + ':' + String(s).padStart(2, '0') + '.' + String(c).padStart(2, '0'); };
+function drawSw() {
+  $('swGo').textContent = sw.start ? 'Stop' : (sw.acc ? 'Resume' : 'Start');
+  $('swLap').disabled = !sw.start;
+  $('swLaps').innerHTML = sw.laps.map((l, i) => `<li><span>Lap ${sw.laps.length - i}</span><span>${swFmt(l.split)}</span><span class="tk-muted">${swFmt(l.at)}</span></li>`).join('');
+}
+$('swGo').onclick = () => { if (sw.start) { sw.acc = swNow(); sw.start = 0; Awake.hold(false); } else { sw.start = Date.now(); Awake.hold(true); } Store.set('sw', sw); drawSw(); };
+$('swLap').onclick = () => { const at = swNow(), prev = sw.laps.length ? sw.laps[0].at : 0; sw.laps.unshift({ at, split: at - prev }); Store.set('sw', sw); drawSw(); };
+$('swReset').onclick = () => { if (sw.start) Awake.hold(false); sw = { start: 0, acc: 0, laps: [] }; Store.set('sw', sw); drawSw(); $('swTime').textContent = swFmt(0); };
+(function tick() { $('swTime').textContent = swFmt(swNow()); requestAnimationFrame(tick); })();
+
+// tally counters
+let tally = Store.get('tally', [{ name: 'Count', n: 0 }]);
+function drawTally() {
+  $('tally').innerHTML = tally.map((c, i) => `<div class="ct" data-i="${i}">
+    <input class="tk-in" data-a="name" value="${esc(c.name)}" aria-label="Counter name" maxlength="30">
+    <button class="tk-btn big" data-a="dec" aria-label="Take one off">−</button>
+    <span class="n">${c.n}</span>
+    <button class="tk-btn big primary" data-a="inc" aria-label="Add one">+</button>
+    ${tally.length > 1 ? '<button class="tk-btn danger" data-a="del" aria-label="Remove this counter">✕</button>' : ''}<span class="brk"></span></div>`).join('');
+}
+$('tally').addEventListener('click', (e) => {
+  const b = e.target.closest('button[data-a]'); if (!b) return;
+  const i = +b.closest('.ct').dataset.i;
+  if (b.dataset.a === 'inc') tally[i].n++;
+  else if (b.dataset.a === 'dec') tally[i].n--;
+  else if (b.dataset.a === 'del') tally.splice(i, 1);
+  Store.set('tally', tally); drawTally();
+});
+$('tally').addEventListener('change', (e) => { if (e.target.dataset.a !== 'name') return; tally[+e.target.closest('.ct').dataset.i].name = e.target.value.trim() || 'Count'; Store.set('tally', tally); });
+$('tlAdd').onclick = () => { tally.push({ name: 'Count ' + (tally.length + 1), n: 0 }); Store.set('tally', tally); drawTally(); };
+$('tlZero').onclick = () => { tally.forEach((c) => { c.n = 0; }); Store.set('tally', tally); drawTally(); };
+
+// dice and coin
+options($('dcN'), [1, 2, 3, 4, 5, 6].map((n) => [n, n]), Store.get('dcN', 2));
+options($('dcS'), [4, 6, 8, 10, 12, 20, 100].map((n) => [n, 'd' + n]), Store.get('dcS', 6));
+$('dcN').onchange = () => Store.set('dcN', +$('dcN').value);
+$('dcS').onchange = () => Store.set('dcS', +$('dcS').value);
+$('dcRoll').onclick = () => {
+  const n = +$('dcN').value, s = +$('dcS').value, rolls = Array.from({ length: n }, () => rnd(s) + 1);
+  $('dcOut').innerHTML = rolls.map((r) => `<div class="die roll">${r}</div>`).join('');
+  $('dcTotal').textContent = n > 1 ? 'Total ' + rolls.reduce((a, b) => a + b, 0) : String(rolls[0]);
+};
+let coin = Store.get('coin', { h: 0, t: 0 });
+const drawCoin = () => { $('cnCount').textContent = coin.h + coin.t ? `Heads ${coin.h}, tails ${coin.t}` : ''; };
+$('cnFlip').onclick = () => {
+  const face = $('cnFace'), heads = rnd(2) === 0;
+  face.classList.remove('flip'); void face.offsetWidth; face.classList.add('flip');
+  face.textContent = heads ? 'Heads' : 'Tails';
+  coin[heads ? 'h' : 't']++; Store.set('coin', coin); drawCoin();
+};
+$('cnCount').ondblclick = () => { coin = { h: 0, t: 0 }; Store.set('coin', coin); drawCoin(); };
+
+// playing cards
+const SUITS = [['♠', 0], ['♥', 1], ['♦', 1], ['♣', 0]], RANKS = ['A', '2', '3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K'];
+const freshDeck = () => shuffle(SUITS.flatMap(([s, red]) => RANKS.map((r) => ({ r, s, red }))));
+let deck = Store.get('deck', null), hand = Store.get('hand', []);
+if (!Array.isArray(deck)) deck = freshDeck();
+options($('pcHow'), [1, 2, 3, 5, 7].map((n) => [n, 'Draw ' + n]), Store.get('pcHow', 1));
+$('pcHow').onchange = () => Store.set('pcHow', +$('pcHow').value);
+function drawCards() {
+  $('pcLeft').textContent = deck.length ? `${deck.length} left in the deck` : 'The deck is empty';
+  $('pcHand').innerHTML = hand.length ? hand.map((c) => `<div class="pc${c.red ? ' red' : ''}"><span class="r">${c.r}${c.s}</span><span class="s">${c.s}</span><span class="r b">${c.r}${c.s}</span></div>`).join('')
+    : '<p class="tk-muted" style="align-self:center">No cards drawn.</p>';
+  $('pcDraw').disabled = !deck.length;
+  Store.set('deck', deck); Store.set('hand', hand);
+}
+$('pcDraw').onclick = () => { for (let i = 0; i < +$('pcHow').value && deck.length; i++) hand.push(deck.pop()); drawCards(); };
+$('pcClear').onclick = () => { hand = []; drawCards(); };
+$('pcShuffle').onclick = () => { deck = freshDeck(); hand = []; drawCards(); };
+
+// scoreboard
+let score = Store.get('score', [{ name: 'Player 1', n: 0 }, { name: 'Player 2', n: 0 }]);
+options($('scStep'), [1, 2, 5, 10, 25, 50, 100].map((n) => [n, n]), Store.get('scStep', 1));
+$('scStep').onchange = () => Store.set('scStep', +$('scStep').value);
+function drawScore() {
+  const top = Math.max(...score.map((p) => p.n));
+  $('score').innerHTML = score.map((p, i) => `<div class="ct${score.length > 1 && p.n === top && top !== 0 ? ' lead' : ''}" data-i="${i}">
+    <input class="tk-in" data-a="name" value="${esc(p.name)}" aria-label="Player name" maxlength="24">
+    <button class="tk-btn big" data-a="dec" aria-label="Take points off">−</button>
+    <span class="n">${p.n}</span>
+    <button class="tk-btn big primary" data-a="inc" aria-label="Add points">+</button>
+    <button class="tk-btn danger" data-a="del" aria-label="Remove this player">✕</button><span class="brk"></span></div>`).join('');
+}
+$('score').addEventListener('click', (e) => {
+  const b = e.target.closest('button[data-a]'); if (!b) return;
+  const i = +b.closest('.ct').dataset.i, step = +$('scStep').value;
+  if (b.dataset.a === 'inc') score[i].n += step;
+  else if (b.dataset.a === 'dec') score[i].n -= step;
+  else if (b.dataset.a === 'del') score.splice(i, 1);
+  Store.set('score', score); drawScore();
+});
+$('score').addEventListener('change', (e) => { if (e.target.dataset.a !== 'name') return; score[+e.target.closest('.ct').dataset.i].name = e.target.value.trim() || 'Player'; Store.set('score', score); });
+$('scAdd').onclick = () => { score.push({ name: 'Player ' + (score.length + 1), n: 0 }); Store.set('score', score); drawScore(); };
+$('scZero').onclick = () => { if (!confirm('Put every score back to zero?')) return; score.forEach((p) => { p.n = 0; }); Store.set('score', score); drawScore(); };
+
+// random picker
+$('pkNames').value = Store.get('pkNames', '');
+$('pkNames').addEventListener('input', () => Store.set('pkNames', $('pkNames').value));
+options($('pkN'), [2, 3, 4, 5, 6, 8].map((n) => [n, n + ' teams']), Store.get('pkN', 2));
+$('pkN').onchange = () => Store.set('pkN', +$('pkN').value);
+const names = () => $('pkNames').value.split('\n').map((s) => s.trim()).filter(Boolean);
+function needNames(min) { const n = names(); if (n.length < min) { $('pkOut').innerHTML = `<p class="tk-muted" style="margin-top:12px">Add at least ${min} name${min === 1 ? '' : 's'}.</p>`; return null; } return n; }
+$('pkOne').onclick = () => {
+  const n = needNames(1); if (!n) return;
+  // a quick shuffle on screen, then the pick
+  let k = 0; const out = () => { $('pkOut').innerHTML = `<div class="picked">${esc(n[rnd(n.length)])}</div>`; };
+  const t = setInterval(() => { out(); if (++k > 8) { clearInterval(t); $('pkOut').innerHTML = `<div class="picked">${esc(n[rnd(n.length)])}</div>`; } }, 70);
+};
+$('pkOrder').onclick = () => {
+  const n = needNames(2); if (!n) return;
+  $('pkOut').innerHTML = '<ol class="tk-list">' + shuffle(n.slice()).map((x) => `<li><span>${esc(x)}</span></li>`).join('') + '</ol>';
+};
+$('pkTeams').onclick = () => {
+  const k = +$('pkN').value, n = needNames(k); if (!n) return;
+  const teams = Array.from({ length: k }, () => []);
+  shuffle(n.slice()).forEach((x, i) => teams[i % k].push(x));
+  $('pkOut').innerHTML = '<div class="teams">' + teams.map((t, i) => `<div class="team"><b>Team ${i + 1}</b>${t.map(esc).join('<br>')}</div>`).join('') + '</div>';
+};
+
+// unit converter: everything goes through one base unit per kind
+const UNITS = {
+  length: { label: 'Length', u: { mm: ['millimetres', 0.001], cm: ['centimetres', 0.01], m: ['metres', 1], km: ['kilometres', 1000],
+    in: ['inches', 0.0254], ft: ['feet', 0.3048], yd: ['yards', 0.9144], mi: ['miles', 1609.344] } },
+  weight: { label: 'Weight', u: { g: ['grams', 0.001], kg: ['kilograms', 1], oz: ['ounces', 0.028349523125], lb: ['pounds', 0.45359237], st: ['stone', 6.35029318] } },
+  temp: { label: 'Temperature', u: { c: ['°C'], f: ['°F'], k: ['kelvin'] } },
+  volume: { label: 'Volume', u: { ml: ['millilitres', 0.001], l: ['litres', 1], tsp: ['teaspoons (US)', 0.00492892159375], tbsp: ['tablespoons (US)', 0.01478676478125],
+    cup: ['cups (US)', 0.2365882365], floz: ['fluid ounces (US)', 0.0295735295625], pt: ['pints (US)', 0.473176473], qt: ['quarts (US)', 0.946352946], gal: ['gallons (US)', 3.785411784] } },
+  speed: { label: 'Speed', u: { kmh: ['km per hour', 1 / 3.6], mph: ['miles per hour', 0.44704], ms: ['metres per second', 1], kn: ['knots', 0.514444444] } },
+  area: { label: 'Area', u: { m2: ['square metres', 1], km2: ['square kilometres', 1e6], ft2: ['square feet', 0.09290304], ac: ['acres', 4046.8564224], ha: ['hectares', 10000], mi2: ['square miles', 2589988.110336] } },
+};
+const toBase = (kind, unit, v) => {
+  if (kind !== 'temp') return v * UNITS[kind].u[unit][1];
+  return unit === 'c' ? v : unit === 'f' ? (v - 32) * 5 / 9 : v - 273.15;   // base: °C
+};
+const fromBase = (kind, unit, v) => {
+  if (kind !== 'temp') return v / UNITS[kind].u[unit][1];
+  return unit === 'c' ? v : unit === 'f' ? v * 9 / 5 + 32 : v + 273.15;
+};
+const tidy = (x) => (!isFinite(x) ? '' : Math.abs(x) >= 1e9 || (Math.abs(x) < 1e-6 && x !== 0) ? x.toExponential(4) : String(+x.toPrecision(8)));
+let cv = Store.get('cv', { kind: 'length', from: 'km', to: 'mi', a: 1 });
+options($('cvKind'), Object.entries(UNITS).map(([k, v]) => [k, v.label]), cv.kind);
+function cvUnits() {
+  const list = Object.entries(UNITS[cv.kind].u).map(([k, v]) => [k, v[0]]);
+  if (!UNITS[cv.kind].u[cv.from]) cv.from = list[0][0];
+  if (!UNITS[cv.kind].u[cv.to]) cv.to = list[1][0];
+  options($('cvFrom'), list, cv.from); options($('cvTo'), list, cv.to);
+}
+function cvCalc(dir) {
+  if (dir === 'ab') { const a = parseFloat($('cvA').value); cv.a = a; $('cvB').value = isNaN(a) ? '' : tidy(fromBase(cv.kind, cv.to, toBase(cv.kind, cv.from, a))); }
+  else { const b = parseFloat($('cvB').value); const a = fromBase(cv.kind, cv.from, toBase(cv.kind, cv.to, b)); cv.a = a; $('cvA').value = isNaN(b) ? '' : tidy(a); }
+  Store.set('cv', cv);
+}
+$('cvKind').onchange = () => { cv.kind = $('cvKind').value; cv.from = ''; cv.to = ''; cvUnits(); cvCalc('ab'); };
+$('cvFrom').onchange = () => { cv.from = $('cvFrom').value; cvCalc('ab'); };
+$('cvTo').onchange = () => { cv.to = $('cvTo').value; cvCalc('ab'); };
+$('cvA').oninput = () => cvCalc('ab');
+$('cvB').oninput = () => cvCalc('ba');
+$('cvSwap').onclick = () => { [cv.from, cv.to] = [cv.to, cv.from]; cvUnits(); cvCalc('ab'); };
+
+// calculator: its own small parser, no eval
+const KEYS = [['C', 'fn'], ['(', 'op'], [')', 'op'], ['÷', 'op'], ['7'], ['8'], ['9'], ['×', 'op'], ['4'], ['5'], ['6'], ['−', 'op'],
+              ['1'], ['2'], ['3'], ['+', 'op'], ['%', 'op'], ['0'], ['.'], ['=', 'eq']];
+$('clKeys').innerHTML = KEYS.map(([k, c]) => `<button class="${c || ''}" data-k="${k}">${k}</button>`).join('') ;
+let expr = Store.get('expr', ''), lastAns = '';
+function evaluate(src) {
+  // + - * / % and brackets, by precedence climbing; % means "divided by 100"
+  const t = src.replace(/×/g, '*').replace(/÷/g, '/').replace(/−/g, '-').match(/\d*\.?\d+(?:e[+-]?\d+)?|[-+*/%()]/g) || [];
+  let i = 0;
+  const peek = () => t[i], next = () => t[i++];
+  function primary() {
+    const x = next();
+    if (x === '(') { const v = sum(); if (next() !== ')') throw new Error('bracket'); return post(v); }
+    if (x === '-') return -primary();
+    if (x === '+') return primary();
+    if (x !== undefined && /^[\d.]/.test(x)) return post(parseFloat(x));
+    throw new Error('syntax');
+  }
+  function post(v) { while (peek() === '%') { next(); v /= 100; } return v; }
+  function prod() { let v = primary(); while (peek() === '*' || peek() === '/') { const o = next(), r = primary(); v = o === '*' ? v * r : v / r; } return v; }
+  function sum() { let v = prod(); while (peek() === '+' || peek() === '-') { const o = next(), r = prod(); v = o === '+' ? v + r : v - r; } return v; }
+  const v = sum();
+  if (i < t.length) throw new Error('syntax');
+  return v;
+}
+function drawCalc(result) {
+  $('clEx').textContent = result !== undefined ? expr + ' =' : '';
+  if (result !== undefined) $('clVal').textContent = result;
+  else {
+    let live = '';
+    try { live = expr ? tidy(evaluate(expr)) : '0'; } catch (e) { live = ''; }
+    $('clVal').textContent = expr || '0';
+    $('clEx').textContent = live && expr && live !== expr ? '= ' + live : '';
+  }
+  Store.set('expr', expr);
+}
+function press(k) {
+  if (k === 'C') { expr = ''; drawCalc(); return; }
+  if (k === '⌫') { expr = expr.slice(0, -1); drawCalc(); return; }
+  if (k === '=') {
+    try { const v = evaluate(expr); if (!isFinite(v)) throw new Error('inf'); const r = tidy(v); drawCalc(r); lastAns = r; expr = r; Store.set('expr', expr); }
+    catch (e) { $('clVal').textContent = "Can't work that out"; }
+    return;
+  }
+  if (lastAns && expr === lastAns && /[\d.]/.test(k)) expr = '';   // a new number after = starts over
+  lastAns = '';
+  expr += k; drawCalc();
+}
+$('clKeys').addEventListener('click', (e) => { const b = e.target.closest('[data-k]'); if (b) press(b.dataset.k); });
+$('clVal').title = 'Tap to delete the last character';
+$('clVal').addEventListener('click', () => press('⌫'));
+document.addEventListener('keydown', (e) => {
+  if (document.querySelector('[data-tool="calc"]').hidden || e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+  const map = { '*': '×', '/': '÷', '-': '−', Enter: '=', Backspace: '⌫', Escape: 'C' };
+  const k = map[e.key] || e.key;
+  if (/^[\d.+%()×÷−=C⌫]$/.test(k)) { e.preventDefault(); press(k); }
+});
+
+// metronome: beats scheduled ahead on the audio clock, so they stay even
+let mt = Store.get('mt', { bpm: 100, sig: 4 }), mtOn = false, mtNext = 0, mtBeat = 0, mtTimer = 0, taps = [];
+options($('mtSig'), [1, 2, 3, 4, 5, 6, 7].map((n) => [n, n]), mt.sig);
+function drawMt() {
+  $('mtBpm').textContent = mt.bpm; $('mtRange').value = mt.bpm;
+  $('mtGo').textContent = mtOn ? 'Stop' : 'Start';
+  $('mtBeats').innerHTML = Array.from({ length: mt.sig }, (_, i) => `<span class="beat${i === 0 ? ' first' : ''}"></span>`).join('');
+  Store.set('mt', mt);
+}
+function setBpm(v) { mt.bpm = Math.max(30, Math.min(240, Math.round(v))); drawMt(); }
+function mtSchedule() {
+  const a = ac(); if (!a) return;
+  while (mtNext < a.currentTime + 0.12) {
+    const first = mtBeat % mt.sig === 0, at = mtNext, beat = mtBeat % mt.sig;
+    beep(first ? 1500 : 1000, 0.05, at, first ? 0.3 : 0.2);
+    setTimeout(() => {
+      document.querySelectorAll('#mtBeats .beat').forEach((b, i) => b.classList.toggle('on', i === beat));
+    }, Math.max(0, (at - a.currentTime) * 1000));
+    mtNext += 60 / mt.bpm; mtBeat++;
+  }
+}
+function mtStart() {
+  const a = ac(); if (!a) { alert('This browser has no sound for the metronome.'); return; }
+  mtOn = true; mtBeat = 0; mtNext = a.currentTime + 0.05;
+  mtTimer = setInterval(mtSchedule, 25); mtSchedule();
+  Awake.hold(true); drawMt();
+}
+function mtStop() { mtOn = false; clearInterval(mtTimer); Awake.hold(false); drawMt(); }
+$('mtGo').onclick = () => (mtOn ? mtStop() : mtStart());
+$('mtRange').oninput = () => setBpm(+$('mtRange').value);
+$('mtDown').onclick = () => setBpm(mt.bpm - 1);
+$('mtUp').onclick = () => setBpm(mt.bpm + 1);
+$('mtSig').onchange = () => { mt.sig = +$('mtSig').value; mtBeat = 0; drawMt(); };
+$('mtTap').onclick = () => {
+  // the tempo of the last few taps; a pause of two seconds starts a new count
+  const now = performance.now();
+  if (taps.length && now - taps[taps.length - 1] > 2000) taps = [];
+  taps.push(now); if (taps.length > 6) taps.shift();
+  if (taps.length >= 2) setBpm(60000 / ((taps[taps.length - 1] - taps[0]) / (taps.length - 1)));
+};
+
+drawTimers(); drawSw(); drawTally(); drawCoin(); drawCards(); drawScore(); cvUnits();
+$('cvA').value = cv.a; cvCalc('ab');
+drawCalc(); drawMt();
+timers.forEach((t) => { if (t.end && timerLeft(t) > 0) Awake.hold(true); });
+if (sw.start) Awake.hold(true);
+show(Store.get('tool', 'timers'));
+</script>
+</body>
+</html>

@@ -1,70 +1,13 @@
 <!DOCTYPE html>
-<!-- Version 4 -->
+<!-- Version 5 -->
 <html lang="en">
 <head>
     <link rel="stylesheet" href="/master.css">
-    <script>
-(async function() {
-  try {
-    const isDark = localStorage.getItem('nomad_dark_mode') === 'true';
-    if (isDark) {
-      document.documentElement.classList.add('dark');
-      // body.dark is what master.css keys on; tag body the moment it exists
-      new MutationObserver((m, o) => {
-        if (document.body) { document.body.classList.add('dark'); o.disconnect(); }
-      }).observe(document.documentElement, { childList: true });
-    }
-
-    async function loadThemeFromServer() {
-      try {
-        const response = await fetch('/.system-theme.json?t=' + Date.now());
-        if (response.ok) {
-          const theme = await response.json();
-          localStorage.setItem('nomad_custom_theme', JSON.stringify(theme));
-          return theme;
-        }
-      } catch (e) {
-        console.log('[EPUB] No theme on SD card, using localStorage');
-      }
-      return null;
-    }
-
-    const serverTheme = await loadThemeFromServer();
-    const colors = serverTheme || (function() {
-      const saved = localStorage.getItem('nomad_custom_theme');
-      return saved ? JSON.parse(saved) : null;
-    })();
-
-    if (colors) {
-      const style = document.createElement('style');
-      style.id = 'custom-theme-style';
-      style.textContent = `
-        :root {
-          --primary: ${colors.primary} !important;
-          --primary-dark: ${colors.primaryDark} !important;
-          --bg: ${colors.bgLight} !important;
-          --card: ${colors.cardLight} !important;
-          --text: ${colors.textLight} !important;
-          --muted: ${colors.mutedLight} !important;
-        }
-        body.dark {
-          --bg: ${colors.bgDark} !important;
-          --card: ${colors.cardDark} !important;
-          --text: ${colors.textDark} !important;
-          --muted: ${colors.mutedDark} !important;
-          --primary: ${colors.primaryDarkTheme} !important;
-        }
-      `;
-      document.head.appendChild(style);
-    }
-  } catch(e) {
-    console.error('[EPUB] Theme loading error:', e);
-  }
-})();
-</script>
+    <script src="/theme-boot.js?v=5"></script>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1" />
     <title>Nomad • EPUB Reader</title>
+<script src="/nomad-icons.js?v=1"></script>
     <script src="/assets/jszip.min.js"></script>
     <script>
         if (typeof window !== 'undefined' && typeof JSZip !== 'undefined') {
@@ -99,8 +42,9 @@
         .reader-container {
             display: flex;
             flex-direction: column;
-            /* 100vh on a phone counts the strip behind the collapsing address bar, so
-               the reader came out taller than the screen. dvh is what you can see. */
+            /* 100vh on a phone includes the strip behind the collapsing address bar,
+               leaving empty space to scroll into under the reader. dvh is the visible
+               viewport; vh is the fallback. */
             height: 100vh;
             height: 100dvh;
             width: 100%;
@@ -111,46 +55,54 @@
         .reader-header {
             background: var(--primary);
             color: var(--header-text);
-            padding: 12px 16px;
+            padding: 6px 8px;
+            padding-top: max(6px, env(safe-area-inset-top));
             display: flex;
-            gap: 10px;
+            gap: 6px;
             align-items: center;
-            flex-wrap: wrap;
             box-shadow: var(--shadow);
             z-index: 100;
+            min-height: 48px;
         }
 
         .reader-title {
-            font-size: 1rem;
+            flex: 1;
+            min-width: 0;
+            font-size: 0.98rem;
             font-weight: 700;
-            margin-right: auto;
             white-space: nowrap;
             overflow: hidden;
             text-overflow: ellipsis;
+            padding: 0 4px;
         }
 
         .reader-controls {
             display: flex;
-            gap: 6px;
+            gap: 4px;
             align-items: center;
-            flex-wrap: wrap;
+            flex: 0 0 auto;
         }
 
         .reader-btn {
-            background: rgba(255,255,255,0.2);
+            background: rgba(255,255,255,0.18);
             border: none;
-            color: #fff;
-            padding: 8px 12px;
-            border-radius: 5px;
+            color: var(--header-text);
+            min-width: 38px;
+            height: 36px;
+            padding: 0 10px;
+            border-radius: var(--radius-medium);
             cursor: pointer;
             font-size: 0.9rem;
-            transition: background 0.2s ease;
+            font-weight: 600;
             white-space: nowrap;
+            text-decoration: none;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 4px;
         }
 
-        .reader-btn:hover {
-            background: rgba(255,255,255,0.3);
-        }
+        .reader-btn:hover { background: rgba(255,255,255,0.3); }
 
         .reader-main {
             flex: 1;
@@ -163,7 +115,7 @@
         #epub-viewer {
             flex: 1;
             overflow: hidden;
-            background: #fafafa;
+            background: var(--card);
             position: relative;
             min-width: 0;
             min-height: 0;
@@ -174,10 +126,10 @@
             height: 100%;
         }
 
-        /* epub.js sizes its iframe in pixels from a measurement that goes stale when the
-           address bar collapses, leaving it wider than the screen. Clamp it. */
-        #epub-viewer .epub-container,
-        #epub-viewer iframe {
+        /* epub.js sizes its iframe in pixels from the box at start. On a phone the address
+           bar collapses after load, so that size goes stale and the iframe overflows
+           sideways. Clamp it. */
+        #epub-viewer .epub-container {
             max-width: 100% !important;
         }
 
@@ -188,9 +140,11 @@
             flex-direction: column;
             justify-content: center;
             align-items: center;
-            background: rgba(250, 250, 250, 0.95);
+            background: var(--bg);
             z-index: 50;
             gap: 15px;
+            padding: 20px;
+            text-align: center;
         }
 
         .loading-overlay.hidden {
@@ -210,43 +164,50 @@
             to { transform: rotate(360deg); }
         }
 
+        /* one row: back a page, the chapter and how far in, forward a page; clear of a
+           phone's home bar */
         .reader-navigation {
-            background: #f5f5f5;
-            padding: 12px;
+            background: var(--card);
+            border-top: 1px solid var(--card-border);
+            padding: 8px 12px;
+            padding-bottom: max(8px, env(safe-area-inset-bottom));
             display: flex;
-            gap: 10px;
+            gap: 12px;
             justify-content: center;
             align-items: center;
-            border-top: 1px solid #ddd;
-            flex-wrap: wrap;
+            flex: 0 0 auto;
         }
 
         .nav-btn {
             background: var(--primary);
-            color: #fff;
+            color: var(--header-text);
             border: none;
-            padding: 8px 14px;
-            border-radius: 5px;
+            width: 56px;
+            height: 44px;
+            flex: 0 0 auto;
+            border-radius: var(--radius-medium);
             cursor: pointer;
-            font-size: 0.95em;
-            transition: background 0.2s ease;
+            font-size: 1.5rem;
+            line-height: 1;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
         }
 
-        .nav-btn:hover {
-            background: var(--primary-dark);
-        }
-
-        .nav-btn:disabled {
-            background: #ccc;
-            cursor: not-allowed;
-        }
+        .nav-btn:hover { background: var(--primary-dark); }
+        .nav-btn:disabled { opacity: 0.35; cursor: default; }
 
         .progress-info {
-            color: #333;
-            font-weight: 600;
-            min-width: 60px;
+            flex: 1;
+            min-width: 0;
+            max-width: 420px;
             text-align: center;
+            color: var(--text);
+            font-size: 0.9rem;
+            line-height: 1.25;
         }
+        .progress-info .ch { display: block; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .progress-info .pc { color: var(--muted); font-size: 0.8rem; font-variant-numeric: tabular-nums; }
 
         .toc-panel {
             position: absolute;
@@ -254,15 +215,16 @@
             right: 0;
             bottom: 0;
             width: var(--reader-sidebar-width);
-            max-width: 80%;
-            background: #fff;
-            border-left: 1px solid #e5e7eb;
+            max-width: 85%;
+            background: var(--card);
+            color: var(--text);
+            border-left: 1px solid var(--card-border);
             transform: translateX(100%);
             transition: transform .25s ease;
             z-index: 60;
             display: flex;
             flex-direction: column;
-            box-shadow: -8px 0 20px rgba(0,0,0,0.08);
+            box-shadow: var(--shadow-large);
         }
 
         .toc-panel.open {
@@ -272,11 +234,11 @@
         .toc-header {
             padding: 10px 12px;
             font-weight: 700;
-            border-bottom: 1px solid #e5e7eb;
+            border-bottom: 1px solid var(--card-border);
             display: flex;
             align-items: center;
             justify-content: space-between;
-            background: #fff;
+            background: var(--card);
         }
 
         .toc-content {
@@ -290,15 +252,17 @@
             padding: 8px 10px;
             border-radius: 6px;
             cursor: pointer;
-            color: #0f1720;
+            color: var(--text);
             text-decoration: none;
             font-size: 0.95rem;
             transition: background 0.2s ease;
         }
 
-        .toc-item:hover {
-            background: #eef3ff;
+        .toc-item:hover, .toc-item.here {
+            background: var(--primary-alpha-10);
         }
+        .toc-item.here { color: var(--primary); font-weight: 600; }
+        .toc-header .reader-btn { background: var(--bg); color: var(--text); }
 
         .toc-sub {
             padding-left: 16px;
@@ -307,72 +271,70 @@
         .error-message {
             padding: 20px;
             text-align: center;
-            color: #d32f2f;
+            color: var(--text);
             font-size: 1rem;
+            line-height: 1.5;
         }
 
-        @media (max-width: 768px) {
-            .reader-header {
-                padding: 10px 12px;
-            }
-
-            .reader-title {
-                flex: 1 1 100%;
-                margin-bottom: 4px;
-            }
-
-            .reader-controls {
-                width: 100%;
-                justify-content: flex-start;
-            }
-
-            .reader-btn {
-                font-size: 0.85rem;
-                padding: 6px 10px;
-            }
+        @media (max-width: 480px) {
+            .reader-btn .lbl { display: none; }
+            /* the bar at the bottom names the book: room for the buttons up here */
+            .reader-title { display: none; }
         }
+        /* a book with bookmarks shows a dot; reading aloud lights the button */
+        .reader-btn { position: relative; }
+        .reader-btn.has-marks::after { content: ''; position: absolute; top: 5px; right: 5px; width: 7px; height: 7px; border-radius: 50%; background: #ffd400; }
+        .reader-btn.on { background: #fff; color: var(--primary); }
     </style>
-    <script src="theme-manager.js"></script>
-    <script src="/nomad-utils.js"></script>
+    <script src="theme-manager.js?v=5"></script>
+    <script src="/nomad-utils.js?v=49"></script>
+    <script src="/assets/nomad-marks.js?v=1"></script>
+    <script src="/assets/nomad-readaloud.js?v=1"></script>
 </head>
 <body>
     <div class="reader-container">
         <div class="reader-header">
-            <div class="reader-title" id="readerTitle">Loading...</div>
+            <a class="reader-btn" href="/books" title="Back to Books" aria-label="Back to Books">&#8249; Books</a>
+            <div class="reader-title" id="readerTitle">Loading…</div>
             <div class="reader-controls">
-                <a class="reader-btn" href="/books" title="Back to Books">← Back</a>
-                <button class="reader-btn" id="tocBtn" title="Table of Contents">📑 TOC</button>
-                <button class="reader-btn" id="viewModeBtn" title="Toggle view mode">Pages</button>
-                <button class="reader-btn" id="fontSizeDown" title="Decrease font size">A-</button>
-                <button class="reader-btn" id="fontSizeUp" title="Increase font size">A+</button>
+                <button class="reader-btn" id="tocBtn" title="Contents" aria-label="Contents"><span data-icon="list"></span><span class="lbl">Contents</span></button>
+                <button class="reader-btn" id="marksBtn" title="Bookmarks and notes" aria-label="Bookmarks and notes"><span data-icon="pin"></span></button>
+                <button class="reader-btn" id="speakBtn" title="Read aloud" aria-label="Read aloud"><span data-icon="volume"></span></button>
+                <button class="reader-btn" id="viewModeBtn" title="Turn pages or scroll">Pages</button>
+                <button class="reader-btn" id="fontSizeDown" title="Smaller text" aria-label="Smaller text">A&#8722;</button>
+                <button class="reader-btn" id="fontSizeUp" title="Bigger text" aria-label="Bigger text">A+</button>
             </div>
         </div>
         <div class="reader-main">
             <div id="epub-viewer"></div>
             <div class="loading-overlay" id="loadingOverlay">
                 <div class="spinner"></div>
-                <div class="loading-text">Loading EPUB...</div>
+                <div class="loading-text">Opening the book…</div>
             </div>
-        </div>
             <aside class="toc-panel" id="tocPanel">
                 <div class="toc-header">
-                    <span>Table of Contents</span>
-                    <button class="reader-btn" id="closeToc" title="Close TOC">✕</button>
+                    <span>Contents</span>
+                    <button class="reader-btn" id="closeToc" title="Close" aria-label="Close" data-icon="x"></button>
                 </div>
                 <div class="toc-content" id="tocContent"></div>
             </aside>
         </div>
         <div class="reader-navigation">
-            <button class="nav-btn" id="prevBtn">← Previous</button>
-            <span class="progress-info" id="progressInfo">0%</span>
-            <button class="nav-btn" id="nextBtn">Next →</button>
+            <button class="nav-btn" id="prevBtn" aria-label="Previous page" title="Previous page">&#8249;</button>
+            <div class="progress-info" id="progressInfo"><span class="ch">&nbsp;</span><span class="pc"></span></div>
+            <button class="nav-btn" id="nextBtn" aria-label="Next page" title="Next page">&#8250;</button>
         </div>
     </div>
 
     <script>
         /* theme via shared ThemeManager instead of a local reimplementation */
         (function () { try { ThemeManager.applyDarkMode(ThemeManager.getDarkMode()); } catch (e) { } })();
-        window.addEventListener('storage', (ev) => { if (ev.key === ThemeManager.STORAGE_KEY) ThemeManager.applyDarkMode(ev.newValue === 'true'); });
+        // the book follows too: its frame has its own colours (themeBook below)
+        window.addEventListener('storage', (ev) => {
+            if (ev.key !== ThemeManager.STORAGE_KEY) return;
+            ThemeManager.applyDarkMode(ev.newValue === 'true');
+            if (rendition) themeBook(rendition);
+        });
 
         function encodePathSegments(path) {
             if (!path) return '';
@@ -386,7 +348,7 @@
         const bookPath = urlParams.get('path');
         
         if (!bookPath) {
-            document.getElementById('epub-viewer').innerHTML = '<p class="error-message">No book path provided. Please go back and select a book.</p>';
+            document.getElementById('epub-viewer').innerHTML = '<p class="error-message">No book chosen. Go back and pick one.</p>';
             document.getElementById('loadingOverlay').classList.add('hidden');
         }
 
@@ -406,6 +368,24 @@
 
         let rendition = null;
         let epubBook = null;
+
+        // bookmarks and notes (kept on this phone), and reading aloud with the phone's voice
+        NomadMarks.attach(document.getElementById('marksBtn'), {
+            key: () => bookPath,
+            title: () => readerTitle.textContent,
+            here: () => {
+                if (!lastLocation || !lastLocation.start) return null;
+                const st = lastLocation.start, ch = chapterOf(st.href), pct = percentAt(lastLocation);
+                const page = st.displayed && st.displayed.page ? ', page ' + st.displayed.page : '';
+                return { at: st.cfi, order: (st.index || 0) * 10000 + ((st.displayed && st.displayed.page) || 0),
+                         label: (ch ? ch.label.trim() : 'Section ' + ((st.index || 0) + 1)) + page + (pct == null ? '' : ' · ' + pct + '%') };
+            },
+            go: (cfi) => rendition && rendition.display(cfi),
+        });
+        const readAloud = NomadReadAloud.attach(document.getElementById('speakBtn'), {
+            rendition: () => rendition,
+            lang: () => { try { return epubBook.packaging.metadata.language || ''; } catch (e) { return ''; } },
+        });
         let epubFontSize = parseInt(localStorage.getItem('nomad_epub_font_pct') || '100');
         let epubFlow = localStorage.getItem('nomad_epub_flow') || 'paginated';
 
@@ -448,40 +428,145 @@
             });
 
             r.themes.fontSize(`${epubFontSize}%`);
-            r.themes.register('dark', {
-                'body': {
-                    'color': '#d0d0d0 !important',
-                    'background': '#0b1220 !important'
-                },
-                'p': {
-                    'color': '#d0d0d0 !important'
-                },
-                'a': {
-                    'color': '#4aa3ff !important'
-                }
-            });
-            if (document.body.classList.contains('dark')) {
-                r.themes.select('dark');
-            }
+            themeBook(r);
 
-            r.on('relocated', (location) => {
+            // Text hidden by moving it far off the page (Standard Ebooks title pages) still
+            // counts toward the chapter's width in epub.js and made a title page 84 blank
+            // screens long. Take it out of the layout.
+            r.hooks.content.register((contents) => {
                 try {
-                    if (epubBook.locations && epubBook.locations.total > 0) {
-                        const percent = epubBook.locations.percentageFromCfi(location.start.cfi);
-                        const percentRounded = Math.round(percent * 100);
-                        progressInfo.textContent = percentRounded + '%';
-                        saveProgress(bookPath, location.start.cfi, percentRounded);
-                    } else {
-                        progressInfo.textContent = '—';
-                        saveProgress(bookPath, location.start.cfi, 0);
+                    const d = contents.document, w = contents.window;
+                    for (const el of d.body.querySelectorAll('[class], [id], h1, h2, h3, p, span')) {
+                        const cs = w.getComputedStyle(el);
+                        if ((cs.position === 'absolute' || cs.position === 'fixed') &&
+                            (parseFloat(cs.left) < -300 || parseFloat(cs.right) < -300 || parseFloat(cs.top) < -300)) {
+                            el.style.setProperty('display', 'none', 'important');
+                        }
                     }
-                } catch (e) {
-                    console.warn('EPUB: Progress tracking error', e);
-                }
+                } catch (e) { /* a section we can't read: leave it as it is */ }
             });
 
+            r.on('relocated', (location) => { lastLocation = location; showWhere(location); });
+            if (readAloud) readAloud.watch(r);
+            wireTurning(r);
             return r;
         }
+
+        /* The book's dark mode in Nomad's theme colours. epub.js never removes a theme's
+           styles, it only swaps a class on the body, so the rules hang off that class and
+           toggling dark mode while reading follows along. */
+        function themeBook(r) {
+            const dark = document.body.classList.contains('dark');
+            if (dark) {
+                const css = getComputedStyle(document.body), tok = (n, d) => (css.getPropertyValue(n) || '').trim() || d;
+                r.themes.register('dark', {
+                    'body.dark': { 'color': tok('--text', '#d0d0d0') + ' !important', 'background': tok('--card', '#0b1220') + ' !important' },
+                    '.dark p, .dark li, .dark span, .dark div, .dark h1, .dark h2, .dark h3, .dark h4, .dark td': { 'color': tok('--text', '#d0d0d0') + ' !important' },
+                    '.dark a': { 'color': tok('--primary', '#4aa3ff') + ' !important' }
+                });
+            }
+            r.themes.select(dark ? 'dark' : 'default');
+        }
+
+        /* Chapter name and how far through the book. Each chapter is weighted by its file
+           size, plus the page within it. epub.js's exact figure measures every chapter on
+           the main thread and froze taps for over a minute on a long book. */
+        let weights = null;
+        function chapterWeights() {
+            if (weights) return weights;
+            const items = (epubBook.spine && epubBook.spine.spineItems) || [];
+            const zip = epubBook.archive && epubBook.archive.zip;
+            const sizes = items.map((it) => {
+                try {
+                    const path = decodeURIComponent(String(it.url || it.href || '')).replace(/^\//, '');
+                    const f = zip && (zip.file(path) || zip.file(decodeURIComponent(it.href || '')));
+                    const n = f && f._data && (f._data.uncompressedSize || f._data.compressedSize);
+                    return n > 0 ? n : 1;
+                } catch (e) { return 1; }
+            });
+            const total = sizes.reduce((a, b) => a + b, 0) || 1;
+            const before = []; let run = 0;
+            for (const n of sizes) { before.push(run); run += n; }
+            weights = { sizes, before, total };
+            return weights;
+        }
+        function percentAt(location) {
+            const st = location.start, w = chapterWeights();
+            if (st.index == null || !w.sizes.length) return null;
+            const d = st.displayed || {}, frac = d.total > 1 ? (d.page - 1) / d.total : 0;
+            if (location.atEnd) return 100;
+            return Math.max(0, Math.min(100, Math.round((w.before[st.index] + w.sizes[st.index] * frac) / w.total * 100)));
+        }
+        let lastLocation = null, tocFlat = [];
+        const baseHref = (h) => String(h || '').split('#')[0].replace(/^\.\//, '');
+        function chapterOf(href) {
+            const h = baseHref(href);
+            let hit = null;
+            for (const t of tocFlat) { const b = baseHref(t.href); if (b && (h === b || h.endsWith('/' + b) || b.endsWith('/' + h))) { hit = t; break; } }
+            return hit;
+        }
+        function showWhere(location) {
+            if (!location || !location.start) return;
+            const ch = chapterOf(location.start.href);
+            const pct = percentAt(location);
+            const pc = pct == null ? '' : pct + '%';
+            progressInfo.querySelector('.ch').textContent = ch ? ch.label.trim() : readerTitle.textContent;
+            progressInfo.querySelector('.pc').textContent = pc;
+            saveProgress(bookPath, location.start.cfi, pct || 0);
+            noteProgress(location, pct);
+            tocContent.querySelectorAll('.toc-item').forEach(a => a.classList.toggle('here', !!ch && a.dataset.href === ch.href));
+            prevBtn.disabled = !!location.atStart;
+            nextBtn.disabled = !!location.atEnd;
+        }
+
+        // how far along, for the Books shelf and the menu's Continue (NomadProgress, nomad-utils.js).
+        // A finished book opened again at its start stays finished until you turn a page.
+        function noteProgress(location, pct) {
+            if (pct == null) return;
+            const was = NomadProgress.get(bookPath);
+            if (was && was.done && location.atStart) return;
+            const info = { k: 'epub', t: readerTitle.textContent };
+            if (location.atEnd) NomadProgress.finish(bookPath, info);
+            else NomadProgress.note(bookPath, Object.assign(info, { p: pct / 100, l: pct + '%' }));
+        }
+
+        /* Turning pages. The book is in a frame, so its touches and keys reach this page
+           only through rendition.on(). Swipe or tap an edge in Pages mode; arrow keys and
+           Page Up/Down anywhere. */
+        const next = () => rendition && rendition.next();
+        const prev = () => rendition && rendition.prev();
+        let swipeX = 0, swipeY = 0, swipedAt = 0;
+        function startSwipe(e) { const t = e.changedTouches ? e.changedTouches[0] : e; swipeX = t.screenX; swipeY = t.screenY; }
+        function endSwipe(e) {
+            if (epubFlow !== 'paginated') return;
+            const t = e.changedTouches ? e.changedTouches[0] : e;
+            const dx = t.screenX - swipeX, dy = t.screenY - swipeY;
+            if (Math.abs(dx) > 50 && Math.abs(dx) > Math.abs(dy) * 1.5) { swipedAt = Date.now(); dx < 0 ? next() : prev(); }
+        }
+        function tapEdge(e) {
+            if (epubFlow !== 'paginated' || Date.now() - swipedAt < 400) return;
+            if (e.target && e.target.closest && e.target.closest('a')) return;      // a link is a link
+            const sel = e.view && e.view.getSelection && e.view.getSelection();
+            if (sel && String(sel).length) return;                                   // selecting text
+            const box = epubViewer.getBoundingClientRect();
+            const frame = e.view && e.view.frameElement ? e.view.frameElement.getBoundingClientRect() : box;
+            const x = (frame.left + e.clientX - box.left) / box.width;
+            if (x < 0.25) prev(); else if (x > 0.75) next();
+        }
+        function wireTurning(r) {
+            r.on('touchstart', startSwipe);
+            r.on('touchend', endSwipe);
+            r.on('click', tapEdge);
+            r.on('keydown', onKey);
+        }
+        function onKey(e) {
+            if (tocPanel.classList.contains('open') && e.key === 'Escape') { closeTocPanel(); return; }
+            if (e.key === 'ArrowRight' || e.key === 'PageDown' || (e.key === ' ' && epubFlow === 'paginated')) { e.preventDefault && e.preventDefault(); next(); }
+            else if (e.key === 'ArrowLeft' || e.key === 'PageUp') { e.preventDefault && e.preventDefault(); prev(); }
+        }
+        document.addEventListener('keydown', onKey);
+        prevBtn.onclick = prev;
+        nextBtn.onclick = next;
 
         async function openEpubReader(path) {
             try {
@@ -502,7 +587,7 @@
 
                 const loadingText = loadingOverlay.querySelector('.loading-text');
                 loadingOverlay.classList.remove('hidden');
-                if (loadingText) loadingText.textContent = 'Loading EPUB...';
+                if (loadingText) loadingText.textContent = 'Opening the book…';
 
                 const fileName = path.split('/').pop();
                 readerTitle.textContent = fileName.replace(/\.[^/.]+$/, '').replace(/[_\.]+/g, ' ').trim();
@@ -511,62 +596,48 @@
 
                 const url = fileUrlDirect(path);
 
-                // Detect mobile device for optimization
                 const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
 
+                // on a P4 the reader's engine stays on the card while this page is in flash
+                if (typeof ePub === 'undefined') throw new Error('engine missing');
                 epubBook = ePub(url, {
-                    requestMethod: function(url, type) {
-                        return fetch(url, {
-                            credentials: 'same-origin',
-                            cache: 'no-cache',
-                            headers: {
-                                'Accept': 'application/epub+zip, application/octet-stream, */*',
-                                'Range': ''
-                            }
-                        }).then(response => {
-                            if (!response.ok && response.status !== 206) {
-                                throw new Error(`HTTP ${response.status}`);
-                            }
-                            return response.blob();
-                        }).catch(err => {
-                            console.error('EPUB: requestMethod fetch error:', err);
-                            throw err;
-                        });
+                    // a busy Nomad answers 503: wait as it asks and retry, like the PDF and
+                    // comic readers, instead of failing the book
+                    requestMethod: async function(url, type) {
+                        for (let i = 0, wait = 400; ; i++) {
+                            const response = await fetch(url, {
+                                credentials: 'same-origin',
+                                cache: 'no-cache',
+                                headers: {
+                                    'Accept': 'application/epub+zip, application/octet-stream, */*',
+                                    'Range': ''
+                                }
+                            });
+                            if (response.ok || response.status === 206) return response.blob();
+                            if (response.status !== 503 || i >= 6) throw new Error(`HTTP ${response.status}`);
+                            const ra = parseFloat(response.headers.get('Retry-After'));
+                            await new Promise(r => setTimeout(r, ra > 0 ? ra * 1000 : wait));
+                            wait = Math.min(wait * 1.8, 4000);
+                        }
                     }
                 });
 
-                if (loadingText) loadingText.textContent = 'Preparing book...';
+                if (loadingText) loadingText.textContent = 'Opening the book…';
 
                 epubBook.ready.catch(err => {
                     console.error('EPUB: book.ready rejected:', err);
                 });
                 const readyTimeout = new Promise((_, reject) =>
-                    setTimeout(() => reject(new Error('book.ready timeout after 15s')), 15000)
+                    setTimeout(() => reject(new Error('book.ready timeout after 45s')), 45000)   // a busy Nomad can take 20 s for a big book
                 );
 
                 await Promise.race([epubBook.ready, readyTimeout]);
 
-                if (loadingText) loadingText.textContent = 'Rendering content...';
                 rendition = createEpubRendition(epubBook, epubFlow, isMobile);
-
-                if (loadingText) loadingText.textContent = 'Generating locations...';
-                try {
-                    // Use smaller chunk size on mobile to reduce memory usage
-                    const chunkSize = isMobile ? 512 : 1024;
-                    const locTimeout = new Promise((_, reject) =>
-                        setTimeout(() => reject(new Error('Location generation timeout')), isMobile ? 15000 : 30000)
-                    );
-
-                    await Promise.race([epubBook.locations.generate(chunkSize), locTimeout]);
-                } catch (locErr) {
-                    console.warn('EPUB: Location generation failed, continuing anyway', locErr);
-                    // Continue without locations - progress tracking will be limited but book will still work
-                }
-
                 const progress = loadProgress(path);
-                let startCfi = progress ? progress.cfi : null;
-
-                if (loadingText) loadingText.textContent = 'Displaying content...';
+                // a book you finished starts again from the top
+                const done = (NomadProgress.get(path) || {}).done;
+                let startCfi = progress && !done ? progress.cfi : null;
                 try {
                     if (startCfi) {
                         await rendition.display(startCfi);
@@ -580,18 +651,23 @@
 
                 setTimeout(() => loadingOverlay.classList.add('hidden'), 200);
 
+
                 epubBook.loaded.navigation.then(nav => {
                     tocContent.innerHTML = '';
+                    tocFlat = []; weights = null;
+                    (nav.toc || []).forEach(c => { tocFlat.push(c); (c.subitems || []).forEach(sub => tocFlat.push(sub)); });
+                    if (lastLocation) showWhere(lastLocation);
                     if (nav.toc && nav.toc.length) {
                         nav.toc.forEach(chapter => {
                             const link = document.createElement('a');
                             link.className = 'toc-item';
                             link.textContent = chapter.label;
+                            link.dataset.href = chapter.href;
                             link.href = '#';
                             link.onclick = (e) => {
                                 e.preventDefault();
                                 rendition.display(chapter.href);
-                                tocPanel.classList.remove('open');
+                                closeTocPanel();
                             };
                             tocContent.appendChild(link);
 
@@ -600,41 +676,43 @@
                                     const subLink = document.createElement('a');
                                     subLink.className = 'toc-item toc-sub';
                                     subLink.textContent = sub.label;
+                                    subLink.dataset.href = sub.href;
                                     subLink.href = '#';
                                     subLink.onclick = (e) => {
                                         e.preventDefault();
                                         rendition.display(sub.href);
-                                        tocPanel.classList.remove('open');
+                                        closeTocPanel();
                                     };
                                     tocContent.appendChild(subLink);
                                 });
                             }
                         });
                     } else {
-                        tocContent.innerHTML = '<p style="padding:12px;color:var(--muted)">No table of contents available.</p>';
+                        tocContent.innerHTML = '<p style="padding:12px;color:var(--muted)">This book has no contents list.</p>';
                     }
                 }).catch(navErr => {
                     console.error('EPUB: Navigation load failed', navErr);
-                    tocContent.innerHTML = '<p style="padding:12px;color:var(--muted)">Failed to load table of contents.</p>';
-                });
-
-                prevBtn.onclick = () => rendition.prev();
-                nextBtn.onclick = () => rendition.next();
-
-                rendition.on('keyup', (e) => {
-                    if (e.key === 'ArrowLeft') rendition.prev();
-                    else if (e.key === 'ArrowRight') rendition.next();
+                    tocContent.innerHTML = '<p style="padding:12px;color:var(--muted)">Couldn\'t read the contents list.</p>';
                 });
 
             } catch (err) {
                 console.error('EPUB load error', err);
                 loadingOverlay.classList.add('hidden');
-                epubViewer.innerHTML = '<p class="error-message">Failed to load EPUB. Error: ' + err.message + '</p>';
+                const m = String(err && err.message || err);
+                epubViewer.innerHTML = '<p class="error-message">' + (m === 'engine missing'
+                    ? 'The e-book reader is missing from the card. Copy the card files onto it again.'
+                    : /timeout/i.test(m)
+                    ? 'The book is taking too long to open. Check you\'re still on Nomad\'s WiFi, then try again.'
+                    : /fetch|network/i.test(m) ? 'Lost touch with Nomad. Check you\'re still on its WiFi, then reload.'
+                    : 'Couldn\'t open this book. It may be damaged: try copying it to the card again.') + '</p>';
             }
         }
 
-        tocBtn.addEventListener('click', () => tocPanel.classList.toggle('open'));
-        closeToc.addEventListener('click', () => tocPanel.classList.remove('open'));
+        // the contents panel: the phone's Back closes it instead of leaving the book (NomadBack)
+        function openToc() { tocPanel.classList.add('open'); NomadBack.open('epub-toc', () => tocPanel.classList.remove('open')); }
+        function closeTocPanel() { tocPanel.classList.remove('open'); NomadBack.done('epub-toc'); }
+        tocBtn.addEventListener('click', () => tocPanel.classList.contains('open') ? closeTocPanel() : openToc());
+        closeToc.addEventListener('click', closeTocPanel);
 
         viewModeBtn.addEventListener('click', async () => {
             const newFlow = epubFlow === 'paginated' ? 'scrolled-doc' : 'paginated';
@@ -646,11 +724,12 @@
 
             // Update button text
             viewModeBtn.textContent = newFlow === 'paginated' ? 'Pages' : 'Scroll';
+            viewModeBtn.title = newFlow === 'paginated' ? 'Turning pages (tap for scrolling)' : 'Scrolling (tap for turning pages)';
 
             // Save current location before switching
             if (rendition && rendition.currentLocation()) {
                 const currentCfi = rendition.currentLocation().start.cfi;
-                saveProgress(bookPath, currentCfi, 0);
+                saveProgress(bookPath, currentCfi, (loadProgress(bookPath) || {}).percent || 0);
             }
 
             // Re-render with new flow mode without page reload
@@ -686,10 +765,10 @@
             localStorage.setItem('nomad_epub_font_pct', epubFontSize);
         });
 
-        // epub.js measures the box once and lays the book out in pixels, so it never
-        // notices the viewport changing - and on a phone it does, every read, when the
-        // address bar collapses. visualViewport is the only event that fires for that on
-        // iOS. Debounced: a resize re-lays out the whole chapter.
+        // epub.js measures the box once, so it misses the viewport changing when a phone's
+        // address bar collapses or the phone rotates, leaving blank space to scroll into.
+        // visualViewport fires when the address bar slides away (window resize does not on
+        // iOS). Debounced: both fire in bursts and a resize re-lays out the whole chapter.
         let resizeTimer = null;
         function refitReader() {
             clearTimeout(resizeTimer);
@@ -710,27 +789,9 @@
             window.visualViewport.addEventListener('resize', refitReader);
         }
 
-        let touchStartX = 0;
-        let touchStartY = 0;
-        const MIN_SWIPE_DISTANCE = 50;
-
-        epubViewer.addEventListener('touchstart', (e) => {
-            touchStartX = e.changedTouches[0].screenX;
-            touchStartY = e.changedTouches[0].screenY;
-        }, { passive: true });
-
-        epubViewer.addEventListener('touchend', (e) => {
-            if (!rendition) return;
-            const dx = e.changedTouches[0].screenX - touchStartX;
-            const dy = e.changedTouches[0].screenY - touchStartY;
-            if (Math.abs(dx) > MIN_SWIPE_DISTANCE && Math.abs(dx) > Math.abs(dy) * 1.5) {
-                if (dx < 0) {
-                    rendition.next();
-                } else {
-                    rendition.prev();
-                }
-            }
-        }, { passive: true });
+        // swipes on the margins around the book (the frame passes on the rest)
+        epubViewer.addEventListener('touchstart', startSwipe, { passive: true });
+        epubViewer.addEventListener('touchend', endSwipe, { passive: true });
 
         if (bookPath) {
             openEpubReader(bookPath);

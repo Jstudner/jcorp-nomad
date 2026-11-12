@@ -14,7 +14,7 @@
 // recursive mutex. This replaces the FATFS FF_FS_REENTRANT volume lock.
 
 // SdFat first: its FILE_READ/FILE_WRITE macros clash with the ones in the core's
-// FS.h. SdFat's are undef'd below; this file spells out oflags and mode strings.
+// FS.h. SdFat's are undef'd below, this file spells out oflags and mode strings.
 #include <SdFatConfig.h>  // top-level include so the IDE/arduino-cli pull in the SdFat library
 #include "FsLib/FsLib.h"
 #include "common/FsBlockDeviceInterface.h"
@@ -31,10 +31,11 @@
 #include "esp32-hal-log.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
+#include "esp_timer.h"
 
 using namespace fs;
 
-// ---------------------------------------------------------------- state
+// state
 
 static SemaphoreHandle_t s_lock = nullptr;
 
@@ -49,11 +50,13 @@ struct FsLockGuard {
 
 static sdmmc_card_t s_card;
 static bool s_cardInited = false;
+// written only under s_lock (every sector access holds it), read as a copy
+static NomadSDStats s_stats = {};
 static bool s_mounted = false;
 static bool s_mode1bit = true;
 static int8_t s_pin_clk = -1, s_pin_cmd = -1, s_pin_d0 = -1, s_pin_d1 = -1, s_pin_d2 = -1, s_pin_d3 = -1;
 
-// ---------------------------------------------------------------- block device
+// block device
 
 class SdMmcBlockDev : public FsBlockDeviceInterface {
 public:
@@ -65,14 +68,26 @@ public:
   }
   bool readSectors(uint32_t sector, uint8_t *dst, size_t ns) override {
     if (!s_cardInited) return false;
-    return sdmmc_read_sectors(&s_card, dst, sector, ns) == ESP_OK;
+    const int64_t t0 = esp_timer_get_time();
+    const bool ok = sdmmc_read_sectors(&s_card, dst, sector, ns) == ESP_OK;
+    const uint32_t us = (uint32_t)(esp_timer_get_time() - t0);
+    s_stats.reads++;
+    s_stats.sectorsRead += ns;
+    if (us > s_stats.maxReadUs) s_stats.maxReadUs = us;
+    if (us > NOMAD_SD_SLOW_MS * 1000) s_stats.slowReads++;
+    if (!ok) { s_stats.readErrors++; s_stats.lastErrorMs = millis(); }
+    return ok;
   }
   bool writeSector(uint32_t sector, const uint8_t *src) override {
     return writeSectors(sector, src, 1);
   }
   bool writeSectors(uint32_t sector, const uint8_t *src, size_t ns) override {
     if (!s_cardInited) return false;
-    return sdmmc_write_sectors(&s_card, src, sector, ns) == ESP_OK;
+    const bool ok = sdmmc_write_sectors(&s_card, src, sector, ns) == ESP_OK;
+    s_stats.writes++;
+    s_stats.sectorsWritten += ns;
+    if (!ok) { s_stats.writeErrors++; s_stats.lastErrorMs = millis(); }
+    return ok;
   }
   uint32_t sectorCount() override {
     return s_cardInited ? (uint32_t)s_card.csd.capacity : 0;
@@ -85,7 +100,7 @@ public:
 static SdMmcBlockDev s_dev;
 static FsVolume s_vol;
 
-// ---------------------------------------------------------------- card init
+// card init
 
 static bool nomadDetachBus(void *) {
   NomadSD.end();
@@ -151,7 +166,7 @@ static bool cardInit(bool mode1bit, int freq_khz) {
   s_mode1bit = mode1bit;
   s_cardInited = true;
 
-  // pin bookkeeping mirrors SD_MMC; failure here is non-fatal for us
+  // pin bookkeeping mirrors SD_MMC, failure here is non-fatal for us
   perimanSetPinBus(s_pin_cmd, ESP32_BUS_TYPE_SDMMC_CMD, (void *)&NomadSD, -1, -1);
   perimanSetPinBus(s_pin_clk, ESP32_BUS_TYPE_SDMMC_CLK, (void *)&NomadSD, -1, -1);
   perimanSetPinBus(s_pin_d0, ESP32_BUS_TYPE_SDMMC_D0, (void *)&NomadSD, -1, -1);
@@ -163,7 +178,7 @@ static bool cardInit(bool mode1bit, int freq_khz) {
   return true;
 }
 
-// ---------------------------------------------------------------- helpers
+// helpers
 
 static String normalizePath(const char *path) {
   if (!path || !*path) return String("/");
@@ -199,12 +214,12 @@ static time_t fatToUnixTime(uint16_t d, uint16_t t) {
   return mktime(&tv);
 }
 
-// ---------------------------------------------------------------- clock
+// clock
 
 // SdFat stamps new files through this callback, without one they all share a constant
-// date. The Nomad has no RTC, so this reuses the fixed-epoch-plus-uptime approach
-// already used for OPDS timestamps: not wall time, but files written later in a
-// session sort after earlier ones.
+// date. The Nomad has no RTC, so this uses the same fixed epoch plus uptime as the
+// OPDS timestamps. Not wall time, but files written later in a session sort after
+// earlier ones.
 static const time_t NOMAD_REFERENCE_EPOCH = 1752321600;  // 2025-07-12T12:00:00Z
 
 static void nomadDateTimeCallback(uint16_t *date, uint16_t *time, uint8_t *ms10) {
@@ -216,7 +231,7 @@ static void nomadDateTimeCallback(uint16_t *date, uint16_t *time, uint8_t *ms10)
   if (ms10) *ms10 = 0;
 }
 
-// ---------------------------------------------------------------- NomadFile64
+// NomadFile64
 
 static inline FsFile *h2f(void *h) {
   return reinterpret_cast<FsFile *>(h);
@@ -299,7 +314,7 @@ size_t NomadFile64::readAt(uint64_t pos, uint8_t *buf, size_t len) {
   return n < 0 ? 0 : (size_t)n;
 }
 
-// ---------------------------------------------------------------- FileImpl
+// FileImpl
 
 class NomadFileImpl : public FileImpl {
 public:
@@ -357,7 +372,7 @@ public:
   }
 
   bool setBufferSize(size_t) override {
-    return false;  // SdFat reads through its own sector cache; no stdio buffer to size
+    return false;  // SdFat reads through its own sector cache, no stdio buffer to size
   }
 
   void close() override {
@@ -437,7 +452,7 @@ private:
   String _name;
 };
 
-// ---------------------------------------------------------------- FSImpl
+// FSImpl
 
 class NomadFSImpl : public FSImpl {
 public:
@@ -499,7 +514,7 @@ public:
   }
 };
 
-// ---------------------------------------------------------------- NomadSDFS
+// NomadSDFS
 
 NomadSDFS::NomadSDFS() : FS(FSImplPtr(new NomadFSImpl())) {}
 
@@ -511,6 +526,19 @@ uint64_t NomadSDFS::fileSize64(const char *path) {
   uint64_t sz = f.isDir() ? 0 : f.fileSize();
   f.close();
   return sz;
+}
+
+bool NomadSDFS::fileStat64(const char *path, uint64_t &size, time_t &mtime) {
+  FsLockGuard lk;
+  if (!s_mounted) return false;
+  FsFile f;
+  if (!f.open(&s_vol, normalizePath(path).c_str(), O_RDONLY)) return false;
+  const bool file = !f.isDir();
+  uint16_t d = 0, t = 0;
+  size = file ? f.fileSize() : 0;
+  mtime = (file && f.getModifyDateTime(&d, &t)) ? fatToUnixTime(d, t) : 0;
+  f.close();
+  return file;
 }
 
 bool NomadSDFS::setPins(int clk, int cmd, int d0, int d1, int d2, int d3) {
@@ -528,7 +556,7 @@ bool NomadSDFS::setPins(int clk, int cmd, int d0, int d1, int d2, int d3) {
 }
 
 bool NomadSDFS::begin(const char *mountpoint, bool mode1bit, bool format_if_mount_failed, int sdmmc_frequency, uint8_t maxOpenFiles) {
-  (void)format_if_mount_failed;  // deliberately unsupported: auto-format destroyed unreadable-but-valid cards
+  (void)format_if_mount_failed;  // not supported: auto-format can wipe a valid card it just failed to read
   (void)maxOpenFiles;
   if (!s_lock) s_lock = xSemaphoreCreateRecursiveMutex();
   FsLockGuard lk;
@@ -633,7 +661,7 @@ uint64_t NomadSDFS::usedBytes() {
   if (s_vol.fatType() == 32 && fat32FSInfoFreeClusters(freeFromFsInfo)) {
     return ((uint64_t)s_vol.clusterCount() - (uint64_t)freeFromFsInfo) * clusterBytes;
   }
-  // exFAT allocation-bitmap scan is quick; a FAT32 card without valid FSInfo
+  // exFAT allocation-bitmap scan is quick. A FAT32 card without valid FSInfo
   // pays the full FAT walk once, then SdFat maintains the count incrementally
   int32_t freeClusters = s_vol.freeClusterCount();
   if (freeClusters < 0) return 0;
@@ -689,3 +717,32 @@ bool NomadSDFS::isExFat() {
 }
 
 NomadSDFS NomadSD;
+
+// storage health
+
+void nomadSDStats(NomadSDStats &out) {
+  FsLockGuard lk;
+  out = s_stats;
+}
+
+bool nomadSDCardInfo(NomadSDCardInfo &out) {
+  FsLockGuard lk;
+  memset(&out, 0, sizeof(out));
+  if (!s_cardInited) return false;
+  out.ok = true;
+  out.mid = s_card.cid.mfg_id;
+  out.oid = s_card.cid.oem_id;
+  out.rev = s_card.cid.revision;
+  out.serial = (uint32_t)s_card.cid.serial;
+  memcpy(out.name, s_card.cid.name, sizeof(out.name) - 1);
+  // SD CID MDT: year since 2000 in the high 8 bits, month in the low 4
+  out.year = 2000 + ((s_card.cid.date >> 4) & 0xFF);
+  out.month = s_card.cid.date & 0xF;
+  out.bytes = (uint64_t)s_card.csd.capacity * s_card.csd.sector_size;
+  out.freqKhz = s_card.real_freq_khz;
+  out.busWidth = s_mode1bit ? 1 : 4;   // how the host drives it, not what the card could do
+  out.sdhc = (s_card.ocr & SD_OCR_SDHC_CAP) != 0;
+  out.uhs1 = s_card.is_uhs1;
+  out.allocUnitKb = s_card.ssr.alloc_unit_kb;
+  return true;
+}

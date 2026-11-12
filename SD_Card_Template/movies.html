@@ -6,13 +6,15 @@
 <meta name="viewport" content="width=device-width,initial-scale=1"/>
 
 <title>Nomad • Movies</title>
-<link rel="stylesheet" href="assets/plyr.css" />
+<link rel="stylesheet" href="/assets/plyr.css" />
 <link rel="stylesheet" href="/master.css">
-<script src="/theme-boot.js"></script>
-<script src="/nomad-utils.js"></script>
+<script src="/theme-boot.js?v=5"></script>
+<script src="/nomad-icons.js?v=1"></script>
+<script src="/assets/nomad-marks.js?v=1"></script>
+<script src="/nomad-utils.js?v=49"></script>
 <script>document.addEventListener('DOMContentLoaded', () => NomadPlyr.ready());</script>
-<script src="assets/plyr.min.js"></script>
-<script src="/theme-manager.js"></script>
+<script src="/assets/plyr.min.js"></script>
+<script src="/theme-manager.js?v=5"></script>
 
 <style>
   /* Functional CSS: Movies-specific layout and Plyr.js customization */
@@ -65,44 +67,24 @@
 
   @media (max-width:600px){
     .toolbar{top:112px;}
-    .media-grid.small  {grid-template-columns:repeat(2,1fr);}
+    .media-grid.small  {grid-template-columns:repeat(4,1fr);}
     .media-grid.medium {grid-template-columns:repeat(3,1fr);}
-    .media-grid.large  {grid-template-columns:repeat(4,1fr);}
+    .media-grid.large  {grid-template-columns:repeat(2,1fr);}
   }
 
   .thumb-wrapper{position:relative;display:flex;align-items:center;justify-content:center;background:var(--thumb-bg);color:var(--thumb-text);font-size:0.9rem;text-align:center;width:100%;aspect-ratio:2/3;}
   .fallback-text{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;z-index:2;text-align:center;font-weight:700;color:var(--thumb-title);pointer-events:none;padding:6px}
   .media-thumb{width:100%;height:100%;object-fit:cover;position:absolute;top:0;left:0;z-index:1;opacity:0;transition:opacity .35s ease;}
-  .badge-resume{position:absolute;left:50%;transform:translateX(-50%);bottom:8px;background:rgba(0,0,0,0.6);color:#fff;padding:6px 10px;border-radius:999px;font-weight:700;font-size:12px;z-index:4;display:block;min-width:40px;max-width:85%;overflow:hidden}
+  .badge-resume{position:absolute;left:50%;transform:translateX(-50%);bottom:8px;background:rgba(0,0,0,0.6);color:#fff;padding:5px 10px 6px;border-radius:10px;font-weight:700;font-size:12px;line-height:1.25;z-index:4;display:block;min-width:40px;max-width:85%;overflow:hidden;text-align:center;white-space:nowrap;text-overflow:ellipsis}
+  /* how far into the film: a thin bar under the resume time */
+  .badge-resume .br-bar{display:block;height:3px;margin-top:4px;border-radius:2px;background:rgba(255,255,255,.3);overflow:hidden}
+  .badge-resume .br-bar i{display:block;height:100%;background:var(--primary);border-radius:2px}
+  /* a finished film: a quiet tick in the corner */
+  .badge-watched{position:absolute;top:6px;right:6px;z-index:4;width:22px;height:22px;border-radius:50%;display:grid;place-items:center;background:rgba(0,0,0,.55);color:#fff;opacity:.85}
 
   .meta{padding:10px 8px;text-align:center}
   .meta .title{font-weight:700;color:var(--thumb-title);overflow:hidden;white-space:nowrap;text-overflow:ellipsis;font-size:0.95rem}
   .meta .dir{font-size:12px;color:var(--text-gray);overflow:hidden;white-space:nowrap;text-overflow:ellipsis; display:none}
-
-  /* Plyr.js player customization */
-  .plyr {
-    --plyr-color-main: var(--primary);
-    --plyr-video-controls-background: var(--overlay-video);
-    border-radius: var(--radius);
-    width: 100%;
-  }
-  .plyr__video-wrapper { width: 100%; }
-  .plyr--fullscreen { background: var(--color-black); }
-  .plyr--fullscreen video {
-    max-height: 100% !important;
-    max-width: 100% !important;
-    width: 100%;
-    height: 100%;
-    object-fit: contain;
-  }
-  @media (max-width: 768px) {
-    .plyr__volume { display: none !important; }
-  }
-  body.dark .plyr {
-    --plyr-video-background: var(--color-black);
-    --plyr-menu-background: var(--overlay-menu);
-    --plyr-menu-color: var(--color-white);
-  }
 
   /* modal specifics */
   .modal,.video-modal{display:none;position:fixed;inset:0;background:var(--overlay-modal);justify-content:center;align-items:center;z-index:1000;padding:20px;}
@@ -166,6 +148,10 @@
     transition:filter .18s ease;
   }
   .video-modal-content .close-btn:hover { filter:brightness(0.96); }
+  .video-btns { display:flex; gap:10px; }
+  .video-btns .close-btn { flex:1; display:inline-flex; align-items:center; justify-content:center; gap:6px; }
+  .video-btns .marks-b { background:transparent; color:var(--text); border:1px solid var(--line, rgba(0,0,0,.15)); position:relative; }
+  .video-btns .marks-b.has-marks::after { content:''; position:absolute; top:6px; right:8px; width:7px; height:7px; border-radius:50%; background:#ffd400; }
 
   /* entrance animation for cards */
   .media-card.play-anim { animation-name:cardIn; animation-duration:360ms; animation-timing-function:cubic-bezier(.2,.9,.2,1); animation-fill-mode:both; will-change:transform,opacity; }
@@ -203,14 +189,16 @@
   </header>
 
   <div class="toolbar" role="region" aria-label="toolbar">
-    <input id="searchInput" type="search" placeholder="Search movies…" aria-label="Search movies">
+    <input id="searchInput" type="search" placeholder="Search" aria-label="Search movies">
     <select id="sortSelect" aria-label="Sort movies">
       <option value="nameAsc">A → Z</option>
       <option value="nameDesc">Z → A</option>
     </select>
-    <button class="view-btn" data-size="small" title="Compact view" aria-pressed="false">🔳</button>
-    <button class="view-btn active" data-size="medium" title="Comfort view" aria-pressed="true">🔲</button>
-    <button class="view-btn" data-size="large" title="Gallery view" aria-pressed="false">⬜</button>
+    <div class="view-group">
+      <button class="view-btn" data-size="small" title="Compact view" aria-pressed="false">🔳</button>
+      <button class="view-btn active" data-size="medium" title="Comfort view" aria-pressed="true">🔲</button>
+      <button class="view-btn" data-size="large" title="Gallery view" aria-pressed="false">⬜</button>
+    </div>
   </div>
 
   <main>
@@ -224,8 +212,9 @@
       <h2 id="modalTitle">What would you like to do?</h2>
       <div id="modalSub"></div>
 
-      <button id="playButton">Play from Start</button>
-      <button id="resumeButton" class="secondary" style="display:none">Resume</button>
+      <button id="resumeButton" style="display:none">Resume</button>
+      <button id="playButton">Play</button>
+      <button id="togetherButton" class="secondary">Watch together</button>
       <button id="downloadButton" class="cancel" data-dl>Download</button>
       <button onclick="closeModal()" class="cancel">Cancel</button>
     </div>
@@ -237,7 +226,10 @@
       <div class="video-container">
         <video id="videoPlayer" controls playsinline aria-label="Video player"></video>
       </div>
-      <button id="videoCloseBtn" class="close-btn" onclick="closeVideo()" aria-label="Close video">✕ Close</button>
+      <div class="video-btns">
+        <button id="videoMarksBtn" class="close-btn marks-b" aria-label="Bookmarks and notes" data-icon="pin"> Bookmarks</button>
+        <button id="videoCloseBtn" class="close-btn" onclick="closeVideo()" aria-label="Close video" data-icon="x"> Close</button>
+      </div>
     </div>
   </div>
 
@@ -253,7 +245,6 @@ const VIDEO_EXTS = ['.mp4','.mkv','.avi','.mov','.webm','.m4v'];
 const IMAGE_EXTS = ['.jpg','.jpeg','.png','.webp','.avif'];
 const SUB_EXTS = ['.srt','.vtt','.ass','.ssa','.sub'];
 
-/* NEW: THEME KEY + THEME BOOT & SYNC */
 const THEME_KEY = 'nomad_dark_mode';
 function applyThemeFlag(dark){
   if(dark) document.body.classList.add('dark');
@@ -275,12 +266,9 @@ function applyThemeFlag(dark){
   });
 }
 (function initThemeFromStorage(){
-  try {
-    const saved = localStorage.getItem(THEME_KEY);
-    const isDark = (saved === 'true');
-    applyThemeFlag(isDark);
-  } catch(e){ applyThemeFlag(false); }
+  applyThemeFlag(window.nomadIsDark ? nomadIsDark() : false);
 })();
+window.addEventListener('nomad-dark', (ev) => applyThemeFlag(ev.detail));
 
 // Keep pages/tabs in sync when menu toggles the key
 window.addEventListener('storage', (ev) => {
@@ -301,6 +289,8 @@ let filtered = [];
 let currentSize = localStorage.getItem('nomadMoviesSize') || 'medium';
 let currentMovie = null;
 let autosaveTimer = null;
+let mediaReadyFor = null;     // the film path the player has really loaded (saves wait for it)
+let openGen = 0;              // which openVideo call is current
 let rootSig = null;
 // limit for the "index building" retry chain in loadLibrary
 let _buildingRetries = 0;
@@ -314,7 +304,7 @@ function isImageName(n){ return IMAGE_EXTS.includes(ext(n)); }
 function isSubtitleName(n){ return SUB_EXTS.includes(ext(n)); }
 function fileUrl(path){ return `${MEDIA_ENDPOINT}?file=${encodeURIComponent(path)}`; }
 function readResume(){ try{ return JSON.parse(localStorage.getItem(RESUME_KEY)||'{}'); }catch(e){return{};} }
-function writeResume(v){ localStorage.setItem(RESUME_KEY, JSON.stringify(v)); }
+function writeResume(v){ try { localStorage.setItem(RESUME_KEY, JSON.stringify(v)); } catch(e){ /* quota / private mode */ } }
 function fileKey(path, sz=0, mt=0){ return `${normalizePath(path)}|${sz||0}|${mt||0}`; }
 function formatTime(sec){ if(!sec||!isFinite(sec)) return '0:00'; sec=Math.floor(sec); const h=Math.floor(sec/3600), m=Math.floor((sec%3600)/60), s=sec%60; if(h) return `${h}:${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`; return `${m}:${String(s).padStart(2,'0')}`; }
 
@@ -332,35 +322,22 @@ function getHashParam(){
     return { action: k || null, path: v || null };
   }
 }
-/* Better Resume Badge Handling */
-function updateResumeBadge(movie, position){
+/* The card's mark: the resume time over a thin bar, or a quiet tick once it's finished */
+function filmBadgeHTML(movie){
+  const s = filmState(movie);
+  if(s && s.done) return `<div class="badge-watched" title="Watched" aria-label="Watched">${NomadIcons.svg('check', 14)}</div>`;
+  if(!hasPlace(s)) return '';
+  const bar = s.dur > 0 ? `<span class="br-bar"><i style="width:${Math.max(2, Math.round(100 * s.pos / s.dur))}%"></i></span>` : '';
+  return `<div class="badge-resume" title="Resume from ${formatTime(s.pos)}">${formatTime(s.pos)}${bar}</div>`;
+}
+function updateFilmBadge(movie){
   if(!movie || !movie.path) return;
-  const cards = Array.from(gridEl.querySelectorAll('.media-card'));
-  for(const card of cards){
-    if(card.dataset.path === movie.path){
-      const badge = card.querySelector('.badge-resume');
-      if(position > 1){
-        if(badge){
-          badge.textContent = formatTime(position);
-          badge.style.background = 'rgba(0,0,0,0.6)';
-          badge.style.color = '#fff';
-        } else {
-          const wrapper = card.querySelector('.thumb-wrapper');
-          if(wrapper){
-            const div = document.createElement('div');
-            div.className = 'badge-resume';
-            div.textContent = formatTime(position);
-            div.style.background = 'rgba(0,0,0,0.6)';
-            div.style.color = '#fff';
-            wrapper.appendChild(div);
-          }
-        }
-      } else {
-        if(badge) badge.remove();
-      }
-      break;
-    }
-  }
+  const card = Array.from(gridEl.querySelectorAll('.media-card')).find(c => c.dataset.path === movie.path);
+  const wrapper = card && card.querySelector('.thumb-wrapper');
+  if(!wrapper) return;
+  wrapper.querySelectorAll('.badge-resume, .badge-watched').forEach(n => n.remove());
+  const html = filmBadgeHTML(movie);
+  if(html) wrapper.insertAdjacentHTML('beforeend', html);
 }
 
 /* Resume matching */
@@ -385,6 +362,17 @@ function findResume(movie){
   }
   return null;
 }
+/* this phone's place in a film: { pos, dur, done }. A place saved in the credits counts as
+   finished too, even if it was never marked completed */
+function filmState(movie){
+  const r = movie && findResume(movie);
+  if(!r || !r.entry) return null;
+  const pos = +r.entry.position || 0, dur = +r.entry.duration || 0;
+  return { pos, dur, done: !!r.entry.completed || (pos > 0 && NomadProgress.isFinished(pos, dur)) };
+}
+function hasPlace(s){ return !!s && !s.done && s.pos > 1; }
+
+// Start over: forget the place here and in Continue
 function clearResumeFor(path){
   const store = readResume();
   const norm = normalizePath(path);
@@ -397,57 +385,62 @@ function clearResumeFor(path){
     }
   }
   if(changed) writeResume(store);
+  NomadProgress.clear(norm);
 }
 
-/* Fetch NDJSON index for a path, cache-busted to avoid stale results */
-async function fetchIndex(path){
-  const url = `${INDEX_ENDPOINT}?path=${encodeURIComponent(normalizePath(path))}&_=${Date.now()}`;
-  let res = await fetch(url, { cache: 'no-store' });
-
-  // 503 means the SD is busy for a moment, not that the index is missing
-  for(let i=0; i<3 && res.status===503; i++){
-    await new Promise(r=>setTimeout(r, 800*(i+1)));
-    res = await fetch(url, { cache: 'no-store' });
+/* The one place a film's progress is written: its exact place in nomad:watch:v1 (what this page
+   resumes from) and how far along it is in NomadProgress (what the menu's Continue shows).
+   Stopped in the last minute or the credits, it is finished. */
+function recordFilm(movie, pos, dur){
+  if(!movie || !movie.path || !(dur > 0) || !isFinite(pos)) return;
+  dur = Math.floor(dur);
+  pos = Math.max(0, Math.min(dur, Math.floor(pos)));
+  const store = readResume(), norm = normalizePath(movie.path);
+  // one entry per film: an older key for the same file would shadow this one
+  for(const k of Object.keys(store)) if(normalizePath(k.split('|')[0] || '') === norm) delete store[k];
+  const key = fileKey(movie.path, movie.sz || 0, movie.mt || 0);
+  const info = { k: 'film', t: movie.name || '' };
+  if(NomadProgress.isFinished(pos, dur)){
+    store[key] = { completed: true, position: 0, duration: dur, updated: Date.now() };
+    NomadProgress.finish(movie.path, info);
+  } else {
+    store[key] = { position: pos, duration: dur, updated: Date.now() };
+    NomadProgress.note(movie.path, Object.assign(info, { p: pos / dur, l: NomadProgress.timeLeft(dur - pos), done: false }));
   }
-
-  if(res.status === 202) {
-    // Server is building index - throw a specific error that can be caught
-    throw new Error('INDEX_BUILDING');
-  }
-
-  if(!res.ok) throw new Error('index fetch failed '+res.status);
-  const text = await res.text();
-  const lines = text.split('\n').filter(Boolean);
-  const header = lines.length ? JSON.parse(lines[0]) : null;
-  const entries = [];
-  for(let i=1;i<lines.length;i++){
-    try{ entries.push(JSON.parse(lines[i])); }catch(e){}
-  }
-  return { header, entries };
+  writeResume(store);
+  updateFilmBadge(movie);
 }
 
+async function fetchIndex(path){ return NomadIndex.fetch(path); }   // shared reader, nomad-utils.js
 
-/* Build movies from NDJSON indexes (kept original behavior) */
+
+/* Build movies from NDJSON indexes */
 async function buildFromIndexes(root){
   // Attempt to set rootSig using the root index header
   const rootResp = await fetchIndex(root);
   if(rootResp.header && rootResp.header.sig) rootSig = rootResp.header.sig;
 
   const map = new Map();
-  // gather root entries
+  // gather root entries. The bucket index is recursive, so a film in its own folder
+  // (/Movies/Nosferatu/Nosferatu.mp4) is already here: group it under the folder it is
+  // really in, or it shows twice, once with a path that doesn't exist.
+  const covered = new Set();
   for(const e of rootResp.entries){
-    const dir = normalizePath(root);
-    const full = dir === '/' ? `/${e.n}` : `${dir}/${e.n}`;
+    const full = e.p ? normalizePath(e.p) : normalizePath(`${root}/${e.n}`);
+    const dir = full.replace(/\/[^/]*$/, '') || '/';
+    if(dir !== normalizePath(root)) covered.add(dir);
     const base = e.n.replace(/\.[^/.]+$/,'').toLowerCase();
     const key = `${dir}::${base}`;
     if(!map.has(key)) map.set(key, { dir, base, files: [] });
     map.get(key).files.push({ name: e.n, t: e.t, sz: e.sz||0, mt: e.mt||0, full: normalizePath(full) });
   }
 
-  // fetch child dir indexes
+  // fetch child dir indexes the root index did not already cover
   for(const e of rootResp.entries){
     if(e.t === 'd'){
       const dirPath = (root === '/' ? '' : root) + '/' + e.n;
+      if(e.p && normalizePath(e.p) !== normalizePath(dirPath)) continue;   // a deeper folder, not a child
+      if(covered.has(normalizePath(dirPath))) continue;
       try {
         const resp = await fetchIndex(dirPath);
         for(const f of resp.entries){
@@ -523,9 +516,9 @@ function renderGrid(){
     // helpful hook to update badge for a specific movie without re-rendering whole grid:
     card.dataset.path = item.path || '';
 
-    const saved = findResume(item);
-    const resumeHTML = (saved && saved.entry && saved.entry.position > 1) ? `<div class="badge-resume" style="background:rgba(0,0,0,0.6);color:#fff;">${formatTime(saved.entry.position)}</div>` : '';
-    const imgHTML = item.cover ? `<img class="media-thumb" loading="lazy" src="${item.cover}" alt="${escapeHtml(item.name)}">` : '';
+    const resumeHTML = filmBadgeHTML(item);
+    // no src yet: NomadImages hands covers to the device a few at a time, near the viewport
+    const imgHTML = item.cover ? `<img class="media-thumb" loading="lazy" alt="${escapeHtml(item.name)}">` : '';
     card.innerHTML = `
       <div class="thumb-wrapper">
         <span class="fallback-text">${escapeHtml(item.name)}</span>
@@ -538,6 +531,7 @@ function renderGrid(){
     if(img){
       img.onload = () => { img.style.opacity = '1'; if(fallback) fallback.style.display = 'none'; };
       img.onerror = () => { img.style.display = 'none'; if(fallback) fallback.style.display = 'block'; };
+      NomadImages.observe(img, item.cover);
     } else {
       if(fallback) fallback.style.display = 'block';
     }
@@ -613,44 +607,59 @@ const videoModal = document.getElementById('videoModal');
 const videoPlayer = document.getElementById('videoPlayer');
 const videoTitle = document.getElementById('videoTitle');
 
-/* ---------- keep device awake while playing ---------- */
-/* Wake lock is now handled by Plyr event listeners in openVideo function */
-
-/* Continue with existing functions */
 function showMovieOptions(movie){
   currentMovie = movie;
-  modalSub.textContent = movie.name || movie.rawName || movie.path || '';
-  const saved = findResume(movie);
-  if(saved && saved.entry && saved.entry.position > 1){
-    resumeButton.style.display = 'block';
-    resumeButton.textContent = `Resume ${formatTime(saved.entry.position)}`;
-  } else {
-    resumeButton.style.display = 'none';
-  }
+  const s = filmState(movie), place = hasPlace(s);
+  modalSub.textContent = [movie.name || movie.rawName || movie.path || '',
+    s && s.done ? 'Watched' : place && s.dur > 0 ? NomadProgress.timeLeft(s.dur - s.pos) : ''].filter(Boolean).join(' · ');
+  // a saved place: Resume is the main action and Start over the second. Only Start over forgets it
+  resumeButton.style.display = place ? 'block' : 'none';
+  if(place) resumeButton.textContent = `Resume from ${formatTime(s.pos)}`;
+  playButton.textContent = place ? 'Start over' : 'Play';
+  playButton.classList.toggle('secondary', place);
 
   playButton.onclick = () => {
-    clearResumeFor(movie.path);
-    closeModal();
+    if(place) clearResumeFor(movie.path);
+    updateFilmBadge(movie);
+    closeModal(true);
     openVideo(fileUrl(movie.path), false);
   };
   resumeButton.onclick = () => {
-    closeModal();
+    closeModal(true);
     openVideo(fileUrl(movie.path), true);
   };
   downloadButton.onclick = () => {
     closeModal();
     startDownload(movie);
   };
+  // host a watch party of this film: the code to share comes up straight away
+  document.getElementById('togetherButton').onclick = () => {
+    let cover = '';
+    try { cover = movie.cover ? new URL(movie.cover, location.href).searchParams.get('file') || '' : ''; } catch (e) {}
+    location.href = '/watch.html?' + new URLSearchParams({ host: '1', path: movie.path, title: movie.name || '', cover });
+  };
 
   modal.style.display = 'flex';
+  NomadBack.open('film', closeFilm);
 }
-function closeModal(){ modal.style.display = 'none'; }
+/* The phone's Back closes the popup or the player instead of leaving the page (NomadBack).
+   They take turns on one Back entry: going from the popup to the player hands it over, as
+   dropping one history entry and adding another in the same moment loses one of them. */
+function closeModal(handOver){ modal.style.display = 'none'; if(handOver !== true) NomadBack.done('film'); }
+function closeFilm(){ if(videoModal.style.display === 'flex') closeVideo(); else closeModal(); }
+// bookmarks and notes by time in the film, kept on this phone
+window.videoMarks = NomadMarks.attach(document.getElementById('videoMarksBtn'), {
+  key: () => currentMovie && currentMovie.path,
+  title: () => (currentMovie && currentMovie.name) || '',
+  here: () => (currentMovie && videoPlayer.duration ? { at: videoPlayer.currentTime, order: videoPlayer.currentTime, label: NomadMarks.clock(videoPlayer.currentTime) } : null),
+  go: (t) => { try { videoPlayer.currentTime = +t; videoPlayer.play().catch(() => {}); } catch (e) {} },
+});
 
 function openMovieFromHash(hashObj){
   if(!hashObj || !hashObj.path) return;
   const wantRaw = hashObj.path || '';
-  // getHashParam already decoded this. Decoding twice threw a URIError on
-  // names holding a literal % like "50% Off.mp4" and killed the deep link.
+  // getHashParam already decoded this. Decoding again throws a URIError on
+  // names with a literal % like "50% Off.mp4".
   const want = normalizePath(wantRaw);
 
   // Try to find the movie by exact normalized path, rawName, or basename fallback
@@ -659,7 +668,6 @@ function openMovieFromHash(hashObj){
            || movies.find(m => normalizePath('/' + (m.rawName||'')).endsWith(want.split('/').pop()))
            || movies.find(m => normalizePath(m.path).endsWith(want.split('/').pop()));
 
-  // If not found, try a quick reload of library once (in case hash arrived before library loaded fully)
   if(!found){
     try {
       // search again, for when hash handling runs early
@@ -698,92 +706,29 @@ function handleHashNavigation(hashObj){
 function startDownload(movie){
   if(!confirm(`Download "${movie.name}"?`)) return;
   const a = document.createElement('a');
-  // go through /media like playback does. a raw path truncated the request at the
-  // first # or ? in a filename, so those downloads 404'd while the file streamed fine
+  // go through /media like playback does. a raw path cuts the request off at the
+  // first # or ? in a filename
   a.href = `${MEDIA_ENDPOINT}?file=${encodeURIComponent(normalizePath(movie.path))}&download=1`;
-  a.download = movie.name;
+  a.download = movie.rawName || movie.name;   // the file's own name, extension included
   document.body.appendChild(a);
   a.click();
   a.remove();
 }
 
-let stallTimer = null, stallRetries = 0;
-
-function startStallWatcher(player, src){
-  clearTimeout(stallTimer);
-  stallRetries = 0;
-
-  async function probeRange(url){
-    try {
-      const resp = await fetch(url, {
-        method: 'GET',
-        headers: { 'Range': 'bytes=0-1023' },
-        cache: 'no-store'
-      });
-      return (resp && (resp.status === 206 || resp.status === 200));
-    } catch(e){
-      return false;
-    }
-  }
-
-  async function scheduleCheck(delay = 8000){
-    clearTimeout(stallTimer);
-    stallTimer = setTimeout(async () => {
-      if(player.paused || player.readyState >= 3 || stallRetries >= 2) return;
-
-      const ok = await probeRange(src);
-      if(ok){
-        scheduleCheck();
-        return;
-      }
-
-      stallRetries++;
-      console.warn('stallWatcher: probe failed, retry attempt', stallRetries);
-
-      const newSrc = `${src}${src.includes('?') ? '&' : '?'}_=${Date.now()}`;
-      try {
-        player.pause();
-        player.src = newSrc;
-        try { player.load(); } catch(e){}
-        try { player.currentTime = player.currentTime; } catch(e){}
-        player.play().catch(()=>{});
-      } catch(e){
-        console.warn('stallWatcher retry failed', e);
-      }
-
-      scheduleCheck(9000);
-    }, delay);
-  }
-
-  let hasStartedPlaying = false;
-  function onFirstPlay(){
-    if(hasStartedPlaying) return;
-    hasStartedPlaying = true;
-    player.removeEventListener('playing', onFirstPlay);
-    scheduleCheck();
-  }
-  player.addEventListener('playing', onFirstPlay);
-  player.addEventListener('pause', () => clearTimeout(stallTimer));
-  player.addEventListener('ended', () => clearTimeout(stallTimer));
-}
-
-
 async function openVideo(src, useResume=false){
-  clearTimeout(stallTimer);
-  stallRetries = 0;
-
   console.log('[openVideo] currentMovie:', currentMovie ? currentMovie.path : 'NONE', 'useResume:', useResume);
-  const saved = findResume(currentMovie || { path: '' });
-  console.log('[openVideo] findResume result:', saved);
-  let startTime = 0;
-  if(useResume && saved && saved.entry && saved.entry.position > 1){
-    startTime = saved.entry.position;
-  }
+  const saved = filmState(currentMovie);
+  const startTime = (useResume && hasPlace(saved)) ? saved.pos : 0;
   console.log('[openVideo] startTime will be:', startTime);
 
+  // save nothing until the player has this film: the last one's time and length linger
+  // on the element until then
+  const gen = ++openGen, movie = currentMovie;
+  mediaReadyFor = null;
   videoPlayer.pause();
   videoPlayer.removeAttribute('src');
   videoPlayer.innerHTML = '';
+  videoPlayer.addEventListener('loadedmetadata', () => { if(gen === openGen && movie) mediaReadyFor = movie.path; }, { once: true });
 
   // every sidecar subtitle becomes a selectable track; srt is converted to VTT
   // (browsers render nothing for raw srt in <track>)
@@ -792,31 +737,9 @@ async function openVideo(src, useResume=false){
     currentMovie && currentMovie.path);
 
   if (!window.plyrInstance) {
-    window.plyrInstance = new Plyr(videoPlayer, {
-      iconUrl: '',            // sprite injected by NomadPlyr, see nomad-utils.js
-      loadSprite: false,
-      controls: [
-        'play-large',
-        'play',
-        'progress',
-        'current-time',
-        'duration',
-        'mute',
-        'volume',
-        'captions',
-        'settings',
-        'pip',
-        'airplay',
-        'fullscreen'
-      ],
-      settings: ['captions', 'speed'],
-      fullscreen: { enabled: true, fallback: true, iosNative: false },
-      clickToPlay: false,
-      hideControls: true,
-      resetOnEnd: false,
-      keyboard: { focused: true, global: true },
-      tooltips: { controls: true, seek: true }
-    });
+    // shared player build (nomad-utils.js). captions.update is needed because tracks are
+    // appended after the player exists. Without it Plyr ignores them after the first title.
+    window.plyrInstance = await NomadPlyr.create(videoPlayer, { captions: { update: true } });
 
     try {
       const allImages = document.querySelectorAll('img[loading="lazy"]');
@@ -831,157 +754,13 @@ async function openVideo(src, useResume=false){
       console.warn('Could not pause image loading', e);
     }
 
-    window.plyrInstance.on('pause', () => {
-      saveNow();
-      releaseWakeLock().catch(()=>{});
-    });
-    window.plyrInstance.on('play', () => {
-      requestWakeLock().catch(()=>{});
-    });
+    window.plyrInstance.on('pause', () => { saveNow(); });
+    window.plyrInstance.on('seeked', () => { saveNow(); });
     window.plyrInstance.on('ended', () => {
-      clearResumeFor(currentMovie.path);
+      const dur = window.plyrInstance.duration || 0;
+      if(currentMovie && mediaReadyFor === currentMovie.path) recordFilm(currentMovie, dur, dur);
       stopAutosave();
-      releaseWakeLock().catch(()=>{});
-      renderGrid();
     });
-    window.plyrInstance.on('seeked', () => {
-      saveNow();
-    });
-
-    window.plyrInstance.on('loadedmetadata', () => {
-      console.log('Video metadata loaded:', videoPlayer.videoWidth, 'x', videoPlayer.videoHeight);
-
-      if (document.querySelector('.plyr--fullscreen')) {
-        requestAnimationFrame(() => {
-          const plyrContainer = document.querySelector('.plyr--fullscreen');
-          const wrapper = document.querySelector('.plyr--fullscreen .plyr__video-wrapper');
-          const video = videoPlayer;
-
-          if (plyrContainer) {
-            plyrContainer.style.width = '100vw';
-            plyrContainer.style.height = '100vh';
-            plyrContainer.style.display = 'flex';
-            plyrContainer.style.alignItems = 'center';
-            plyrContainer.style.justifyContent = 'center';
-          }
-
-          if (wrapper) {
-            wrapper.style.width = '100%';
-            wrapper.style.height = '100%';
-            wrapper.style.display = 'flex';
-            wrapper.style.alignItems = 'center';
-            wrapper.style.justifyContent = 'center';
-          }
-
-          if (video) {
-            video.style.width = '100%';
-            video.style.height = '100%';
-            video.style.maxWidth = '100vw';
-            video.style.maxHeight = '100vh';
-            video.style.objectFit = 'contain';
-          }
-
-          console.log('Reapplied fullscreen sizing after metadata load');
-        });
-      }
-    });
-
-    window.plyrInstance.on('enterfullscreen', async () => {
-      console.log('Entered fullscreen');
-
-      const enforceFullscreenSizing = () => {
-        const plyrContainer = document.querySelector('.plyr--fullscreen');
-        const wrapper = document.querySelector('.plyr--fullscreen .plyr__video-wrapper');
-        const video = videoPlayer;
-
-        if (plyrContainer) {
-          plyrContainer.style.cssText = 'width: 100vw !important; height: 100vh !important; display: flex !important; align-items: center !important; justify-content: center !important; background: #000 !important; padding: 0 !important;';
-        }
-
-        if (wrapper) {
-          wrapper.style.cssText = 'width: 100% !important; height: 100% !important; display: flex !important; align-items: center !important; justify-content: center !important; position: relative !important; padding-bottom: 0 !important; padding: 0 !important;';
-        }
-
-        if (video) {
-          video.style.cssText = 'width: 100% !important; height: 100% !important; max-width: 100vw !important; max-height: 100vh !important; object-fit: contain !important; position: relative !important;';
-        }
-      };
-
-      enforceFullscreenSizing();
-      setTimeout(enforceFullscreenSizing, 50);
-      setTimeout(enforceFullscreenSizing, 100);
-      setTimeout(enforceFullscreenSizing, 200);
-
-      const enforcerInterval = setInterval(() => {
-        if (!document.querySelector('.plyr--fullscreen')) {
-          clearInterval(enforcerInterval);
-        } else {
-          enforceFullscreenSizing();
-        }
-      }, 100);
-
-      try {
-        if (screen.orientation && screen.orientation.lock) {
-          await screen.orientation.lock('landscape').catch(e => console.log('Orientation lock not supported:', e));
-        }
-      } catch(e) {
-        console.log('Could not lock orientation:', e);
-      }
-    });
-
-    window.plyrInstance.on('exitfullscreen', () => {
-      try {
-        if (screen.orientation && screen.orientation.unlock) {
-          screen.orientation.unlock();
-        }
-      } catch(e) {
-        console.log('Could not unlock orientation:', e);
-      }
-    });
-
-    setTimeout(() => {
-      const plyrWrapper = document.querySelector('.plyr__video-wrapper');
-      if (plyrWrapper) {
-        let lastTap = 0;
-        let tapTimeout = null;
-
-        plyrWrapper.addEventListener('touchend', (e) => {
-          const currentTime = Date.now();
-          const tapLength = currentTime - lastTap;
-
-          if (tapLength < 300 && tapLength > 0) {
-            clearTimeout(tapTimeout);
-            e.preventDefault();
-            e.stopPropagation();
-
-            const rect = plyrWrapper.getBoundingClientRect();
-            const touchX = e.changedTouches[0].clientX - rect.left;
-            const width = rect.width;
-
-            if (touchX < width / 3) {
-              window.plyrInstance.rewind(10);
-              console.log('Rewind 10s');
-            } else if (touchX > (2 * width) / 3) {
-              window.plyrInstance.forward(10);
-              console.log('Forward 10s');
-            }
-            lastTap = 0;
-          } else {
-            lastTap = currentTime;
-            tapTimeout = setTimeout(() => {
-              lastTap = 0;
-              if (window.plyrInstance && document.querySelector('.plyr--hide-controls') === null) {
-                const controlsDiv = document.querySelector('.plyr__controls');
-                if (controlsDiv && getComputedStyle(controlsDiv).opacity !== '0') {
-                  const video = document.querySelector('.plyr video');
-                  if (video) video.click();
-                }
-              }
-            }, 300);
-          }
-        });
-      }
-    }, 500);
   }
 
   videoPlayer.src = src;
@@ -991,13 +770,17 @@ async function openVideo(src, useResume=false){
     track.label = sub.label;
     track.srclang = sub.srclang;
     track.src = sub.src;
-    if(sub.default) track.default = true;
     videoPlayer.appendChild(track);
   });
+  NomadSubs.keepOn(window.plyrInstance, videoPlayer);
   videoPlayer.load();
+  NomadPlyr.previews(window.plyrInstance, currentMovie && currentMovie.path);   // seek previews, if made
+  if (window.videoMarks) videoMarks.refresh();
 
   videoModal.style.display = 'flex';
+  NomadBack.open('film', closeFilm);
   videoTitle.textContent = currentMovie ? currentMovie.name : '';
+  setMediaSession(currentMovie);
 
   if (startTime > 0) {
     let seekDone = false;
@@ -1036,8 +819,10 @@ function closeVideo(){
     window.plyrInstance.pause();
   }
   videoModal.style.display = 'none';
+  NomadBack.done('film');
   stopAutosave();
   releaseWakeLock().catch(()=>{});
+  setMediaSession(null);
 
   try {
     const allImages = document.querySelectorAll('img[loading="lazy"]');
@@ -1058,22 +843,26 @@ function startAutosave(){ stopAutosave(); autosaveTimer = setInterval(saveNow, 4
 function stopAutosave(){ if(autosaveTimer){ clearInterval(autosaveTimer); autosaveTimer = null; } }
 function saveNow(){
   try {
-    if(!currentMovie) return;
-    if(!window.plyrInstance) return;
-    const cur = Math.floor(window.plyrInstance.currentTime || 0);
-    const dur = Math.floor(window.plyrInstance.duration || 0);
-    if(!isFinite(cur)) return;
-    if(cur > 0 && dur > 0){
-      const store = readResume();
-      const key = fileKey(currentMovie.path, currentMovie.sz || 0, currentMovie.mt || 0);
-      store[key] = { position: cur, duration: dur, updated: Date.now() };
-      writeResume(store);
-      try { updateResumeBadge(currentMovie, cur); } catch(e){ /* noop */ }
-    }
+    if(!currentMovie || !window.plyrInstance) return;
+    if(mediaReadyFor !== currentMovie.path) return;   // still loading: the time on the player is the last film's
+    const cur = window.plyrInstance.currentTime || 0;
+    const dur = window.plyrInstance.duration || 0;
+    if(cur > 0 && dur > 0) recordFilm(currentMovie, cur, dur);
   } catch(e){ console.warn('saveNow failed', e); }
 }
 
-/* Fetch & build logic: try indexes then fallback to media.json */
+/* the lock screen and notification show the film and its poster */
+function setMediaSession(movie){
+  if(!('mediaSession' in navigator) || typeof MediaMetadata === 'undefined') return;
+  try {
+    navigator.mediaSession.metadata = movie ? new MediaMetadata({
+      title: movie.name || '', artist: 'Nomad',
+      artwork: movie.cover ? [{ src: movie.cover }] : []
+    }) : null;
+  } catch(e){ console.warn('mediaSession', e); }
+}
+
+/* Fetch & build logic */
 async function loadLibrary(){
   try {
     const list = await buildFromIndexes(ROOT_PATH);
@@ -1085,11 +874,10 @@ async function loadLibrary(){
     }
   } catch(e){
     if(e && e.message === 'INDEX_BUILDING') {
-      // Retry while the index builds, but not forever. A build that never
-      // finishes should not leave every phone polling the device.
+      // capped so a build that never finishes doesn't leave every phone polling
       if(_buildingRetries < _MAX_BUILDING_RETRIES){
         _buildingRetries++;
-        gridEl.innerHTML = '<p style="grid-column:1/-1;text-align:center;color:var(--primary-dark);">Building movie index, please wait...</p>';
+        gridEl.innerHTML = '<p style="grid-column:1/-1;text-align:center;color:var(--primary-dark);">Building movie index…</p>';
         setTimeout(() => loadLibrary(), 3000);
         return;
       }
@@ -1099,9 +887,8 @@ async function loadLibrary(){
     console.warn('index build failed, falling back', e);
   }
 
-  // media.json is only a bucket-count summary on this firmware (see
-  // games.html), so there is no fallback list left to read
-  gridEl.innerHTML = '<p style="grid-column:1/-1;text-align:center;color:var(--primary-dark);">Unable to load content.</p>';
+  // no media.json fallback: on this firmware it only holds bucket counts
+  gridEl.innerHTML = '<p style="grid-column:1/-1;text-align:center;color:var(--primary-dark);">Couldn\'t load movies. Refresh to try again.</p>';
 }
 
 /* UI: search, sort, size buttons */
@@ -1130,13 +917,13 @@ function setViewSize(size){
 
 /* index poll (cheap) to refresh if index sig changes */
 async function checkIndex(){
-  // Skip when the tab is hidden or a video is playing. The library cannot
-  // change while you are watching, and the poll competes for the SD mutex.
+  // skipped while hidden or playing: the poll competes for the SD mutex
   if(document.hidden) return;
   if(videoModal && videoModal.style.display === 'flex') return;
   try {
-    const url = `${INDEX_ENDPOINT}?path=${encodeURIComponent(ROOT_PATH)}&_=${Date.now()}`;
-    const res = await fetch(url, { cache: 'no-store' });
+    // revalidated, not re-fetched: an unchanged index answers 304 (the device sends its sig as an ETag)
+    const url = `${INDEX_ENDPOINT}?path=${encodeURIComponent(ROOT_PATH)}`;
+    const res = await fetch(url, { cache: 'no-cache' });
     if(!res.ok) return;
     const text = await res.text();
     const headerLine = text.split('\n')[0];
@@ -1170,7 +957,6 @@ searchInput.addEventListener('input', (e)=> { clearTimeout(window.__debounce); w
 sortSelect.addEventListener('change', ()=> applySort(sortSelect.value));
 videoPlayer.addEventListener('ended', closeVideo);
 
-/* NEW: listen for hash changes and route them */
 window.addEventListener('hashchange', ()=> handleHashNavigation(getHashParam()));
 
 /* Init sequence */

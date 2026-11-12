@@ -4,16 +4,15 @@ Nomad firmware 4.6 replaces the Arduino `SD_MMC` filesystem stack with
 **NomadSD** (`firmware/JcorpNomadProject/NomadSD.h/.cpp`), which mounts
 **exFAT, FAT32 and FAT16** cards interchangeably, auto-detected at boot.
 
-Cards larger than 32 GB work exactly as they come out of the box, since SDXC
-cards ship exFAT. Existing FAT32 cards keep working unchanged: format support
-is additive, not a migration.
+Cards larger than 32 GB work as they come out of the box, since SDXC cards ship
+exFAT. Existing FAT32 cards keep working, nothing has to be reformatted.
 
-## Why SD_MMC could never do exFAT
+## Why SD_MMC can't do exFAT
 
 The Arduino-ESP32 core links a **precompiled** ESP-IDF FATFS library built with
-`FF_FS_EXFAT = 0`. No sketch-level setting can re-enable it, so `SD_MMC`,
-`FFat` and anything else on `esp_vfs_fat` is FAT32-only, permanently. Years of
-attempts through that stack went nowhere because the limit lives in a `.a` file.
+`FF_FS_EXFAT = 0`. No sketch-level setting can turn it back on, so `SD_MMC`,
+`FFat` and anything else on `esp_vfs_fat` is FAT32-only. The setting is compiled
+into a `.a` file.
 
 ## How NomadSD works
 
@@ -38,7 +37,7 @@ call site work unchanged through `fs::FS`.
   free-space accounting.
 - Board settings and partition scheme are unchanged.
 
-## What this buys
+## What changes
 
 ### Files larger than 4 GB stream
 
@@ -52,17 +51,17 @@ handler instead. Sizes come from `NomadSD.fileSize64()`, offsets parse with
 
 - A range starting beyond EOF returns **416** with a `Content-Range`, per
   RFC 9110, instead of being silently clamped.
-- Any single response body is capped at 256 MB so it fits `size_t`. A plain GET
-  of a larger file degrades to **206** with an honest `Content-Range` rather
-  than a truncated 200; clients fetch the next slice, which media players and
-  the ZIM reader already do.
+- Any single response body is capped so it fits `size_t`. A range a player asks
+  for is capped at 256 MB. A plain GET or a download can take just under 4 GB,
+  and a file bigger than that gets a **206** with a correct `Content-Range` for
+  the part sent, and clients fetch the next slice.
 
-### `size()` saturates instead of wrapping
+### `size()` stops at `SIZE_MAX` past 4 GB
 
-`NomadFileImpl::size()` returns `SIZE_MAX` past 4 GB rather than wrapping to a
-small number. `SIZE_MAX` doubles as a sentinel: the indexer, file browser and
-usage scanner check for it and only then pay for a `fileSize64()` lookup.
-Normal files, and every file on a FAT32 card, cost nothing extra.
+`NomadFileImpl::size()` returns `SIZE_MAX` for files past 4 GB instead of
+wrapping to a small number. The indexer, file browser and usage scanner check
+for `SIZE_MAX` and only then do a `fileSize64()` lookup, so smaller files, and
+every file on a FAT32 card, don't take the extra lookup.
 
 ### The 2 GB stdio guard is gone
 
@@ -74,8 +73,7 @@ so deep seeks no longer pay a close/reopen, on exFAT and FAT32 alike.
 ### Fewer stalls on full cards
 
 Creating a file no longer scans a huge FAT for free clusters, which was the
-main aggravator behind `/save` and `/upload` watchdog resets on nearly-full
-cards. Contiguous-file seeks are O(1) instead of a cluster-chain walk.
+main cause of `/save` and `/upload` watchdog resets on nearly-full cards. Contiguous-file seeks are O(1) instead of a cluster-chain walk.
 
 ### File timestamps
 
@@ -95,26 +93,24 @@ earlier ones.
 - **USB mode no longer mounts a filesystem.** MSC passes raw sectors and the
   host PC handles the format. The old `format_if_mount_failed=true` in USB mode,
   which could silently reformat an exFAT card as FAT32, is gone.
-- FAT32 free space is read from the FSInfo sector; exFAT uses the allocation
+- FAT32 free space is read from the FSInfo sector, exFAT uses the allocation
   bitmap. A card with broken FSInfo falls back to a one-time full FAT walk.
 - All SD I/O is serialized by one recursive mutex inside NomadSD, replacing the
   FATFS `FF_FS_REENTRANT` volume lock.
 
 ## Verification
 
-`arduino-cli` build: 50% flash, 42% RAM, 720 bytes below mainline.
-
 Filesystem behaviour is covered by a host harness linking the same SdFat version
 the firmware uses, through the same block-device interface, against real disk
-images. All 30 checks pass:
+images:
 
 - **FAT32**: mounts through the same part1-then-superfloppy order, finds root
   and nested files written by an external tool, reads correct content, reports
   exact sizes, seeks, iterates directories, and round-trips a new file.
 - **exFAT**: mounts, reports correct volume geometry, creates a 5 GiB file,
   reports the full 64-bit size, seeks past 4 GiB, writes and reads back a marker
-  there, and survives a reused handle crossing the 2 GiB and 4 GiB lines, the
-  exact pattern that used to corrupt newlib stdio.
+  there, and keeps working on a reused handle crossing the 2 GiB and 4 GiB lines
+  (the case that corrupts newlib stdio).
 
 `fsck.exfat` reports the SdFat-written volume clean.
 
@@ -132,14 +128,14 @@ The old FATFS did, so this is a small regression on FAT32 cards only.
 - **Scope**: drifts by exactly the clusters the device itself writes (index
   files, config, uploads). File data is unaffected and nothing risks corruption.
 - **Visibility**: FSInfo is advisory. Windows and Linux recompute free space
-  rather than trusting it; only `chkdsk`/`fsck` remarks on it, and any PC write
+  rather than trusting it. Only `chkdsk`/`fsck` remarks on it, and any PC write
   resets it. The dirty bit is not set, so there is no "repair this drive" prompt.
-- **Effect on us**: `usedBytes()` seeds from FSInfo for a fast boot and inherits
+- **Effect on Nomad**: `usedBytes()` seeds from FSInfo for a fast boot and inherits
   the drift. The firmware will not trust that fast path until
   `reconcileStatTrust()` agrees with a real walk to within 2%.
 - **Not applicable to exFAT**, which has no FSInfo.
 
 Fixes if it ever matters: write a corrected FSInfo at unmount, or mark FSInfo
 unknown (`0xFFFFFFFF`, explicitly legal) on first write and accept one full FAT
-walk on the next boot. Neither is implemented; the current behaviour is bounded
-and self-correcting.
+walk on the next boot. Neither is implemented. The drift only grows with what
+the device writes, and a write from a PC resets it.
