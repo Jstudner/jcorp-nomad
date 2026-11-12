@@ -81,7 +81,15 @@ static void authDerive(const String &pw, const uint8_t *salt, uint32_t iter, uin
   mbedtls_pkcs5_pbkdf2_hmac_ext(MBEDTLS_MD_SHA256, (const unsigned char *)pw.c_str(), pw.length(), salt, 16, iter, 32, out);
 }
 
+// True when no volume was mounted at boot, so settings.json could be neither read nor
+// written (a P4 can boot without a card). Everything in `settings` is then a default,
+// including an empty admin password, which would read as "the owner turned it off" and
+// wave anyone on the compiled-in hotspot through /restart and the password form. With
+// nowhere to keep a password there is none to check, so admin actions are refused.
+extern bool g_settingsUnbacked;
+
 bool isAdminAuthRequired() {
+  if (g_settingsUnbacked) return true;
   return settings.adminPassword.length() > 0 && settings.adminPassword != "null";
 }
 static const char *authMode() {

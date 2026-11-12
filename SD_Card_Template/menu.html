@@ -11,7 +11,7 @@
 <link rel="stylesheet" href="/master.css">
 <script src="/theme-boot.js?v=5"></script>
 <script src="/theme-manager.js?v=5"></script>
-<script src="/nomad-utils.js?v=49"></script>
+<script src="/nomad-utils.js?v=50"></script>
 <style>
   /* Menu-specific functional CSS layout and search functionality */
   :root {
@@ -304,7 +304,7 @@
     width:100%;
   }
 
-  /* the tiles come in together: a first visit holds the grid until the Nomad has said
+  /* the tiles come in together: a first visit holds the grid until Nomad has said
      which optional pages it has (at most 1.2 s), then fades it in whole. A tile that
      changes after that fades in on its own */
   #tiles { transition: opacity .18s ease-out; }
@@ -1001,7 +1001,7 @@ function previewPathFromItemPath(itemPath){
 async function buildSearchIndex(forceRebuild = false){
   if(!forceRebuild && searchIndexCache && searchIndexCache.entries) return searchIndexCache.entries;
 
-  // Built from the Nomad's own folder indexes every time. Don't save a copy to the card,
+  // Built from Nomad's own folder indexes every time. Don't save a copy to the card,
   // nothing would check it against the library. Unchanged folder indexes come back as
   // 304s from the browser's cache.
 

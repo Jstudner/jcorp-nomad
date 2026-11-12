@@ -4,13 +4,13 @@
   <img src="NomadCoverMK4v2.png" alt="Jcorp Nomad Offline Media Server" width="800">
 </div>
 
-<p align="center"><b>A portable, offline media server powered by the ESP32-S3 in a thumbdrive form factor.</b><br>
+<p align="center"><b>A portable, offline media server powered by the ESP32-S3 (ESP32-P4 on this branch) in a thumbdrive form factor.</b><br>
 Stream movies, music, books, and shows anywhere - no internet required.</p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/branch-experimental-orange.svg" alt="Branch: Experimental" />
+  <img src="https://img.shields.io/badge/branch-esp32--p4-orange.svg" alt="Branch: ESP32-P4" />
   <img src="https://img.shields.io/badge/license-CC--BY--NC--SA%204.0-blue.svg" alt="License: CC BY-NC-SA 4.0" />
-  <img src="https://img.shields.io/badge/platform-ESP32--S3-orange" alt="Platform: ESP32-S3" />
+  <img src="https://img.shields.io/badge/platform-ESP32--P4-orange" alt="Platform: ESP32-P4" />
   <img src="https://img.shields.io/badge/status-rough-red" alt="Status: Rough" />
 </p>
 
@@ -21,7 +21,7 @@ Stream movies, music, books, and shows anywhere - no internet required.</p>
 
 ---
 
-> **Experimental Branch** - This is where new stuff lands before it goes to main. Everything on main is here too, this just adds on top of it.
+> **ESP32-P4 Branch** - This is the experimental branch with support for two ESP32-P4 boards on top of everything else, see the ESP32-P4 Branch section below. Everything on main and experimental is here too.
 >
 > This update is 4.8, and it's a big one (The usual). While a lot of it is under the hood (several people streaming at once holds up a lot better now), there's also a lot of new stuff on the pages, Watch Together, a rebuilt admin panel, firmware updates without a PC, offline archives served by Nomad itself (which means every format works), and rebuilt maps. The full list is below.
 >
@@ -31,9 +31,36 @@ Stream movies, music, books, and shows anywhere - no internet required.</p>
 
 ---
 
+## ESP32-P4 Branch
+
+This branch is the P4 version of Nomad. It's the same 4.8 firmware and web interface as the experimental branch, plus a few things the P4 can do that the S3 can't. It's built for two ESP32-P4 boards from Waveshare:
+
+- **ESP32-P4-NANO** - fully tested on a real board
+- **ESP32-P4-WIFI6** - tested on most of it, but I bricked the C6 radio chip on mine and haven't been able to get it fixed yet, so the WiFi side hasn't been tested on this board, the issue that broke mine is fully fixed, but still worth waiting a bit. 
+
+Neither board has a screen, so the little status display from the S3 isn't on here. Everything else works the same, you connect to the hotspot and the site comes up like normal.
+
+The rest of this README is the experimental one, so the hardware list and the browser flasher further down are for the S3. For the P4 use the build steps below.
+
+### What's different on the P4
+
+- **The web interface lives in the board's flash.** It gets built into the firmware image, so the pages always match the firmware, and a card that's missing or half copied still boots. The maps code and anything over 200 KB (the PDF, comic, e-book and chess engines) is too big for flash, so those still live on the card. Copy the SD card template from this branch too. An existing Nomad card works as is.
+- **Cover thumbnails.** The P4 has a hardware JPEG encoder and scaler, so Nomad can make a small copy of every cover and the grids load a few KB per card instead of the full artwork. Hit **Optimise covers** in the admin panel to build them. Detail pages still use the full art, JPEGs get skipped since the board can't decode them.
+- **More games.** 29 built in games instead of 12. About half of them can be played solo (Chess, Checkers and Reversi have a bot now), about as many can be passed around one phone, and a bunch can be played in a room with other people on the hotspot. The Games page can filter by which of those you want. The new ones are Checkers, Reversi, Sudoku, Klondike Solitaire, Mancala, Gomoku, Hex, Nine Men's Morris, Yacht, Word Puzzle, Ultimate Tic-Tac-Toe, Memory, Lights Out, Peg Solitaire, 15 Puzzle, Bulls and Cows and Pig. For now these are only on this branch but most will be on Nomad before MK5.
+- **NANO: Ethernet and USB storage.** The NANO has an ethernet port (POE if you add the module) and a USB-A port. Ethernet comes up next to the hotspot, so a pulled cable just leaves you on the hotspot as a fallback. A drive on the USB port shows up as part of the same library as the card, so a movie on either one lands in the same Movies page. Uploads still go to the card. Both of these are in the firmware but **haven't been tested fully yet**, so dont count on them. In theory this also will work with full USB hard drives aswell (powered externaly)
+- **Admin panel.** A Cover thumbnails section, the card and USB drive shown together under storage, and "Check the pages kept on the card" for when a card's copies of the big files are out of date.
+
+### P4 rough edges
+
+- **WiFi isn't faster yet.** The P4 itself has no radio, both boards use a separate C6 chip for WiFi, and the link between the two is the bottleneck right now. In my testing streaming is about the same as the S3, a bit slower if anything. Ethernet on the NANO doesn't go through the C6, so it will be faster for now.
+- **The first upload after boot can take a few seconds.** Nomad has to find free space on the card first, so uploads say "still getting the card ready" until it's done.
+- Same as the rest of experimental, the newer stuff has had a lot less testing than the core. If something breaks, tell me.
+
+---
+
 ## What is Nomad
 
-Jcorp Nomad is an open-source offline media server designed for travel, remote work, classrooms, camping, and more. It's the size of a USB drive and plugs straight into a USB port for power. It runs entirely on an ESP32-S3, creates a local Wi-Fi hotspot, and serves media through a browser interface. Multiple users can access separate media streams simultaneously, all without internet access.
+Jcorp Nomad is an open-source offline media server designed for travel, remote work, classrooms, camping, and more. It's the size of a USB drive and plugs straight into a USB port for power (the P4 boards on this branch are a bit bigger). It runs entirely on an ESP32-S3 (or, on this branch, an ESP32-P4), creates a local Wi-Fi hotspot, and serves media through a browser interface. Multiple users can access separate media streams simultaneously, all without internet access.
 
 This project is compact, easy to modify, and includes optional 3D-printable hardware. Both firmware and web interface are fully open-source.
 
@@ -137,7 +164,7 @@ If something asked for `/Movies/film.mp4` directly instead of going through the 
 
 Nomad is built specifically for the **Waveshare ESP32-S3 Dev Board (1.47" LCD version)**. Due to the number of low-level tricks used to squeeze this much functionality out of the hardware, it is difficult to get Nomad running on other boards.
 
-There are a few community forks that target other ESP32 boards, but your mileage will vary. I'm also actively working on a **Nomad Lite** version with wider board compatibility, focused on basic streaming without all the advanced features. There's also an [ESP32-P4 branch](https://github.com/Jstudner/jcorp-nomad/tree/esp32-p4) for two of Waveshare's P4 boards, see What's Next.
+There are a few community forks that target other ESP32 boards, but your mileage will vary. I'm also actively working on a **Nomad Lite** version with wider board compatibility, focused on basic streaming without all the advanced features. This branch adds two of Waveshare's ESP32-P4 boards, see the ESP32-P4 Branch section up top.
 
 ---
 
@@ -206,7 +233,7 @@ If you would rather not line any of that up, use the browser flasher above.
 
 ## Quick Start
 
-1. Flash the ESP32-S3 firmware from `/firmware/` (or use the browser flasher above).
+1. Flash the firmware from `/firmware/`. For the P4 boards use `build-p4.sh`, see Building it up top.
 2. Copy `/SD_Card_Template/` files onto the card. Any exFAT or FAT32 card works as-is, you only need to format if the card is brand new or broken.
 3. Place media in `/Movies`, `/Shows`, `/Books`, `/Music`, `/Gallery`, `/Files`, `/Games`, `/Cookbook`, `/Workshop`. (ZIMs, Maps and Translate packs get prepped with Nomad Tools, see below.)
 4. Insert the SD card and plug Nomad into a USB port.
@@ -354,7 +381,7 @@ A good order for a fresh card: media and ZIMs first, then Pictures, rebuild the 
 
 ## Known Rough Edges
 
-Since this is the experimental branch, here's what I already know isn't great:
+Since this builds on the experimental branch, here's what I already know isn't great (the P4 ones are up top):
 
 - **Maps are new.** They were rebuilt for 4.8 and have only been tested on a handful of packs. Long routes take a few seconds to work out on the device.
 - **WiFi Mode and DLNA have seen few routers and few TVs.** They work (tested with VLC on a Fire Stick, desktop VLC, and phones), but there are a lot of both out there and I have tried a handful. If your TV can't find Nomad, tell me what TV it is and I will see what I can do.
@@ -374,7 +401,7 @@ Since this is the experimental branch, here's what I already know isn't great:
 
 **ESP32-P4** - I have said for a long time that I don't want to switch hardware, as doing so would leave yall with a useless board. The S3 is Nomad and it stays supported. That said, I have been co-developing a P4 version alongside it, because the P4 brings two things the S3 can't: a radio module that is already FCC certified, which matters a lot for anything I sell, and considerably faster WiFi. 
 
-It has its own branch now, [esp32-p4](https://github.com/Jstudner/jcorp-nomad/tree/esp32-p4), on two boards. The **WIFI6** board is a stick, only a bit larger than your current Nomad. The **NANO** is noticeably bigger than either, but it adds an ethernet port with POE module support, and a USB port so storage can be expanded or replaced rather than living entirely on the SD card.
+This branch is that version, on two boards. The **WIFI6** board is a stick, only a bit larger than your current Nomad. The **NANO** is noticeably bigger than either, but it adds an ethernet port with POE module support, and a USB port so storage can be expanded or replaced rather than living entirely on the SD card.
 
 None of this is a replacement announcement. It's its own branch, the S3 keeps getting the same updates, just better speed and a few more features on the p4 branch. 
 

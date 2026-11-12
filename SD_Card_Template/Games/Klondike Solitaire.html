@@ -1,0 +1,468 @@
+<!DOCTYPE html>
+<!-- Version 1 -->
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no"/>
+<meta name="nomad-modes" content="solo"/>
+<title>Nomad • Klondike Solitaire</title>
+<link rel="icon" href="/favicon.ico" type="image/x-icon">
+<link rel="stylesheet" href="/master.css">
+<script src="/theme-boot.js"></script>
+<script src="/theme-manager.js"></script>
+<script src="/assets/cards.js"></script>
+<style>
+  /* Fixed game palette, games don't follow the user's theme. */
+  :root{
+    --sl-felt:#1f7a4d; --sl-felt-2:#17603c; --sl-slot:#19603d;
+    --sl-ink:#222831; --sl-dim:#6b7280; --sl-line:#dee2e6;
+    --sl-surface:#ffffff; --sl-accent:#007bff; --sl-on:#ffffff; --sl-good:#28a745;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0}
+  main{max-width:560px;margin:0 auto;padding:8px 8px 24px}
+
+  .bar{display:flex;gap:8px;align-items:center;justify-content:center;flex-wrap:wrap;margin-bottom:8px}
+  .seg{display:flex;border:1px solid var(--sl-line);border-radius:8px;overflow:hidden}
+  .seg button{background:var(--sl-surface);color:var(--sl-ink);border:none;padding:7px 12px;
+    font-size:.88rem;cursor:pointer;border-right:1px solid var(--sl-line)}
+  .seg button:last-child{border-right:none}
+  .seg button[aria-pressed="true"]{background:var(--sl-accent);color:var(--sl-on)}
+  .btn{background:var(--sl-accent);color:var(--sl-on);border:none;border-radius:8px;
+    padding:8px 14px;cursor:pointer;font-size:.9rem}
+  .btn.secondary{background:transparent;color:var(--sl-accent);border:1px solid var(--sl-accent)}
+  .btn:disabled{opacity:.4;cursor:default}
+
+  .table{background:var(--sl-felt);border-radius:10px;padding:8px;
+    --gap:5px; --cw:calc((100% - 6 * var(--gap)) / 7);}
+  .top{display:grid;grid-template-columns:repeat(7,1fr);gap:var(--gap);margin-bottom:10px}
+  .cols{display:grid;grid-template-columns:repeat(7,1fr);gap:var(--gap);align-items:start}
+
+  .slot{position:relative;aspect-ratio:240/334;border-radius:5px;
+    background:var(--sl-slot);box-shadow:inset 0 0 0 2px rgba(255,255,255,.12)}
+  .slot.spacer{background:transparent;box-shadow:none}
+  .pile{position:relative;min-height:calc(var(--cw) * 334 / 240)}
+
+  /* CardMeister's element has no size of its own, so both of these are needed or
+     a card lays out at 54x0. The wrapper is .pcard because master.css's .card adds
+     padding and a border that shrink the cards. Don't reuse master.css component
+     class names inside a game. */
+  playing-card{display:block!important;width:100%!important;height:auto!important}
+  playing-card img{display:block!important;width:100%!important;height:auto!important;
+    aspect-ratio:240/334;border-radius:5px}
+
+  .pcard{position:absolute;left:0;width:100%;cursor:pointer;border-radius:5px;
+    transition:transform .08s}
+  .pcard.sel{outline:3px solid var(--sl-accent);outline-offset:1px;border-radius:6px;z-index:5}
+  .pcard.hintable{outline:2px dashed rgba(255,255,255,.7);outline-offset:1px}
+  .top .pcard{position:absolute;top:0}
+
+  .status{text-align:center;color:var(--sl-dim);min-height:1.4em;margin:10px 0 2px;font-size:.92rem}
+  .status.win{color:var(--sl-good);font-weight:700}
+  .meta{display:flex;justify-content:space-between;color:var(--sl-dim);font-size:.85rem;
+    margin:6px 4px 0;font-variant-numeric:tabular-nums}
+  .foot{display:flex;gap:8px;justify-content:center;flex-wrap:wrap;margin-top:10px}
+  :focus-visible{outline:2px solid var(--sl-accent);outline-offset:2px}
+</style>
+</head>
+<body>
+  <header>
+    <h1>Klondike Solitaire</h1>
+    <a class="back-btn" href="/games">← Back to Games</a>
+  </header>
+
+  <main>
+    <div class="bar">
+      <div class="seg" id="draw" role="group" aria-label="Cards per deal">
+        <button type="button" data-d="1" aria-pressed="true">Draw 1</button>
+        <button type="button" data-d="3" aria-pressed="false">Draw 3</button>
+      </div>
+      <button class="btn" id="newBtn" type="button">New deal</button>
+    </div>
+
+    <div class="table">
+      <div class="top">
+        <div class="pile" id="stock"></div>
+        <div class="pile" id="waste"></div>
+        <div class="slot spacer"></div>
+        <div class="pile foundation" data-f="s"></div>
+        <div class="pile foundation" data-f="h"></div>
+        <div class="pile foundation" data-f="d"></div>
+        <div class="pile foundation" data-f="c"></div>
+      </div>
+      <div class="cols" id="cols"></div>
+    </div>
+
+    <div class="meta"><span id="moves">0 moves</span><span id="found">0 / 52 home</span></div>
+    <div class="status" id="status"></div>
+
+    <div class="foot">
+      <button class="btn secondary" id="autoBtn" type="button">Send home</button>
+      <button class="btn secondary" id="undoBtn" type="button">Undo</button>
+    </div>
+  </main>
+
+<script>
+'use strict';
+/* Klondike Solitaire. Solo, so it never touches /api/mp/*.
+
+   Card faces come from /assets/cards.js (CardMeister). Read that file's header
+   before changing how cards are sized or coloured.
+
+   Tap to select, then tap to place. Dragging on a phone fights the page scroll,
+   and drop targets on overlapping piles are unclear. */
+
+if (typeof customElements === 'undefined' || !customElements.get('playing-card')) {
+  document.addEventListener('DOMContentLoaded', function () {
+    document.getElementById('status').textContent =
+      'Card deck failed to load (/assets/cards.js). Re-copy the assets folder to the card.';
+  });
+  throw new Error('cards.js missing');
+}
+
+var SUITS = ['s', 'h', 'd', 'c'];
+var RANKS = ['A', '2', '3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K'];
+var SAVE_KEY = 'nomadgame_klondike_save';
+
+var stock = [], waste = [], found = { s: [], h: [], d: [], c: [] }, cols = [];
+var sel = null;          // {zone, pile, index}
+var undoStack = [];
+var drawCount = 1;
+var moveCount = 0;
+var won = false;
+
+function rankOf(c) { return RANKS.indexOf(c.slice(0, -1)) + 1; }
+function suitOf(c) { return c.slice(-1); }
+function isRed(c) { return suitOf(c) === 'h' || suitOf(c) === 'd'; }
+
+function newDeck() {
+  var d = [];
+  for (var s = 0; s < 4; s++) for (var r = 0; r < 13; r++) d.push(RANKS[r] + SUITS[s]);
+  for (var i = d.length - 1; i > 0; i--) {
+    var j = Math.floor(Math.random() * (i + 1));
+    var t = d[i]; d[i] = d[j]; d[j] = t;
+  }
+  return d;
+}
+
+function deal() {
+  var d = newDeck();
+  cols = [];
+  for (var i = 0; i < 7; i++) {
+    var pile = [];
+    for (var k = 0; k <= i; k++) pile.push({ c: d.pop(), up: k === i });
+    cols.push(pile);
+  }
+  stock = d;
+  waste = [];
+  found = { s: [], h: [], d: [], c: [] };
+  sel = null;
+  undoStack = [];
+  moveCount = 0;
+  won = false;
+}
+
+function snapshot() {
+  return JSON.stringify({
+    stock: stock, waste: waste, found: found, cols: cols,
+    drawCount: drawCount, moveCount: moveCount
+  });
+}
+function restoreFrom(s) {
+  var o = JSON.parse(s);
+  stock = o.stock; waste = o.waste; found = o.found; cols = o.cols;
+  drawCount = o.drawCount || 1; moveCount = o.moveCount || 0;
+}
+function push() {
+  undoStack.push(snapshot());
+  if (undoStack.length > 200) undoStack.shift();
+  document.getElementById('undoBtn').disabled = false;
+}
+
+/* --- legality --------------------------------------------------------- */
+function canGoToFoundation(card) {
+  var f = found[suitOf(card)];
+  return rankOf(card) === f.length + 1;
+}
+function canStackOnTableau(card, pileIdx) {
+  var pile = cols[pileIdx];
+  if (!pile.length) return rankOf(card) === 13;      // only a King to an empty column
+  var top = pile[pile.length - 1];
+  if (!top.up) return false;
+  return isRed(card) !== isRed(top.c) && rankOf(card) === rankOf(top.c) - 1;
+}
+
+/* --- moves ------------------------------------------------------------- */
+function drawFromStock() {
+  push();
+  if (!stock.length) {
+    // Recycling the waste is a move, and it has to keep the card order.
+    stock = waste.slice().reverse();
+    waste = [];
+  } else {
+    for (var i = 0; i < drawCount && stock.length; i++) waste.push(stock.pop());
+  }
+  moveCount++;
+  sel = null;
+  render();
+}
+
+function takeSelected() {
+  if (!sel) return null;
+  if (sel.zone === 'waste') return [waste[waste.length - 1]];
+  if (sel.zone === 'foundation') {
+    var f = found[sel.pile];
+    return f.length ? [f[f.length - 1]] : null;
+  }
+  var pile = cols[sel.pile];
+  return pile.slice(sel.index).map(function (x) { return x.c; });
+}
+
+function removeSelected() {
+  if (sel.zone === 'waste') { waste.pop(); return; }
+  if (sel.zone === 'foundation') { found[sel.pile].pop(); return; }
+  var pile = cols[sel.pile];
+  pile.length = sel.index;
+  if (pile.length && !pile[pile.length - 1].up) pile[pile.length - 1].up = true;
+}
+
+function tryMoveTo(zone, pile) {
+  var run = takeSelected();
+  if (!run || !run.length) { sel = null; render(); return; }
+
+  if (zone === 'foundation') {
+    if (run.length !== 1 || suitOf(run[0]) !== pile || !canGoToFoundation(run[0])) {
+      sel = null; render(); return;
+    }
+    push();
+    removeSelected();
+    found[pile].push(run[0]);
+  } else {
+    if (!canStackOnTableau(run[0], pile)) { sel = null; render(); return; }
+    if (sel.zone === 'tableau' && sel.pile === pile) { sel = null; render(); return; }
+    push();
+    removeSelected();
+    for (var i = 0; i < run.length; i++) cols[pile].push({ c: run[i], up: true });
+  }
+  moveCount++;
+  sel = null;
+  checkWin();
+  render();
+}
+
+function sendHome() {
+  var moved = false, guard = 0;
+  while (guard++ < 60) {
+    var did = false;
+    if (waste.length && canGoToFoundation(waste[waste.length - 1])) {
+      push(); found[suitOf(waste[waste.length - 1])].push(waste.pop());
+      moveCount++; did = moved = true;
+    }
+    for (var i = 0; i < 7 && !did; i++) {
+      var p = cols[i];
+      if (!p.length) continue;
+      var t = p[p.length - 1];
+      if (!t.up || !canGoToFoundation(t.c)) continue;
+      push();
+      found[suitOf(t.c)].push(p.pop().c);
+      if (p.length && !p[p.length - 1].up) p[p.length - 1].up = true;
+      moveCount++; did = moved = true;
+    }
+    if (!did) break;
+  }
+  sel = null;
+  checkWin();
+  render();
+  if (!moved) say('Nothing can go home yet.');
+}
+
+function checkWin() {
+  var n = found.s.length + found.h.length + found.d.length + found.c.length;
+  if (n === 52) { won = true; }
+}
+
+/* --- rendering --------------------------------------------------------- */
+function cardEl(code, faceUp) {
+  var el = document.createElement('playing-card');
+  // Colour attributes are only read when the card renders, which setting cid
+  // triggers. Set backcolor first.
+  if (!faceUp) el.setAttribute('backcolor', '#2f5fa8');
+  el.setAttribute('cid', faceUp ? code : 'back');
+  return el;
+}
+
+function mount(container, code, faceUp, top, cls, onClick) {
+  var w = document.createElement('div');
+  w.className = 'pcard' + (cls ? ' ' + cls : '');
+  w.style.top = top + 'px';
+  w.appendChild(cardEl(code, faceUp));
+  if (onClick) w.onclick = function (e) { e.stopPropagation(); onClick(); };
+  container.appendChild(w);
+  return w;
+}
+
+function render() {
+  var colsEl = document.getElementById('cols');
+  var cw = colsEl.clientWidth ? (colsEl.clientWidth - 6 * 5) / 7 : 54;
+  var ch = cw * 334 / 240;
+  var downStep = Math.max(6, ch * 0.16);
+  var upStep = Math.max(12, ch * 0.28);
+
+  // stock
+  var st = document.getElementById('stock');
+  st.innerHTML = '';
+  st.style.height = ch + 'px';
+  if (stock.length) {
+    mount(st, 'back', false, 0, null, drawFromStock);
+  } else {
+    var slot = document.createElement('div');
+    slot.className = 'slot';
+    slot.onclick = drawFromStock;
+    slot.style.cursor = waste.length ? 'pointer' : 'default';
+    st.appendChild(slot);
+  }
+
+  // waste - show up to three, only the top one is playable
+  var wa = document.getElementById('waste');
+  wa.innerHTML = '';
+  wa.style.height = ch + 'px';
+  if (!waste.length) {
+    var s2 = document.createElement('div'); s2.className = 'slot'; wa.appendChild(s2);
+  } else {
+    var showFrom = Math.max(0, waste.length - 3);
+    for (var i = showFrom; i < waste.length; i++) {
+      var isTop = i === waste.length - 1;
+      var el = mount(wa, waste[i], true, 0,
+        isTop && sel && sel.zone === 'waste' ? 'sel' : null,
+        isTop ? function () { pick('waste', null, null); } : null);
+      el.style.left = ((i - showFrom) * Math.min(14, cw * 0.22)) + 'px';
+      el.style.width = 'calc(100% - ' + ((waste.length - 1 - showFrom) * Math.min(14, cw * 0.22)) + 'px)';
+    }
+  }
+
+  // foundations
+  document.querySelectorAll('.foundation').forEach(function (fe) {
+    var s = fe.dataset.f;
+    fe.innerHTML = '';
+    fe.style.height = ch + 'px';
+    fe.onclick = function () { place('foundation', s); };
+    var f = found[s];
+    if (!f.length) {
+      var sl = document.createElement('div'); sl.className = 'slot'; fe.appendChild(sl);
+    } else {
+      mount(fe, f[f.length - 1], true, 0,
+        sel && sel.zone === 'foundation' && sel.pile === s ? 'sel' : null,
+        function () {
+          if (sel) place('foundation', s); else pick('foundation', s, null);
+        });
+    }
+  });
+
+  // tableau
+  colsEl.innerHTML = '';
+  for (var c = 0; c < 7; c++) {
+    (function (ci) {
+      var pe = document.createElement('div');
+      pe.className = 'pile';
+      pe.onclick = function () { place('tableau', ci); };
+      var pile = cols[ci];
+      var top = 0;
+      if (!pile.length) {
+        var sl2 = document.createElement('div');
+        sl2.className = 'slot';
+        pe.appendChild(sl2);
+      }
+      for (var k = 0; k < pile.length; k++) {
+        (function (ki) {
+          var isSel = sel && sel.zone === 'tableau' && sel.pile === ci && ki >= sel.index;
+          mount(pe, pile[ki].c, pile[ki].up, top, isSel ? 'sel' : null,
+            pile[ki].up ? function () {
+              if (sel) place('tableau', ci); else pick('tableau', ci, ki);
+            } : null);
+        })(k);
+        top += pile[k].up ? upStep : downStep;
+      }
+      pe.style.height = Math.max(ch, top + ch - (pile.length ? (pile[pile.length - 1].up ? upStep : downStep) : 0)) + 'px';
+      colsEl.appendChild(pe);
+    })(c);
+  }
+
+  var n = found.s.length + found.h.length + found.d.length + found.c.length;
+  document.getElementById('moves').textContent = moveCount + (moveCount === 1 ? ' move' : ' moves');
+  document.getElementById('found').textContent = n + ' / 52 home';
+  document.getElementById('undoBtn').disabled = !undoStack.length;
+  if (won) say('Solved in ' + moveCount + ' moves.', 'win');
+  save();
+}
+
+function pick(zone, pile, index) {
+  if (zone === 'tableau' && !cols[pile][index].up) return;
+  sel = { zone: zone, pile: pile, index: index };
+  say('');
+  render();
+}
+
+function place(zone, pile) {
+  if (!sel) {
+    // tapping an empty tableau column with nothing selected does nothing
+    return;
+  }
+  if (sel.zone === zone && sel.pile === pile) { sel = null; render(); return; }
+  tryMoveTo(zone, pile);
+}
+
+function say(msg, cls) {
+  var el = document.getElementById('status');
+  el.textContent = msg || '';
+  el.className = 'status' + (cls ? ' ' + cls : '');
+}
+
+function undo() {
+  var prev = undoStack.pop();
+  if (!prev) return;
+  restoreFrom(prev);
+  sel = null;
+  won = false;
+  say('');
+  render();
+}
+
+function save() {
+  try {
+    localStorage.setItem(SAVE_KEY, won ? '' : snapshot());
+  } catch (e) {}
+}
+function restore() {
+  var raw = null;
+  try { raw = localStorage.getItem(SAVE_KEY); } catch (e) {}
+  if (!raw) return false;
+  try { restoreFrom(raw); } catch (e) { return false; }
+  if (!cols || cols.length !== 7) return false;
+  undoStack = [];
+  sel = null;
+  won = false;
+  document.querySelectorAll('#draw button').forEach(function (b) {
+    b.setAttribute('aria-pressed', String(parseInt(b.dataset.d, 10) === drawCount));
+  });
+  return true;
+}
+
+document.getElementById('newBtn').onclick = function () { deal(); say(''); render(); };
+document.getElementById('undoBtn').onclick = undo;
+document.getElementById('autoBtn').onclick = sendHome;
+document.querySelectorAll('#draw button').forEach(function (b) {
+  b.onclick = function () {
+    document.querySelectorAll('#draw button').forEach(function (o) {
+      o.setAttribute('aria-pressed', String(o === b));
+    });
+    drawCount = parseInt(b.dataset.d, 10);
+    deal(); say(''); render();
+  };
+});
+window.addEventListener('resize', render);
+
+if (!restore()) deal();
+render();
+</script>
+</body>
+</html>

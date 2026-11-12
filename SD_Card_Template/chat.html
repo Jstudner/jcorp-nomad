@@ -173,7 +173,7 @@ const Chat = {
     this.flush();
   },
 
-  // the outbox to the Nomad, oldest first, one at a time so they arrive in order
+  // the outbox to Nomad, oldest first, one at a time so they arrive in order
   async flush(){
     if(this._sending || this.legacy) return;
     this._sending = true;
@@ -195,7 +195,7 @@ const Chat = {
           this.render();
           continue;
         }
-        if(res && res.status === 400){ this.outbox.shift(); this._keepOutbox(); continue; }   // nothing the Nomad will take
+        if(res && res.status === 400){ this.outbox.shift(); this._keepOutbox(); continue; }   // nothing Nomad will take
         // no answer, the card busy, or sending too fast: try again shortly (the poll also does)
         this._fails++;
         this.render();
@@ -217,7 +217,7 @@ const Chat = {
         if(!res.ok) break;
         const j = await res.json();
         let count = this._loaded;                    // the history on arrival is not news
-        if(j.epoch !== this.epoch){                  // cleared, or the Nomad restarted: start over
+        if(j.epoch !== this.epoch){                  // cleared, or Nomad restarted: start over
           this.msgs.clear(); this.after = 0; this.epoch = j.epoch; this._from = 0; count = false;
         }
         let fresh = 0;

@@ -1,4 +1,5 @@
 #include "RGB_lamp.h"
+#include "nomad_board.h"
 
 uint16_t Time = 0;
 uint16_t Number = 0;
@@ -33,7 +34,11 @@ const uint8_t RGB_Data[192][3] = {
 // data range -> Red:0~255  Green:0~255  Blue:0~255
 void Set_Color(uint8_t Red,uint8_t Green,uint8_t Blue)                                            // Set RGB bead color
 {
-  neopixelWrite(PIN_NEOPIXEL, Red, Green, Blue);  
+#if NOMAD_HAS_RGB_LED
+  neopixelWrite(NOMAD_RGB_LED_PIN, Red, Green, Blue);
+#else
+  (void)Red; (void)Green; (void)Blue;   // no addressable LED on this board
+#endif
 }
 void RGB_Lamp_Loop(uint16_t Waiting)
 { 

@@ -3,13 +3,13 @@
 // can start before anything is picked, and the host can let everyone vote.
 //
 // The host is the clock. It sends {playing, position} on play, pause and seek and every few
-// seconds. The Nomad keeps when that arrived, and every answer says how long ago that was
+// seconds. Nomad keeps when that arrived, and every answer says how long ago that was
 // (age, ms), so a viewer never compares its own clock with anyone's. The hotspot has no
 // internet time and phones on it disagree by seconds.
 //
 // Voting: the host opens a vote (most votes, a random pick from the picks, or two rounds).
 // Everyone nominates one film or episode, the picks show live with who chose them. When the
-// host closes it the Nomad decides (ties at random), and the winner becomes what plays.
+// host closes it Nomad decides (ties at random), and the winner becomes what plays.
 //
 //   POST /api/party/create {name, path?, title?, cover?}      -> {code, token, member}
 //   POST /api/party/join   {code, name}                        -> {code, member}

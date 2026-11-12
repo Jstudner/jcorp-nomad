@@ -9,7 +9,7 @@
 <script src="/theme-boot.js?v=5"></script>
 <script src="/theme-manager.js?v=5"></script>
 <script src="/nomad-icons.js?v=1"></script>
-<script src="/nomad-utils.js?v=49"></script>
+<script src="/nomad-utils.js?v=50"></script>
 <script src="/assets/xzwasm.min.js?v=2"></script>
 <script src="/assets/fzstd.min.js?v=2"></script>
 <script src="/assets/nomad-zim.js?v=8"></script>
@@ -2043,7 +2043,7 @@ function selectSearchResult(i){
 
 /* Full mode: every request an archive page makes is answered at /zimview/, so it keeps
    its own styles, scripts and links (web-app archives, Zimit copies). Answered by:
-     - the Nomad itself (NomadZimServe, per /api/zimserve), like kiwix-serve; any phone
+     - Nomad itself (NomadZimServe, per /api/zimserve), like kiwix-serve; any phone
      - zim-sw.js, a service worker; needs a secure page (older firmware, the online demo)
    Otherwise the script-less reader below carries on. */
 const FULL_OK = !/[?&]plain=1/.test(location.search);
@@ -2104,7 +2104,7 @@ async function openFull(hit){
   updateHistoryButtons();
   return true;
 }
-// the page's own script hook (assets/zim-frame.js, put in by the Nomad or zim-sw.js) calls these
+// the page's own script hook (assets/zim-frame.js, put in by Nomad or zim-sw.js) calls these
 window.nomadZimFrame = {
   external(){ readerNote('That link is on the live web, not in this archive.'); },
   ready(w){ if (_fullOn && w === document.getElementById('article-frame').contentWindow) fullPageReady(w); },

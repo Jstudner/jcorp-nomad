@@ -788,7 +788,7 @@ let isAutoGenerate = false;
 /* The log: Nomad's entries (/console-logs, the last 50) merged with this page's notes.
    Lines are set as text, never HTML: messages carry guest-chosen file names. Nomad stamps
    entries with its uptime, so they show as "5 min ago". */
-let serverLog = [], serverNow = 0, serverAt = 0;   // entries, the Nomad's uptime when fetched, and our clock then
+let serverLog = [], serverNow = 0, serverAt = 0;   // entries, Nomad's uptime when fetched, and our clock then
 let consoleLines = [];                              // this page's notes: { msg, type, at }
 const maxConsoleLines = 30;
 
@@ -1080,13 +1080,17 @@ async function wifiConnect() {
   }
 
   const ok = confirm(
-    `Nomad restarts and joins "${ssid}".\n\n` +
-    `Its hotspot is off in WiFi Mode. Connect this device to "${ssid}" ` +
-    `and open http://nomad.local. Nomad's screen shows the exact address.\n\n` +
+    `Nomad will restart and join "${ssid}".\n\n` +
+    `Its hotspot goes away while WiFi Mode is active. Connect this device to "${ssid}" ` +
+    (boardCaps && boardCaps.display === false
+      ? `and open http://nomad.local, or find the address in your router's client list.\n\n`
+      : `and open http://nomad.local. Nomad's screen shows the exact address.\n\n`) +
     (persist
-      ? 'Auto-reconnect is on: Nomad rejoins on every boot. To get the hotspot back, hold the side button while it boots, or use this popup.\n\n'
-      : 'Auto-reconnect is off: unplug and replug Nomad to get the hotspot back.\n\n') +
-    'If the network can\'t be reached, Nomad goes back to hotspot mode.\n\nContinue?'
+      ? (boardCaps && boardCaps.bootButton === false
+          ? 'Auto-reconnect is ON: it rejoins on every boot. Use this popup to return to hotspot mode.\n\n'
+          : 'Auto-reconnect is ON: it rejoins on every boot. Hold the side button during boot (or use this popup) to return to hotspot mode.\n\n')
+      : 'Auto-reconnect is OFF: unplugging and replugging returns it to hotspot mode.\n\n') +
+    'If the network can\'t be reached, Nomad falls back to hotspot mode by itself.\n\nProceed?'
   );
   if (!ok) return;
 
@@ -1103,7 +1107,7 @@ async function wifiConnect() {
     const data = await res.json().catch(() => ({}));
     if (res.ok) {
       addConsoleLog(`WiFi Mode: restarting to join "${ssid}"`, 'info');
-      alert(`Nomad is restarting and joining "${ssid}".\n\nSwitch this device to that network, then open http://nomad.local or the address on Nomad's screen.`);
+      alert(`Nomad is restarting and joining "${ssid}".\n\nSwitch this device to that network, then open http://nomad.local or ${boardCaps && boardCaps.display === false ? "the address in your router's client list" : "the address on Nomad's screen"}.`);
       closeWifiModal();
     } else {
       alert("Couldn't switch WiFi Mode: " + (data.error || ('HTTP ' + res.status)));
@@ -1194,7 +1198,7 @@ async function requireAdminAuth(passedSettings) {
     return;
   }
 
-  // a saved sign-in: ask the Nomad whether it still stands (a restart ends a sign-in that
+  // a saved sign-in: ask Nomad whether it still stands (a restart ends a sign-in that
   // wasn't kept, a password change ends them all)
   if (adminToken) {
     try {
@@ -1842,6 +1846,15 @@ const NomadUpdate = {
     if (!this.el.card) return;
     let env;
     try { env = await (await fetch('/api/update/env', { cache: 'no-store' })).json(); } catch (e) { return; }
+    // A P4 serves its pages out of its own flash (/api/ui-flash active). Firmware that sends
+    // env.pages stages each file where it's served from. Without it, updates land on the card
+    // copies, which flash shadows, so hide the Update card.
+    if (!env.pages) {
+      try {
+        const fl = await fetch('/api/ui-flash', { cache: 'no-store' });
+        if (fl.ok) { const u = await fl.json(); if (u.supported && u.active) return; }
+      } catch (e) {}
+    }
     // ?update=test shows the card in hotspot mode, against ?manifest=, on bench builds only
     const qs = new URLSearchParams(location.search);
     const test = env.testMode && qs.get('update') === 'test';
@@ -1898,17 +1911,36 @@ const NomadUpdate = {
     return n >= 1048576 ? (n / 1048576).toFixed(1) + ' MB' : Math.max(1, Math.round(n / 1024)) + ' KB';
   },
 
+  // Nomad hashes at most 400 paths a request and takes a body of at most 32 KB, and the
+  // manifest lists more than that, so the paths go in batches, one after another.
   async localHashes(paths) {
+    const all = {};
+    for (let at = 0; at < paths.length; ) {
+      const batch = [];
+      let bytes = 0;
+      while (at < paths.length && batch.length < 300 && bytes + paths[at].length + 1 < 30000) {
+        bytes += paths[at].length + 1;
+        batch.push(paths[at++]);
+      }
+      if (!batch.length) batch.push(paths[at++]);   // one path longer than the cap: let Nomad refuse it
+      const files = await this.hashBatch(batch, at - batch.length, paths.length);
+      if (!files) return null;
+      Object.assign(all, files);
+    }
+    return all;
+  },
+
+  async hashBatch(batch, before, total) {
     const r = await adminFetch('/api/update/hash', { method: 'POST', headers: { 'Content-Type': 'text/plain' },
-                                                     body: paths.join('\n') });
-    if (r.status === 401) { this.say('Sign in to check for updates'); return null; }
-    if (!r.ok) { this.say("Couldn't check files (" + r.status + ')'); return null; }
+                                                     body: batch.join('\n') });
+    if (r.status === 401) { this.say('Log in to check for updates'); return null; }
+    if (!r.ok) { this.say('Could not check files (' + r.status + ')'); return null; }
     for (let i = 0; i < 600; i++) {
       await new Promise(res => setTimeout(res, 500));
       const j = await (await fetch('/api/update/hash', { cache: 'no-store' })).json();
-      if (j.state === 'done') return j.files;
+      if (j.state === 'done') return j.files || {};
       if (j.state === 'error') break;
-      if (j.total) this.say(`Checking files… ${j.done} of ${j.total}`);
+      if (j.total) this.say(`Checking files… ${before + j.done} of ${total}`);
     }
     this.say("Couldn't check files");
     return null;
@@ -1961,7 +1993,7 @@ const NomadUpdate = {
     for (let i = 0; i < files.length; i++) {
       const f = files[i];
       this.say(`Updating ${i + 1} of ${files.length} · ${f.path.replace(/^\//, '')}`);
-      let ok = false;
+      let ok = false, why = '';
       try {
         const r = await fetch(this.fileUrl(f.path), { cache: 'no-store' });
         const blob = r.ok ? await r.blob() : null;
@@ -1970,12 +2002,14 @@ const NomadUpdate = {
           const s = await adminFetch('/api/update/stage?' + q, { method: 'POST',
             headers: { 'Content-Type': 'application/octet-stream' }, body: blob });
           ok = s.ok;
+          // Nomad says why it refused (507: no room in its flash); keep that for the user
+          if (!ok && s.status === 507) why = ((await s.json().catch(() => ({}))).error) || 'Not enough room on Nomad';
         }
       } catch (e) { ok = false; }
       if (!ok) {
         await adminFetch('/api/update/abort', { method: 'POST' }).catch(() => {});
         progress.hidden = true;
-        this.say(`Update stopped at ${f.path.replace(/^\//, '')} · nothing was changed`);
+        this.say(`Update stopped at ${f.path.replace(/^\//, '')} · ${why ? why + ' · ' : ''}nothing was changed`);
         btn.disabled = false;
         btn.textContent = 'Try again';
         return;
@@ -2506,3 +2540,335 @@ document.addEventListener('DOMContentLoaded', () => {
   });
   setTimeout(() => Usage.load(), 1800);
 });
+/* ---------------------------------------------------------------- cover thumbnails
+
+   The device can make a small copy of every cover (hardware JPEG codec + PPA scaler,
+   ESP32-P4 only). The card hides itself where /api/thumbs says unsupported.
+
+   Polls once a second while a pass is running and not at all otherwise. A pass already
+   competes with playback for the card. */
+
+let thumbsTimer = null;
+
+function fmtMB(b) { return (b / (1024 * 1024)).toFixed(1) + ' MB'; }
+
+function renderThumbs(t) {
+  const card = document.getElementById('thumbs-card');
+  if (!card) return;
+  if (!t.supported) { card.style.display = 'none'; return; }
+  card.style.display = '';
+
+  const summary  = document.getElementById('thumbs-summary');
+  const wrap     = document.getElementById('thumbs-progress-wrap');
+  const bar      = document.getElementById('thumbs-progress-bar');
+  const current  = document.getElementById('thumbs-current');
+  const startBtn = document.getElementById('thumbs-start');
+  const stopBtn  = document.getElementById('thumbs-stop');
+  const rebuild  = document.getElementById('thumbs-rebuild');
+  const clearBtn = document.getElementById('thumbs-clear');
+
+  const done = t.upToDate + t.converted + t.skipped + t.failed;
+
+  if (t.running) {
+    wrap.style.display = '';
+    // covers only reaches its final value when the walk finishes, so early on the bar
+    // runs against a lower bound
+    const pct = t.covers ? Math.min(100, Math.round((done / t.covers) * 100)) : 0;
+    bar.style.width = pct + '%';
+    current.textContent = t.current || 'Scanning folders…';
+    summary.textContent = `${t.converted} converted, ${t.upToDate} already current, `
+                        + `${t.skipped} skipped${t.failed ? ', ' + t.failed + ' failed' : ''} `
+                        + `· ${done} of ${t.covers} covers seen`;
+    startBtn.style.display = 'none';
+    rebuild.disabled = clearBtn.disabled = true;
+    stopBtn.style.display = '';
+  } else {
+    wrap.style.display = 'none';
+    current.textContent = '';
+    startBtn.style.display = '';
+    stopBtn.style.display = 'none';
+    rebuild.disabled = clearBtn.disabled = false;
+
+    if (t.progressive && t.progressive >= Math.max(1, t.covers / 2)) {
+      // The P4's JPEG engine is baseline only, so a library of progressive artwork
+      // gets nothing from it. Say so instead of just counting skips.
+      summary.textContent = `${t.progressive} of ${t.covers} covers are progressive JPEG, `
+                          + `which this board's hardware decoder cannot read. `
+                          + `${t.converted} converted.`;
+    } else if (t.allOptimised) {
+      summary.textContent = `All ${t.covers} covers are optimised. Nothing to do.`;
+    } else if (t.phase === 'idle') {
+      summary.textContent = 'Not run yet on this boot. Optimise Covers converts anything '
+                          + 'missing a current thumbnail.';
+    } else if (t.phase === 'failed') {
+      summary.textContent = 'Could not run: ' + (t.lastError || 'unknown reason');
+    } else {
+      const verb = t.phase === 'stopped' ? 'Stopped' : 'Finished';
+      const bits = [];
+      if (t.alreadySmall) bits.push(`${t.alreadySmall} already small`);
+      if (t.progressive)  bits.push(`${t.progressive} progressive`);
+      if (t.noSaving)     bits.push(`${t.noSaving} no saving`);
+      if (t.tooBig)       bits.push(`${t.tooBig} too large`);
+      let s = `${verb}: ${t.converted} converted, ${t.upToDate} already current, `
+            + `${t.skipped} skipped` + (bits.length ? ` (${bits.join(', ')})` : '');
+      if (t.failed) s += `, ${t.failed} failed`;
+      if (t.converted) s += ` · ${fmtMB(t.srcBytes)} of cover art now serves as ${fmtMB(t.thumbBytes)}`;
+      if (t.elapsedMs) s += ` (${(t.elapsedMs / 1000).toFixed(1)}s)`;
+      summary.textContent = s;
+    }
+  }
+
+  const msg = document.getElementById('thumbs-msg');
+  if (msg && !t.running) {
+    msg.textContent = t.lastError && t.phase !== 'failed' ? 'Last problem: ' + t.lastError : '';
+  }
+}
+
+async function refreshThumbs() {
+  try {
+    const res = await fetch('/api/thumbs', { cache: 'no-store' });
+    if (!res.ok) return;
+    const t = await res.json();
+    renderThumbs(t);
+
+    if (t.running && !thumbsTimer) thumbsTimer = setInterval(refreshThumbs, 1000);
+    if (!t.running && thumbsTimer) { clearInterval(thumbsTimer); thumbsTimer = null; }
+  } catch (e) {
+    /* the device is busy or rebooting; the next poll or page load picks it up */
+  }
+}
+
+async function startThumbs(rebuildAll) {
+  const msg = document.getElementById('thumbs-msg');
+  if (rebuildAll && !confirm('Re-encode every cover, including ones that already have a '
+      + 'current thumbnail? This is only needed if artwork changed without its timestamp.')) return;
+  if (msg) msg.textContent = '';
+  try {
+    const res = await adminFetch('/api/thumbs/start' + (rebuildAll ? '?rebuild=1' : ''), { method: 'POST' });
+    const j = await res.json().catch(() => ({}));
+    if (!res.ok) { if (msg) msg.textContent = j.error || 'Could not start.'; return; }
+    refreshThumbs();
+  } catch (e) {
+    if (msg) msg.textContent = 'Could not start: ' + e.message;
+  }
+}
+
+async function stopThumbs() {
+  try { await adminFetch('/api/thumbs/stop', { method: 'POST' }); } catch (e) {}
+  refreshThumbs();
+}
+
+async function clearThumbs() {
+  if (!confirm('Delete every generated thumbnail? The grids go back to loading full-size '
+             + 'cover art until you optimise again. Pages already open may keep showing '
+             + 'the old thumbnails for a couple of minutes.')) return;
+  const msg = document.getElementById('thumbs-msg');
+  try {
+    const res = await adminFetch('/api/thumbs/clear', { method: 'POST' });
+    const j = await res.json().catch(() => ({}));
+    if (msg) msg.textContent = res.ok ? 'Deleting thumbnails…' : (j.error || 'Could not clear.');
+  } catch (e) {
+    if (msg) msg.textContent = 'Could not clear: ' + e.message;
+  }
+  refreshThumbs();
+}
+
+// after the settings and status fetches, same as computeLibraryStats
+setTimeout(refreshThumbs, 2800);
+
+
+/* ---------------------------------------------------------------- board capabilities
+
+   Both boards use the same admin page. The P4 has no screen, no addressable LED and no
+   device-mode USB port, so ask the firmware what's fitted and hide what isn't.
+   If /api/board is missing (older firmware) everything stays visible. */
+
+let boardCaps = null;
+
+function showAdminLockedBanner() {
+  if (document.getElementById('admin-locked-banner')) return;
+  const host = document.querySelector('.container');
+  if (!host) return;
+  const el = document.createElement('div');
+  el.id = 'admin-locked-banner';
+  el.className = 'card';
+  el.style.cssText = 'border-color: var(--warning); margin-bottom: 1rem;';
+  const h = document.createElement('h2');
+  h.textContent = 'Admin actions are locked';
+  h.style.color = 'var(--warning)';
+  const p = document.createElement('p');
+  p.style.cssText = 'color: var(--muted); font-size: 0.9rem; margin-top: 0.5rem;';
+  p.textContent = 'Nomad booted with no card and no USB drive, so it has nowhere to '
+                + 'keep its settings, including the admin password. Anything that changes '
+                + 'the device is refused until storage is present. Insert a card or a drive '
+                + 'and restart. Everything on this page that only reads is still live.';
+  el.append(h, p);
+  host.prepend(el);
+}
+
+async function applyBoardCapabilities() {
+  let b;
+  try {
+    const res = await fetch('/api/board', { cache: 'no-store' });
+    if (!res.ok) return;
+    b = await res.json();
+  } catch (e) { return; }
+
+  boardCaps = b;
+  // Hide, don't remove. loadSettings() and saveSettings() read #brightness, #flip-screen
+  // and #led-color without null checks, so removing them breaks Save. Keeping them also
+  // means a card moved to a Mk4 keeps its screen and LED settings.
+  const hide = (id) => { const el = document.getElementById(id); if (el) el.style.display = 'none'; };
+
+  if (b.rgbLed === false) hide('rgb-card');
+  if (b.display === false) {
+    hide('lcd-card');
+    // No screen to show the DHCP address on, so point at the router or nomad.local
+    const note = document.getElementById('wifi-screen-note');
+    if (note) note.textContent = 'Check your router’s client list for the address it was given, '
+                              + 'or reach it at http://nomad.local/.';
+  }
+  // On the P4 the Type-C is a USB-UART bridge. There's no device-mode port to act as a
+  // card reader, and esptool enters download mode over DTR/RTS, so Flash Mode would just
+  // be a restart.
+  if (b.usbMscDevice === false) { hide('btn-usbmode'); hide('btn-flashmode'); hide('power-why'); }
+
+  // Booted with nothing mounted. There's no settings.json and so no admin password, and
+  // the firmware refuses every admin action (401) until storage is back.
+  if (b.adminLocked === true) showAdminLockedBanner();
+  // Pages served from this board's flash. The build id changes with every interface
+  // flash or update (+uN after N updates).
+  if (b.flashUi) {
+    try {
+      const u = await (await fetch('/api/ui-flash', { cache: 'no-store' })).json();
+      const el = document.getElementById('ui-build');
+      if (el && u.active) {
+        el.textContent = `Pages in Nomad's flash · build ${u.version || 'unknown'} · ${u.files} files · `
+                       + `${(u.used / 1048576).toFixed(1)} of ${(u.total / 1048576).toFixed(1)} MB`;
+        el.hidden = false;
+      }
+      // Maps code and the reader engines stay on the card, so a card copied for another
+      // build serves old ones. uicard.json in flash lists what this build expects.
+      const want = await fetch('/assets/uicard.json', { cache: 'no-store' }).then(r => r.ok ? r.json() : null).catch(() => null);
+      const row = document.getElementById('ui-card-row'), btn = document.getElementById('ui-card-check');
+      if (u.active && want && want.files && row && btn) {
+        row.hidden = false;
+        btn.onclick = () => checkCardPages(want.files, btn);
+      }
+    } catch (e) {}
+  }
+  if (b.bootButton === false) {
+    const esc = document.getElementById('wifi-escape-hatch');
+    if (esc) esc.textContent = 'with it, use “Return to hotspot mode” below, or power-cycle twice.';
+  }
+}
+
+// Hashes the card copies on Nomad (POST /api/update/hash, the Update card's route) and lists
+// the ones that differ from what this build of the pages expects.
+async function checkCardPages(files, btn) {
+  const msg = document.getElementById('ui-card-msg');
+  const paths = Object.keys(files);
+  btn.disabled = true;
+  msg.textContent = `Checking ${paths.length} files…`;
+  try {
+    const r = await adminFetch('/api/update/hash', { method: 'POST', headers: { 'Content-Type': 'text/plain' },
+                                                     body: paths.join('\n') });
+    if (r.status === 401) { msg.textContent = 'Log in to check'; return; }
+    if (!r.ok) { msg.textContent = 'Could not check (' + r.status + ')'; return; }
+    let have = null;
+    for (let i = 0; i < 240 && !have; i++) {
+      await new Promise(res => setTimeout(res, 500));
+      const j = await (await fetch('/api/update/hash', { cache: 'no-store' })).json();
+      if (j.state === 'done') have = j.files || {};
+      else if (j.state === 'error') break;
+    }
+    if (!have) { msg.textContent = 'Could not check'; return; }
+    const off = paths.filter(p => !have[p] || have[p][1] !== files[p][1]);
+    msg.textContent = off.length
+      ? `${off.length} of ${paths.length} don't match these pages: ${off.map(p => p.replace(/^\/assets\//, '')).join(', ')}. `
+        + 'Copy the card files from the same release onto the card, or use Update in WiFi Mode.'
+      : `All ${paths.length} match these pages`;
+  } catch (e) {
+    msg.textContent = 'Could not check';
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+document.addEventListener('DOMContentLoaded', applyBoardCapabilities);
+
+/* ---------------------------------------------------------------- storage volumes
+
+   Nomad can mount more than one volume: the card, and a USB mass-storage device on the
+   OTG header. The browser sees one library and /sdinfo returns the total, so this shows
+   the per-drive breakdown under it. Handles any number of volumes. Hidden on boards
+   with only one (every Mk4). */
+
+let volumesTimer = null;
+
+// Has to read right for a multi-TB USB drive as well as a 32 GB card
+function fmtGB(b) {
+  const gb = b / 1e9;
+  if (gb >= 1000) return (gb / 1000).toFixed(gb >= 10000 ? 0 : 2) + ' TB';
+  return (gb >= 100 ? gb.toFixed(0) : gb.toFixed(2)) + ' GB';
+}
+
+function volumeRow(v) {
+  const pct = v.total > 0 ? Math.round((v.used / v.total) * 100) : 0;
+  const name = v.primary ? 'Card' : 'USB';
+  // The USB label is the drive's own product string. It comes from the device, so it
+  // goes in as text, never as markup.
+  const sub = [v.fs, v.primary ? null : (v.device || null)].filter(Boolean).join(' · ');
+  const el = document.createElement('div');
+  el.innerHTML = `
+    <div style="display: flex; justify-content: space-between; align-items: baseline; gap: 0.5rem;">
+      <div style="font-weight: 600;">${name}<span style="font-weight: 400; color: var(--muted); font-size: 0.8rem;"></span></div>
+      <div style="font-size: 0.85rem; color: var(--muted); white-space: nowrap;">
+        ${fmtGB(v.used)} of ${fmtGB(v.total)} · ${pct}%
+      </div>
+    </div>
+    <div class="progress" style="margin-top: 0.35rem;"><div class="progress-bar" style="width: ${pct}%"></div></div>`;
+  if (sub) el.querySelector('span').textContent = ' · ' + sub;
+  return el;
+}
+
+function renderVolumes(d) {
+  const wrap  = document.getElementById('storage-volumes');
+  const title = document.getElementById('storage-title');
+  const combo = document.getElementById('sd-combined-label');
+  if (!wrap) return;
+
+  const vols = Array.isArray(d.volumes) ? d.volumes : [];
+  // Single-volume board: leave the card as it is
+  if (!d.usbSupported && vols.length < 2) { wrap.style.display = 'none'; return; }
+
+  wrap.style.display = 'flex';
+  wrap.innerHTML = '';
+  if (title) title.textContent = 'Storage';
+  if (combo) combo.style.display = vols.length > 1 ? '' : 'none';
+
+  vols.forEach(v => wrap.appendChild(volumeRow(v)));
+
+  if (d.usbSupported && !d.usbPresent) {
+    const hint = document.createElement('div');
+    hint.style.cssText = 'font-size: 0.8rem; color: var(--muted);';
+    hint.textContent = 'No USB drive connected. A hard drive needs its own power.';
+    wrap.appendChild(hint);
+  }
+}
+
+async function refreshVolumes() {
+  try {
+    const res = await fetch('/api/storage/volumes', { cache: 'no-store' });
+    if (!res.ok) return;
+    const d = await res.json();
+    renderVolumes(d);
+    // Only poll where a USB drive can come and go. A Mk4 asks once.
+    if (d.usbSupported && !volumesTimer) volumesTimer = setInterval(refreshVolumes, 15000);
+  } catch (e) {
+    /* older firmware has no such endpoint, keep the single-volume view */
+  }
+}
+
+setTimeout(refreshVolumes, 3000);
+

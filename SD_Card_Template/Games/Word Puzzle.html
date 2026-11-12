@@ -1,0 +1,370 @@
+<!DOCTYPE html>
+<!-- Version 1 -->
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no"/>
+<meta name="nomad-modes" content="solo"/>
+<title>Nomad • Word Puzzle</title>
+<link rel="icon" href="/favicon.ico" type="image/x-icon">
+<link rel="stylesheet" href="/master.css">
+<script src="/theme-boot.js"></script>
+<script src="/theme-manager.js"></script>
+<script src="/assets/wordlist5.js"></script>
+<style>
+  /* Game colours are fixed and don't follow the user's theme, so the feedback
+     colours always mean the same thing. Header and back button still come from
+     master.css. */
+  :root{
+    --wp-ink:#222831;
+    --wp-dim:#6b7280;
+    --wp-edge:#cfd4dc;
+    --wp-empty:#ffffff;
+    --wp-key:#e6e9ef;
+    --wp-hit:#2f6fb5;      /* right letter, right place */
+    --wp-near:#b98a3c;     /* right letter, wrong place */
+    --wp-miss:#7c8796;     /* not in the word */
+    --wp-on:#ffffff;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0}
+  main{max-width:500px;margin:0 auto;padding:10px 12px 24px}
+
+  .bar{display:flex;gap:8px;align-items:center;justify-content:center;flex-wrap:wrap;margin-bottom:8px}
+  .seg{display:flex;border:1px solid var(--wp-edge);border-radius:8px;overflow:hidden}
+  .seg button{background:var(--wp-empty);color:var(--wp-ink);border:none;padding:8px 14px;
+    font-size:.92rem;cursor:pointer;border-right:1px solid var(--wp-edge)}
+  .seg button:last-child{border-right:none}
+  .seg button[aria-pressed="true"]{background:var(--wp-hit);color:var(--wp-on)}
+
+  #grid{display:grid;grid-template-rows:repeat(6,1fr);gap:6px;margin:10px auto 8px;
+    max-width:330px}
+  .row{display:grid;grid-template-columns:repeat(5,1fr);gap:6px}
+  .tile{aspect-ratio:1;display:flex;align-items:center;justify-content:center;
+    font-size:clamp(1.3rem,7vw,2rem);font-weight:700;text-transform:uppercase;
+    border:2px solid var(--wp-edge);border-radius:6px;background:var(--wp-empty);
+    color:var(--wp-ink);user-select:none}
+  .tile.filled{border-color:var(--wp-dim)}
+  .tile.hit{background:var(--wp-hit);border-color:var(--wp-hit);color:var(--wp-on)}
+  .tile.near{background:var(--wp-near);border-color:var(--wp-near);color:var(--wp-on)}
+  .tile.miss{background:var(--wp-miss);border-color:var(--wp-miss);color:var(--wp-on)}
+  .row.bad{animation:shake .3s}
+  @keyframes shake{25%{transform:translateX(-6px)}75%{transform:translateX(6px)}}
+  @media (prefers-reduced-motion:reduce){ .row.bad{animation:none} }
+
+  .status{text-align:center;color:var(--wp-dim);min-height:1.5em;margin:6px 0;font-size:.95rem}
+  .status.win{color:var(--wp-hit);font-weight:700}
+  .status.lose{color:var(--wp-ink);font-weight:700}
+
+  #keys{display:grid;gap:6px;margin-top:12px}
+  .krow{display:flex;gap:5px;justify-content:center}
+  .key{flex:1 1 0;min-width:0;padding:14px 0;border-radius:6px;border:none;
+    background:var(--wp-key);color:var(--wp-ink);font-size:.95rem;font-weight:600;
+    cursor:pointer;text-transform:uppercase}
+  .key.wide{flex:1.6 1 0;font-size:.78rem}
+  .key.hit{background:var(--wp-hit);color:var(--wp-on)}
+  .key.near{background:var(--wp-near);color:var(--wp-on)}
+  .key.miss{background:var(--wp-miss);color:var(--wp-on)}
+  .foot{display:flex;gap:8px;justify-content:center;margin-top:12px}
+  .btn{background:var(--wp-hit);color:var(--wp-on);border:none;border-radius:8px;
+    padding:9px 16px;cursor:pointer;font-size:.95rem}
+  .btn.secondary{background:transparent;color:var(--wp-hit);border:1px solid var(--wp-hit)}
+  :focus-visible{outline:2px solid var(--wp-hit);outline-offset:2px}
+</style>
+</head>
+<body>
+  <header>
+    <h1>Word Puzzle</h1>
+    <a class="back-btn" href="/games">← Back to Games</a>
+  </header>
+
+  <main>
+    <div class="bar">
+      <div class="seg" id="mode" role="group" aria-label="Puzzle">
+        <button type="button" data-m="daily" aria-pressed="true">Today's</button>
+        <button type="button" data-m="random" aria-pressed="false">Practice</button>
+      </div>
+    </div>
+
+    <div id="grid"></div>
+    <div class="status" id="status"></div>
+    <div id="keys"></div>
+    <div class="foot">
+      <button class="btn secondary" id="newBtn" type="button">New practice word</button>
+    </div>
+  </main>
+
+<script>
+'use strict';
+/* Word Puzzle. Guess a five-letter word in six tries.
+
+   Solo, so it never touches /api/mp/*. Word lists are SCOWL-derived and live in
+   /assets/wordlist5.js, packed five characters per word with no separator.
+
+   "Today's" is keyed off the calendar date, so every phone on the same Nomad gets
+   the same word. Practice is random and unlimited. */
+
+if (typeof window.NomadWords === 'undefined') {
+  document.addEventListener('DOMContentLoaded', function () {
+    document.getElementById('status').textContent =
+      'Word list failed to load (/assets/wordlist5.js). Re-copy the assets folder to the card.';
+  });
+  throw new Error('wordlist5.js missing');
+}
+
+var W = window.NomadWords;
+var ROWS = 6, COLS = 5;
+var SAVE_KEY = 'nomadgame_wordpuzzle_save';
+
+var gridEl = document.getElementById('grid');
+var keysEl = document.getElementById('keys');
+var statusEl = document.getElementById('status');
+
+var answer = '';
+var guesses = [];      // committed guesses
+var current = '';      // the row being typed
+var done = false;
+var mode = 'daily';
+var dayIndex = 0;
+
+/* Days since 2020-01-01 in local time. The only clock is the phone's, and UTC
+   would change the word mid-evening for anyone west of Greenwich. */
+function todayIndex() {
+  var now = new Date();
+  var local = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  var epoch = new Date(2020, 0, 1);
+  return Math.floor((local - epoch) / 86400000);
+}
+
+function pickDaily() {
+  dayIndex = todayIndex();
+  var n = W.count(W.ANSWERS);
+  // A plain modulo would walk the list in order day by day. Multiplying by a
+  // large odd number first scatters it and stays repeatable.
+  return W.at(W.ANSWERS, ((dayIndex * 2654435761) % n + n) % n);
+}
+
+function pickRandom() {
+  return W.at(W.ANSWERS, Math.floor(Math.random() * W.count(W.ANSWERS)));
+}
+
+/* Scoring with repeated letters. A guessed letter is only 'near' if the answer
+   still has an unmatched copy of it, so SPEED against ERASE marks only one E as
+   near. Exact matches are claimed in a first pass for the same reason. */
+function score(guess, ans) {
+  var out = new Array(COLS), left = {};
+  var i, c;
+  for (i = 0; i < COLS; i++) {
+    if (guess[i] === ans[i]) { out[i] = 'hit'; }
+    else { c = ans[i]; left[c] = (left[c] || 0) + 1; }
+  }
+  for (i = 0; i < COLS; i++) {
+    if (out[i]) continue;
+    c = guess[i];
+    if (left[c] > 0) { out[i] = 'near'; left[c]--; }
+    else { out[i] = 'miss'; }
+  }
+  return out;
+}
+
+var KEY_ROWS = ['qwertyuiop', 'asdfghjkl', 'zxcvbnm'];
+
+function buildStatic() {
+  gridEl.innerHTML = '';
+  for (var r = 0; r < ROWS; r++) {
+    var row = document.createElement('div');
+    row.className = 'row';
+    for (var c = 0; c < COLS; c++) {
+      var t = document.createElement('div');
+      t.className = 'tile';
+      row.appendChild(t);
+    }
+    gridEl.appendChild(row);
+  }
+  keysEl.innerHTML = '';
+  KEY_ROWS.forEach(function (letters, ri) {
+    var row = document.createElement('div');
+    row.className = 'krow';
+    if (ri === 2) row.appendChild(mkKey('Enter', 'enter', true));
+    letters.split('').forEach(function (ch) { row.appendChild(mkKey(ch, ch, false)); });
+    if (ri === 2) row.appendChild(mkKey('Delete', 'back', true));
+    keysEl.appendChild(row);
+  });
+}
+
+function mkKey(label, val, wide) {
+  var b = document.createElement('button');
+  b.type = 'button';
+  b.className = 'key' + (wide ? ' wide' : '');
+  b.textContent = label;
+  b.dataset.k = val;
+  b.onclick = function () { press(val); };
+  return b;
+}
+
+function render() {
+  var best = {};   // letter -> best state seen so far
+  var rank = { miss: 0, near: 1, hit: 2 };
+  for (var r = 0; r < ROWS; r++) {
+    var row = gridEl.children[r];
+    var g = guesses[r];
+    for (var c = 0; c < COLS; c++) {
+      var t = row.children[c];
+      t.className = 'tile';
+      if (g) {
+        t.textContent = g.word[c];
+        t.classList.add(g.marks[c]);
+        var L = g.word[c];
+        if (best[L] === undefined || rank[g.marks[c]] > rank[best[L]]) best[L] = g.marks[c];
+      } else if (r === guesses.length) {
+        t.textContent = current[c] || '';
+        if (current[c]) t.classList.add('filled');
+      } else {
+        t.textContent = '';
+      }
+    }
+  }
+  keysEl.querySelectorAll('.key').forEach(function (k) {
+    var v = k.dataset.k;
+    k.classList.remove('hit', 'near', 'miss');
+    if (best[v]) k.classList.add(best[v]);
+  });
+}
+
+function say(msg, cls) {
+  statusEl.textContent = msg || '';
+  statusEl.className = 'status' + (cls ? ' ' + cls : '');
+}
+
+function press(k) {
+  if (done) return;
+  if (k === 'back') { current = current.slice(0, -1); say(''); render(); save(); return; }
+  if (k === 'enter') { submit(); return; }
+  if (current.length >= COLS) return;
+  if (!/^[a-z]$/.test(k)) return;
+  current += k;
+  say('');
+  render();
+  save();
+}
+
+function submit() {
+  if (current.length < COLS) { say('Needs five letters.'); shake(); return; }
+  if (!W.has(W.ALLOWED, current)) { say('Not in the word list.'); shake(); return; }
+  var marks = score(current, answer);
+  guesses.push({ word: current, marks: marks });
+  var won = current === answer;
+  current = '';
+  render();
+  if (won) {
+    done = true;
+    var n = guesses.length;
+    say(n === 1 ? 'Got it in one.' : 'Got it in ' + n + '.', 'win');
+  } else if (guesses.length >= ROWS) {
+    done = true;
+    say('The word was ' + answer.toUpperCase() + '.', 'lose');
+  } else {
+    say('');
+  }
+  save();
+}
+
+function shake() {
+  var row = gridEl.children[guesses.length];
+  if (!row) return;
+  row.classList.remove('bad');
+  void row.offsetWidth;          // restart the animation
+  row.classList.add('bad');
+}
+
+/* One save slot per mode, so switching to Practice doesn't wipe today's game. */
+function slotKey(m) { return SAVE_KEY + ':' + m; }
+
+function save() {
+  try {
+    localStorage.setItem(slotKey(mode), JSON.stringify({
+      mode: mode, day: dayIndex, answer: answer, done: done,
+      current: current, guesses: guesses.map(function (g) { return g.word; })
+    }));
+  } catch (e) {}
+}
+
+/* The daily puzzle only restores on the same day, or a phone that slept
+   overnight would resume yesterday's word. */
+function restore(which) {
+  var raw = null;
+  try {
+    raw = localStorage.getItem(slotKey(which || 'daily'));
+    // older single-slot save
+    if (!raw && !which) raw = localStorage.getItem(SAVE_KEY);
+  } catch (e) {}
+  if (!raw) return false;
+  var s;
+  try { s = JSON.parse(raw); } catch (e) { return false; }
+  if (!s || !s.answer || s.answer.length !== COLS) return false;
+  if (which && s.mode !== which) return false;
+  if (s.mode === 'daily' && s.day !== todayIndex()) return false;
+  mode = s.mode === 'random' ? 'random' : 'daily';
+  dayIndex = s.day || todayIndex();
+  answer = s.answer;
+  done = !!s.done;
+  current = s.current || '';
+  guesses = (s.guesses || []).map(function (w) {
+    return { word: w, marks: score(w, answer) };
+  });
+  document.querySelectorAll('#mode button').forEach(function (b) {
+    b.setAttribute('aria-pressed', String(b.dataset.m === mode));
+  });
+  document.getElementById('newBtn').style.display = mode === 'random' ? '' : 'none';
+  render();
+  if (done) {
+    say(guesses.length && guesses[guesses.length - 1].word === answer
+        ? 'Got it in ' + guesses.length + '.'
+        : 'The word was ' + answer.toUpperCase() + '.',
+        guesses.length && guesses[guesses.length - 1].word === answer ? 'win' : 'lose');
+  }
+  return true;
+}
+
+function start(m) {
+  mode = m;
+  guesses = [];
+  current = '';
+  done = false;
+  answer = (mode === 'daily') ? pickDaily() : pickRandom();
+  if (mode === 'random') dayIndex = todayIndex();
+  try { localStorage.setItem(SAVE_KEY + ':last', mode); } catch (e) {}
+  document.getElementById('newBtn').style.display = mode === 'random' ? '' : 'none';
+  say(mode === 'daily' ? 'Everyone on Nomad gets the same word today.' : '');
+  render();
+  save();
+}
+
+buildStatic();
+document.querySelectorAll('#mode button').forEach(function (b) {
+  b.onclick = function () {
+    document.querySelectorAll('#mode button').forEach(function (o) {
+      o.setAttribute('aria-pressed', String(o === b));
+    });
+    // switching back to a mode resumes that game
+    if (!restore(b.dataset.m)) start(b.dataset.m);
+    try { localStorage.setItem(SAVE_KEY + ':last', b.dataset.m); } catch (e) {}
+  };
+});
+document.getElementById('newBtn').onclick = function () { start('random'); };
+
+document.addEventListener('keydown', function (e) {
+  if (e.ctrlKey || e.metaKey || e.altKey) return;
+  if (e.key === 'Enter') { press('enter'); return; }
+  if (e.key === 'Backspace') { press('back'); return; }
+  var k = (e.key || '').toLowerCase();
+  if (/^[a-z]$/.test(k)) press(k);
+});
+
+/* Come back to whichever mode you left off in. */
+var lastMode = 'daily';
+try { lastMode = localStorage.getItem(SAVE_KEY + ':last') === 'random' ? 'random' : 'daily'; } catch (e) {}
+if (!restore(lastMode) && !restore()) start(lastMode);
+</script>
+</body>
+</html>

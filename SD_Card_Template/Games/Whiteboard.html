@@ -4,6 +4,7 @@
 <head>
 <meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width,initial-scale=1"/>
+<meta name="nomad-modes" content="solo,room"/>
 <title>Nomad • Whiteboard</title>
 <link rel="icon" href="/favicon.ico" type="image/x-icon">
 <link rel="stylesheet" href="/master.css">
@@ -75,7 +76,7 @@
 
 <script>
 /* Two boards behind one set of controls.
-   My Board: autosaves to localStorage; Save downloads a PNG, Load draws an image on it.
+   My Board: autosaves to localStorage. Save downloads a PNG, Load draws an image on it.
    Live Board: the firmware has no sockets, so each participant writes their own stroke
    layer to the card with POST /save and polls /listfiles for the others, refetching only
    layers whose size changed. Clear deletes every layer file. */
@@ -104,7 +105,7 @@ let layerFull = false;
 // the file name, and saving an empty layer first would wipe this phone's strokes for everyone
 let mineChecked = false;
 let saveFails = 0, saveRetry = null;
-let activePointer = null;               // one finger draws; a second one is ignored
+let activePointer = null;               // one finger draws, a second one is ignored
 
 const clientId = (() => {
   // sessionStorage, not localStorage: one id per tab, or two windows on one device share

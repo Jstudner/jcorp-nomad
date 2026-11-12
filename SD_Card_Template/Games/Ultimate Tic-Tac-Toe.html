@@ -1,0 +1,222 @@
+<!DOCTYPE html>
+<!-- Version 1 -->
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<meta name="nomad-modes" content="pass,room"/>
+<title>Nomad • Ultimate Tic-Tac-Toe</title>
+<link rel="icon" href="/favicon.ico" type="image/x-icon">
+<link rel="stylesheet" href="/master.css">
+<script src="/theme-boot.js"></script>
+<script src="/theme-manager.js"></script>
+<script src="/assets/mp-client.js"></script>
+<script src="/assets/game-shell.js"></script>
+<style>
+  main{max-width:520px;margin:0 auto;padding:14px}
+  #board{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;
+    max-width:min(94vw,420px);margin:0 auto;touch-action:manipulation;user-select:none}
+  .mini{position:relative;display:grid;grid-template-columns:repeat(3,1fr);gap:2px;
+    padding:4px;border-radius:8px;background:var(--line);opacity:.72;transition:opacity .15s}
+  /* Highlight the board you're sent to, dim the rest. */
+  .mini.playable{opacity:1;outline:2px solid var(--primary);outline-offset:1px}
+  .sq{aspect-ratio:1;font-size:1.1rem;font-weight:700;line-height:1;border:none;padding:0;
+    border-radius:3px;background:var(--bg);color:var(--text);cursor:pointer}
+  .sq:disabled{cursor:default}
+  .sq.x{color:#2563eb}
+  .sq.o{color:#dc2626}
+  /* A decided board keeps a hint of its squares, with the result over the top.
+     Keep the cover nearly solid or the marks show through the result text. */
+  .mini .verdict{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;
+    font-size:2.6rem;font-weight:900;pointer-events:none;border-radius:8px;
+    background:color-mix(in srgb, var(--card) 92%, transparent)}
+  .mini .verdict.x{color:#2563eb}
+  .mini .verdict.o{color:#dc2626}
+  .mini .verdict.d{color:var(--muted);font-size:.95rem;font-weight:700;letter-spacing:.04em}
+  .mini.wonline{box-shadow:0 0 0 3px var(--primary)}
+</style>
+</head>
+<body>
+  <header>
+    <h1>Ultimate Tic-Tac-Toe</h1>
+    <a class="back-btn" href="/games">← Back to Games</a>
+  </header>
+
+  <main></main>
+
+<script>
+/* Ultimate Tic-Tac-Toe. Nine boards in a grid, win three in a row of them.
+
+   The square you play inside a small board sends your opponent to the small
+   board in that position. If that board is already decided they may play
+   anywhere. A small board that fills with no winner is drawn and counts for
+   neither side.
+
+   Written for a room. For pass-and-play, game-shell.js swaps in a local MP whose
+   seat follows the move count. GameShell.init has to be first, it injects the
+   markup used below. */
+GameShell.init({
+  id: 'uttt',
+  name: 'Ultimate Tic-Tac-Toe',
+  modes: ['pass', 'room'],
+  seats_named: ['X', 'O'],
+  hudHtml: '',
+  onStart: render,
+  onUpdate: onUpdate,
+  onInfo: onInfo,
+  onRematch: playAgain,
+  isOver: isOver,
+  pollInterval: 1000
+});
+
+const WINS = [[0,1,2],[3,4,5],[6,7,8],[0,3,6],[1,4,7],[2,5,8],[0,4,8],[2,4,6]];
+const EMPTY81 = '-'.repeat(81);
+
+let cells = EMPTY81;       // index = mini*9 + square
+let minis = '---------';   // per small board: '-' undecided, 'X'/'O' won, 'D' drawn
+let forced = -1;           // the board you must play in, or -1 for anywhere
+let over = false;
+
+const mySymbol = () => MP.room.seat === 0 ? 'X' : 'O';
+const other = s => s === 'X' ? 'O' : 'X';
+
+const boardEl = document.getElementById('board');
+const statusEl = document.getElementById('status');
+
+/* Three in a row of `line`, where line is a 9-character string. Returns the
+   winning indices or null. Used for both a small board and the big one. */
+function lineWin(line){
+  for (const w of WINS){
+    const v = line[w[0]];
+    if (v !== '-' && v !== 'D' && v === line[w[1]] && v === line[w[2]]) return w;
+  }
+  return null;
+}
+
+function bigWinner(){
+  const w = lineWin(minis);
+  return w ? { sym: minis[w[0]], line: w } : null;
+}
+
+function isOver(){
+  return !!bigWinner() || !minis.includes('-');
+}
+
+// a small board you are allowed to enter: undecided, and either the one you were
+// sent to or any of them when that board is already decided
+function playableMini(m){
+  if (minis[m] !== '-') return false;
+  return forced === -1 || forced === m;
+}
+
+function render(){
+  boardEl.innerHTML = '';
+  const big = bigWinner();
+  over = isOver();
+  const bigSet = big ? new Set(big.line) : null;
+
+  for (let m = 0; m < 9; m++){
+    const mini = document.createElement('div');
+    mini.className = 'mini' +
+      (!over && playableMini(m) ? ' playable' : '') +
+      (bigSet && bigSet.has(m) ? ' wonline' : '');
+    for (let s = 0; s < 9; s++){
+      const v = cells[m*9+s];
+      const b = document.createElement('button');
+      b.className = 'sq' + (v === 'X' ? ' x' : v === 'O' ? ' o' : '');
+      b.textContent = v === '-' ? '' : v;
+      b.disabled = over || v !== '-' || !playableMini(m) || !MP.myTurn() || !MP.room.joined;
+      b.onclick = () => play(m, s);
+      mini.appendChild(b);
+    }
+    if (minis[m] !== '-'){
+      const v = document.createElement('div');
+      v.className = 'verdict ' + (minis[m] === 'X' ? 'x' : minis[m] === 'O' ? 'o' : 'd');
+      v.textContent = minis[m] === 'D' ? 'Drawn' : minis[m];
+      mini.appendChild(v);
+    }
+    boardEl.appendChild(mini);
+  }
+  updateStatus(big);
+}
+
+function updateStatus(big){
+  statusEl.classList.remove('hot');
+  over = isOver();
+  document.getElementById('againBtn').classList.toggle('hidden', !over || !MP.room.joined);
+  const me = mySymbol();
+  if (big){
+    statusEl.textContent = big.sym === me
+      ? `You win! (${big.sym})`
+      : `${big.sym} wins. Better luck next time`;
+    statusEl.classList.add('hot');
+  } else if (over){
+    statusEl.textContent = "Every board is decided - it's a draw!";
+  } else if (!MP.room.joined){
+    statusEl.textContent = `Share the code and wait for O to join… (you are ${me})`;
+  } else if (MP.myTurn()){
+    statusEl.textContent = forced === -1
+      ? `Your move (${me}) - any board`
+      : `Your move (${me})`;
+    statusEl.classList.add('hot');
+  } else {
+    statusEl.textContent = `Opponent's move (you are ${me})`;
+  }
+}
+
+async function play(m, s){
+  if (over || !MP.myTurn() || !playableMini(m)) return;
+  const i = m*9 + s;
+  if (cells[i] !== '-') return;
+  const sym = mySymbol();
+
+  const nextCells = cells.slice(0, i) + sym + cells.slice(i + 1);
+  const mineLine = nextCells.slice(m*9, m*9 + 9);
+  let verdict = minis[m];
+  if (lineWin(mineLine)) verdict = sym;
+  else if (!mineLine.includes('-')) verdict = 'D';
+  const nextMinis = minis.slice(0, m) + verdict + minis.slice(m + 1);
+  // the square played sends the opponent to the board in that position. if that
+  // board is already decided they may go anywhere
+  const nextForced = nextMinis[s] === '-' ? s : -1;
+
+  try {
+    await MP.move(JSON.stringify({ c: nextCells, m: nextMinis, z: nextForced }));
+    cells = nextCells; minis = nextMinis; forced = nextForced;
+    render();
+  } catch(e){
+    statusEl.textContent = e.message;
+  }
+}
+
+function onUpdate(stateStr){
+  try {
+    const s = JSON.parse(stateStr);
+    if (s && typeof s.c === 'string' && s.c.length === 81 &&
+        typeof s.m === 'string' && s.m.length === 9){
+      cells = s.c; minis = s.m;
+      forced = (typeof s.z === 'number') ? s.z : -1;
+    }
+  } catch(e){}
+  render();
+}
+
+/* Rematch in the same room, same code. The firmware alternates who opens, and
+   the local driver does the same. */
+async function playAgain(){
+  try {
+    await MP.reset(JSON.stringify({ c: EMPTY81, m: '---------', z: -1 }));
+    cells = EMPTY81; minis = '---------'; forced = -1; over = false;
+    render();
+  } catch(e){
+    statusEl.textContent = e.message;
+  }
+}
+
+function onInfo(j){
+  if (j.gone){ statusEl.textContent = 'Room expired.'; over = true; render(); MP.stop(); return; }
+  render();
+}
+</script>
+</body>
+</html>

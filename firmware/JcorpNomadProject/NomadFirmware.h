@@ -1,4 +1,4 @@
-// NomadFirmware.h - firmware updates without a cable: uploaded as a file from the admin page,
+// NomadFirmware.h - firmware updates without a PC: uploaded as a file from the admin page,
 // or fetched from nomadflash in WiFi Mode.
 //
 // The file is a .nomadfw: the app image as arduino-cli builds it, then a 512-byte trailer
@@ -9,7 +9,7 @@
 //
 // What keeps a bad update from bricking it:
 //   - only the slot that isn't running gets written, so a failure before the switch
-//     leaves the Nomad as it was
+//     leaves Nomad as it was
 //   - it won't switch unless the image checks out (IDF image check, SHA-256, signature,
 //     this board, newer unless asked otherwise)
 //   - after the restart the new firmware has to pass a self-test (card, network, web server,
@@ -36,6 +36,7 @@
 #include <esp_heap_caps.h>
 #include <mbedtls/sha256.h>
 #include <mbedtls/pk.h>
+#include "NomadUI.h"
 
 // the public half of the update key. Bench builds trust a throwaway key instead
 #if NOMAD_FW_DEVKEY
@@ -69,7 +70,7 @@
 #ifndef NOMAD_FW_BENCH_FAIL
 #define NOMAD_FW_BENCH_FAIL 0
 #endif
-// where the Nomad looks in WiFi Mode: <base><channel>/firmware.json, file urls relative to <base>
+// where Nomad looks in WiFi Mode: <base><channel>/firmware.json, file urls relative to <base>
 #ifndef NOMAD_FW_BASE
 #define NOMAD_FW_BASE NOMAD_UPDATE_BASE
 #endif
@@ -264,7 +265,7 @@ static bool fwStartWriter() {
 }
 
 // Fetching in WiFi Mode. Media is paused during it: TLS needs ~40 KB of the internal memory
-// streaming uses, and the Nomad restarts after anyway. The server certificate isn't checked
+// streaming uses, and Nomad restarts after anyway. The server certificate isn't checked
 // (no CA bundle to carry around). The file is trusted on its signature, so a tampered or
 // old file still gets refused.
 static String g_fwPullUrl;
@@ -368,6 +369,13 @@ static void fwDeadlineHit(void *) {
   esp_ota_mark_app_invalid_rollback_and_reboot();
 }
 
+// What the self-test asks of storage: what Nomad had when the switch was asked for.
+// A P4 runs with no card at all (its pages are in flash), so "the card reads" can't be a
+// blanket rule there: it would send every such update back. Recorded at apply as "st"
+// (bit 0 the card, bit 1 pages in flash); missing (an apply from older firmware) means the
+// card, as it always was.
+static uint8_t g_fwNeeds = 1;
+
 // early in setup(): a new image proving itself, or an old one that was gone back to
 static void nomadFirmwareBoot() {
   const esp_partition_t *run = esp_ota_get_running_partition();
@@ -376,6 +384,7 @@ static void nomadFirmwareBoot() {
   Preferences p;
   if (!p.begin("nomadfw", false)) return;
   const String pend = p.getString("pend", "");
+  g_fwNeeds = p.getUChar("st", 1);
   if (g_fwProving) {
 #if NOMAD_FW_BENCH_FAIL == 1
     abort();                                       // bench: crash while starting
@@ -399,7 +408,10 @@ static void nomadFirmwareBoot() {
 // from loop(): once it has been up long enough with everything working, keep it
 static void nomadFirmwareTick() {
   if (!g_fwProving || millis() < FW_PROVE_MS) return;
-  const bool sd = SD_MMC.cardType() != CARD_NONE;
+  // the card if there was one, and the pages in flash if they were there (a new image
+  // that can't mount its UI partition would otherwise serve nothing on a P4)
+  const bool sd = (!(g_fwNeeds & 1) || SD_MMC.cardType() != CARD_NONE) &&
+                  (!(g_fwNeeds & 2) || nomadUiActive());
   const bool net = !(NOMAD_FW_BENCH_FAIL == 3) &&   // bench: fail the check
       (g_staMode ? WiFi.status() == WL_CONNECTED : WiFi.softAPIP() != IPAddress(0, 0, 0, 0));
   const bool heap = heap_caps_get_free_size(MALLOC_CAP_INTERNAL) > 40 * 1024;
@@ -412,7 +424,7 @@ static void nomadFirmwareTick() {
     webLogf("success", "Firmware " NOMAD_FW_VERSION " started fine and is kept");
   } else if (millis() > FW_DEADLINE_MS - 5000) {
     g_fwProving = false;
-    String why = !sd ? "it couldn't read the SD card" : !net ? "its WiFi didn't come up" : !g_fwServerUp ? "its web server didn't start" : "it ran short of memory";
+    String why = !sd ? ((g_fwNeeds & 1) && SD_MMC.cardType() == CARD_NONE ? "it couldn't read the SD card" : "it couldn't find its pages in flash") : !net ? "its WiFi didn't come up" : !g_fwServerUp ? "its web server didn't start" : "it ran short of memory";
     Preferences p;
     if (p.begin("nomadfw", false)) { p.putString("why", why); p.end(); }
     webLogf("error", "Firmware " NOMAD_FW_VERSION " failed its start-up check (%s), going back", why.c_str());
@@ -546,7 +558,11 @@ static void nomadFirmwareRegister(AsyncWebServer &server) {
     esp_err_t e = esp_ota_set_boot_partition(g_fw.part);
     if (e != ESP_OK) { r->send(500, "application/json", String("{\"error\":\"") + esp_err_to_name(e) + "\"}"); return; }
     Preferences p;
-    if (p.begin("nomadfw", false)) { p.putString("pend", g_fw.version); p.remove("why"); p.remove("last"); p.end(); }
+    if (p.begin("nomadfw", false)) {
+      p.putString("pend", g_fw.version);
+      p.putUChar("st", (SD_MMC.cardType() != CARD_NONE ? 1 : 0) | (nomadUiActive() ? 2 : 0));
+      p.remove("why"); p.remove("last"); p.end();
+    }
     webLogf("info", "Restarting into firmware %s", g_fw.version.c_str());
     r->send(200, "application/json", "{\"restarting\":true}");
     g_wifiModeRestartAt = millis() + 1500;   // the loop's deferred restart, after this reply is out

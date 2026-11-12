@@ -5,6 +5,7 @@
     The provided LVGL library file must be installed first
 ******************************************************************************/
 #include "LVGL_Driver.h"
+#include "nomad_board.h"
 
 static lv_disp_draw_buf_t draw_buf;
 static lv_color_t buf1[ LVGL_BUF_LEN ];
@@ -27,7 +28,11 @@ void Lvgl_print(const char * buf)
 */
 void Lvgl_Display_LCD( lv_disp_drv_t *disp_drv, const lv_area_t *area, lv_color_t *color_p )
 {
+#if NOMAD_HAS_DISPLAY
   LCD_addWindow(area->x1, area->y1, area->x2, area->y2, ( uint16_t *)&color_p->full);
+#else
+  (void)area; (void)color_p;   // no panel: LVGL keeps its state, nothing is blitted
+#endif
   lv_disp_flush_ready( disp_drv );
 }
 /*Read the touchpad*/

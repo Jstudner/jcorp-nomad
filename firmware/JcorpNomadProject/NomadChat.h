@@ -1,6 +1,6 @@
-// NomadChat.h - the chat page's messages, kept by the Nomad.
+// NomadChat.h - the chat page's messages, kept by Nomad.
 //
-// The Nomad numbers each message as it arrives and keeps the last CHAT_KEEP in PSRAM, so
+// Nomad numbers each message as it arrives and keeps the last CHAT_KEEP in PSRAM, so
 // the order doesn't depend on phone clocks (often wrong offline):
 //   GET  /api/chat?after=N   {"epoch":E,"seq":S,"msgs":[{"s","t","n","x","c","m"}...]}
 //                            everything after N (at most CHAT_PAGE), from memory: no card

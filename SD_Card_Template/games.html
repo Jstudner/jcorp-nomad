@@ -1,5 +1,7 @@
 <!DOCTYPE html>
-<!-- Version 4 -->
+<!-- Version 7: Toolkit, Watch together, gzipped ROMs, folder cores, recently played,
+     #play= links, play modes with a filter and chips, '#' in file names, .md as a
+     Mega Drive ROM, zipped ROMs keep their cover -->
 <html lang="en">
 <head>
   <meta charset="UTF-8">
@@ -10,7 +12,7 @@
   <link rel="stylesheet" href="/master.css">
   <script src="/theme-boot.js?v=5"></script>
   <script src="/theme-manager.js?v=5"></script>
-  <script src="/nomad-utils.js?v=49"></script>
+  <script src="/nomad-utils.js?v=50"></script>
   <style>
     body {
       display: flex;
@@ -79,9 +81,8 @@
        under the card only labels the type */
     .meta { padding: 6px 4px 0; text-align: center; }
     .meta small { display: block; font-size: .72rem; color: var(--muted); }
-    /* EmulatorJS replaces #emu with its own container sized to the parent, so the size
-       lives on this wrapper. A rule on #emu is lost and the game area collapses to zero
-       height, which looks like a missing Start button. */
+    /* EmulatorJS replaces #emu with its own container sized to the parent, so size
+       this wrapper. A rule on #emu gets lost and the game area collapses to zero height. */
     #emuWrap {
       display: none;
       width: 100%;
@@ -93,9 +94,36 @@
       position: relative;
     }
     .note { grid-column: 1 / -1; text-align: center; color: var(--muted); }
+
+    /* How a game is played, shown under the type label. Own class names, master.css
+       already owns .badge. */
+    .mode-row { display: flex; flex-wrap: wrap; gap: 3px; justify-content: center; margin-top: 4px; }
+    .mode-chip {
+      font-size: .62rem;
+      line-height: 1;
+      padding: 3px 5px;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      color: var(--muted);
+      white-space: nowrap;
+    }
+    /* the chip row doesn't fit a 120px card, and the filter covers it */
+    .media-grid.small .mode-row { display: none; }
+
+    .empty-state { grid-column: 1/-1; text-align: center; color: var(--muted); padding: 2rem 1rem; }
+    .empty-state button {
+      margin-top: .75rem;
+      padding: .45rem 1rem;
+      border: 1px solid var(--line);
+      background: var(--card);
+      color: var(--text);
+      border-radius: var(--radius);
+      cursor: pointer;
+      font-size: .9rem;
+    }
     /* phones: the console filter gets the room its names need */
     @media (max-width: 600px) {
-      body .toolbar #consoleSelect { flex: 1 1 auto; min-width: 0; }
+      body .toolbar #modeSelect, body .toolbar #consoleSelect { flex: 1 1 auto; min-width: 0; }
       body .toolbar #sortSelect, body .toolbar #sizeSelect { flex: 0 0 auto; }
     }
     /* Recently played: one short row above the grid, per phone */
@@ -121,8 +149,14 @@
 
   <div class="toolbar">
     <input id="searchInput" type="search" placeholder="Search" aria-label="Search games">
-    <!-- filled from the games on the card -->
-    <select id="consoleSelect" aria-label="Filter by console">
+    <select id="modeSelect" aria-label="Filter by how it is played">
+      <option value="">All games</option>
+      <option value="solo">Single player</option>
+      <option value="pass">Pass &amp; play (1 device)</option>
+      <option value="room">Multiplayer (2 devices)</option>
+    </select>
+    <!-- filled from the games on the card; hidden when there are none -->
+    <select id="consoleSelect" aria-label="Filter by console" style="display:none;">
       <option value="">All Consoles</option>
     </select>
     <select id="sortSelect" aria-label="Sort games">
@@ -162,8 +196,13 @@
         ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[c]));
     }
 
-    // sticky offset from the header's real height. a fixed value either floats the
-    // toolbar over the first card row or lets it slide under a wrapped two-line header
+    /* encodeURI leaves '#' and '?' alone, so "Sonic #1.nes" would be requested as
+       "/Games/Sonic " and 404. Every card path that becomes a URL goes through here. */
+    function fileUrl(path) {
+      return encodeURI(path).replace(/#/g, '%23').replace(/\?/g, '%3F');
+    }
+
+    // sticky offset from the header's real height, it wraps to two lines on phones
     (function fitToolbar() {
       const apply = () => {
         const h = document.querySelector('header');
@@ -177,22 +216,86 @@
     const grid          = document.getElementById('grid');
     const emuWrap       = document.getElementById('emuWrap');
     const searchInput   = document.getElementById('searchInput');
+    const modeSelect    = document.getElementById('modeSelect');
     const consoleSelect = document.getElementById('consoleSelect');
     const sortSelect    = document.getElementById('sortSelect');
     const sizeSelect    = document.getElementById('sizeSelect');
 
-    let games         = [];   // ROM entries
-    let builtins      = [];   // built-in .html games shipped in /Games (delete the file -> card disappears)
-    let filtered      = [];
-    let debounceTimer = null;
+    let games            = [];   // ROM entries
+    let builtins         = [];   // built-in .html games shipped in /Games (delete the file -> card disappears)
+    let filtered         = [];   // ROMs passing the filters
+    let filteredBuiltins = [];
+    let debounceTimer    = null;
     let currentSize   = localStorage.getItem('nomadGamesSize') || 'medium';
-    let running       = null; // the game on screen, once one is started
+    /* the game on screen, once one is started. render() hides #emuWrap, so a late
+       re-render (search debounce, discoverModes() finishing) has to check this or it
+       blanks the page with the game still running underneath */
+    let running       = null;
     const RECENT_KEY  = 'nomad:games:recent:v1';   // ROM paths, newest first, per phone
+
+    // ---- Play modes ------------------------------------------------------
+    // What the mode filter buckets on, in the player's terms:
+    //   solo - one person can play it through alone (a bot, or a puzzle)
+    //   pass - two or more people share THIS device and take turns on it
+    //   room - needs a second device on the hotspot to play at all
+    // A game shows up under every bucket it supports (Chess is all three).
+    //
+    // Every built-in declares its modes in a <meta name="nomad-modes"> tag.
+    // This table copies those tags so the shelf needs no extra fetches. A
+    // user-added .html is read at runtime instead, see discoverModes().
+    //
+    // The table body is generated from the tags, keep notes above it, not
+    // inside, or regenerating it will eat them. Whiteboard syncs through the
+    // file API instead of /api/mp/*, but it still needs a second device, so it
+    // files under room. Same for Watch together.
+    const GAME_MODES = {
+      '15 puzzle':             ['solo'],
+      '2048':                  ['solo'],
+      'bulls and cows':        ['solo'],
+      'checkers':              ['solo', 'pass'],
+      'chess':                 ['solo', 'pass', 'room'],
+      'connect four':          ['pass', 'room'],
+      'crazy eights':          ['pass'],
+      'dots and boxes':        ['pass'],
+      'go':                    ['pass', 'room'],
+      'gomoku':                ['pass', 'room'],
+      'hex':                   ['pass', 'room'],
+      'klondike solitaire':    ['solo'],
+      'lights out':            ['solo'],
+      'mancala':               ['pass', 'room'],
+      'memory':                ['pass'],
+      'minesweeper':           ['solo'],
+      "nine men's morris":     ['pass', 'room'],
+      'peg solitaire':         ['solo'],
+      'pig':                   ['pass', 'room'],
+      'reversi':               ['solo', 'pass'],
+      'snake':                 ['solo'],
+      'sudoku':                ['solo'],
+      'tic-tac-toe':           ['pass', 'room'],
+      'toolkit':               ['solo'],
+      'ultimate tic-tac-toe':  ['pass', 'room'],
+      'watch together':        ['room'],
+      'whiteboard':            ['solo', 'room'],
+      'word puzzle':           ['solo'],
+      'yacht':                 ['pass', 'room']
+    };
+    const MODE_ORDER = ['solo', 'pass', 'room'];
+    const MODE_CHIP  = { solo: 'Solo', pass: 'Pass & Play', room: '2 Devices' };
+    const MODE_LABEL = { solo: 'single player', pass: 'pass & play', room: 'multiplayer' };
+
+    // Every ROM the shelf offers is a one-controller cartridge here: there is no
+    // second gamepad on a phone, so the page files them all under single player.
+    function modesOf(item) {
+      return item.builtin ? (item.modes || []) : ['solo'];
+    }
 
     // Built-ins pin to the top of the grid in this order. Anything else
     // (a user-added .html) follows alphabetically. Keys = lowercase filename minus .html.
-    const BUILTIN_ORDER = ['watch together', 'toolkit', 'go', 'connect four', 'chess', 'tic-tac-toe', 'whiteboard',
-                           'dots and boxes', 'crazy eights', '2048', 'minesweeper', 'snake'];
+    const BUILTIN_ORDER = ['watch together', 'toolkit',
+                           'chess', 'checkers', 'go', 'reversi', 'gomoku', 'hex', 'connect four',
+                           'tic-tac-toe', 'ultimate tic-tac-toe', 'dots and boxes', 'yacht', 'pig', 'memory', 'mancala', "nine men's morris", 'crazy eights',
+                           'klondike solitaire', 'word puzzle', 'sudoku', '15 puzzle', 'lights out', 'peg solitaire', 'bulls and cows',
+                           'minesweeper', '2048', 'snake', 'whiteboard'];
 
     // what the filter and the card badge call each system, in the filter's order
     const CONSOLE_LABEL = { nes: 'NES', snes: 'SNES', n64: 'N64', gb: 'Game Boy', gbc: 'Game Boy Color', gba: 'GBA',
@@ -240,11 +343,17 @@
       }
       return '';
     }
-    function deriveCore(path) {
+    // real cartridges for these cores are tens of KB at least
+    const ROM_MIN_BYTES = 32 * 1024;
+
+    function deriveCore(path, size) {
       const filename = path.split('/').pop().toLowerCase();
       const parts = filename.split('.');
       let ext = parts.pop();
       if (CONTAINER.includes(ext) && parts.length > 1 && EXT_CORE[parts[parts.length - 1]]) ext = parts.pop();
+      // '.md' is also Markdown, so a small .md (a README) isn't a Mega Drive ROM.
+      // Only this extension needs the size check.
+      if (ext === 'md' && typeof size === 'number' && size < ROM_MIN_BYTES) return '';
       if (EXT_CORE[ext]) return EXT_CORE[ext];
       if (!CONTAINER.includes(ext)) return '';
       const core = folderCore(path);
@@ -258,29 +367,9 @@
 
     async function init(attempt = 0) {
       try {
-        // Games bucket NDJSON index (media.json is only a bucket-count summary)
-        let res  = await fetch('/api/index?path=/Games', { cache: 'no-cache' });
-        // 503 means the SD is busy for a moment, not that the index is missing
-        for (let i = 0; i < 3 && res.status === 503; i++) {
-          await new Promise(r => setTimeout(r, 800 * (i + 1)));
-          res = await fetch('/api/index?path=/Games', { cache: 'no-cache' });
-        }
-        if (res.status === 202) {
-          // firmware is building the index right now, wait and retry
-          if (attempt < 8) {
-            grid.innerHTML = noteHTML('Building game index…');
-            setTimeout(() => init(attempt + 1), 4000);
-            return;
-          }
-          throw new Error('index still building');
-        }
-        if (!res.ok) throw new Error('index fetch failed ' + res.status);
-        const text  = await res.text();
-        const lines = text.split('\n').filter(Boolean);
-        const entries = [];
-        for (let i = 1; i < lines.length; i++) {
-          try { entries.push(JSON.parse(lines[i])); } catch (e) {}
-        }
+        // Games bucket NDJSON index. NomadIndex.fetch handles the 503 backoff, ETag
+        // revalidation and damaged lines, don't parse it by hand here.
+        const { entries } = await NomadIndex.fetch('/Games');
 
         const IMG_RE  = /\.(jpe?g|png|webp|gif|bmp)$/i;
         const HTML_RE = /\.html?$/i;
@@ -304,19 +393,29 @@
           .filter(f => HTML_RE.test(f.n) && f.p.split('/').length === 3)
           .map(f => {
             const base = f.n.replace(/\.[^/.]+$/, '');
-            const pin  = BUILTIN_ORDER.indexOf(base.toLowerCase());
+            const key  = base.toLowerCase();
+            const pin  = BUILTIN_ORDER.indexOf(key);
             return {
               name:  base.replace(/[_]+/g, ' ').trim() || f.n,
-              cover: coversByName.get(base.toLowerCase()) || 'placeholder.jpg',
+              // no sidecar art -> no img, so the card shows its own name. a
+              // placeholder image would hide the name
+              cover: coversByName.get(key) || null,
               file:  f.p,
               builtin: true,
+              // a game not in the table counts as single player until
+              // discoverModes() reads its meta tag. only declared games get chips
+              modes: GAME_MODES[key] || ['solo'],
+              declared: !!GAME_MODES[key],
+              // in the table == shipped with this page. a game someone added
+              // to /Games isn't labelled "Built-in"
+              shipped: !!GAME_MODES[key],
               pin:   pin < 0 ? BUILTIN_ORDER.length : pin
             };
           })
           .sort((a, b) => a.pin - b.pin || a.name.localeCompare(b.name));
 
         games = files
-          .filter(f => !IMG_RE.test(f.n) && !HTML_RE.test(f.n) && deriveCore(f.p))
+          .filter(f => !IMG_RE.test(f.n) && !HTML_RE.test(f.n) && deriveCore(f.p, f.sz))
           .map(f => {
             // Zelda.nes.zip is Zelda, with the cover Zelda.jpg
             const base = f.n.replace(/\.[^/.]+$/, '').replace(/\.(nes|fds|sfc|smc|gba|gbc|gb|n64|z64|v64|gen|md|smd|sms|psx|ps1|pbp|chd|cue)$/i, '');
@@ -327,7 +426,7 @@
               // fallback, same as movies/shows
               cover: covers.get((dir + base).toLowerCase()) || coversByName.get(base.toLowerCase()) || null,
               file:  f.p,
-              core:  deriveCore(f.p),
+              core:  deriveCore(f.p, f.sz),
               size:  f.sz || 0     // what the first start downloads (the gzipped size, if it is)
             };
           });
@@ -335,10 +434,47 @@
         buildConsoleFilter();
         applyFilters();
         playFromHash();
+        discoverModes();
       } catch (err) {
+        if (NomadIndex.isBuilding(err) && attempt < 8) {
+          // firmware is building the index right now, wait and retry
+          grid.innerHTML = noteHTML('Building game index…');
+          setTimeout(() => init(attempt + 1), 4000);
+          return;
+        }
         console.error('Failed to load Games index:', err);
         grid.innerHTML = noteHTML('Could not load games.');
       }
+    }
+
+    // Games this page did not ship with declare themselves in their own <head>:
+    //
+    //   <meta name="nomad-modes" content="solo,pass,room">
+    //
+    // Read after the first paint, and capped since each one is a separate
+    // request. Anything left unread stays single player.
+    const DISCOVER_LIMIT = 24;
+    async function discoverModes() {
+      const unknown = builtins.filter(b => !b.declared).slice(0, DISCOVER_LIMIT);
+      if (!unknown.length) return;
+      let changed = false;
+      for (const b of unknown) {
+        try {
+          const res = await fetch(fileUrl(b.file), { cache: 'no-store' });
+          if (!res.ok) continue;
+          const head  = (await res.text()).slice(0, 4096);
+          const match = /<meta[^>]*\bname=["']nomad-modes["'][^>]*\bcontent=["']([^"']*)["']/i.exec(head);
+          if (!match) continue;
+          const modes = match[1].split(',')
+            .map(s => s.trim().toLowerCase())
+            .filter(s => MODE_ORDER.includes(s));
+          if (!modes.length) continue;
+          b.modes = modes;
+          b.declared = true;
+          changed = true;
+        } catch (e) { /* unreadable file keeps the default */ }
+      }
+      if (changed) applyFilters();
     }
 
     // only the systems that have games on this card
@@ -350,17 +486,29 @@
       consoleSelect.innerHTML = '<option value="">All Consoles</option>' +
         cores.map(c => `<option value="${c}">${escapeHtml(CONSOLE_LABEL[c] || c.toUpperCase())}</option>`).join('');
       consoleSelect.value = have.has(keep) ? keep : '';
+      // hide consoles with no ROMs, and the whole control when there are none
+      consoleSelect.style.display = cores.length ? '' : 'none';
     }
 
     function applyFilters() {
-      const txt = searchInput.value.trim().toLowerCase();
-      const sys = consoleSelect.value;
-      filtered = games.filter(game => {
-        const okText = game.name.toLowerCase().includes(txt);
-        const okSys  = !sys || game.core === sys;
-        return okText && okSys;
-      });
+      const txt  = searchInput.value.trim().toLowerCase();
+      const sys  = consoleSelect.value;
+      const mode = modeSelect.value;
+
+      const okText = item => item.name.toLowerCase().includes(txt);
+      const okMode = item => !mode || modesOf(item).includes(mode);
+
+      // built-ins have no console, so picking one means "ROMs only"
+      filteredBuiltins = sys ? [] : builtins.filter(b => okText(b) && okMode(b));
+      filtered = games.filter(g => okText(g) && (!sys || g.core === sys) && okMode(g));
       applySort(sortSelect.value);
+    }
+
+    function clearFilters() {
+      searchInput.value   = '';
+      modeSelect.value    = '';
+      consoleSelect.value = '';
+      applyFilters();
     }
 
     function applySort(mode) {
@@ -382,6 +530,10 @@
       const imgHTML = item.cover
         ? `<img class="media-thumb" loading="lazy" alt="${escapeHtml(item.name)}">`
         : '';
+      // only games that declared their modes get chips
+      const chips = (item.builtin && !item.declared) ? '' :
+        MODE_ORDER.filter(m => modesOf(item).includes(m))
+          .map(m => `<span class="mode-chip">${MODE_CHIP[m]}</span>`).join('');
       card.innerHTML = `
         <div class="thumb-wrapper">
           <span class="fallback-text">${escapeHtml(item.name)}</span>
@@ -389,13 +541,14 @@
         </div>
         <div class="meta">
           <small>${badge}</small>
+          ${chips ? `<div class="mode-row">${chips}</div>` : ''}
         </div>`;
       const img = card.querySelector('img');
       const fallback = card.querySelector('.fallback-text');
       if (img) {
         img.onload  = () => { img.style.opacity = '1'; if (fallback) fallback.style.display = 'none'; };
         img.onerror = () => { img.style.display = 'none'; if (fallback) fallback.style.display = 'block'; };
-        NomadImages.observe(img, encodeURI(item.cover));   // a few covers at a time, near the viewport
+        NomadImages.observe(img, fileUrl(item.cover));   // a few covers at a time, near the viewport
       }
       card.onclick = onClick;
       return card;
@@ -410,31 +563,40 @@
     function renderRecent() {
       const box = document.getElementById('recent'), row = document.getElementById('recentRow');
       row.innerHTML = '';
-      const list = searchInput.value.trim() || consoleSelect.value ? [] :
+      const list = searchInput.value.trim() || consoleSelect.value || modeSelect.value ? [] :
         recentPaths().map(p => games.find(g => g.file === p)).filter(Boolean);
       box.hidden = !list.length;
       list.forEach(g => row.appendChild(makeCard(g, badgeFor(g), () => startGame(g))));
     }
 
     function render() {
+      if (running) return;      // see `running` above
       grid.innerHTML = '';
       grid.className = `media-grid ${currentSize}`;
       emuWrap.style.display = 'none';
       renderRecent();
 
-      // Built-ins pin to the top (own order, unaffected by the sort dropdown).
-      // A console filter hides them; the search box still matches their names.
-      const txt = searchInput.value.trim().toLowerCase();
-      const shownBuiltins = consoleSelect.value ? [] :
-        builtins.filter(b => b.name.toLowerCase().includes(txt));
-
-      if (!shownBuiltins.length && !filtered.length) {
-        grid.innerHTML = noteHTML('No games found.');
+      if (!filteredBuiltins.length && !filtered.length) {
+        // say which filters emptied the shelf, and offer the way back out
+        const active = [];
+        if (searchInput.value.trim()) active.push(`"${searchInput.value.trim()}"`);
+        if (modeSelect.value)    active.push(MODE_LABEL[modeSelect.value]);
+        if (consoleSelect.value) active.push(CONSOLE_LABEL[consoleSelect.value] || consoleSelect.value.toUpperCase());
+        const p = document.createElement('p');
+        p.className = 'empty-state';
+        p.innerHTML = active.length
+          ? `No games match ${escapeHtml(active.join(' + '))}.<br><button type="button">Show all games</button>`
+          : 'No games found.';
+        const btn = p.querySelector('button');
+        if (btn) btn.onclick = clearFilters;
+        grid.appendChild(p);
         return;
       }
 
-      shownBuiltins.forEach(b => {
-        grid.appendChild(makeCard(b, 'Built-in', () => { location.href = encodeURI(b.file); }));
+      // Built-ins pin to the top (own order, unaffected by the sort dropdown).
+      // A console filter hides them, the search box still matches their names.
+      filteredBuiltins.forEach(b => {
+        grid.appendChild(makeCard(b, b.shipped ? 'Built-in' : 'Added', () => { location.href = fileUrl(b.file); }));
       });
       filtered.forEach(game => {
         grid.appendChild(makeCard(game, badgeFor(game), () => startGame(game)));
@@ -498,7 +660,7 @@
       const EJS_SYSTEM = { gbc: 'gb', genesis: 'segaMD', sms: 'segaMS' };
 
       window.EJS_player     = '#emu';
-      window.EJS_gameUrl    = encodeURI(game.file);
+      window.EJS_gameUrl    = fileUrl(game.file);
       window.EJS_core       = EJS_SYSTEM[game.core] || game.core;
       window.EJS_pathtodata = '/EmulatorJS/data/';
       window.EJS_gameName   = game.name;
@@ -554,6 +716,7 @@
       clearTimeout(debounceTimer);
       debounceTimer = setTimeout(applyFilters, 150);
     });
+    modeSelect.addEventListener('change', applyFilters);
     consoleSelect.addEventListener('change', applyFilters);
     sortSelect.addEventListener('change', () => applySort(sortSelect.value));
 

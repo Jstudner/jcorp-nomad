@@ -1,9 +1,21 @@
 // usb_mode.cpp
+#include "nomad_board.h"
+
+#if !NOMAD_HAS_USB_MSC_DEV
+
+// This board has no USB device-mode port (its Type-C is a CH34x UART bridge and
+// the OTG high-speed port is the storage host), so there is no card-reader mode to
+// enter. The sketch still links against these, it just never reaches them.
+void usb_setup() {}
+void usb_loop() {}
+
+#else
+
 #include "boot_mode.h"      // for set_boot_mode()/MEDIA_MODE
 #include <USB.h>
 #include <USBMSC.h>
 #include "NomadSD.h"
-#define BOOT_BUTTON_PIN 0
+#define BOOT_BUTTON_PIN NOMAD_BOOT_BUTTON_PIN
 
 // TinyUSB soft connect/disconnect (compiled into the prebuilt core lib).
 // Used to re-enumerate once the disk is actually ready, see usb_setup().
@@ -16,12 +28,12 @@ extern "C" {
 USBMSC msc;
 
 // SDMMC pin configuration
-int clk = 14;
-int cmd = 15;
-int d0  = 16;
-int d1  = 18;
-int d2  = 17;
-int d3  = 21;
+int clk = NOMAD_SD_CLK;
+int cmd = NOMAD_SD_CMD;
+int d0  = NOMAD_SD_D0;
+int d1  = NOMAD_SD_D1;
+int d2  = NOMAD_SD_D2;
+int d3  = NOMAD_SD_D3;
 bool onebit = false; // using full 4-bit wiring
 
 // true once the host writes a sector this session. on exit it tells us the card
@@ -128,3 +140,5 @@ void usb_loop() {
     esp_restart();
   }
 }
+
+#endif  // NOMAD_HAS_USB_MSC_DEV

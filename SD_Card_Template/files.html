@@ -10,7 +10,7 @@
   <link rel="icon" href="favicon.ico" type="image/x-icon" />
   <link rel="stylesheet" href="/master.css" />
   <script src="/theme-boot.js?v=5"></script>
-  <script src="/nomad-utils.js?v=49"></script>
+  <script src="/nomad-utils.js?v=50"></script>
   <script src="/theme-manager.js?v=5"></script>
   <style>
     /* Functional CSS: Full-height layout and sticky positioning */
@@ -535,7 +535,7 @@
     const Thumbs = {
       PX: 320, HEAD: 69632, WHOLE_MAX: 3 * 1024 * 1024, WORKERS: 2, MARGIN: 120,
       q: [], busy: 0, io: null, gen: 0, urls: [],
-      paused: false,   // while the viewer is open, its one read has the Nomad to itself
+      paused: false,   // while the viewer is open, its one read has Nomad to itself
 
       reset() {
         this.gen++;
@@ -600,7 +600,7 @@
       }
     };
 
-    // the Nomad turns a read away (503) for a moment when it is busy: wait as asked and try again
+    // Nomad turns a read away (503) for a moment when it is busy: wait as asked and try again
     async function fetchRetry(url, opts) {
       for (let i = 0; ; i++) {
         const r = await fetch(url, opts);
@@ -713,7 +713,7 @@
       fvBody.innerHTML = '';
     }
 
-    /* The Nomad turns a read away (503) for a moment when it is busy, and a picture or a
+    /* Nomad turns a read away (503) for a moment when it is busy, and a picture or a
        player only sees that as an error. Try again after 1, 2 and 4 s before saying so. The
        retry gets its own query parameter because some browsers won't re-request a src. */
     function loadWithRetry(el, url, onFail) {
@@ -880,7 +880,7 @@ uploadInput.addEventListener('change', (e) => {
 /* admin toggle: the button only appears when uploads are allowed */
 NomadUI.config().then(c => {
   if(NomadUI.canUpload(c, 'files')) uploadBtn.style.display = '';
-  // downloads off for Files: no Download links (the Nomad refuses them anyway)
+  // downloads off for Files: no Download links (Nomad refuses them anyway)
   if(!NomadUI.canDownload(c, 'files')){ filesDownloadable = false; if(shown.length) renderFiles(); }
 });
 </script>

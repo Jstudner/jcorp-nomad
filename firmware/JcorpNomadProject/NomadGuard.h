@@ -303,7 +303,7 @@ static inline const char *nomadWriteMessage(NomadWriteVerdict v) {
     case NW_BAD_PATH:   return "Invalid path";
     case NW_NEVER:      return "That location cannot be changed";
     case NW_ADMIN:      return "Admin login required to change that";
-    case NW_GUESTS_OFF: return "Uploads are turned off on this Nomad";
+    case NW_GUESTS_OFF: return "Uploads are turned off on Nomad";
   }
   return "Refused";
 }

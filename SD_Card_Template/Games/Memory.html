@@ -1,0 +1,234 @@
+<!DOCTYPE html>
+<!-- Version 1 -->
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<meta name="nomad-modes" content="pass"/>
+<title>Nomad • Memory</title>
+<link rel="icon" href="/favicon.ico" type="image/x-icon">
+<link rel="stylesheet" href="/master.css">
+<script src="/theme-boot.js"></script>
+<script src="/theme-manager.js"></script>
+<script src="/assets/mp-client.js"></script>
+<script src="/assets/game-shell.js"></script>
+<style>
+  main{max-width:560px;margin:0 auto;padding:14px}
+  #board{display:grid;gap:clamp(4px,1.8vw,10px);width:100%;max-width:min(94vw,460px);
+    margin:0 auto;touch-action:manipulation;user-select:none}
+  .card2{position:relative;aspect-ratio:3/4;border:none;padding:0;border-radius:10px;
+    background:#3b5bdb;cursor:pointer;transition:transform .12s ease;
+    box-shadow:0 2px 4px rgba(0,0,0,.25)}
+  .card2:disabled{cursor:default}
+  /* the back: a plain woven look, so a face-down card never hints at its face */
+  .card2::after{content:'';position:absolute;inset:14%;border-radius:6px;
+    background:repeating-linear-gradient(45deg,#4c6ef5 0 6px,#3b5bdb 6px 12px)}
+  .card2.up,.card2.done{background:#fdfdfb;box-shadow:0 1px 3px rgba(0,0,0,.2)}
+  .card2.up::after,.card2.done::after{content:none}
+  .card2 .face{position:absolute;inset:0;display:flex;align-items:center;
+    justify-content:center;font-size:clamp(1.4rem,7vw,2.4rem);line-height:1}
+  /* Matched cards go grey so they don't look like a card you just turned over. */
+  .card2.done{opacity:.5;background:#e9ecef;box-shadow:none}
+  .card2.done .face{filter:grayscale(1)}
+  .card2.wrong{outline:3px solid #dc2626;outline-offset:-3px}
+  #scores{display:flex;justify-content:center;gap:22px;margin-bottom:10px;
+    color:var(--muted);font-size:.95rem}
+  #scores b{color:var(--text);font-size:1.15rem}
+  #scores .up{color:var(--primary)}
+</style>
+</head>
+<body>
+  <header>
+    <h1>Memory</h1>
+    <a class="back-btn" href="/games">← Back to Games</a>
+  </header>
+
+  <main></main>
+
+<script>
+/* Memory. Turn two cards over. A pair stays up and you go again.
+
+   Pass-and-play only. In a room the card layout would go over /api/mp/* and the
+   other phone could just read it, so there's no room mode.
+
+   The faces are emoji, so there are no image files to ship.
+
+   A turn is several taps (two cards, then a look at a miss), so nothing is
+   sent until the turn ends. */
+GameShell.init({
+  id: 'memory',
+  name: 'Memory',
+  modes: ['pass'],
+  seats_named: ['One', 'Two'],
+  hudHtml: '<div id="scores"></div>',
+  preCreateHtml:
+    '<select id="sizeSel" aria-label="How many pairs">' +
+      '<option value="6">6 pairs - short</option>' +
+      '<option value="8" selected>8 pairs</option>' +
+      '<option value="12">12 pairs - long</option>' +
+    '</select>',
+  handoff: true,
+  handoffNote: 'The cards you just saw are face down again.',
+  onStart: onStart,
+  onUpdate: onUpdate,
+  onInfo: onInfo,
+  onRematch: playAgain,
+  isOver: isOver,
+  pollInterval: 1000
+});
+
+/* Twelve faces with different shapes and colours, easy to tell apart small. */
+const FACES = ['🍋','🐙','🚂','🌵','⚓','🎈','🦋','🍄','🔑','🌙','🎸','🐧'];
+
+let cols = 4;
+let layout = [];      // face index per card
+let found = [];       // 0 = face down, 1 = matched and staying up
+let up = [];          // the one or two cards turned over right now
+let score = [0, 0];
+let showingMiss = false;   // a mismatch is on screen waiting to be looked at
+let over = false;
+
+const statusEl = document.getElementById('status');
+const mySeat = () => MP.room.seat;
+
+function isOver(){
+  return found.length > 0 && found.every(v => v === 1);
+}
+
+function render(){
+  over = isOver();
+  const boardEl = document.getElementById('board');
+  boardEl.style.gridTemplateColumns = `repeat(${cols},1fr)`;
+  boardEl.innerHTML = '';
+  for (let i = 0; i < layout.length; i++){
+    const isUp = found[i] === 1 || up.indexOf(i) >= 0;
+    const b = document.createElement('button');
+    b.className = 'card2' + (found[i] === 1 ? ' done' : isUp ? ' up' : '') +
+      (showingMiss && up.indexOf(i) >= 0 ? ' wrong' : '');
+    b.disabled = over || showingMiss || found[i] === 1 || up.indexOf(i) >= 0 || up.length >= 2;
+    b.setAttribute('aria-label', isUp ? `Card showing ${FACES[layout[i]]}` : 'Face-down card');
+    if (isUp) b.innerHTML = `<span class="face">${FACES[layout[i]]}</span>`;
+    b.onclick = () => flip(i);
+    boardEl.appendChild(b);
+  }
+  document.getElementById('scores').innerHTML = [0, 1].map(s =>
+    `<span class="${(!over && MP.room.seat === s) ? 'up' : ''}">` +
+    `${GameShell.seatName(s)} <b>${score[s]}</b></span>`).join('');
+  updateStatus();
+}
+
+function updateStatus(){
+  statusEl.classList.remove('hot');
+  over = isOver();
+  document.getElementById('againBtn').classList.toggle('hidden', !over);
+  if (over){
+    const w = score[0] > score[1] ? 0 : score[1] > score[0] ? 1 : -1;
+    statusEl.textContent = w < 0
+      ? `A tie, ${score[0]} pairs each!`
+      : `${GameShell.seatName(w)} wins, ${Math.max(...score)} pairs to ${Math.min(...score)}`;
+    statusEl.classList.add('hot');
+  } else if (showingMiss){
+    statusEl.textContent = 'Not a pair - tap anywhere when you have looked';
+    statusEl.classList.add('hot');
+  } else {
+    statusEl.textContent = up.length === 1
+      ? `${GameShell.seatName(mySeat())} - turn one more over`
+      : `${GameShell.seatName(mySeat())} to play`;
+    statusEl.classList.add('hot');
+  }
+}
+
+function flip(i){
+  if (over || showingMiss || found[i] === 1 || up.length >= 2) return;
+  if (up.indexOf(i) >= 0) return;
+  up.push(i);
+  if (up.length < 2){ render(); return; }
+
+  if (layout[up[0]] === layout[up[1]]){
+    found[up[0]] = 1; found[up[1]] = 1;
+    score[mySeat()]++;
+    up = [];
+    render();
+    // a pair means another go, so nothing is sent yet
+    if (isOver()) endTurn();
+    return;
+  }
+  // a miss stays on screen until it has been looked at
+  showingMiss = true;
+  render();
+}
+
+/* Tapping anywhere once a miss is up turns them back and ends the turn. The
+   shell's handoff screen then covers the board while the phone changes hands. */
+function dismissMiss(){
+  if (!showingMiss) return;
+  showingMiss = false;
+  up = [];
+  render();
+  endTurn();
+}
+
+async function endTurn(){
+  try {
+    await MP.move(JSON.stringify({ l: layout.join(''), f: found.join(''), s: score.join(',') }));
+    render();
+  } catch(e){
+    statusEl.textContent = e.message;
+  }
+}
+
+function deal(pairs){
+  const faces = [];
+  for (let i = 0; i < pairs; i++){ faces.push(i, i); }
+  for (let i = faces.length - 1; i > 0; i--){      // Fisher-Yates, unbiased
+    const j = Math.floor(Math.random() * (i + 1));
+    const t = faces[i]; faces[i] = faces[j]; faces[j] = t;
+  }
+  return faces;
+}
+
+function onStart(){
+  const pairs = Number(document.getElementById('sizeSel').value) || 8;
+  cols = pairs === 6 ? 4 : pairs === 8 ? 4 : 6;
+  layout = deal(pairs);
+  found = new Array(layout.length).fill(0);
+  up = []; score = [0, 0]; showingMiss = false; over = false;
+  render();
+}
+
+function onUpdate(stateStr){
+  try {
+    const s = JSON.parse(stateStr);
+    if (s && typeof s.l === 'string' && s.l.length){
+      layout = s.l.split('').map(Number);
+      found = String(s.f || '').split('').map(Number);
+      score = String(s.s || '0,0').split(',').map(Number);
+      up = []; showingMiss = false;
+    }
+  } catch(e){}
+  render();
+}
+
+async function playAgain(){
+  const pairs = layout.length / 2;
+  layout = deal(pairs);
+  found = new Array(layout.length).fill(0);
+  up = []; score = [0, 0]; showingMiss = false; over = false;
+  try {
+    await MP.reset(JSON.stringify({ l: layout.join(''), f: found.join(''), s: '0,0' }));
+    render();
+  } catch(e){
+    statusEl.textContent = e.message;
+  }
+}
+
+function onInfo(j){
+  if (j.gone){ statusEl.textContent = 'Room expired.'; over = true; render(); MP.stop(); return; }
+  render();
+}
+
+// tapping anywhere clears a miss, including the dead cards themselves
+document.addEventListener('click', () => { if (showingMiss) dismissMiss(); }, true);
+</script>
+</body>
+</html>

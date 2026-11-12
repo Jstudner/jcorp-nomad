@@ -1,0 +1,311 @@
+<!DOCTYPE html>
+<!-- Version 1 -->
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<meta name="nomad-modes" content="pass,room"/>
+<title>Nomad • Hex</title>
+<link rel="icon" href="/favicon.ico" type="image/x-icon">
+<link rel="stylesheet" href="/master.css">
+<script src="/theme-boot.js"></script>
+<script src="/theme-manager.js"></script>
+<script src="/assets/mp-client.js"></script>
+<script src="/assets/game-shell.js"></script>
+<style>
+  main{max-width:620px;margin:0 auto;padding:14px}
+  /* Fixed colours: the two sides are red and blue in every Hex set ever made. */
+  #board{width:100%;max-width:min(96vw,560px);margin:0 auto;display:block;
+    touch-action:manipulation;user-select:none}
+  #board svg{width:100%;height:auto;display:block}
+  .cell{fill:#e8d9b8;stroke:#9a7b4f;stroke-width:1.1;cursor:default}
+  .cell.open{cursor:pointer}
+  .cell.open:hover{fill:#f3e8d0}
+  .cell.r{fill:#dc2626;stroke:#7f1d1d}
+  .cell.b{fill:#2563eb;stroke:#1e3a8a}
+  .cell.win{stroke:#fff;stroke-width:2.4}
+  .cell.last{stroke:#111;stroke-width:2.2}
+  #sides{text-align:center;color:var(--muted);font-size:.9rem;margin-bottom:8px}
+  #sides .r{color:#dc2626;font-weight:700}
+  #sides .b{color:#2563eb;font-weight:700}
+</style>
+</head>
+<body>
+  <header>
+    <h1>Hex</h1>
+    <a class="back-btn" href="/games">← Back to Games</a>
+  </header>
+
+  <main></main>
+
+<script>
+/* Hex. Red joins top to bottom, Blue joins left to right, on a rhombus of
+   hexagons. Hex can't be drawn, so there's no draw case below.
+
+   THE SWAP RULE. After the opening stone the second player may take it instead
+   of answering it, so opening in the strongest cell is a bad idea (otherwise
+   the first player always wins). Taking it swaps colours, so which seat has
+   which colour is part of the state.
+
+   The swap costs a move like any other, so the firmware's seat == seq % 2 still
+   holds:
+
+     stones  swapped  seq  to play  seat  seq%2
+       0        no     0     Red      0      0
+       1        no     1     Blue     1      1
+       1       yes     2     Blue     0      0     <- the swap consumed seq 1
+       2       yes     3     Red      1      1
+
+   Whose colour is up comes from the stone count, never from seq, because the
+   swap breaks the simple alternation. */
+GameShell.init({
+  id: 'hex',
+  name: 'Hex',
+  modes: ['pass', 'room'],
+  seats_named: ['Red', 'Blue'],
+  preCreateHtml:
+    '<select id="sizeSel" aria-label="Board size">' +
+      '<option value="7">7 × 7 board</option>' +
+      '<option value="9" selected>9 × 9 board</option>' +
+      '<option value="11">11 × 11 board</option>' +
+    '</select>',
+  hudHtml: '<div id="sides"></div>',
+  actionsHtml: '<button class="btn hidden" id="swapBtn" onclick="doSwap()">Take that stone</button>',
+  onStart: onStart,
+  onUpdate: onUpdate,
+  onInfo: onInfo,
+  onRematch: playAgain,
+  isOver: function(){ return !!winnerOf(board, size); },
+  pollInterval: 1000
+});
+
+const DIRS = [[0,-1],[0,1],[-1,0],[-1,1],[1,-1],[1,0]];
+
+let size = 9;
+let board = '';
+let swapped = 0;
+let last = -1;
+let over = false;
+
+const stoneCount = () => board.split('').filter(c => c !== '-').length;
+// never from seq: the swap consumes a move without adding a stone
+const toPlay = () => stoneCount() % 2 === 0 ? 'R' : 'B';
+const myColour = () => swapped
+  ? (MP.room.seat === 0 ? 'B' : 'R')
+  : (MP.room.seat === 0 ? 'R' : 'B');
+const colourName = c => c === 'R' ? 'Red' : 'Blue';
+const other = c => c === 'R' ? 'B' : 'R';
+
+const boardEl = document.getElementById('board');
+const statusEl = document.getElementById('status');
+
+/* Red owns the top and bottom rows, Blue the left and right columns. A win is
+   a path through your own stones from one of your edges to the other. */
+function winnerOf(b, n){
+  for (const p of ['R', 'B']){
+    const seen = new Uint8Array(n * n);
+    const stack = [];
+    for (let k = 0; k < n; k++){
+      const i = p === 'R' ? k : k * n;          // top row, or left column
+      if (b[i] === p){ seen[i] = 1; stack.push(i); }
+    }
+    while (stack.length){
+      const i = stack.pop();
+      const r = Math.floor(i / n), c = i % n;
+      if (p === 'R' ? r === n - 1 : c === n - 1) return p;
+      for (const [dr, dc] of DIRS){
+        const y = r + dr, x = c + dc;
+        if (y < 0 || y >= n || x < 0 || x >= n) continue;
+        const j = y * n + x;
+        if (!seen[j] && b[j] === p){ seen[j] = 1; stack.push(j); }
+      }
+    }
+  }
+  return null;
+}
+
+/* The winning path, for highlighting. Recomputed from the board so both
+   devices show the same path. */
+function winPath(b, n, p){
+  const prev = new Int16Array(n * n).fill(-1);
+  const seen = new Uint8Array(n * n);
+  const queue = [];
+  for (let k = 0; k < n; k++){
+    const i = p === 'R' ? k : k * n;
+    if (b[i] === p){ seen[i] = 1; queue.push(i); }
+  }
+  for (let q = 0; q < queue.length; q++){
+    const i = queue[q];
+    const r = Math.floor(i / n), c = i % n;
+    if (p === 'R' ? r === n - 1 : c === n - 1){
+      const path = [];
+      for (let k = i; k !== -1; k = prev[k]) path.push(k);
+      return path;
+    }
+    for (const [dr, dc] of DIRS){
+      const y = r + dr, x = c + dc;
+      if (y < 0 || y >= n || x < 0 || x >= n) continue;
+      const j = y * n + x;
+      if (!seen[j] && b[j] === p){ seen[j] = 1; prev[j] = i; queue.push(j); }
+    }
+  }
+  return [];
+}
+
+function render(){
+  const n = size, R = 10;
+  const w = Math.sqrt(3) * R;
+  const cx = (r, c) => w * (c + r / 2) + w;
+  const cy = r => 1.5 * R * r + R;
+  const vbW = w * (n + n / 2) + w, vbH = 1.5 * R * (n - 1) + 2 * R + R;
+
+  const win = winnerOf(board, size);
+  over = !!win;
+  const path = win ? new Set(winPath(board, size, win)) : null;
+  const mine = MP.myTurn() && MP.room.joined && !over;
+
+  let svg = `<svg viewBox="0 0 ${vbW.toFixed(1)} ${vbH.toFixed(1)}" `
+    + `role="group" aria-label="Hex board">`;
+  // the four edges, so it is obvious which sides belong to whom
+  const edge = (pts, colour) =>
+    `<polyline points="${pts}" fill="none" stroke="${colour}" stroke-width="3.2" ` +
+    `stroke-linecap="round" stroke-linejoin="round"/>`;
+  const corner = (r, c, k) => {
+    const a = Math.PI / 180 * (60 * k - 90);
+    return [(cx(r, c) + R * Math.cos(a)).toFixed(1),
+            (cy(r) + R * Math.sin(a)).toFixed(1)].join(',');
+  };
+  let top = [], bot = [], left = [], right = [];
+  for (let c = 0; c < n; c++){
+    top.push(corner(0, c, 4), corner(0, c, 5), corner(0, c, 0));
+    bot.push(corner(n - 1, c, 1), corner(n - 1, c, 2), corner(n - 1, c, 3));
+  }
+  for (let r = 0; r < n; r++){
+    left.push(corner(r, 0, 3), corner(r, 0, 4), corner(r, 0, 5));
+    right.push(corner(r, n - 1, 0), corner(r, n - 1, 1), corner(r, n - 1, 2));
+  }
+  svg += edge(top.join(' '), '#dc2626') + edge(bot.join(' '), '#dc2626');
+  svg += edge(left.join(' '), '#2563eb') + edge(right.join(' '), '#2563eb');
+
+  for (let r = 0; r < n; r++){
+    for (let c = 0; c < n; c++){
+      const i = r * n + c;
+      const v = board[i];
+      const pts = [0,1,2,3,4,5].map(k => corner(r, c, k)).join(' ');
+      const open = mine && v === '-';
+      let cls = 'cell' + (v === 'R' ? ' r' : v === 'B' ? ' b' : '') +
+        (open ? ' open' : '') + (path && path.has(i) ? ' win' : '') +
+        (i === last && !path ? ' last' : '');
+      svg += `<polygon class="${cls}" points="${pts}" ` +
+        (open ? `role="button" tabindex="0" ` : '') +
+        `data-i="${i}" aria-label="Row ${r + 1} column ${c + 1}` +
+        `${v === '-' ? ' empty' : ', ' + colourName(v)}"/>`;
+    }
+  }
+  boardEl.innerHTML = svg + '</svg>';
+  /* SVG elements have no .click() or keyboard activation, so role="button" and
+     tabindex alone do nothing. Enter and Space are wired by hand. */
+  boardEl.querySelectorAll('.cell.open').forEach(el => {
+    const go = () => play(Number(el.dataset.i));
+    el.addEventListener('click', go);
+    el.addEventListener('keydown', ev => {
+      if (ev.key === 'Enter' || ev.key === ' '){ ev.preventDefault(); go(); }
+    });
+  });
+  updateStatus(win);
+}
+
+function canSwap(){
+  return !swapped && stoneCount() === 1 && MP.myTurn() && MP.room.joined && !over;
+}
+
+function updateStatus(win){
+  statusEl.classList.remove('hot');
+  document.getElementById('againBtn').classList.toggle('hidden', !over || !MP.room.joined);
+  document.getElementById('swapBtn').classList.toggle('hidden', !canSwap());
+  const me = myColour();
+  document.getElementById('sides').innerHTML =
+    '<span class="r">Red</span> joins top to bottom &nbsp;·&nbsp; ' +
+    '<span class="b">Blue</span> joins left to right' +
+    (MP.room.joined ? ` &nbsp;&middot;&nbsp; you are <b>${colourName(me)}</b>` : '');
+
+  if (win){
+    statusEl.textContent = `${colourName(win)} connects and wins` +
+      ((!GameShell.isLocal() && win === me) ? ' (you!)' : '');
+    statusEl.classList.add('hot');
+  } else if (!MP.room.joined){
+    statusEl.textContent = `Share the code and wait for Blue to join… (you are ${colourName(me)})`;
+  } else if (MP.myTurn()){
+    statusEl.textContent = canSwap()
+      ? `Your move (${colourName(me)}) - or take their stone instead`
+      : `Your move (${colourName(me)})`;
+    statusEl.classList.add('hot');
+  } else {
+    statusEl.textContent = `Opponent's move (you are ${colourName(me)})`;
+  }
+}
+
+async function send(){
+  await MP.move(JSON.stringify({ n: size, b: board, w: swapped, l: last }));
+}
+
+async function play(i){
+  if (over || !MP.myTurn() || !MP.room.joined) return;
+  if (board[i] !== '-') return;
+  if (myColour() !== toPlay()) return;           // belt and braces against parity drift
+  const prev = board, prevLast = last;
+  board = board.slice(0, i) + toPlay() + board.slice(i + 1);
+  last = i;
+  render();
+  try { await send(); }
+  catch(e){ board = prev; last = prevLast; statusEl.textContent = e.message; render(); }
+}
+
+/* Taking the opening stone costs a move, which keeps seq parity right. The
+   stone stays where it is and stays Red, but Red is now the other seat. */
+async function doSwap(){
+  if (!canSwap()) return;
+  swapped = 1;
+  render();
+  try { await send(); }
+  catch(e){ swapped = 0; statusEl.textContent = e.message; render(); }
+}
+
+function onStart(){
+  size = Number(document.getElementById('sizeSel').value) || 9;
+  board = '-'.repeat(size * size);
+  swapped = 0; last = -1; over = false;
+  render();
+}
+
+function onUpdate(stateStr){
+  try {
+    const s = JSON.parse(stateStr);
+    if (s && typeof s.b === 'string' && s.n && s.b.length === s.n * s.n){
+      size = s.n;
+      board = s.b;
+      swapped = s.w ? 1 : 0;
+      last = (typeof s.l === 'number') ? s.l : -1;
+    }
+  } catch(e){}
+  render();
+}
+
+async function playAgain(){
+  try {
+    const fresh = '-'.repeat(size * size);
+    await MP.reset(JSON.stringify({ n: size, b: fresh, w: 0, l: -1 }), 0);
+    board = fresh; swapped = 0; last = -1; over = false;
+    render();
+  } catch(e){
+    statusEl.textContent = e.message;
+  }
+}
+
+function onInfo(j){
+  if (j.gone){ statusEl.textContent = 'Room expired.'; over = true; render(); MP.stop(); return; }
+  render();
+}
+</script>
+</body>
+</html>

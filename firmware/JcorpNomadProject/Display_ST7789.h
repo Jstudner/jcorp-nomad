@@ -1,37 +1,18 @@
 #pragma once
 #include <Arduino.h>
 #include <SPI.h>
+#include "nomad_board.h"
 #define LCD_WIDTH   172 //LCD width
 #define LCD_HEIGHT  320 //LCD height
 
 #define SPIFreq                        80000000
 #define EXAMPLE_PIN_NUM_MISO           -1
-#define EXAMPLE_PIN_NUM_MOSI           45
-#define EXAMPLE_PIN_NUM_SCLK           40
-#define EXAMPLE_PIN_NUM_LCD_CS         42
-#define EXAMPLE_PIN_NUM_LCD_DC         41
-#define EXAMPLE_PIN_NUM_LCD_RST        39
-// Board-specific backlight pin. The ESP32-S3-LCD-1.47 (USB-A) drives the LCD
-// backlight from GPIO 48, the 1.47B (USB-C) moves it to GPIO 46. That's the
-// only firmware-visible difference between the two boards, the .ino is the
-// same for both.
-//   BOARD_USB_C = 0  ->  GPIO 48, USB-A board (default)
-//   BOARD_USB_C = 1  ->  GPIO 46, USB-C / 1.47B board
-// Build the USB-C image with -DBOARD_USB_C=1 (tools/flash-nomad.sh --usbc), or
-// just edit the 0 below to a 1.
-//
-// It has to be set in this header. Display_ST7789.cpp is a separate translation unit,
-// so a #define in the sketch never reaches it and the board silently keeps GPIO 48:
-// dark screen, no error.
-#ifndef BOARD_USB_C
-#define BOARD_USB_C 0
-#endif
-
-#if BOARD_USB_C
-#define EXAMPLE_PIN_NUM_BK_LIGHT       46
-#else
-#define EXAMPLE_PIN_NUM_BK_LIGHT       48
-#endif
+#define EXAMPLE_PIN_NUM_MOSI           NOMAD_LCD_MOSI
+#define EXAMPLE_PIN_NUM_SCLK           NOMAD_LCD_SCLK
+#define EXAMPLE_PIN_NUM_LCD_CS         NOMAD_LCD_CS
+#define EXAMPLE_PIN_NUM_LCD_DC         NOMAD_LCD_DC
+#define EXAMPLE_PIN_NUM_LCD_RST        NOMAD_LCD_RST
+#define EXAMPLE_PIN_NUM_BK_LIGHT       NOMAD_LCD_BL
 #define Frequency       1000                    // PWM frequencyconst 
 #define Resolution      10                      
 

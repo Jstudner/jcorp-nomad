@@ -1,4 +1,4 @@
-// NomadZimCore.h - reads pages out of a ZIM (Kiwix archive) on the Nomad itself, so the
+// NomadZimCore.h - reads pages out of a ZIM (Kiwix archive) on Nomad itself, so the
 // archive reader works on every phone over plain http, scripts and all. Kiwix's own
 // hotspots do the same with kiwix-serve. Without a server answering a page's requests,
 // a browser can only do it through a service worker, and those need a secure page.
@@ -36,7 +36,7 @@ namespace nzim {
 struct Hooks {
   // read [off, off+n) of one part file, false on a card error or a busy card
   bool (*read)(void *file, uint64_t off, uint8_t *buf, size_t n);
-  void *(*bigAlloc)(size_t n);   // PSRAM on the Nomad
+  void *(*bigAlloc)(size_t n);   // PSRAM on Nomad
   void (*bigFree)(void *p);
   size_t (*largestFree)();       // biggest single allocation bigAlloc could make now
   uint64_t (*nowUs)();           // optional: a clock, for the time counters below

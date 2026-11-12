@@ -29,6 +29,7 @@
 #include <esp_app_desc.h>
 #include <esp_core_dump.h>
 #include <esp_heap_caps.h>
+#include <esp_task_wdt.h>
 
 static const uint32_t SAFE_MAGIC = 0x5AFE0DE5;
 static const uint32_t SAFE_AFTER = 3;
@@ -36,6 +37,25 @@ static const uint32_t SAFE_WINDOW_MS = 5UL * 60 * 1000;
 
 RTC_NOINIT_ATTR static uint32_t g_safeMagic;
 RTC_NOINIT_ATTR static uint32_t g_crashRun;    // crash restarts in a row, each soon after the last start
+
+// A task watchdog reset is stored as a crash in whatever ran the watchdog's interrupt (the
+// idle task, at its PC), so a hang of async_tcp shows up as IDLE1. The watchdog knows
+// which task stopped feeding it: its interrupt hands the lines it would print to this
+// hook, and they survive the reset here. Only meaningful while the stored crash is that
+// hang. Any other crash, or forgetting it, clears it.
+static const uint32_t WDT_MAGIC = 0x4D06D06E;
+RTC_NOINIT_ATTR static uint32_t g_wdtMagic;
+RTC_NOINIT_ATTR static char g_wdtLines[96];
+static void nomadWdtLine(void *, const char *msg) {
+  size_t n = strnlen(g_wdtLines, sizeof(g_wdtLines) - 1);
+  while (*msg && n < sizeof(g_wdtLines) - 1) g_wdtLines[n++] = *msg++;
+  g_wdtLines[n] = 0;
+}
+extern "C" void esp_task_wdt_isr_user_handler(void) {
+  g_wdtLines[0] = 0;
+  esp_task_wdt_print_triggered_tasks(nomadWdtLine, nullptr, nullptr);
+  g_wdtMagic = WDT_MAGIC;
+}
 
 static uint32_t g_crashRunAtBoot = 0;          // what the counter said when this start began
 static bool g_safeCleared = false;
@@ -45,9 +65,16 @@ static volatile uint32_t g_supportCrashAt = 0;     // bench: loop() crashes on p
 struct NomadCrash {
   bool stored = false, corrupted = false;
   char task[16] = "";
+  char hung[24] = "";   // a watchdog reset: the task that stopped feeding it (task is the idle task)
   char elf[APP_ELF_SHA256_SZ + 1] = "";
   uint32_t pc = 0, cause = 0, addr = 0, depth = 0;
   uint32_t bt[16] = {};
+  // RISC-V (the P4) keeps no backtrace in the summary, only the trap registers and a raw
+  // stack dump: cause is mcause, addr mtval, and ra/sp are what names the caller
+  bool riscv = false;
+  uint32_t ra = 0, sp = 0;
+  uint8_t *stack = nullptr;   // the raw stack dump (PSRAM), what support-decode.py walks for callers
+  uint32_t stackLen = 0;
 };
 static NomadCrash g_crash;
 
@@ -98,7 +125,41 @@ static void nomadSafeBoot() {
     for (uint32_t i = 0; i < g_crash.depth; i++) g_crash.bt[i] = s->exc_bt_info.bt[i];
   }
   free(s);
+#elif defined(__riscv)
+  esp_core_dump_summary_t *s = (esp_core_dump_summary_t *)malloc(sizeof(esp_core_dump_summary_t));
+  // an erased coredump partition still answers ESP_OK here, with whatever flash held: an
+  // empty stack dump is the sign there is no crash stored
+  if (s && esp_core_dump_get_summary(s) == ESP_OK && s->exc_bt_info.dump_size > 0) {
+    g_crash.stored = true;
+    g_crash.riscv = true;
+    strlcpy(g_crash.task, s->exc_task, sizeof(g_crash.task));
+    memcpy(g_crash.elf, s->app_elf_sha256, APP_ELF_SHA256_SZ);
+    g_crash.elf[APP_ELF_SHA256_SZ] = 0;
+    g_crash.pc = s->exc_pc;
+    g_crash.cause = s->ex_info.mcause;
+    g_crash.addr = s->ex_info.mtval;
+    g_crash.ra = s->ex_info.ra;
+    g_crash.sp = s->ex_info.sp;
+    const uint32_t n = min((uint32_t)sizeof(s->exc_bt_info.stackdump), s->exc_bt_info.dump_size);
+    g_crash.stack = (uint8_t *)heap_caps_malloc(n, MALLOC_CAP_SPIRAM);
+    if (g_crash.stack) { memcpy(g_crash.stack, s->exc_bt_info.stackdump, n); g_crash.stackLen = n; }
+  }
+  free(s);
 #endif
+
+  // the watchdog's lines read " - async_tcp (CPU 1)": the first name is the one that hung
+  if (g_wdtMagic == WDT_MAGIC && resetIsCrash(rr) && rr != ESP_RST_TASK_WDT) g_wdtMagic = 0;
+  if (g_wdtMagic == WDT_MAGIC && g_crash.stored) {
+    g_wdtLines[sizeof(g_wdtLines) - 1] = 0;
+    const char *a = strstr(g_wdtLines, " - ");
+    if (a) {
+      a += 3;
+      size_t n = 0;
+      while (a[n] && a[n] != ' ' && a[n] != '\n' && n < sizeof(g_crash.hung) - 1) n++;
+      memcpy(g_crash.hung, a, n);
+      g_crash.hung[n] = 0;
+    }
+  }
 
   if (g_safeMode) {
     Serial.printf("[SAFE] %u crash restarts in a row: starting in safe mode (no boot index check, no DLNA)\n",
@@ -111,7 +172,7 @@ static void nomadSafeLog() {
   if (!g_safeMode) return;
   if (g_crash.stored)
     webLogf("error", "Safe mode: crashed %u times in a row, last in %s at 0x%08x. Indexing and TV support are off until a normal start.",
-            (unsigned)g_crashRunAtBoot, g_crash.task, (unsigned)g_crash.pc);
+            (unsigned)g_crashRunAtBoot, g_crash.hung[0] ? g_crash.hung : g_crash.task, (unsigned)g_crash.pc);
   else
     webLogf("error", "Safe mode: crashed %u times in a row. Indexing and TV support are off until a normal start.",
             (unsigned)g_crashRunAtBoot);
@@ -179,13 +240,26 @@ static String supportJson() {
     JsonObject c = d["crash"].to<JsonObject>();
     c["thisStart"] = resetIsCrash(rr);   // the stored one is what ended the last run
     c["task"] = g_crash.task;
+    if (g_crash.hung[0]) c["hung"] = g_crash.hung;
     c["elf"] = g_crash.elf;
-    c["sameBuild"] = strncmp(elf, g_crash.elf, strlen(g_crash.elf)) == 0;
+    c["sameBuild"] = g_crash.elf[0] && strncmp(elf, g_crash.elf, strlen(g_crash.elf)) == 0;
     char hex[11];
     snprintf(hex, sizeof(hex), "0x%08x", (unsigned)g_crash.pc); c["pc"] = hex;
     snprintf(hex, sizeof(hex), "0x%08x", (unsigned)g_crash.addr); c["addr"] = hex;
     c["cause"] = g_crash.cause;
     c["corrupted"] = g_crash.corrupted;
+    if (g_crash.riscv) {
+      c["arch"] = "riscv";
+      snprintf(hex, sizeof(hex), "0x%08x", (unsigned)g_crash.ra); c["ra"] = hex;
+      snprintf(hex, sizeof(hex), "0x%08x", (unsigned)g_crash.sp); c["sp"] = hex;
+      if (g_crash.stack && g_crash.stackLen) {
+        String st;
+        st.reserve(g_crash.stackLen * 2);
+        static const char *dig = "0123456789abcdef";
+        for (uint32_t i = 0; i < g_crash.stackLen; i++) { st += dig[g_crash.stack[i] >> 4]; st += dig[g_crash.stack[i] & 15]; }
+        c["stack"] = st;   // from sp upwards, as the summary saved it
+      }
+    }
     JsonArray bt = c["bt"].to<JsonArray>();
     for (uint32_t i = 0; i < g_crash.depth; i++) { snprintf(hex, sizeof(hex), "0x%08x", (unsigned)g_crash.bt[i]); bt.add(hex); }
   }
@@ -211,7 +285,7 @@ static void nomadSupportRegister(AsyncWebServer &server) {
   server.on("/api/support/forget-crash", HTTP_POST, [](AsyncWebServerRequest *r) {
     if (!checkAdminAuth(r)) { r->send(401, "application/json", "{\"error\":\"Unauthorized\"}"); return; }
     const esp_err_t e = esp_core_dump_image_erase();
-    if (e == ESP_OK) g_crash = NomadCrash();
+    if (e == ESP_OK) { heap_caps_free(g_crash.stack); g_crash = NomadCrash(); g_wdtMagic = 0; }
     r->send(e == ESP_OK ? 200 : 500, "application/json", e == ESP_OK ? "{\"ok\":true}" : "{\"error\":\"Couldn't erase it\"}");
   });
 #ifdef NOMAD_FW_BENCH

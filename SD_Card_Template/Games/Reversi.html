@@ -1,0 +1,325 @@
+<!DOCTYPE html>
+<!-- Version 1 -->
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no"/>
+<meta name="nomad-modes" content="solo,pass"/>
+<title>Nomad • Reversi</title>
+<link rel="icon" href="/favicon.ico" type="image/x-icon">
+<link rel="stylesheet" href="/master.css">
+<script src="/theme-boot.js"></script>
+<script src="/theme-manager.js"></script>
+<script src="/assets/reversi-engine.js"></script>
+<style>
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0}
+  main{max-width:520px;margin:0 auto;padding:12px 12px 28px}
+
+  .bar{display:flex;gap:8px;align-items:center;justify-content:center;flex-wrap:wrap;margin-bottom:10px}
+  .seg{display:flex;border:1px solid var(--line);border-radius:8px;overflow:hidden}
+  .seg button{background:var(--card);color:var(--text);border:none;padding:8px 13px;
+    font-size:.92rem;cursor:pointer;border-right:1px solid var(--line)}
+  .seg button:last-child{border-right:none}
+  .seg button[aria-pressed="true"]{background:var(--primary);color:var(--color-white,#fff)}
+  .btn{background:var(--primary);color:var(--color-white,#fff);border:none;border-radius:8px;
+    padding:9px 16px;cursor:pointer;font-size:.95rem}
+  .btn.secondary{background:transparent;color:var(--primary);border:1px solid var(--primary)}
+
+  /* Score strip, using the same discs as the board. */
+  .score{display:flex;align-items:center;justify-content:center;gap:18px;margin:10px 0 8px}
+  .side{display:flex;align-items:center;gap:9px;padding:7px 13px;border-radius:999px;
+    border:1px solid transparent;font-variant-numeric:tabular-nums}
+  .side.turn{border-color:var(--primary);background:rgba(var(--primary-rgb,0,123,255),.10)}
+  .side .n{font-size:1.25rem;font-weight:700;color:var(--text)}
+  .side .who{font-size:.82rem;color:var(--muted)}
+  .chip{width:22px;height:22px;border-radius:50%;flex:none}
+  .chip.b{background:#16181d;border:1px solid #000}
+  .chip.w{background:#f7f5f0;border:1px solid #b9b4aa}
+
+  #board{display:grid;grid-template-columns:repeat(8,1fr);aspect-ratio:1;width:100%;
+    background:var(--rv-line);gap:2px;border:5px solid var(--rv-edge);border-radius:6px;
+    overflow:hidden;touch-action:manipulation;user-select:none}
+  .sq{background:var(--rv-felt);position:relative;display:flex;align-items:center;
+    justify-content:center;cursor:default}
+  .sq.legal{cursor:pointer}
+  .disc{width:82%;height:82%;border-radius:50%}
+  .disc.b{background:#16181d}
+  .disc.w{background:#f7f5f0}
+  /* Legal moves show as a faint ghost of the disc you would place. */
+  .sq.legal::after{content:'';position:absolute;width:30%;height:30%;border-radius:50%;
+    background:rgba(255,255,255,.40)}
+  .sq.legal.dark::after{background:rgba(0,0,0,.34)}
+  .sq.last{box-shadow:inset 0 0 0 3px var(--primary)}
+
+  .status{text-align:center;color:var(--muted);min-height:1.5em;margin:10px 0 4px}
+  .status.hot{color:var(--primary);font-weight:600}
+  .status.win{color:var(--success,#28a745);font-weight:700}
+  .foot{display:flex;gap:8px;justify-content:center;flex-wrap:wrap;margin-top:10px}
+  .hidden{display:none!important}
+  :focus-visible{outline:2px solid var(--primary);outline-offset:2px}
+
+  /* Board stays green felt in every theme, like Chess's squares. Only the
+     surrounding UI follows the theme. */
+  :root{ --rv-felt:#1f7a4d; --rv-line:#17603c; --rv-edge:#123f2a; }
+</style>
+</head>
+<body>
+  <header>
+    <h1>Reversi</h1>
+    <a class="back-btn" href="/games">← Back to Games</a>
+  </header>
+
+  <main>
+    <div class="bar">
+      <div class="seg" id="mode" role="group" aria-label="Mode">
+        <button type="button" data-m="solo" aria-pressed="true">Solo</button>
+        <button type="button" data-m="pass" aria-pressed="false">Pass &amp; Play</button>
+      </div>
+      <div class="seg" id="level" role="group" aria-label="Bot strength">
+        <button type="button" data-l="1" aria-pressed="false">Easy</button>
+        <button type="button" data-l="4" aria-pressed="true">Medium</button>
+        <button type="button" data-l="6" aria-pressed="false">Hard</button>
+      </div>
+    </div>
+
+    <div class="score">
+      <div class="side" id="sideB"><span class="chip b"></span>
+        <span class="n" id="scoreB">2</span><span class="who" id="whoB">You</span></div>
+      <div class="side" id="sideW"><span class="chip w"></span>
+        <span class="n" id="scoreW">2</span><span class="who" id="whoW">Bot</span></div>
+    </div>
+
+    <div id="board" role="grid" aria-label="Reversi board"></div>
+    <div class="status" id="status"></div>
+
+    <div class="foot">
+      <button class="btn" id="newBtn" type="button">New game</button>
+      <button class="btn secondary" id="undoBtn" type="button">Undo</button>
+    </div>
+  </main>
+
+<script>
+'use strict';
+/* Reversi. Solo against the bundled engine, or pass-and-play on one device.
+   No room mode yet.
+
+   Rules and search come from /assets/reversi-engine.js, read its header first.
+   moveAutomatically returns a result wrapping the next state, and an illegal
+   moveManually reports zero flips instead of throwing. */
+
+if (typeof window.ThawReversi === 'undefined') {
+  document.addEventListener('DOMContentLoaded', function () {
+    document.getElementById('status').textContent =
+      'Reversi engine failed to load (/assets/reversi-engine.js). Re-copy the assets folder to the card.';
+  });
+  throw new Error('reversi-engine.js missing');
+}
+
+var R = window.ThawReversi;
+var BLACK = R.tokens.black;   // 'O'
+var WHITE = R.tokens.white;   // 'X'
+var EMPTY = R.tokens.empty;   // ' '
+
+var boardEl  = document.getElementById('board');
+var statusEl = document.getElementById('status');
+
+var state = null;        // engine game state
+var undoStack = [];      // board strings + whose turn, for Undo
+var mode = 'solo';       // 'solo' | 'pass'
+var level = 4;           // bot maxPly
+var lastMove = -1;       // index of the most recent placement
+var busy = false;        // true while the bot is thinking
+var humanIs = BLACK;     // in solo the human always takes black, who moves first
+
+function boardStr() { return state.boardAsString; }
+
+/* The engine can't list legal moves, so try the move on a throwaway game and
+   see if anything flipped. Cheap at 64 squares and always matches the engine. */
+function legalMoves(bstr, player) {
+  var out = [];
+  for (var i = 0; i < 64; i++) {
+    if (bstr[i] !== EMPTY) continue;
+    var probe = R.createInitialState(bstr, player);
+    var after = R.moveManually(probe, (i / 8) | 0, i % 8);
+    if (after.numPiecesFlippedInLastMove > 0) out.push(i);
+  }
+  return out;
+}
+
+function render() {
+  var b = boardStr();
+  var legal = busy ? [] : legalMoves(b, state.player);
+  var legalSet = {};
+  for (var k = 0; k < legal.length; k++) legalSet[legal[k]] = true;
+  var showGhosts = !state.isGameOver && !busy &&
+                   (mode === 'pass' || state.player === humanIs);
+
+  for (var i = 0; i < 64; i++) {
+    var sq = boardEl.children[i];
+    sq.className = 'sq';
+    sq.innerHTML = '';
+    var c = b[i];
+    if (c !== EMPTY) {
+      var d = document.createElement('div');
+      d.className = 'disc ' + (c === BLACK ? 'b' : 'w');
+      sq.appendChild(d);
+    } else if (showGhosts && legalSet[i]) {
+      sq.classList.add('legal');
+      if (state.player === WHITE) sq.classList.add('dark');
+    }
+    if (i === lastMove) sq.classList.add('last');
+  }
+
+  var pb = state.populations[BLACK], pw = state.populations[WHITE];
+  document.getElementById('scoreB').textContent = pb;
+  document.getElementById('scoreW').textContent = pw;
+  document.getElementById('sideB').classList.toggle('turn',
+    !state.isGameOver && state.player === BLACK);
+  document.getElementById('sideW').classList.toggle('turn',
+    !state.isGameOver && state.player === WHITE);
+  document.getElementById('whoB').textContent = mode === 'solo' ? 'You' : 'Black';
+  document.getElementById('whoW').textContent = mode === 'solo' ? 'Bot' : 'White';
+
+  updateStatus(legal.length);
+}
+
+function updateStatus(legalCount) {
+  statusEl.className = 'status';
+  if (state.isGameOver) {
+    var pb = state.populations[BLACK], pw = state.populations[WHITE];
+    statusEl.classList.add('win');
+    if (pb === pw) statusEl.textContent = 'A draw, ' + pb + ' each.';
+    else if (mode === 'solo') {
+      statusEl.textContent = (pb > pw ? 'You win ' : 'The bot wins ') +
+        Math.max(pb, pw) + ' to ' + Math.min(pb, pw) + '.';
+    } else {
+      statusEl.textContent = (pb > pw ? 'Black wins ' : 'White wins ') +
+        Math.max(pb, pw) + ' to ' + Math.min(pb, pw) + '.';
+    }
+    return;
+  }
+  if (busy) { statusEl.textContent = 'Thinking…'; return; }
+  var side = state.player === BLACK ? 'Black' : 'White';
+  if (!legalCount) {
+    statusEl.textContent = side + ' has no legal move and must pass.';
+    return;
+  }
+  if (mode === 'solo' && state.player !== humanIs) { statusEl.textContent = 'Bot to move.'; return; }
+  statusEl.classList.add('hot');
+  statusEl.textContent = mode === 'solo' ? 'Your move.' : side + ' to move.';
+}
+
+function pushUndo() {
+  undoStack.push({ b: boardStr(), p: state.player, last: lastMove });
+  if (undoStack.length > 120) undoStack.shift();
+  document.getElementById('undoBtn').disabled = false;
+}
+
+function applyAt(i) {
+  pushUndo();
+  state = R.moveManually(state, (i / 8) | 0, i % 8);
+  lastMove = i;
+}
+
+/* The engine passes the turn on every moveManually, even when the new player
+   has no legal move. In Reversi that player passes, so handle it here. */
+function resolvePasses() {
+  for (var guard = 0; guard < 4; guard++) {
+    if (state.isGameOver) return;
+    if (legalMoves(boardStr(), state.player).length) return;
+    var other = state.player === BLACK ? WHITE : BLACK;
+    if (!legalMoves(boardStr(), other).length) {
+      state.isGameOver = true;      // neither side can move: the game is over
+      return;
+    }
+    state = R.createInitialState(boardStr(), other);
+  }
+}
+
+function step() {
+  resolvePasses();
+  render();
+  if (state.isGameOver) return;
+  if (mode === 'solo' && state.player !== humanIs) {
+    busy = true;
+    render();
+    // Yield first so "Thinking…" paints before a deep search blocks the thread.
+    setTimeout(function () {
+      var res = R.moveAutomatically(state, level);
+      if (res && res.gameState) {
+        pushUndo();
+        lastMove = res.bestRow * 8 + res.bestColumn;
+        state = res.gameState;
+      }
+      busy = false;
+      step();
+    }, 30);
+  }
+}
+
+function tap(i) {
+  if (busy || state.isGameOver) return;
+  if (mode === 'solo' && state.player !== humanIs) return;
+  if (boardStr()[i] !== EMPTY) return;
+  var probe = R.createInitialState(boardStr(), state.player);
+  if (R.moveManually(probe, (i / 8) | 0, i % 8).numPiecesFlippedInLastMove === 0) return;
+  applyAt(i);
+  step();
+}
+
+function newGame() {
+  state = R.createInitialState(R.createInitialBoard(), BLACK);
+  undoStack = [];
+  document.getElementById('undoBtn').disabled = true;
+  lastMove = -1;
+  busy = false;
+  step();
+}
+
+function undo() {
+  if (busy) return;
+  // In solo, one "turn" is the human's move plus the bot's reply, so undo both.
+  var steps = (mode === 'solo') ? 2 : 1;
+  var prev = null;
+  while (steps-- > 0 && undoStack.length) prev = undoStack.pop();
+  if (!prev) return;
+  state = R.createInitialState(prev.b, prev.p);
+  lastMove = prev.last;
+  document.getElementById('undoBtn').disabled = !undoStack.length;
+  render();
+}
+
+for (var i = 0; i < 64; i++) {
+  var sq = document.createElement('div');
+  sq.className = 'sq';
+  sq.setAttribute('role', 'gridcell');
+  (function (n) { sq.onclick = function () { tap(n); }; })(i);
+  boardEl.appendChild(sq);
+}
+
+document.querySelectorAll('#mode button').forEach(function (b) {
+  b.onclick = function () {
+    document.querySelectorAll('#mode button').forEach(function (o) {
+      o.setAttribute('aria-pressed', String(o === b));
+    });
+    mode = b.dataset.m;
+    document.getElementById('level').classList.toggle('hidden', mode !== 'solo');
+    newGame();
+  };
+});
+document.querySelectorAll('#level button').forEach(function (b) {
+  b.onclick = function () {
+    document.querySelectorAll('#level button').forEach(function (o) {
+      o.setAttribute('aria-pressed', String(o === b));
+    });
+    level = parseInt(b.dataset.l, 10);
+  };
+});
+document.getElementById('newBtn').onclick = newGame;
+document.getElementById('undoBtn').onclick = undo;
+
+newGame();
+</script>
+</body>
+</html>

@@ -1,0 +1,215 @@
+<!DOCTYPE html>
+<!-- Version 1 -->
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no"/>
+<meta name="nomad-modes" content="solo"/>
+<title>Nomad • Peg Solitaire</title>
+<link rel="icon" href="/favicon.ico" type="image/x-icon">
+<link rel="stylesheet" href="/master.css">
+<script src="/theme-boot.js"></script>
+<script src="/theme-manager.js"></script>
+<style>
+  main{max-width:480px;margin:0 auto;padding:14px}
+  .bar{display:flex;gap:10px;align-items:center;flex-wrap:wrap;justify-content:center;margin-bottom:12px}
+  .btn{background:var(--primary);color:var(--color-white,#fff);border:none;border-radius:8px;
+    padding:10px 18px;cursor:pointer;font-size:1rem;min-height:44px}
+  .btn.secondary{background:transparent;color:var(--primary);border:1px solid var(--primary)}
+  .btn:disabled{opacity:.45;cursor:default}
+  .hud{display:flex;justify-content:center;gap:18px;color:var(--muted);font-size:.92rem;margin-bottom:10px}
+  .hud b{color:var(--text)}
+  /* Fixed wooden board colours, they don't follow the theme. */
+  #board{display:grid;grid-template-columns:repeat(7,1fr);gap:clamp(3px,1.4vw,8px);
+    width:100%;max-width:min(90vw,380px);margin:0 auto;background:#7a4f28;
+    border-radius:16px;padding:clamp(6px,2.4vw,14px);box-sizing:border-box;
+    touch-action:manipulation;user-select:none}
+  .hole{aspect-ratio:1;border:none;padding:0;border-radius:50%;background:transparent;
+    cursor:default;position:relative}
+  .hole.on{background:#5e3a1b;box-shadow:inset 0 3px 5px rgba(0,0,0,.55)}
+  .hole.peg::after{content:'';position:absolute;inset:11%;border-radius:50%;
+    background:radial-gradient(circle at 34% 28%,#f4e3c8,#c9a063 72%);
+    box-shadow:0 2px 3px rgba(0,0,0,.45)}
+  .hole.pick{cursor:pointer}
+  .hole.sel::before{content:'';position:absolute;inset:-8%;border-radius:50%;
+    box-shadow:0 0 0 3px #f0c070}
+  .hole.dest::before{content:'';position:absolute;inset:18%;border-radius:50%;
+    background:#f0c070;opacity:.75}
+  .status{text-align:center;color:var(--muted);min-height:1.5em;margin:12px 0}
+  .status.win{color:var(--primary);font-weight:700;font-size:1.05rem}
+  .foot{display:flex;gap:10px;justify-content:center;margin-top:6px;flex-wrap:wrap}
+</style>
+</head>
+<body>
+  <header>
+    <h1>Peg Solitaire</h1>
+    <a class="back-btn" href="/games">← Back to Games</a>
+  </header>
+
+  <main>
+    <div class="bar">
+      <button class="btn" id="newBtn" type="button">New game</button>
+      <button class="btn secondary" id="undoBtn" type="button">Undo</button>
+    </div>
+
+    <div class="hud">
+      <span>Pegs left <b id="left">32</b></span>
+      <span>Best <b id="best">—</b></span>
+    </div>
+
+    <div id="board" role="grid" aria-label="Peg board"></div>
+    <div class="status" id="status"></div>
+  </main>
+
+<script>
+'use strict';
+/* Peg Solitaire on the English board: a 33-hole cross, every hole filled but the
+   middle. Jump a peg straight over its neighbour into the empty hole beyond and
+   the jumped peg comes off. Solo, so it never touches /api/mp/*.
+
+   Finishing with one peg wins, and one peg in the centre is the classic
+   problem. Both are reported.
+
+   The opening position is fixed and known to be solvable. The game ends when no
+   jump is left, so check for that or the board just stops responding. */
+
+const N = 7;
+/* The English cross: a 7x7 square with each 2x2 corner cut away. */
+const VALID = [];
+for (let r = 0; r < N; r++){
+  for (let c = 0; c < N; c++){
+    const corner = (r < 2 || r > 4) && (c < 2 || c > 4);
+    VALID.push(!corner);
+  }
+}
+const CENTRE = 3 * N + 3;
+
+const boardEl  = document.getElementById('board');
+const statusEl = document.getElementById('status');
+const leftEl   = document.getElementById('left');
+const bestEl   = document.getElementById('best');
+
+let pegs = [];
+let sel = -1;
+let undoStack = [];
+let done = false;
+
+const BEST_KEY = 'nomad_pegsolitaire_best';
+const pegCount = () => pegs.reduce((a, v) => a + (v ? 1 : 0), 0);
+
+function readBest(){
+  try { return parseInt(localStorage.getItem(BEST_KEY), 10) || 0; } catch(e){ return 0; }
+}
+function writeBest(v){
+  try { localStorage.setItem(BEST_KEY, String(v)); } catch(e){}
+}
+
+/* Every jump from `i`: two along a row or column, over a peg, into a hole. */
+function jumpsFrom(i){
+  if (!VALID[i] || !pegs[i]) return [];
+  const r = Math.floor(i / N), c = i % N;
+  const out = [];
+  for (const [dr, dc] of [[-1,0],[1,0],[0,-1],[0,1]]){
+    const mr = r + dr, mc = c + dc, tr = r + 2 * dr, tc = c + 2 * dc;
+    if (tr < 0 || tr >= N || tc < 0 || tc >= N) continue;
+    const mid = mr * N + mc, to = tr * N + tc;
+    if (!VALID[mid] || !VALID[to]) continue;
+    if (pegs[mid] && !pegs[to]) out.push({ mid: mid, to: to });
+  }
+  return out;
+}
+
+function anyJump(){
+  for (let i = 0; i < N * N; i++) if (jumpsFrom(i).length) return true;
+  return false;
+}
+
+function tap(i){
+  if (done || !VALID[i]) return;
+  if (pegs[i]){
+    // tapping a peg picks it up, or puts it down again
+    sel = (sel === i) ? -1 : (jumpsFrom(i).length ? i : -1);
+    render();
+    return;
+  }
+  if (sel < 0) return;
+  const move = jumpsFrom(sel).find(m => m.to === i);
+  if (!move) return;
+  undoStack.push({ from: sel, mid: move.mid, to: move.to });
+  pegs[sel] = 0; pegs[move.mid] = 0; pegs[move.to] = 1;
+  sel = -1;
+  render();
+  if (!anyJump()) finish();
+}
+
+function undo(){
+  if (done || !undoStack.length) return;
+  const m = undoStack.pop();
+  pegs[m.from] = 1; pegs[m.mid] = 1; pegs[m.to] = 0;
+  sel = -1;
+  render();
+}
+
+function finish(){
+  done = true;
+  const n = pegCount();
+  const prev = readBest();
+  const record = !prev || n < prev;
+  if (record) writeBest(n);
+  statusEl.className = 'status win';
+  if (n === 1 && pegs[CENTRE]){
+    statusEl.textContent = 'One peg, and it is in the centre. That is the perfect game.';
+  } else if (n === 1){
+    statusEl.textContent = 'Down to a single peg - just not the middle one.';
+  } else {
+    statusEl.textContent = `No jumps left, ${n} pegs remaining.` + (record ? ' A new best.' : '');
+  }
+  render();
+}
+
+function render(){
+  boardEl.innerHTML = '';
+  const dests = sel >= 0 ? new Set(jumpsFrom(sel).map(m => m.to)) : null;
+  for (let i = 0; i < N * N; i++){
+    const b = document.createElement('button');
+    if (!VALID[i]){
+      b.className = 'hole';
+      b.disabled = true;
+      b.setAttribute('aria-hidden', 'true');
+      b.tabIndex = -1;
+      boardEl.appendChild(b);
+      continue;
+    }
+    const canPick = !done && pegs[i] && jumpsFrom(i).length > 0;
+    const isDest = !done && dests && dests.has(i);
+    b.className = 'hole on' + (pegs[i] ? ' peg' : '') +
+      (canPick || isDest ? ' pick' : '') +
+      (i === sel ? ' sel' : '') + (isDest ? ' dest' : '');
+    b.disabled = !(canPick || isDest);
+    b.setAttribute('aria-label',
+      `Row ${Math.floor(i / N) + 1} column ${i % N + 1}, ${pegs[i] ? 'peg' : 'empty'}`);
+    b.onclick = () => tap(i);
+    boardEl.appendChild(b);
+  }
+  leftEl.textContent = pegCount();
+  const best = readBest();
+  bestEl.textContent = best ? best + (best === 1 ? ' peg' : ' pegs') : '—';
+  document.getElementById('undoBtn').disabled = done || !undoStack.length;
+}
+
+function newGame(){
+  pegs = VALID.map(v => v ? 1 : 0);
+  pegs[CENTRE] = 0;
+  sel = -1; undoStack = []; done = false;
+  statusEl.className = 'status';
+  statusEl.textContent = 'Jump a peg over its neighbour into the empty hole.';
+  render();
+}
+
+document.getElementById('newBtn').onclick = newGame;
+document.getElementById('undoBtn').onclick = undo;
+
+newGame();
+</script>
+</body>
+</html>

@@ -5,6 +5,7 @@
 <meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/>
 <title>Nomad • Toolkit</title>
+<meta name="nomad-modes" content="solo"/>
 <link rel="icon" href="/favicon.ico" type="image/x-icon">
 <link rel="stylesheet" href="/master.css">
 <script src="/theme-boot.js?v=5"></script>
@@ -333,7 +334,7 @@ function show(tool) {
 }
 $('tabs').addEventListener('click', (e) => { const b = e.target.closest('[data-t]'); if (b) show(b.dataset.t); });
 
-// timers: several at once; the end time is kept, so a reload carries on
+// timers: several at once. the end time is kept, so a reload carries on
 let timers = Store.get('timers', [{ name: 'Timer 1', total: 300, left: 300, end: 0 }]);
 const fmt = (s) => { s = Math.max(0, Math.ceil(s)); const h = Math.floor(s / 3600), m = Math.floor(s % 3600 / 60), x = s % 60;
   return (h ? h + ':' + String(m).padStart(2, '0') : m) + ':' + String(x).padStart(2, '0'); };
@@ -657,7 +658,7 @@ $('mtDown').onclick = () => setBpm(mt.bpm - 1);
 $('mtUp').onclick = () => setBpm(mt.bpm + 1);
 $('mtSig').onchange = () => { mt.sig = +$('mtSig').value; mtBeat = 0; drawMt(); };
 $('mtTap').onclick = () => {
-  // the tempo of the last few taps; a pause of two seconds starts a new count
+  // the tempo of the last few taps. a pause of two seconds starts a new count
   const now = performance.now();
   if (taps.length && now - taps[taps.length - 1] > 2000) taps = [];
   taps.push(now); if (taps.length > 6) taps.shift();

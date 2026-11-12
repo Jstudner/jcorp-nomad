@@ -19,6 +19,7 @@ Compiled into the firmware image.
 | [LVGL](https://github.com/lvgl/lvgl) | 8.x | MIT |
 | [XZ Embedded](https://github.com/tukaani-project/xz-embedded) (`firmware/JcorpNomadProject/src/xz/`, for archives made before 2021, licence text beside it) | v2024-12-30 | 0BSD |
 | [Zstandard](https://github.com/facebook/zstd) decoder (`firmware/JcorpNomadProject/src/zstd/`, the release's lib/ decoder sources in one file, licence text beside it) | 1.5.7 | BSD-3-Clause (chosen from its BSD/GPLv2 dual licence) |
+| [USB Host MSC driver](https://github.com/espressif/esp-usb) (`firmware/JcorpNomadProject/src/usb_msc/`, P4 builds only, licence text beside it) | 1.2.0 | Apache-2.0 |
 
 The firmware's complete source is this repository, so anyone can rebuild it against
 modified versions of the LGPL libraries.
@@ -41,6 +42,8 @@ modified versions of the LGPL libraries.
 | `libunrar.js`, `libunrar.js.mem` | [libunrar-js](https://github.com/wcchoi/libunrar-js), built from RARLAB's UnRAR source | UnRAR licence: free to use and redistribute for extracting RAR archives; may not be used to create a RAR-compatible archiver |
 | `chess.min.js` | chess.js 0.12.1, Jeff Hlywa | BSD-2-Clause |
 | `tenuki.min.js` | tenuki 0.3.1, Adam Prescott | MIT |
+| `lozza.js` | [Lozza](https://github.com/op12no2/lozza) 11, Colin Jenkins | MIT (text in the file) |
+| `wordlist5.js` | word lists derived from [SCOWL](http://wordlist.aspell.net/), Kevin Atkinson | SCOWL licence (notice in the file) |
 
 ## Games (`SD_Card_Template/EmulatorJS/`, `SD_Card_Template/Games/`)
 

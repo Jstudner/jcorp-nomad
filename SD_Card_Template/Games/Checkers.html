@@ -1,0 +1,327 @@
+<!DOCTYPE html>
+<!-- Version 1 -->
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no"/>
+<meta name="nomad-modes" content="solo,pass"/>
+<title>Nomad • Checkers</title>
+<link rel="icon" href="/favicon.ico" type="image/x-icon">
+<link rel="stylesheet" href="/master.css">
+<script src="/theme-boot.js"></script>
+<script src="/theme-manager.js"></script>
+<script src="/assets/draughts.js"></script>
+<style>
+  /* Fixed game palette, games don't follow the user's theme. Same board colours
+     as Chess.html. */
+  :root{
+    --ck-light:#f0d9b5; --ck-dark:#b58863; --ck-edge:#6f4a2f;
+    --ck-red:#c93a35;   --ck-red-side:#8d221e;
+    --ck-black:#2b2b2b; --ck-black-side:#101010;
+    --ck-ink:#222831;   --ck-dim:#6b7280; --ck-line:#dee2e6;
+    --ck-surface:#ffffff; --ck-accent:#007bff; --ck-on:#ffffff;
+    --ck-good:#28a745;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0}
+  main{max-width:520px;margin:0 auto;padding:10px 12px 26px}
+
+  .bar{display:flex;gap:8px;align-items:center;justify-content:center;flex-wrap:wrap;margin-bottom:8px}
+  .seg{display:flex;border:1px solid var(--ck-line);border-radius:8px;overflow:hidden}
+  .seg button{background:var(--ck-surface);color:var(--ck-ink);border:none;padding:8px 13px;
+    font-size:.92rem;cursor:pointer;border-right:1px solid var(--ck-line)}
+  .seg button:last-child{border-right:none}
+  .seg button[aria-pressed="true"]{background:var(--ck-accent);color:var(--ck-on)}
+  .btn{background:var(--ck-accent);color:var(--ck-on);border:none;border-radius:8px;
+    padding:9px 16px;cursor:pointer;font-size:.95rem}
+  .btn.secondary{background:transparent;color:var(--ck-accent);border:1px solid var(--ck-accent)}
+
+  .score{display:flex;align-items:center;justify-content:center;gap:16px;margin:8px 0}
+  .side{display:flex;align-items:center;gap:8px;padding:6px 12px;border-radius:999px;
+    border:1px solid transparent;font-variant-numeric:tabular-nums;color:var(--ck-ink)}
+  .side.turn{border-color:var(--ck-accent);background:rgba(0,123,255,.10)}
+  .side .n{font-weight:700}
+  .side .who{font-size:.82rem;color:var(--ck-dim)}
+  .pip{width:20px;height:20px;border-radius:50%;flex:none}
+  .pip.r{background:var(--ck-red)}
+  .pip.k{background:var(--ck-black)}
+
+  #board{display:grid;grid-template-columns:repeat(8,1fr);aspect-ratio:1;width:100%;
+    border:6px solid var(--ck-edge);border-radius:6px;overflow:hidden;
+    touch-action:manipulation;user-select:none}
+  .sq{position:relative;display:flex;align-items:center;justify-content:center}
+  .sq.l{background:var(--ck-light)}
+  .sq.d{background:var(--ck-dark)}
+  .sq.pick{cursor:pointer}
+  .man{width:74%;height:74%;border-radius:50%;position:relative;display:flex;
+    align-items:center;justify-content:center}
+  .man.r{background:var(--ck-red);box-shadow:0 3px 0 var(--ck-red-side)}
+  .man.b{background:var(--ck-black);box-shadow:0 3px 0 var(--ck-black-side)}
+  /* A king gets a ring instead of a letter, so it reads at small sizes with any font. */
+  .man.king::after{content:'';position:absolute;width:46%;height:46%;border-radius:50%;
+    border:3px solid rgba(255,255,255,.85)}
+  .sq.sel{box-shadow:inset 0 0 0 4px var(--ck-accent)}
+  .sq.tgt::after{content:'';position:absolute;width:30%;height:30%;border-radius:50%;
+    background:rgba(0,123,255,.65)}
+  .sq.cap::after{content:'';position:absolute;inset:12%;border-radius:50%;
+    border:5px solid rgba(0,123,255,.65);width:auto;height:auto;background:transparent}
+  .sq.from{box-shadow:inset 0 0 0 4px rgba(0,123,255,.45)}
+
+  .status{text-align:center;color:var(--ck-dim);min-height:1.5em;margin:10px 0 2px}
+  .status.hot{color:var(--ck-accent);font-weight:600}
+  .status.win{color:var(--ck-good);font-weight:700}
+  .foot{display:flex;gap:8px;justify-content:center;flex-wrap:wrap;margin-top:10px}
+  .hidden{display:none!important}
+  :focus-visible{outline:2px solid var(--ck-accent);outline-offset:2px}
+</style>
+</head>
+<body>
+  <header>
+    <h1>Checkers</h1>
+    <a class="back-btn" href="/games">← Back to Games</a>
+  </header>
+
+  <main>
+    <div class="bar">
+      <div class="seg" id="mode" role="group" aria-label="Mode">
+        <button type="button" data-m="solo" aria-pressed="true">Solo</button>
+        <button type="button" data-m="pass" aria-pressed="false">Pass &amp; Play</button>
+      </div>
+      <div class="seg" id="level" role="group" aria-label="Bot strength">
+        <button type="button" data-l="3" aria-pressed="false">Easy</button>
+        <button type="button" data-l="6" aria-pressed="true">Medium</button>
+        <button type="button" data-l="8" aria-pressed="false">Hard</button>
+      </div>
+    </div>
+
+    <div class="score">
+      <div class="side" id="sideR"><span class="pip r"></span>
+        <span class="n" id="nR">12</span><span class="who" id="whoR">You</span></div>
+      <div class="side" id="sideB"><span class="pip k"></span>
+        <span class="n" id="nB">12</span><span class="who" id="whoB">Bot</span></div>
+    </div>
+
+    <div id="board" role="grid" aria-label="Checkers board"></div>
+    <div class="status" id="status"></div>
+
+    <div class="foot">
+      <button class="btn" id="newBtn" type="button">New game</button>
+    </div>
+  </main>
+
+<script>
+'use strict';
+/* Checkers (English draughts). Solo against the bundled engine, or pass-and-play
+   on one device. No room mode yet.
+
+   Rules and search come from /assets/draughts.js (rapid-draughts). Read its
+   header first. move() mutates in place and returns undefined, and the computer
+   is async. */
+
+if (typeof window.RapidDraughts === 'undefined') {
+  document.addEventListener('DOMContentLoaded', function () {
+    document.getElementById('status').textContent =
+      'Checkers engine failed to load (/assets/draughts.js). Re-copy the assets folder to the card.';
+  });
+  throw new Error('draughts.js missing');
+}
+
+var ED = window.RapidDraughts.EnglishDraughts;
+var CF = window.RapidDraughts.EnglishDraughtsComputerFactory;
+
+var boardEl  = document.getElementById('board');
+var statusEl = document.getElementById('status');
+
+var game = null;
+var mode = 'solo';
+var level = 6;
+var selected = -1;      // 0..31 dark-square position, or -1
+var busy = false;
+var lastFrom = -1, lastTo = -1;
+var humanIs = 'dark';   // dark moves first, so solo puts the human there
+
+/* Dark-square position (0..31) -> board index (0..63). Built from the engine's
+   own board so it always matches the engine's numbering. */
+var POS_TO_IDX = {};
+(function () {
+  var b = ED.setup().board;
+  for (var i = 0; i < 64; i++) if (b[i].dark) POS_TO_IDX[b[i].position] = i;
+})();
+
+function movesFrom(pos) {
+  return game.moves.filter(function (m) { return m.origin === pos; });
+}
+
+function render() {
+  var b = game.board;
+  var legal = busy ? [] : game.moves;
+  var canPick = !busy && game.status === 'playing' &&
+                (mode === 'pass' || game.player === humanIs);
+  var origins = {};
+  for (var k = 0; k < legal.length; k++) origins[legal[k].origin] = true;
+  var targets = {};
+  if (selected >= 0) {
+    movesFrom(selected).forEach(function (m) { targets[m.destination] = m; });
+  }
+
+  for (var i = 0; i < 64; i++) {
+    var cell = b[i];
+    var sq = boardEl.children[i];
+    sq.className = 'sq ' + (cell.dark ? 'd' : 'l');
+    sq.innerHTML = '';
+    if (cell.piece) {
+      var d = document.createElement('div');
+      d.className = 'man ' + (cell.piece.player === 'dark' ? 'r' : 'b') +
+                    (cell.piece.king ? ' king' : '');
+      sq.appendChild(d);
+    }
+    if (!cell.dark) continue;
+    var pos = cell.position;
+    if (canPick && origins[pos] && selected < 0) sq.classList.add('pick');
+    if (pos === selected) sq.classList.add('sel');
+    if (targets[pos]) {
+      sq.classList.add(targets[pos].captures.length ? 'cap' : 'tgt', 'pick');
+    }
+    if (pos === lastFrom) sq.classList.add('from');
+    if (pos === lastTo) sq.classList.add('from');
+  }
+
+  var r = 0, bl = 0;
+  for (var j = 0; j < 64; j++) {
+    if (!b[j].piece) continue;
+    if (b[j].piece.player === 'dark') r++; else bl++;
+  }
+  document.getElementById('nR').textContent = r;
+  document.getElementById('nB').textContent = bl;
+  document.getElementById('sideR').classList.toggle('turn',
+    game.status === 'playing' && game.player === 'dark');
+  document.getElementById('sideB').classList.toggle('turn',
+    game.status === 'playing' && game.player === 'light');
+  document.getElementById('whoR').textContent = mode === 'solo' ? 'You' : 'Red';
+  document.getElementById('whoB').textContent = mode === 'solo' ? 'Bot' : 'Black';
+  updateStatus();
+}
+
+function updateStatus() {
+  statusEl.className = 'status';
+  if (game.status !== 'playing') {
+    statusEl.classList.add('win');
+    if (game.status === 'draw') { statusEl.textContent = 'A draw.'; return; }
+    var darkWon = game.status === 'dark_won';
+    if (mode === 'solo') {
+      statusEl.textContent = (darkWon === (humanIs === 'dark'))
+        ? 'You win.' : 'The bot wins.';
+    } else {
+      statusEl.textContent = darkWon ? 'Red wins.' : 'Black wins.';
+    }
+    return;
+  }
+  if (busy) { statusEl.textContent = 'Thinking…'; return; }
+  var side = game.player === 'dark' ? 'Red' : 'Black';
+  if (mode === 'solo' && game.player !== humanIs) {
+    statusEl.textContent = 'Bot to move.';
+    return;
+  }
+  statusEl.classList.add('hot');
+  var mustCapture = game.moves.length && game.moves.every(function (m) {
+    return m.captures.length > 0;
+  });
+  statusEl.textContent = (mode === 'solo' ? 'Your move' : side + ' to move') +
+    (mustCapture ? ', you must take.' : '.');
+}
+
+function apply(m) {
+  lastFrom = m.origin;
+  lastTo = m.destination;
+  game.move(m);            // mutates in place, returns undefined
+  selected = -1;
+}
+
+function step() {
+  render();
+  if (game.status !== 'playing') return;
+  if (mode === 'solo' && game.player !== humanIs) {
+    busy = true;
+    render();
+    setTimeout(function () {
+      var cpu = CF.alphaBeta({ maxDepth: level });
+      // the computer is async, it returns a Promise
+      Promise.resolve(cpu(game)).then(function (m) {
+        if (m) apply(m);
+        busy = false;
+        step();
+      })['catch'](function () {
+        busy = false;
+        render();
+      });
+    }, 30);
+  }
+}
+
+function tap(pos) {
+  if (busy || game.status !== 'playing') return;
+  if (mode === 'solo' && game.player !== humanIs) return;
+
+  if (selected >= 0) {
+    var hit = movesFrom(selected).filter(function (m) { return m.destination === pos; })[0];
+    if (hit) { apply(hit); step(); return; }
+  }
+  // Only squares with a legal move can be selected. That's how forced capture
+  // shows: when a take exists, nothing else can be picked up.
+  if (game.moves.some(function (m) { return m.origin === pos; })) {
+    selected = (selected === pos) ? -1 : pos;
+  } else {
+    selected = -1;
+  }
+  render();
+}
+
+function newGame() {
+  game = ED.setup();
+  selected = -1;
+  busy = false;
+  lastFrom = lastTo = -1;
+  step();
+}
+
+for (var i = 0; i < 64; i++) {
+  var sq = document.createElement('div');
+  sq.className = 'sq';
+  sq.setAttribute('role', 'gridcell');
+  boardEl.appendChild(sq);
+}
+// Click handling is delegated off the board so it survives every re-render.
+boardEl.onclick = function (e) {
+  var sq = e.target.closest ? e.target.closest('.sq') : null;
+  if (!sq) return;
+  var idx = Array.prototype.indexOf.call(boardEl.children, sq);
+  if (idx < 0) return;
+  var cell = game.board[idx];
+  if (!cell.dark) return;
+  tap(cell.position);
+};
+
+document.querySelectorAll('#mode button').forEach(function (b) {
+  b.onclick = function () {
+    document.querySelectorAll('#mode button').forEach(function (o) {
+      o.setAttribute('aria-pressed', String(o === b));
+    });
+    mode = b.dataset.m;
+    document.getElementById('level').classList.toggle('hidden', mode !== 'solo');
+    newGame();
+  };
+});
+document.querySelectorAll('#level button').forEach(function (b) {
+  b.onclick = function () {
+    document.querySelectorAll('#level button').forEach(function (o) {
+      o.setAttribute('aria-pressed', String(o === b));
+    });
+    level = parseInt(b.dataset.l, 10);
+  };
+});
+document.getElementById('newBtn').onclick = newGame;
+
+newGame();
+</script>
+</body>
+</html>

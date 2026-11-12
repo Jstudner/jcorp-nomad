@@ -10,7 +10,7 @@
 <script src="/theme-boot.js?v=5"></script>
 <script src="/nomad-icons.js?v=1"></script>
 <script src="/assets/nomad-marks.js?v=1"></script>
-<script src="/nomad-utils.js?v=49"></script>
+<script src="/nomad-utils.js?v=50"></script>
 <script>document.addEventListener('DOMContentLoaded', () => NomadPlyr.ready());</script>
 <script src="/assets/plyr.min.js"></script>
 <script src="/theme-manager.js?v=5"></script>
@@ -1386,6 +1386,9 @@ async function nextEpisode(){
   // blank src "" fetches this page as media. openVideo also restarts autosave.
   // Captions here need captions:{update:true} in NomadPlyr.create, keep the two together.
   await openVideo(fileUrl(currentEpisode.path), false, currentEpisode);
+
+  const sd = findShowDirForEpisodePath(currentEpisode && currentEpisode.path);
+  if(sd) updateShowBadge(sd);
 }
 
 /* Autosave */

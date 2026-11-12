@@ -1,14 +1,15 @@
 // Jcorp Nomad Backend - exFAT edition
 //<!-- Version 4.8 -->
 //
-// Board variant: set it in Display_ST7789.h, NOT here.
+// Board variant: set it in nomad_board.h (the S3 section), NOT here.
 //
 //  USB-A  Waveshare ESP32-S3-LCD-1.47   backlight GPIO 48   BOARD_USB_C 0  (default)
 //  USB-C  Waveshare ESP32-S3-LCD-1.47B  backlight GPIO 46   BOARD_USB_C 1
 //
 // The backlight pin is the only difference between the two. A #define here never reaches
-// Display_ST7789.cpp, so a USB-C board would get GPIO 48 and a dark screen. Edit the line
-// in Display_ST7789.h or build with -DBOARD_USB_C=1 (tools/flash-nomad.sh --usbc).
+// Display_ST7789.cpp, so a USB-C board would get GPIO 48 and a dark screen. Edit the
+// default in nomad_board.h or build with -DBOARD_USB_C=1 (tools/flash-nomad.sh --usbc).
+// The ESP32-P4-WIFI6 and ESP32-P4-NANO build from this same file: firmware/build-p4.sh.
 #include <Arduino.h>
 #include <WiFi.h>
 #include <esp_netif.h>
@@ -18,7 +19,13 @@
 // NomadSD replaces SD_MMC: same pins, SdFat underneath, so exFAT, FAT32 and FAT16 all
 // mount. Included early because StreamHandle below holds a NomadFile64. NomadSD.h hides
 // SdFat's headers, its global `typedef FsFile File` would collide with fs::File.
+#include "nomad_board.h"
 #include "NomadSD.h"
+#include "NomadUSB.h"
+#include "NomadUI.h"
+#include "NomadThumbs.h"
+#include "NomadC6.h"
+#include "NomadEth.h"
 #include "NomadDLNA.h"
 #define SD_MMC NomadSD
 #ifndef SD
@@ -42,11 +49,15 @@
 #include "esp_heap_caps.h"  // heap_caps_get_*: DHCP-start heap logging
 #if defined(ARDUINO_ARCH_ESP32)
   #include "soc/soc.h"
-  #include "soc/rtc_cntl_reg.h"
   #include "esp_system.h"
   #include "esp_core_dump.h"
 #endif
-#include "esp32-hal-tinyusb.h"  // usb_persist_restart, for getting into ROM download mode
+#if NOMAD_HAS_USB_MSC_DEV
+  // The RTC_CNTL download-boot registers and usb_persist_restart are S3 only. The P4 has no
+  // rtc_cntl_reg.h, esptool puts it in download mode over the CH34x bridge's DTR/RTS.
+  #include "soc/rtc_cntl_reg.h"
+  #include "esp32-hal-tinyusb.h"  // usb_persist_restart: the reliable road into ROM download mode
+#endif
 #include "usb_mode.h"
 #include "boot_mode.h" // library for firmware switching
 #include "freertos/idf_additions.h"   // xTaskCreatePinnedToCoreWithCaps / vTaskDeleteWithCaps
@@ -62,9 +73,6 @@ void handleRangeRequest(AsyncWebServerRequest *request);
 #ifndef NOMAD_AP_HT20
 #define NOMAD_AP_HT20 0          // 1 = hotspot on 20 MHz channels
 #endif
-#ifndef NOMAD_ROUTES_PSRAM
-#define NOMAD_ROUTES_PSRAM 0     // 1 = route tables in PSRAM, frees about 23 KB of DMA memory on an S3
-#endif
 #ifndef NOMAD_MEDIA_SNDBUF
 #define NOMAD_MEDIA_SNDBUF 0     // max media socket send buffer in bytes, 0 leaves the core's 5,744
 #endif
@@ -74,6 +82,9 @@ static void benchApplyBootRadio();                               // NomadBench.h
 #endif
 String urlDecode(const String& str);
 void enqueueIndexUpdateForPath(const String& path);
+// Forward-declared up here because the Arduino build inserts prototypes for the bulk file
+// helpers ABOVE the struct definition. They all take it by pointer, so a name is enough.
+struct FsJob;
 void RGB_SetMode(uint8_t mode);
 void applyRGBSettings();
 String sanitizeToken(const String &s);
@@ -81,7 +92,16 @@ bool saveSettings();
 String humanSize(size_t bytes);
 extern void usb_setup();
 extern void usb_loop();
-#define BOOT_BUTTON_PIN 0
+// The side button is on the S3 board only. On the P4 NOMAD_BOOT_BUTTON_PIN is -1 and it
+// always reads "not pressed".
+#define BOOT_BUTTON_PIN NOMAD_BOOT_BUTTON_PIN
+static inline bool nomadBootButtonDown() {
+#if NOMAD_BOOT_BUTTON_PIN >= 0
+  return digitalRead(NOMAD_BOOT_BUTTON_PIN) == LOW;
+#else
+  return false;
+#endif
+}
 #include <vector>
 #include <algorithm>
 #include <atomic>
@@ -240,7 +260,7 @@ static size_t jsonEscapeToBuf(const String &in, char *dst, size_t dstLen) {
 void handleConnector(AsyncWebServerRequest *request);
 float currentTempC = 0.0;
 volatile bool mediaStreamingActive = false; // Flag to indicate active media streaming
-volatile bool g_fwPausingMedia = false;      // the Nomad is fetching new firmware: media waits (NomadFirmware.h)
+volatile bool g_fwPausingMedia = false;      // Nomad is fetching new firmware: media waits (NomadFirmware.h)
 volatile unsigned long lastStreamIoMs = 0;  // last time a streaming request/fill touched the SD
 SemaphoreHandle_t sdMutex = NULL;
 #include <map>
@@ -310,6 +330,9 @@ static const size_t STREAM_DMA_FLOOR = 24 * 1024;
 #endif
 static const size_t SMALL_FILE_DMA_FLOOR = 24 * 1024;   // covers and page assets through /media
 static const size_t CONTINUE_DMA_FLOOR = 12 * 1024;     // the next piece of a film already playing
+#if CONFIG_IDF_TARGET_ESP32P4
+static const size_t PAGE_RAM_FLOOR = 16 * 1024;         // internal RAM a page open must leave (sendSdFile)
+#endif
 static inline size_t streamDmaFree() {
   return heap_caps_get_free_size(MALLOC_CAP_DMA);
 }
@@ -433,6 +456,14 @@ static void streamReplyDone(uint32_t streamId) {
   auto it = streamingFiles.find(streamId);
   if (it != streamingFiles.end() && it->second.inflight) it->second.inflight--;
   xSemaphoreGive(streamingFilesMutex);
+}
+
+// Is a reply still open on this path, or anything inside it? The bulk file jobs and
+// /api/fs/rm ask this before they touch a file. Same rules as releaseStreamsFor(): a
+// handle with no reply open is closed and not counted, and a stream map that couldn't be
+// locked answers "in use" (the user can retry a 409).
+static bool pathInUseByStream(const String &path) {
+  return releaseStreamsFor(path) != 0;
 }
 
 static uint64_t cachedTotalBytes = 0;
@@ -602,8 +633,13 @@ bool isAdminAuthRequired();
 bool checkAdminAuth(AsyncWebServerRequest *request);
 void nomadAuthLoad();
 
-// isConfigPath() lives in NomadGuard.h with the rest of the path rules. Don't compare
-// the raw string here: "/CONFIG/", "//config/" and "/config./" all reach the same file.
+// isConfigPath() lives in NomadGuard.h with the rest of the path rules.
+// True when no volume is mounted, so settings.json could neither be read nor written.
+// Everything in `settings` is then a compile-time default, including an EMPTY admin
+// password, which isAdminAuthRequired() reads as "the owner turned authentication off".
+// A P4 boots without storage on a compiled-in hotspot, so without this anyone who joined
+// could use every state-changing endpoint (/restart, /shutdown, the WiFi and password forms).
+bool g_settingsUnbacked = false;   // read by isAdminAuthRequired() in NomadAuth.h
 
 // Web Console Logging System
 #define MAX_LOG_ENTRIES 50
@@ -653,12 +689,12 @@ void webLogf(const String& type, const char* format, ...) {
 
   webLog(String(buffer), type);
 }
-#define SD_CLK_PIN 14
-#define SD_CMD_PIN 15
-#define SD_D0_PIN 16
-#define SD_D1_PIN 18
-#define SD_D2_PIN 17
-#define SD_D3_PIN 21
+#define SD_CLK_PIN NOMAD_SD_CLK
+#define SD_CMD_PIN NOMAD_SD_CMD
+#define SD_D0_PIN  NOMAD_SD_D0
+#define SD_D1_PIN  NOMAD_SD_D1
+#define SD_D2_PIN  NOMAD_SD_D2
+#define SD_D3_PIN  NOMAD_SD_D3
 const char *INDEX_DIR = "/.system-index";   // on-SD folder for index files
 // Normalize path: ensure leading '/', remove trailing '/'
 String normalizePath(const String &p_in){
@@ -1531,8 +1567,28 @@ static bool writeFileAtomicBlocking(const String &path, const String &content) {
     size_t n = f.write((const uint8_t *)content.c_str(), content.length());
     f.close();
     if (n == content.length()) {
-      if (SD_MMC.exists(path)) SD_MMC.remove(path);
-      ok = SD_MMC.rename(tempPath, path);
+      // The old file is moved aside, not removed. SdFat's remove() opens the file O_WRONLY
+      // before unlinking it, so it can't delete a file with the FAT read-only attribute
+      // (settings.json can carry it) and the change would be lost at the next boot. A rename
+      // is a directory operation and doesn't care.
+      String asidePath = path + ".prev";
+      bool cleared = false;
+      if (!SD_MMC.exists(path)) {
+        cleared = true;
+      } else if (SD_MMC.remove(path)) {
+        cleared = true;
+      } else {
+        SD_MMC.remove(asidePath);                     // a stale one from a failed run
+        cleared = SD_MMC.rename(path, asidePath);
+        if (cleared) Serial.printf("[CFGW] %s is read-only; moved it aside\n", path.c_str());
+      }
+      if (cleared) ok = SD_MMC.rename(tempPath, path);
+      if (ok) {
+        SD_MMC.remove(asidePath);   // best effort: a read-only one cannot be removed,
+                                    // and it is self-identifying if it stays
+      } else if (SD_MMC.exists(asidePath) && !SD_MMC.exists(path)) {
+        SD_MMC.rename(asidePath, path);   // put the original back, lose nothing
+      }
     }
     if (!ok) SD_MMC.remove(tempPath);
   }
@@ -1542,16 +1598,51 @@ static bool writeFileAtomicBlocking(const String &path, const String &content) {
   return ok;
 }
 
+// SdFat starts its free-cluster search at the front of the FAT after every mount, so the
+// first write after a boot walks the whole table, which takes seconds on a nearly full
+// card. On async_tcp that's a task watchdog reset. Allocating and freeing one cluster here,
+// off the web server, leaves the search start beside a free cluster. Until then uploads
+// and new folders are turned away instead of hanging the server.
+static volatile bool g_sdAllocPrimed = false;
+
+static void primeSdAlloc() {
+  const uint32_t t0 = millis();
+  bool ok = false;
+  if (!sdMutex || xSemaphoreTake(sdMutex, pdMS_TO_TICKS(60000)) == pdTRUE) {
+    File f = SD_MMC.open("/.nomad-alloc", FILE_WRITE);
+    if (f) {
+      ok = f.write((const uint8_t *)"\n", 1) == 1;
+      f.close();
+      SD_MMC.remove("/.nomad-alloc");
+    }
+    if (sdMutex) xSemaphoreGive(sdMutex);
+  }
+  // even when it failed: a card that cannot take this write will refuse an upload
+  // quickly too, and a gate that never opens would be worse than the walk
+  g_sdAllocPrimed = true;
+  Serial.printf("[SD] ready for writes in %lu ms%s\n", (unsigned long)(millis() - t0),
+                ok ? "" : " (the test write failed)");
+}
+
+static volatile uint32_t g_cfgWritesDone = 0;   // jobs finished, for a caller that must wait for one
+
 void configWriterTask(void *param) {
   ConfigWriteJob *job = NULL;
   for (;;) {
     if (xQueueReceive(cfgWriteQueue, &job, portMAX_DELAY) == pdTRUE && job) {
+      if (!job->path.length()) {   // the end of setup, or a remount, asks for the search start to be primed
+        primeSdAlloc();
+        delete job;
+        job = NULL;
+        continue;
+      }
       bool ok = writeFileAtomicBlocking(job->path, job->content);
       // /save writes land here, so a file saved into a content folder (the cookbook
       // editor) needs that folder's index refreshed or it won't show up until the next
       // full scan. Queued after the write so the rebuild can't run before the file exists.
       // Non-bucket paths (settings, .system-ui.json) are ignored by the callee.
       if (ok) triggerIndexingIfNeeded(job->path);
+      g_cfgWritesDone++;
       delete job;
       job = NULL;
       vTaskDelay(pdMS_TO_TICKS(20));
@@ -1742,7 +1833,9 @@ bool deleteRecursive(String path) {
 
   if (!entry.isDirectory()) {
     entry.close();
-    return SD_MMC.remove(path);
+    // removeAll: the union shows one entry for a name on both the card and the drive, so
+    // remove() would leave a hidden copy behind.
+    return SD_MMC.removeAll(path.c_str()) > 0;
   }
 
   File child;
@@ -1757,9 +1850,428 @@ bool deleteRecursive(String path) {
   }
 
   entry.close();
-  return SD_MMC.rmdir(path);
+  return SD_MMC.rmdirAll(path.c_str()) > 0;
 }
 
+
+// Recursive delete pinned to ONE volume.
+//
+// deleteRecursive() above acts on every volume carrying the name, which is wrong for a
+// MOVE: a cross-volume move ends with source and destination sharing one path, and
+// removeAll would take the new copy too. openOn() keeps this walk on one volume.
+static bool deleteRecursiveOn(int vol, const String &path) {
+  // Same floor as deleteRecursive(): never the card root, never /config.
+  if (canonicalPath(path) == "/" || isConfigPath(path)) return false;
+  File entry = SD_MMC.openOn(vol, path.c_str(), FILE_READ);
+  if (!entry) return false;
+
+  if (!entry.isDirectory()) {
+    entry.close();
+    return SD_MMC.removeOn(vol, path.c_str());
+  }
+
+  File child;
+  int n = 0;
+  while ((child = entry.openNextFile())) {
+    String childPath = path + "/" + String(child.name());
+    child.close();
+    deleteRecursiveOn(vol, childPath);
+    // same breather deleteRecursive needs: hundreds of FAT chain frees in a row on
+    // the async_tcp task is a watchdog trip.
+    if (++n % 16 == 0) vTaskDelay(pdMS_TO_TICKS(1));
+  }
+
+  entry.close();
+  return SD_MMC.rmdirOn(vol, path.c_str());
+}
+
+// Bulk file operations: move, copy and delete across both volumes, for an admin.
+//
+// A move between the card and the drive can't be a rename (SdFat renames within one
+// volume), so it's copy, verify, delete. That's long work, so the handler validates the
+// request and hands it to one worker, and the browser polls. The source delete has to
+// name its volume (removeOn/deleteRecursiveOn): after the copy both share one path and
+// removeAll() would delete both.
+//
+// One job at a time. The card is the bottleneck while HTTP is being served, so two
+// copies would just halve each other.
+
+static const int   FSJOB_MAX_ITEMS   = 64;
+static const size_t FSJOB_CHUNK      = 16384;      // matches the range filler's chunk
+static const char *FSJOB_PART_SUFFIX = ".nomadpart";
+
+struct FsJobItem {
+  String  path;
+  int     vol;
+  String  status;     // "" until decided, then ok / skipped_* / failed_*
+  String  detail;
+};
+
+struct FsJob {
+  String op;                 // move | copy | delete
+  String dest;               // destination DIRECTORY (move/copy)
+  int    destVol = NOMAD_VOL_NONE;
+  String collision;          // skip | replace | rename
+  std::vector<FsJobItem> items;
+
+  volatile bool cancel   = false;
+  volatile bool finished = false;
+  String  state = "running";      // running | done | cancelled | failed
+  int     doneItems = 0;
+  uint64_t totalBytes = 0, doneBytes = 0;
+  String  curPath;
+  uint64_t curDone = 0, curTotal = 0;
+  bool    throttled = false;
+  unsigned long startedMs = 0, finishedMs = 0;
+  uint32_t id = 0;
+};
+
+static FsJob           *g_fsJob      = nullptr;
+// The worker writes progress while GET /api/fs/job reads it from async_tcp. Those are
+// Strings, and an unguarded read mid-reallocation crashes, so every touch of g_fsJob goes
+// through this.
+static SemaphoreHandle_t g_fsJobMutex = nullptr;
+struct FsJobLock {
+  bool held;
+  explicit FsJobLock(uint32_t waitMs = 200)
+    : held(g_fsJobMutex && xSemaphoreTake(g_fsJobMutex, pdMS_TO_TICKS(waitMs)) == pdTRUE) {}
+  ~FsJobLock() { if (held) xSemaphoreGive(g_fsJobMutex); }
+};
+static volatile bool    g_fsJobActive = false;
+static uint32_t         g_fsJobNextId = 1;
+
+// Join a directory and a leaf without doubling the separator.
+static String fsJoin(const String &dir, const String &leaf) {
+  if (dir == "/" || dir.length() == 0) return "/" + leaf;
+  return dir + "/" + leaf;
+}
+static String fsBaseName(const String &p) {
+  int i = p.lastIndexOf('/');
+  return (i >= 0) ? p.substring(i + 1) : p;
+}
+
+// Total bytes of a file or of everything under a directory, on ONE volume.
+static uint64_t fsSizeOn(int vol, const String &path, int depth = 0) {
+  if (depth > 12) return 0;
+  File f = SD_MMC.openOn(vol, path.c_str(), FILE_READ);
+  if (!f) return 0;
+  if (!f.isDirectory()) { uint64_t s = f.size(); f.close(); return s; }
+  uint64_t total = 0;
+  File c;
+  int n = 0;
+  while ((c = f.openNextFile())) {
+    String name = String(c.name());
+    bool isDir = c.isDirectory();
+    uint64_t sz = isDir ? 0 : (uint64_t)c.size();
+    c.close();
+    total += isDir ? fsSizeOn(vol, fsJoin(path, name), depth + 1) : sz;
+    if (++n % 32 == 0) vTaskDelay(1);
+  }
+  f.close();
+  return total;
+}
+
+// Copy one FILE between volumes. Writes to <dst>.nomadpart and only renames into place
+// once the size matches, so a power cut leaves an obvious leftover instead of a file that
+// plays and stops.
+//
+// sdMutex is taken and RELEASED PER CHUNK. A 16 KB chunk is a few ms of card time, well
+// inside the 1500 ms the range filler will wait, so a copy can run while something plays.
+static bool fsCopyFile(FsJob *job, int srcVol, const String &src,
+                       int dstVol, const String &dst, String &err) {
+  const String part = dst + FSJOB_PART_SUFFIX;
+  SD_MMC.removeOn(dstVol, part.c_str());            // stale part from a previous run
+
+  File in = SD_MMC.openOn(srcVol, src.c_str(), FILE_READ);
+  if (!in) { err = "could not read the source"; return false; }
+  const uint64_t total = in.size();
+
+  File out = SD_MMC.openOn(dstVol, part.c_str(), FILE_WRITE, true);
+  if (!out) { in.close(); err = "could not create the destination"; return false; }
+
+  uint8_t *buf = (uint8_t *)malloc(FSJOB_CHUNK);    // NOT MALLOC_CAP_DMA: that pool is
+  if (!buf) {                                       // what the radio asserts on
+    in.close(); out.close(); SD_MMC.removeOn(dstVol, part.c_str());
+    err = "out of memory"; return false;
+  }
+
+  uint64_t copied = 0;
+  bool ok = true;
+  int lockFails = 0;
+  while (copied < total) {
+    if (job->cancel) { ok = false; err = "cancelled"; break; }
+
+    if (sdMutex && xSemaphoreTake(sdMutex, pdMS_TO_TICKS(4000)) != pdTRUE) {
+      // The card is busy with something more important. The job reports itself throttled
+      // and keeps waiting, and gives up after 20 misses in a row (up to 4 s each).
+      if (++lockFails >= 20) { ok = false; err = "the card stayed busy"; break; }
+      job->throttled = true;
+      vTaskDelay(pdMS_TO_TICKS(100));
+      continue;
+    }
+    lockFails = 0;
+    const size_t want = (size_t)((total - copied) < FSJOB_CHUNK ? (total - copied) : FSJOB_CHUNK);
+    const int got = in.read(buf, want);
+    size_t wrote = 0;
+    if (got > 0) wrote = out.write(buf, (size_t)got);
+    if (sdMutex) xSemaphoreGive(sdMutex);
+
+    if (got <= 0) { ok = false; err = "the source stopped returning data"; break; }
+    if (wrote != (size_t)got) { ok = false; err = "the card is full"; break; }
+
+    copied += (uint64_t)got;
+    job->curDone = copied;
+    job->doneBytes += (uint64_t)got;
+
+    // Leave the shared SDMMC controller to whoever is watching something.
+    const bool busyPlaying = mediaStreamingActive || (millis() - lastStreamIoMs < 3000);
+    job->throttled = busyPlaying;
+    vTaskDelay(pdMS_TO_TICKS(busyPlaying ? 20 : 2));
+  }
+
+  free(buf);
+  in.close();
+  out.close();
+
+  if (ok) {
+    // Size-only verification. A full reread would double an already long job, and a short
+    // write is caught per chunk above.
+    const uint64_t got = SD_MMC.fileSize64(part.c_str());
+    if (got != total) { ok = false; err = "the copy came out the wrong size"; }
+  }
+  if (!ok) { SD_MMC.removeOn(dstVol, part.c_str()); return false; }
+
+  SD_MMC.removeOn(dstVol, dst.c_str());             // collision already decided upstream
+  if (!SD_MMC.renameOn(dstVol, part.c_str(), dst.c_str())) {
+    SD_MMC.removeOn(dstVol, part.c_str());
+    err = "could not put the copy in place";
+    return false;
+  }
+  return true;
+}
+
+// Recursively copy a directory between volumes.
+static bool fsCopyTree(FsJob *job, int srcVol, const String &src,
+                       int dstVol, const String &dst, String &err, int depth = 0) {
+  if (depth > 12) { err = "nested too deep"; return false; }
+  File f = SD_MMC.openOn(srcVol, src.c_str(), FILE_READ);
+  if (!f) { err = "could not read the source"; return false; }
+  if (!f.isDirectory()) { f.close(); return fsCopyFile(job, srcVol, src, dstVol, dst, err); }
+
+  if (!SD_MMC.mkdirOn(dstVol, dst.c_str())) { f.close(); err = "could not create the folder"; return false; }
+
+  bool ok = true;
+  File c;
+  while (ok && (c = f.openNextFile())) {
+    if (job->cancel) { ok = false; err = "cancelled"; c.close(); break; }
+    String name = String(c.name());
+    c.close();
+    ok = fsCopyTree(job, srcVol, fsJoin(src, name), dstVol, fsJoin(dst, name), err, depth + 1);
+  }
+  f.close();
+  return ok;
+}
+
+// Is `dst` inside `src`? Moving a folder into its own descendant would copy for ever.
+static bool fsIsInside(const String &src, const String &dst) {
+  if (dst == src) return true;
+  String s = src.endsWith("/") ? src : src + "/";
+  return dst.startsWith(s);
+}
+
+// Pick a free name when the destination is taken and the admin chose "rename".
+static String fsFreeName(int vol, const String &dir, const String &leaf) {
+  int dot = leaf.lastIndexOf('.');
+  String stem = (dot > 0) ? leaf.substring(0, dot) : leaf;
+  String ext  = (dot > 0) ? leaf.substring(dot)    : String("");
+  for (int n = 2; n < 100; ++n) {
+    String cand = fsJoin(dir, stem + " (" + String(n) + ")" + ext);
+    if (!SD_MMC.existsOn(vol, cand.c_str())) return cand;
+  }
+  return String();
+}
+
+static void fsJobTask(void *pv) {
+  FsJob *job = (FsJob *)pv;
+  Serial.printf("[FSJob] #%u %s, %d item(s), %llu bytes\n",
+                job->id, job->op.c_str(), (int)job->items.size(),
+                (unsigned long long)job->totalBytes);
+
+  for (size_t i = 0; i < job->items.size(); ++i) {
+    FsJobItem &it = job->items[i];
+    if (job->cancel) { FsJobLock lk; it.status = "cancelled"; continue; }
+
+    { FsJobLock lk; job->curPath = it.path; job->curDone = 0; job->curTotal = 0; }
+    String err;
+
+    if (job->op == "delete") {
+      {
+        FsJobLock lk;
+        if (pathInUseByStream(it.path)) { it.status = "skipped_in_use"; it.detail = "it is playing right now"; }
+        else if (deleteRecursiveOn(it.vol, it.path)) { it.status = "ok"; }
+        else { it.status = "failed_write"; it.detail = "the card refused the delete"; }
+        job->doneItems++;
+      }
+      enqueueIndexUpdateForPath(it.path);
+      continue;
+    }
+
+    // move / copy
+    String leaf = fsBaseName(it.path);
+    String dst  = fsJoin(job->dest, leaf);
+
+    if (fsIsInside(it.path, job->dest) && it.vol == job->destVol) {
+      { FsJobLock lk; it.status = "failed_write"; it.detail = "that would move a folder into itself"; job->doneItems++; }
+      continue;
+    }
+    // Already in the destination folder: the "existing" item is the item itself, and
+    // "replace" would delete it before copying it onto itself.
+    if (it.vol == job->destVol && canonicalPath(dst) == canonicalPath(it.path)) {
+      { FsJobLock lk; it.status = "skipped_exists"; it.detail = "it is already in that folder"; job->doneItems++; }
+      continue;
+    }
+    if (SD_MMC.existsOn(job->destVol, dst.c_str())) {
+      if (job->collision == "skip") {
+        { FsJobLock lk; it.status = "skipped_exists"; it.detail = "something with that name is already there"; job->doneItems++; }
+        continue;
+      } else if (job->collision == "rename") {
+        String alt = fsFreeName(job->destVol, job->dest, leaf);
+        if (!alt.length()) { { FsJobLock lk; it.status = "failed_write"; it.detail = "could not find a free name"; job->doneItems++; } continue; }
+        dst = alt;
+      }  // "replace" falls through, the copy removes the old one before renaming in
+    }
+
+    const bool sameVol = (it.vol == job->destVol);
+    bool ok = false;
+
+    if (job->op == "move" && sameVol) {
+      // Within one volume a move is a rename: instant, no bytes, nothing to verify.
+      if (job->collision == "replace") deleteRecursiveOn(job->destVol, dst);
+      ok = SD_MMC.renameOn(it.vol, it.path.c_str(), dst.c_str());
+      if (!ok) err = "the card refused the rename";
+    } else {
+      job->curTotal = fsSizeOn(it.vol, it.path);
+      if (job->collision == "replace" && SD_MMC.existsOn(job->destVol, dst.c_str()))
+        deleteRecursiveOn(job->destVol, dst);
+      ok = fsCopyTree(job, it.vol, it.path, job->destVol, dst, err);
+
+      if (ok && job->op == "move") {
+        // Re-check immediately before freeing the source's clusters: something may
+        // have started playing it since this job was accepted.
+        if (pathInUseByStream(it.path)) {
+          { FsJobLock lk; it.status = "skipped_in_use";
+            it.detail = "copied, but the original is playing so it was left in place";
+            job->doneItems++; }
+          enqueueIndexUpdateForPath(dst);
+          continue;
+        }
+        // deleteRecursiveOn, never removeAll: source and destination share this path on
+        // two volumes now, and removeAll would take the copy as well.
+        if (!deleteRecursiveOn(it.vol, it.path)) {
+          { FsJobLock lk; it.status = "failed_write";
+            it.detail = "copied, but the original could not be removed";
+            job->doneItems++; }
+          enqueueIndexUpdateForPath(dst);
+          continue;
+        }
+      }
+    }
+
+    { FsJobLock lk;
+      it.status = ok ? "ok" : (job->cancel ? "cancelled" : "failed_write");
+      if (!ok && err.length()) it.detail = err;
+      job->doneItems++; }
+    enqueueIndexUpdateForPath(it.path);
+    enqueueIndexUpdateForPath(dst);
+  }
+
+  job->state      = job->cancel ? "cancelled" : "done";
+  job->finishedMs = millis();
+  job->finished   = true;
+  g_fsJobActive   = false;
+  Serial.printf("[FSJob] #%u %s\n", job->id, job->state.c_str());
+  nomadTaskExit();
+}
+
+// USB volume
+// The card is the primary volume and the USB device is the fallback. With both present
+// they're unioned into one library, with only a drive it's the whole library. Mounting
+// happens here, not in the USB callback, which runs on the driver's task and must not
+// re-enter SdFat.
+
+static bool g_usbVolumeUp = false;
+extern volatile bool requestIndexing;   // defined below, next to the index worker
+
+// Mount the USB volume if a device has finished enumerating. Returns true on the
+// transition, so callers know the library changed shape and needs reindexing.
+static bool nomadMountUsbVolume() {
+  if (g_usbVolumeUp || !nomadUsbReady()) return false;
+  if (!SD_MMC.beginUSB()) return false;
+  g_usbVolumeUp = true;
+  Serial.printf("[USB] mounted %s on %s, %.1f GB\n",
+                SD_MMC.volumeFsTypeName(NOMAD_VOL_USB), nomadUsbProduct(),
+                (float)nomadUsbCapacityBytes() / (1024.0f * 1024.0f * 1024.0f));
+  return true;
+}
+
+// Wait out enumeration during boot so a drive already plugged in makes the first index
+// instead of showing up seconds later and forcing a rebuild.
+static bool nomadWaitForUsbVolume(uint32_t timeoutMs) {
+  if (!nomadUsbBegin()) return false;
+  uint32_t start = millis();
+  while (millis() - start < timeoutMs) {
+    if (nomadUsbReady()) return nomadMountUsbVolume();
+    delay(50);
+    lv_timer_handler();   // keep the boot screen alive during the wait
+  }
+  return false;
+}
+
+// Close and forget every stream that was reading the volume being dropped. NomadSD's
+// generation check already refuses those handles, but left in the map they keep
+// streamPathIndex pointing at missing files and hold one of the eight slots until the
+// idle reaper notices.
+static void dropStreamsOnVolume(int vol) {
+  if (!streamingFilesMutex) return;
+  if (xSemaphoreTake(streamingFilesMutex, pdMS_TO_TICKS(500)) != pdTRUE) {
+    Serial.println("[USB] stream map busy; stale handles will be reaped on idle instead");
+    return;
+  }
+  int closed = 0;
+  for (auto it = streamingFiles.begin(); it != streamingFiles.end();) {
+    if (it->second.file.volume() == vol) {
+      streamUnpublish(it->second.path, it->first);
+      it->second.file.close();
+      it = streamingFiles.erase(it);
+      closed++;
+    } else {
+      ++it;
+    }
+  }
+  if (closed) {
+    activeStreams = streamingFiles.size();
+    Serial.printf("[USB] closed %d stream(s) that were reading the removed drive\n", closed);
+  }
+  xSemaphoreGive(streamingFilesMutex);
+}
+
+// Called from loop(). Cheap: two volatile reads unless something actually changed.
+static void nomadPollUsbVolume() {
+  if (nomadUsbTakeRemoval() && g_usbVolumeUp) {
+    dropStreamsOnVolume(NOMAD_VOL_USB);
+    SD_MMC.endUSB();
+    g_usbVolumeUp = false;
+    webLog("[USB] device removed, its half of the library is gone until it is back", "warning");
+    // The indexes under /.system-index still list every path that was on the drive, so
+    // without this the browser keeps offering files that can't be opened.
+    requestIndexing = true;
+    return;
+  }
+  if (nomadUsbTakeArrival() && nomadMountUsbVolume()) {
+    webLog("[USB] device mounted, reindexing so both volumes show as one library", "success");
+    requestIndexing = true;
+  }
+}
 
 // SD recovery globals
 volatile bool sdErrorFlag            = false;
@@ -1789,14 +2301,38 @@ bool mountSDCard() {
   return false;
 }
 
+// Long enough to cover pushing a card in after seeing the message, short enough that a
+// board left on a shelf with an empty slot still ends up on the network.
+#define NOMAD_STORAGE_WAIT_MS 20000
+
 // No card at boot: say so on the little screen instead of sitting on "Booting..."
-// forever, and keep probing. inserting the card restarts into a normal boot
+// forever, and keep probing. inserting the card restarts into a normal boot.
+//
+// How long depends on whether the board has anywhere to serve a page from. On the Mk4
+// the interface lives on the card, so it waits forever. With the interface in flash the
+// admin panel, network diagnostics and storage page all work with an empty slot, so the
+// wait is capped and boot carries on without storage. A card inserted after that needs a
+// reboot (the panel has a button for it), this loop is the only thing watching the slot.
 static void sdBootHalt(const char *msg) {
   lv_obj_clear_flag(ui_MediaGen, LV_OBJ_FLAG_HIDDEN);
   lv_textarea_set_text(ui_MediaGen, msg);
+  const uint32_t started = millis();
   for (;;) {
     for (int i = 0; i < 100; ++i) { lv_timer_handler(); delay(30); }  // ~3s
-    if (mountSDCard()) esp_restart();
+    // either kind of volume is enough to boot on
+    if (mountSDCard() || nomadUsbReady()) esp_restart();
+#if NOMAD_HAS_FLASH_UI
+    if (millis() - started > NOMAD_STORAGE_WAIT_MS) {
+      Serial.println("[BOOT] no storage after 20s; booting anyway so the interface and the");
+      Serial.println("[BOOT] network come up. There is no media library until a card or a");
+      Serial.println("[BOOT] drive is present and the board is restarted.");
+      Serial.println("[BOOT] Admin actions are LOCKED: with nothing mounted there is no");
+      Serial.println("[BOOT] settings.json, so there is no password to check and no way to");
+      Serial.println("[BOOT] set one that survives a reboot.");
+      return;
+    }
+#endif
+    Serial.println("[BOOT] still no storage; insert a card or plug in a USB device");
   }
 }
 
@@ -1819,6 +2355,7 @@ bool tryRecoverSDCard() {
         if (sdHeld && sdMutex) xSemaphoreGive(sdMutex);
         xSemaphoreGive(streamingFilesMutex);
         Serial.println(ok ? "[SD] Recovery OK." : "[SD] Recovery failed.");
+        if (ok) { g_sdAllocPrimed = false; if (!queueConfigWrite(String(), String())) g_sdAllocPrimed = true; }
         return ok;
     }
 
@@ -1831,6 +2368,7 @@ bool tryRecoverSDCard() {
     bool ok = mountSDCard();
     if (sdMutex) xSemaphoreGive(sdMutex);
     Serial.println(ok ? "[SD] Recovery OK." : "[SD] Recovery failed.");
+    if (ok) { g_sdAllocPrimed = false; if (!queueConfigWrite(String(), String())) g_sdAllocPrimed = true; }
     return ok;
 }
 
@@ -1970,13 +2508,41 @@ String slugify(const String &in) {
   return out;
 }
 
+// How many stations are associated, counted from AP events instead of by asking.
+//
+// updateClientCount() runs at 5 Hz from the UI task. esp_wifi_ap_get_sta_list() is a
+// local read on the S3 but an SDIO round trip to the C6 on a P4, and ESP-Hosted's
+// rpc_wifi_ap_get_sta_list dereferences the RPC response without checking it, so the
+// first request that doesn't come back panics the host:
+//
+//   E (916094) rpc_core: Response not received for [0x137]
+//   Guru Meditation Error: Core 1 panic'ed (Load access fault)   MTVAL 0x88, A0 0x0
+//
+// It looks like the hotspot dropping every so often. Events can't time out.
+static volatile int g_apStations = 0;
+
+static void nomadWiFiEvent(WiFiEvent_t event, WiFiEventInfo_t info) {
+  switch (event) {
+    case ARDUINO_EVENT_WIFI_AP_STACONNECTED:    g_apStations++; break;
+    case ARDUINO_EVENT_WIFI_AP_STADISCONNECTED: if (g_apStations > 0) g_apStations--; break;
+    case ARDUINO_EVENT_WIFI_AP_START:
+    case ARDUINO_EVENT_WIFI_AP_STOP:            g_apStations = 0; break;
+    default: break;
+  }
+}
+
 // Get a count of currently connected WiFi clients
 void updateClientCount() {
+#if NOMAD_HAS_HOSTED_RADIO
+    connectedClients = g_apStations;
+    updateUI(connectedClients);
+#else
     wifi_sta_list_t wifi_sta_list;
     if (esp_wifi_ap_get_sta_list(&wifi_sta_list) == ESP_OK) {
         connectedClients = wifi_sta_list.num;
         updateUI(connectedClients);
     }
+#endif
 }
 
 String absURL(const String &path) {
@@ -2219,6 +2785,13 @@ void handleRangeRequest(AsyncWebServerRequest *request) {
 
   if (!filePath.startsWith("/")) filePath = "/" + filePath;
   filePath = normalizePath(filePath);
+  // Grid covers ask for the small copy. If no thumbnail has been generated the original
+  // is served.
+  bool servedThumb = false;
+  if (request->hasParam("thumb")) {
+    String t = nomadThumbLookup(filePath);
+    if (t.length()) { filePath = t; servedThumb = true; }
+  }
   if (isConfigPath(filePath)) {
     request->send(404, "text/plain", "File not found");
     return;
@@ -2325,10 +2898,18 @@ void handleRangeRequest(AsyncWebServerRequest *request) {
       request->send(200, "application/octet-stream", "");
       return;
     }
-    Serial.printf("[SD] open failed for existing path: '%s'\n", filePath.c_str());
-    sdErrorFlag = true;
-    sdErrorCooldownUntil = millis() + 5000;
-    request->send(503, "text/plain", "SD error");
+    // Only the card has a recovery path, so only the card can arm it. loop() returns early
+    // while this is set, and on a board running off a drive with no card nothing would ever
+    // clear it.
+    const int failedVol = SD_MMC.volumeOf(filePath.c_str());
+    const bool cardAtFault = (failedVol != NOMAD_VOL_USB) && SD_MMC.volumeMounted(NOMAD_VOL_SD);
+    Serial.printf("[%s] open failed for existing path: '%s'\n",
+                  cardAtFault ? "SD" : "USB", filePath.c_str());
+    if (cardAtFault) {
+      sdErrorFlag = true;
+      sdErrorCooldownUntil = millis() + 5000;
+    }
+    request->send(503, "text/plain", "Storage error");
     return;
   }
   releaseSd();
@@ -2338,7 +2919,11 @@ void handleRangeRequest(AsyncWebServerRequest *request) {
     headResponse->addHeader("Accept-Ranges", "bytes");
     headResponse->addHeader("ETag", etag);
     headResponse->addHeader("Content-Length", String(fileSize));
-    headResponse->addHeader("Cache-Control", "public, max-age=3600");
+    // A thumbnail and its original share one URL, and which one comes back changes when
+    // covers are optimised or deleted. There's no ETag here to revalidate against, so keep
+    // the cache short.
+    headResponse->addHeader("Cache-Control", servedThumb ? "public, max-age=120"
+                                                         : "public, max-age=3600");
     headResponse->addHeader("Pragma", "no-cache");
     // DLNA players often probe with HEAD before playing
     headResponse->addHeader("transferMode.dlna.org", "Streaming");
@@ -2741,7 +3326,8 @@ void handleRangeRequest(AsyncWebServerRequest *request) {
   response->addHeader("ETag", etag);
   if (download) response->addHeader("Content-Disposition", nomadAttachment(filePath));
   response->addHeader("Content-Length", String(contentLength));
-  response->addHeader("Cache-Control", "public, max-age=3600");
+  response->addHeader("Cache-Control", servedThumb ? "public, max-age=120"
+                                                  : "public, max-age=3600");
   response->addHeader("Connection", "close");
   if (isMediaStream) {
     // DLNA players need these on the stream itself. Samsung refuses to play without
@@ -2785,6 +3371,11 @@ void handleListFiles(AsyncWebServerRequest *request) {
         return;
     }
     String dir = request->getParam("dir")->value();
+    // same rule as /media and the catch-all file server: /config is not browsable
+    if (isConfigPath(dir)) {
+        request->send(404, "application/json", "{\"error\":\"Directory not found\"}");
+        return;
+    }
 
     // chat and the live whiteboard poll this every couple of seconds, so it has
     // to fail fast rather than wait on the SdFat lock with no timeout
@@ -2817,6 +3408,10 @@ void handleListFiles(AsyncWebServerRequest *request) {
     bool truncated = false;
     size_t approxBytes = 2;                       // the enclosing []
 
+    // NOMAD_VOL_NONE here means the directory is unioned across both volumes, so each
+    // entry has to be resolved individually below. Anything else stamps the whole list.
+    const int dirVol = SD_MMC.soleVolumeOfDir(dir.c_str());
+
     File file = directory.openNextFile();
     while (file) {
         JsonObject f = arr.createNestedObject();
@@ -2840,8 +3435,26 @@ void handleListFiles(AsyncWebServerRequest *request) {
             f["size"] = fsz;
             f["isDir"] = false;
         }
-        // {"name":"...","size":N,"isDir":false} plus the separator, near enough
-        approxBytes += filename.length() + 48;
+        // Which volume this entry came off. The library is the union of the card and a USB
+        // drive, and two entries with the same name may be on different ones.
+        //
+        // fs::File doesn't carry its volume, so it's resolved by path, which costs an exists()
+        // per volume per file. When the directory lives on a single volume the whole listing
+        // is stamped at once.
+        if (dirVol != NOMAD_VOL_NONE) {
+            f["vol"] = dirVol;
+        } else {
+            String full = dir;
+            if (!full.endsWith("/")) full += "/";
+            full += filename;
+            // A sub-folder can itself be unioned, and volumeOf() would answer with
+            // whichever volume it found first. -1 means "more than one", same as for the
+            // parent above.
+            f["vol"] = file.isDirectory() ? SD_MMC.soleVolumeOfDir(full.c_str())
+                                          : SD_MMC.volumeOf(full.c_str());
+        }
+        // {"name":"...","size":N,"isDir":false,"vol":0} plus the separator, near enough
+        approxBytes += filename.length() + 58;
 
         file = directory.openNextFile();
         if (approxBytes > LIST_MAX_BYTES) { truncated = true; break; }
@@ -3464,7 +4077,7 @@ void handleRename(AsyncWebServerRequest *request) {
 
     String oldName = request->getParam("oldname", true)->value();
     String newName = request->getParam("newname", true)->value();
-    if ((isConfigPath(oldName) || isConfigPath(newName)) && !checkAdminAuth(request)) {
+    if ((isProtectedWritePath(oldName) || isProtectedWritePath(newName)) && !checkAdminAuth(request)) {
         request->send(401, "application/json", "{\"error\":\"Unauthorized\"}");
         return;
     }
@@ -3606,7 +4219,7 @@ void handleDelete(AsyncWebServerRequest *request) {
     }
 
     String filename = request->getParam("filename", true)->value();
-    if (isConfigPath(filename) && !checkAdminAuth(request)) {
+    if (isProtectedWritePath(filename) && !checkAdminAuth(request)) {
         request->send(401, "application/json", "{\"error\":\"Unauthorized\"}");
         return;
     }
@@ -3648,7 +4261,9 @@ void handleDelete(AsyncWebServerRequest *request) {
     if (wasDirectory) {
         success = deleteRecursive(filename);
     } else {
-        success = SD_MMC.remove(filename);
+        const int copies = SD_MMC.removeAll(filename.c_str());
+        if (copies > 1) webLogf("info", "Removed %d copies of '%s' (card and drive)", copies, filename.c_str());
+        success = copies > 0;
     }
 
     if (sdMutex) xSemaphoreGive(sdMutex);
@@ -3744,6 +4359,14 @@ bool loadSdUsageFromFile() {
   uint64_t u = (uint64_t)(doc["used"]  | 0ULL);
 
   if (t == 0) return false;
+  // a snapshot of other storage (another card, or the card and a drive that is not plugged
+  // in now: a P4 adds the two) would show the wrong free space until the next refresh
+  uint64_t now = SD_MMC.totalBytes();
+  if (now && (t > now ? t - now : now - t) > now / 100) {
+    Serial.printf("[SDBAR] saved usage is for %llu bytes of storage, %llu mounted now; ignoring it\n",
+                  (unsigned long long)t, (unsigned long long)now);
+    return false;
+  }
   cachedTotalBytes = t;
   cachedUsedBytes  = u;
   g_sdStatTrusted  = doc["statTrusted"] | false;
@@ -3787,7 +4410,10 @@ bool refreshCachedTotalsFromStat(uint64_t &outStatUsedBytes, uint32_t mutexTimeo
 
   outStatUsedBytes = used;
   cachedTotalBytes = total;
-  if (g_sdStatTrusted) {
+  // The trust gate stops an unverified stat overwriting a figure a real walk produced.
+  // It must not hold a figure that's now impossible: pull the drive and total drops while
+  // the walked used stays, so the bar would read more used than exists.
+  if (g_sdStatTrusted || cachedUsedBytes > total) {
     cachedUsedBytes = used;
   }
   sdbarDirty = true;
@@ -3803,6 +4429,16 @@ bool refreshCachedTotalsFromStat(uint32_t mutexTimeoutMs = 400) {
 // checks a real walk's usage against SD_MMC.usedBytes() and trusts the fast stat path
 // only if they agree. this is the only place g_sdStatTrusted is set true.
 void reconcileStatTrust(uint64_t walkedUsedBytes) {
+  // The two figures aren't comparable across a union. usedBytes() sums each volume's
+  // own metadata, so a file on both the card and the drive counts twice, while the walk
+  // goes through the union and counts it once. A drive holding a copy of the card's
+  // library is normal, and comparing them would keep the badge on "Estimate" for good.
+  if (SD_MMC.volumeMounted(NOMAD_VOL_SD) && SD_MMC.usbMounted()) {
+    Serial.println("[SDBAR] reconcileStatTrust: two volumes mounted, the stat double-counts");
+    Serial.println("[SDBAR] anything present on both - not comparable, leaving totals unverified");
+    g_sdStatTrusted = false;
+    return;
+  }
   uint64_t statUsed = SD_MMC.usedBytes();
   if (walkedUsedBytes == 0 || statUsed == 0) {
     Serial.println("[SDBAR] reconcileStatTrust: skipped (zero reading)");
@@ -3930,9 +4566,13 @@ bool scanSDCardUsage() {
     return false;
   }
 
-  uint64_t reportedTotal = SD_MMC.cardSize();
+  // totalBytes(), not cardSize(): the walk below starts at the union root and counts
+  // both volumes, so the card's size alone would show more used than total. Same as
+  // refreshCachedTotalsFromStat uses.
+  uint64_t reportedTotal = SD_MMC.totalBytes();
   if (reportedTotal == 0) {
-    reportedTotal = cachedTotalBytes > 0 ? cachedTotalBytes : (64ULL * 1024ULL * 1024ULL * 1024ULL);
+    // Nothing is mounted, so no figure.
+    reportedTotal = cachedTotalBytes;
   }
   cachedTotalBytes = reportedTotal;
 
@@ -4052,11 +4692,10 @@ bool scanSDCardUsage() {
 void handleSDInfo(AsyncWebServerRequest *request) {
     DynamicJsonDocument doc(256);
 
-    uint64_t totalBytes = cachedTotalBytes > 0 ? cachedTotalBytes : (64ULL * 1024 * 1024 * 1024);
-    uint64_t usedBytes = cachedUsedBytes;
-
-    doc["total"] = totalBytes;
-    doc["used"] = usedBytes;
+    // 0 when nothing is mounted (a flash-UI board can boot without a card).
+    doc["total"] = cachedTotalBytes;
+    doc["used"] = cachedUsedBytes;
+    doc["mounted"] = SD_MMC.volumeMounted(NOMAD_VOL_SD) || SD_MMC.usbMounted();
     doc["statTrusted"] = g_sdStatTrusted;
 
     String output;
@@ -4080,6 +4719,10 @@ void handleConnector(AsyncWebServerRequest *request) {
     dir = request->getParam("dir", true)->value();
   }
   if (!dir.endsWith("/")) dir += "/";
+  if (isConfigPath(dir)) {
+    request->send(404, "text/plain", "Invalid directory");
+    return;
+  }
 
   if (sdMutex && xSemaphoreTake(sdMutex, pdMS_TO_TICKS(3000)) != pdTRUE) {
     request->send(503, "text/plain", "SD card busy");
@@ -4178,8 +4821,11 @@ void applyRGBSettings() {
 // resolves via multicast, so our captive DNS doesn't cover it. Must be restarted
 // whenever the AP interface is torn down.
 const char* MDNS_HOSTNAME = "nomad";
-// nomad.local only works where multicast does (Android has no system mDNS resolver).
-// nomad.lan is a normal name that our DNS responder on :53 answers. Advertise both.
+// .local is reserved for mDNS: every major OS resolves it by multicast and never asks
+// the DHCP-supplied DNS server, so nomad.local only works where multicast does. Android
+// has no system mDNS resolver, and on a P4 WiFi runs over ESP-Hosted to the C6, where
+// multicast RX is the weak spot. nomad.lan is an ordinary name that our own DNS
+// responder on :53 answers. Advertise both.
 const char* UNICAST_HOSTNAME = "nomad.lan";
 
 // MDNS.end() has no "is it running" check, so calling it when the responder never
@@ -4317,7 +4963,7 @@ bool startStationMode() {
     // escape hatch: side button during the wait forces hotspot mode and turns
     // auto-reconnect off. safe to poll here, the USB-mode interrupt on this
     // pin isnt attached until the end of setup()
-    if (digitalRead(BOOT_BUTTON_PIN) == LOW) {
+    if (nomadBootButtonDown()) {
       cancelled = true;
       break;
     }
@@ -4362,6 +5008,31 @@ bool startStationMode() {
 // Ends with either the STA link or the hotspot up, plus mDNS + DLNA bound to
 // whichever interface won.
 void startNetwork() {
+  // Wired first. It needs no credentials and no co-processor, and where there's a cable it
+  // carries the traffic (the radio on this board is a C6 over SDIO). It never replaces the
+  // hotspot started below. With no cable, or on a board with no NIC, it's a no-op.
+  nomadEthBegin();
+
+#ifdef NOMAD_RADIO_OFF
+  // Escape hatch for testing. If the radio co-processor isn't answering, ESP-Hosted
+  // restarts the host every twelve seconds, forever. Not touching the radio breaks that
+  // loop, so the board can be debugged and the C6 flashed over its own header.
+  //   firmware/build-p4.sh --radio-off --upload
+  Serial.println("[NET] NOMAD_RADIO_OFF build: the radio is not being started at all.");
+  Serial.println("[NET] Card, USB and serial work; the radio is off. Reflash without");
+  Serial.println("[NET] --radio-off to go back to normal.");
+  if (nomadEthSupported()) {
+    Serial.println("[NET] The wired NIC is unaffected: --radio-off on a board with an RJ45");
+    Serial.println("[NET] is a perfectly usable Nomad, just without the hotspot.");
+  }
+  webLog("[NET] radio disabled by build flag", "warning");
+  // lwIP still has to exist even with no interface: the web server and DLNA both call
+  // into the TCP/IP thread during setup, and without tcpip_init() they assert on an
+  // invalid mbox and the board boot-loops anyway.
+  esp_netif_init();
+  esp_event_loop_create_default();
+  return;
+#else
   bool staOnce = get_sta_once_flag();
   esp_reset_reason_t rr = esp_reset_reason();
 
@@ -4387,6 +5058,7 @@ void startNetwork() {
     }
     g_staMode = false;
     webLogf("info", "Starting WiFi Access Point with SSID: '%s'", settings.wifiSSID.c_str());
+    WiFi.onEvent(nomadWiFiEvent);   // the client count comes from here, not from polling
     WiFi.mode(WIFI_AP);
     WiFi.softAP(settings.wifiSSID.c_str(), settings.wifiPassword.c_str(), 1, 0, MAX_CLIENTS);
     {
@@ -4400,8 +5072,9 @@ void startNetwork() {
     }
     ensureApDhcpServer("boot-initial");  // make sure clients get a lease, not APIPA (issue #126)
 #if NOMAD_AP_HT20
-    // The softAP defaults to 40 MHz, which on channel 1 also covers 5-6 where most
-    // neighbours sit, and phones mostly refuse 40 MHz on 2.4 GHz anyway.
+    // The softAP defaults to 40 MHz, which on channel 1 also covers 5-6, where most
+    // neighbours sit, and phones mostly refuse 40 MHz on 2.4 GHz anyway. 20 MHz was faster
+    // in testing.
     esp_wifi_set_bandwidth(WIFI_IF_AP, WIFI_BW_HT20);
 #endif
 #if NOMAD_BENCH
@@ -4416,8 +5089,12 @@ void startNetwork() {
   webLogf("info", "Device also reachable at http://%s/ and, where multicast works, http://%s.local/",
           UNICAST_HOSTNAME, MDNS_HOSTNAME);
 
-  // DLNA discovery. The HTTP routes are registered with the rest of the server.
-  // This binds the SSDP multicast listener on whichever netif just came up.
+  // The wired side comes up on its own schedule (PHY negotiation, then DHCP), so this is
+  // only a snapshot. /api/netdiag has the live state, and the ETH events log the address.
+  if (nomadEthSupported()) nomadEthReport("boot");
+
+  // DLNA discovery. The HTTP routes are registered with the rest of the server, this
+  // binds the SSDP multicast listener on whichever netif just came up.
   dlnaSetEnabled(settings.dlnaEnabled && !g_safeMode);   // safe mode: TV support waits for a normal start
   dlnaRestart();
   webLogf("info", "DLNA TV support %s", settings.dlnaEnabled && !g_safeMode ? "enabled" : "disabled");
@@ -4425,11 +5102,17 @@ void startNetwork() {
   // hand the boot screen back to the rest of setup()
   lv_textarea_set_text(ui_MediaGen, "Booting...");
   lv_timer_handler();
+#endif  // NOMAD_RADIO_OFF
 }
 // Return number of connected stations on the softAP
 int getConnectedUserCount() {
+#if NOMAD_HAS_HOSTED_RADIO
+  // Same reasoning as updateClientCount(): softAPgetStationNum() reaches the same RPC.
+  return g_apStations;
+#else
   // WiFi.softAPgetStationNum() returns uint8_t number of clients
   return WiFi.softAPgetStationNum();
+#endif
 }
 // full walk of the whole card (also buckets into g_lastBreakdown). per-folder scope
 // lives on the indexing side, see /api/reindex
@@ -5042,6 +5725,12 @@ void bootCoordinatorTask(void *pv) {
   }
 
   vTaskDelay(pdMS_TO_TICKS(100));
+#if NOMAD_HAS_HOSTED_RADIO
+  // Asked here and not in startNetwork(): the version RPC needs the hosted link fully up.
+  // Reporting only, NomadC6.h has why there's nothing to act on.
+  nomadC6Report("settled");
+#endif
+
   Serial.println("[BootCoord] boot coordination done; exiting task");
   nomadTaskExit();
 }
@@ -5100,10 +5789,10 @@ String getMimeType(const String &path) {
   if (path.endsWith(".ndjson")) return "application/x-ndjson";
   return "application/octet-stream"; // fallback safe binary
 }
-// Serve one file off the card with an ETag of size+mtime. Pages are no-cache, so the
-// ETag saves re-reading big files like the menu and master.css on every visit. A match
-// is one lookup and a 304. Files the device writes carry the fake uptime clock, so the
-// test is equality. The body is read by NomadPageBody.h.
+// Serve one file off the card (or flash) with an ETag of size+mtime. Pages are no-cache,
+// so the ETag saves re-reading big files like the menu and master.css on every visit. A
+// match is one lookup and a 304. Files the device writes carry the fake uptime clock, so
+// the test is equality. A card file's body is read by NomadPageBody.h.
 // gzSibling: send filePath + ".gz" as filePath, with Content-Encoding: gzip.
 #include "NomadPageBody.h"
 static void sendSdFile(AsyncWebServerRequest *request, const String &filePath, const String &mime,
@@ -5113,23 +5802,58 @@ static void sendSdFile(AsyncWebServerRequest *request, const String &filePath, c
         if (page >= 0 && (g_hiddenMask & (1u << page))) { sendPageOff(request, page); return; }
         usageNotePage(page);
     }
-    const String cardPath = gzSibling ? filePath + ".gz" : filePath;
-    if (sdMutex && xSemaphoreTake(sdMutex, pdMS_TO_TICKS(1000)) != pdTRUE) {
-        request->send(503, "text/plain", "SD busy");
+    // Interface files in flash win over the card's copies. Flash reads skip the card lock.
+    // A gzip sibling is a ROM on the card, never an interface file.
+    const bool fromFlash = !gzSibling && nomadUiHas(filePath);
+    // Flash is case-sensitive and the card isn't, so /ADMIN.HTML would miss the flash copy
+    // and get the card's. Another spelling of a file flash holds isn't served from the card.
+    // A library flash doesn't hold at all (the maps stack, the big engines: NomadUI.h) is.
+    if (!fromFlash && !gzSibling && (nomadUiShadows(filePath) || nomadUiShadows(canonicalPath(filePath)))) {
+        request->send(404, "text/plain", "File not found");
         return;
     }
+#if CONFIG_IDF_TARGET_ESP32P4
+    // Opening any file takes a newlib lock out of internal RAM, and that allocation aborts
+    // instead of failing, so stuck readers on flash pages can reset the board. This is the
+    // page path's memory floor (/media has its own). Below it a page waits a second.
+    if (heap_caps_get_free_size(MALLOC_CAP_INTERNAL) < PAGE_RAM_FLOOR) {
+        AsyncWebServerResponse *busy = request->beginResponse(503, "text/plain", "Busy - retry");
+        if (busy) { busy->addHeader("Retry-After", "1"); request->send(busy); }
+        return;
+    }
+#endif
+    const String cardPath = gzSibling ? filePath + ".gz" : filePath;
+    File f;                       // flash only: the card is read by NomadPageBody
     uint64_t size = 0;
     time_t mtime = 0;
-    const bool ok = SD_MMC.fileStat64(cardPath.c_str(), size, mtime);   // false for a folder too
-    if (sdMutex) xSemaphoreGive(sdMutex);
+    bool ok;
+    if (fromFlash) {
+        f = nomadUiFS(filePath).open(filePath, FILE_READ);
+        ok = f && !f.isDirectory();
+        size = ok ? f.size() : 0;
+        mtime = ok ? f.getLastWrite() : 0;
+        if (!ok && f) f.close();
+    } else {
+        if (sdMutex && xSemaphoreTake(sdMutex, pdMS_TO_TICKS(1000)) != pdTRUE) {
+            request->send(503, "text/plain", "SD busy");
+            return;
+        }
+        ok = SD_MMC.fileStat64(cardPath.c_str(), size, mtime);   // false for a folder too
+        if (sdMutex) xSemaphoreGive(sdMutex);
+    }
     if (!ok) {
         request->send(404, "text/plain", "File not found");
         return;
     }
 
-    const String etag = nomadEtag(mtime, size);
+    // A page in flash carries the image's id as well. The image's files can all have the
+    // same build-time stamps, and an interface update rewrites the id (NomadUI.h), so a
+    // same-size edit still reads as changed.
+    const String etag = fromFlash ? "\"ui" + String(nomadUiVersion()) + "-" + nomadEtag(mtime, size).substring(1)
+                                  : nomadEtag(mtime, size);
 
     if (request->hasHeader("If-None-Match") && request->getHeader("If-None-Match")->value() == etag) {
+        if (f) f.close();
         AsyncWebServerResponse *r = request->beginResponse(304);
         r->addHeader("ETag", etag);
         r->addHeader("Cache-Control", cacheControl);
@@ -5138,16 +5862,18 @@ static void sendSdFile(AsyncWebServerRequest *request, const String &filePath, c
         return;
     }
     // a whole-file reply's length is a size_t: a 4 GB file in /Files goes the way films do
-    if (size >= 0xFFFFFFFFull && !gzSibling) {
+    if (!fromFlash && size >= 0xFFFFFFFFull && !gzSibling) {
         request->redirect("/media?file=" + nomadQueryEncode(filePath));
         return;
     }
 
-    AsyncWebServerResponse *response = nomadPageResponse(request, cardPath, mime, size);
+    AsyncWebServerResponse *response = fromFlash ? request->beginResponse(f, filePath, mime.c_str())
+                                                 : nomadPageResponse(request, cardPath, mime, size);
     // Same OOM guard as the streaming path
     if (!response) {
         Serial.printf("[Static] no response for %s (heap=%u)\n",
                       filePath.c_str(), (unsigned)ESP.getFreeHeap());
+        if (f) f.close();
         AsyncWebServerResponse *busy = request->beginResponse(503, "text/plain", "Server busy - retry");
         if (busy) { busy->addHeader("Retry-After", "1"); request->send(busy); }
         return;
@@ -5192,7 +5918,7 @@ void serveProtectedFile(AsyncWebServerRequest *request, const String& filePath) 
 #include "NomadFirmware.h"   // new firmware over the air or from a file, checked, with a way back
 #include "NomadSupport.h"    // safe mode after repeated crashes, and the support file's build/crash part
 #include "NomadParty.h"      // watch together: a host, a code, everyone at the same moment, and voting
-#include "NomadZimServe.h"  // archive pages served from the ZIM by the Nomad, for phones without a service worker
+#include "NomadZimServe.h"  // archive pages served from the ZIM by Nomad, for phones without a service worker
 #include "NomadChat.h"      // the chat page's messages: numbered as they arrive, kept in PSRAM, logged to /.chat
 
 // Uploads.
@@ -5209,6 +5935,11 @@ struct NomadUpload {
   File f;
   String part, finalPath;
   uint64_t total = 0, have = 0;
+  // The volume the part (and so the file) is written on. A library can be the card and a
+  // USB drive merged into one (P4-NANO), so every write names its volume. A path that
+  // doesn't exist yet resolves to nothing, and open(FILE_WRITE) would pick the card.
+  int vol = NOMAD_VOL_SD;
+  bool replace = false;          // an admin asked to replace a file already there
   int failCode = 0;              // set once a write fails: later chunks are dropped
   const char *failMsg = "";
 };
@@ -5260,6 +5991,10 @@ static bool nomadMakesRootFolder(const String &fullPath) {
 // the upload's full path from dir= (form field or query) and the file's name, or "" with
 // the refusal already sent
 static String nomadUploadTarget(AsyncWebServerRequest *request, const String &filename) {
+  if (!g_sdAllocPrimed) {
+    nomadUploadJson(request, 503, "{\"error\":\"Nomad is still getting the card ready. Try again in a few seconds.\"}");
+    return String();
+  }
   String dir = nomadParamValue(request, "dir");
   if (!dir.length()) dir = "/";
   if (!dir.startsWith("/")) dir = "/" + dir;
@@ -5278,12 +6013,225 @@ static String nomadUploadTarget(AsyncWebServerRequest *request, const String &fi
     nomadUploadJson(request, 401, "{\"error\":\"Admin login required to make a new folder there\"}");
     return String();
   }
-  if (isConfigPath(fullPath) && !checkAdminAuth(request)) {
+  if (isProtectedWritePath(fullPath) && !checkAdminAuth(request)) {
     nomadUploadJson(request, 401, "{\"error\":\"Unauthorized\"}");
+    return String();
+  }
+  // A P4 serves its pages from its own flash, so a copy written to the card would never
+  // be served. Say so (Update the web interface writes flash)
+  if (nomadUiHas(fullPath) || nomadUiShadows(fullPath)) {
+    nomadUploadJson(request, 409, "{\"error\":\"This page is kept in Nomad's own memory, not on the card. Use Update the web interface in the admin page.\"}");
     return String();
   }
   return fullPath;
 }
+
+
+// Storage self-test (test builds only)
+#ifdef NOMAD_FS_SELFTEST
+// The storage layer is otherwise only reachable over HTTP, which needs a client on the
+// hotspot. This runs the same checks from the serial console. Like NOMAD_THUMB_SELFTEST:
+// never in a normal build, turned on by build-p4.sh --fstest.
+
+static int g_fsTestPass = 0, g_fsTestFail = 0, g_fsTestSkip = 0;
+
+static void fsT(const char *name, bool ok, const String &detail = String("")) {
+  g_fsTestPass += ok ? 1 : 0;
+  g_fsTestFail += ok ? 0 : 1;
+  Serial.printf("[FSTEST] %-38s %s%s%s\n", name, ok ? "pass" : "FAIL",
+                detail.length() ? "   " : "", detail.c_str());
+}
+static void fsSkip(const char *name, const char *why) {
+  g_fsTestSkip++;
+  Serial.printf("[FSTEST] %-38s skip   %s\n", name, why);
+}
+
+// Every spelling of /config/settings.json that SdFat resolves to the same file. If any
+// of these opens and the guard does not claim it, the hotspot password, the admin hash
+// and the home network password are downloadable through /media.
+static const char *kConfigAliases[] = {
+  "/config/settings.json",
+  "/CONFIG/settings.json",
+  "/Config/Settings.json",
+  "//config/settings.json",
+  "/config./settings.json",
+  "/config /settings.json",
+};
+
+static void nomadFsSelfTest() {
+  Serial.println("\n[FSTEST] ======== storage self-test ========");
+
+  // 1. the guard claims every alias, whether or not SdFat opens it
+  bool allClaimed = true;
+  for (auto a : kConfigAliases) {
+    if (!isConfigPath(String(a))) { allClaimed = false; Serial.printf("[FSTEST]   unclaimed: %s\n", a); }
+  }
+  fsT("config guard claims every alias", allClaimed);
+
+  // 2. and SdFat really does resolve them, on this card (measured, not read off the source)
+  if (!SD_MMC.exists("/config/settings.json")) {
+    fsSkip("aliases resolve on real media", "no /config/settings.json on this card");
+  } else {
+    int resolved = 0;
+    String which;
+    for (auto a : kConfigAliases) {
+      if (SD_MMC.exists(a)) { resolved++; }
+      else { which += " "; which += a; }
+    }
+    const int n = (int)(sizeof(kConfigAliases) / sizeof(kConfigAliases[0]));
+    Serial.printf("[FSTEST]   %d of %d aliases open the same file%s%s\n", resolved, n,
+                  which.length() ? "; did not resolve:" : "", which.c_str());
+    fsT("every resolving alias is guarded", resolved >= 1);
+  }
+
+  // 3. the root dotfiles are readable but not writable
+  fsT("theme is not a read-secret",     !isConfigPath("/.system-theme.json"));
+  fsT("theme is write-protected",        isProtectedWritePath("/.SYSTEM-theme.json"));
+  fsT("ui config is write-protected",    isProtectedWritePath("//.system-ui.json"));
+  fsT("ordinary media is untouched",    !isProtectedWritePath("/Movies/Config Wars.mkv") &&
+                                        !isConfigPath("/configure/notes.txt"));
+
+  // 4. per-volume figures
+  uint64_t sumTotal = 0;
+  for (int v = 0; v < NOMAD_VOL_COUNT; ++v) {
+    if (!SD_MMC.volumeMounted(v)) continue;
+    const uint64_t t = SD_MMC.volumeTotalBytes(v), u = SD_MMC.volumeUsedBytes(v);
+    sumTotal += t;
+    Serial.printf("[FSTEST]   %s: %s  %.1f GB total, %.1f GB used\n",
+                  SD_MMC.volumeLabel(v), SD_MMC.volumeFsTypeName(v),
+                  t / 1e9, u / 1e9);
+    fsT("volume total is plausible", t > 0 && u <= t, String(SD_MMC.volumeLabel(v)));
+  }
+  fsT("union total is the sum", SD_MMC.totalBytes() == sumTotal,
+      String((double)SD_MMC.totalBytes() / 1e9, 1) + " GB");
+
+  // 5. a real write, read, and removal
+  const char *tmp = "/nomad-fstest.tmp";
+  const String payload = "jcorp nomad storage self-test";
+  if (SD_MMC.exists(tmp)) SD_MMC.removeAll(tmp);
+  {
+    File f = SD_MMC.open(tmp, FILE_WRITE);
+    fsT("temp file opens for write", (bool)f);
+    if (f) { f.print(payload); f.close(); }
+  }
+  fsT("temp file exists after write", SD_MMC.exists(tmp));
+  fsT("size matches what was written", SD_MMC.fileSize64(tmp) == payload.length(),
+      String((unsigned)SD_MMC.fileSize64(tmp)) + " bytes");
+  {
+    File f = SD_MMC.open(tmp, FILE_READ);
+    String back;
+    while (f && f.available()) back += (char)f.read();
+    if (f) f.close();
+    fsT("reads back byte for byte", back == payload);
+  }
+  {
+    const int wv = SD_MMC.volumeOf(tmp);
+    fsT("lands on exactly one volume",
+        wv != NOMAD_VOL_NONE && SD_MMC.existsOn(wv, tmp) &&
+        !SD_MMC.existsOn(wv == 0 ? 1 : 0, tmp), String(SD_MMC.volumeLabel(wv)));
+  }
+  {
+    const int n = SD_MMC.removeAll(tmp);
+    fsT("removeAll clears it and counts", n == 1 && !SD_MMC.exists(tmp),
+        String("removed from ") + n + " volume(s)");
+  }
+
+  // 6. a directory carried by both volumes lists once
+  if (!(SD_MMC.volumeMounted(NOMAD_VOL_SD) && SD_MMC.usbMounted())) {
+    fsSkip("union listing de-duplicates", "only one volume mounted");
+  } else {
+    String shared;
+    File root = SD_MMC.open("/");
+    for (File e = root.openNextFile(); e; e = root.openNextFile()) {
+      if (!e.isDirectory()) { e.close(); continue; }
+      const String p = String(e.path());
+      e.close();
+      if (SD_MMC.existsOn(NOMAD_VOL_SD, p.c_str()) && SD_MMC.existsOn(NOMAD_VOL_USB, p.c_str())) {
+        shared = p;
+        break;
+      }
+    }
+    if (root) root.close();
+    if (!shared.length()) {
+      fsSkip("union listing de-duplicates", "no folder exists on both volumes");
+    } else {
+      fsT("shared folder reports no sole volume",
+          SD_MMC.soleVolumeOfDir(shared.c_str()) == NOMAD_VOL_NONE, shared);
+      std::set<String> seen;
+      int entries = 0, dupes = 0;
+      File d = SD_MMC.open(shared);
+      for (File e = d.openNextFile(); e; e = d.openNextFile()) {
+        const String n = String(e.name());
+        e.close();
+        entries++;
+        if (!seen.insert(n).second) dupes++;
+        if (entries > 400) break;
+      }
+      if (d) d.close();
+      fsT("union listing de-duplicates", dupes == 0,
+          shared + ": " + entries + " entries, " + dupes + " repeated");
+    }
+  }
+
+  // raw read throughput, with no web server in the way. Tells a slow card apart from a
+  // slow stack above it. Reads through the same NomadFile64 the range handler uses, at its
+  // 16 KB, then at 64 KB to see whether the chunk size is what costs.
+  {
+    String big; uint64_t bigSz = 0;
+    File dir = SD_MMC.open("/Movies");
+    if (dir && dir.isDirectory()) {
+      File e;
+      while ((e = dir.openNextFile())) {
+        String n = String(e.name());
+        if (!n.startsWith("/")) n = "/Movies/" + n;
+        const bool isVid = n.endsWith(".mp4") || n.endsWith(".mkv");
+        if (!e.isDirectory() && isVid && (uint64_t)e.size() > bigSz) {
+          bigSz = (uint64_t)e.size();
+          big = n;
+        }
+        e.close();
+        if (bigSz > 300ULL * 1024 * 1024) break;   // big enough, stop walking
+      }
+      dir.close();
+    }
+
+    if (!big.length()) {
+      fsSkip("raw read throughput", "no video file in /Movies");
+    } else {
+      Serial.printf("[FSTEST]   benchmarking against %s (%.0f MB)\n",
+                    big.c_str(), (double)bigSz / 1048576.0);
+      const size_t chunks[] = { 16384, 65536 };
+      for (size_t ci = 0; ci < 2; ++ci) {
+        const size_t chunk = chunks[ci];
+        uint8_t *buf = (uint8_t *)heap_caps_malloc(chunk, MALLOC_CAP_DMA);
+        if (!buf) { Serial.printf("[FSTEST]   %u KB: no DMA buffer\n", (unsigned)(chunk / 1024)); continue; }
+        NomadFile64 fh;
+        if (!fh.open(big.c_str())) { free(buf); continue; }
+        const uint64_t want = 24ULL * 1024 * 1024;
+        uint64_t pos = 0, got = 0;
+        const unsigned long t0 = millis();
+        while (got < want && pos < bigSz) {
+          size_t r = fh.readAt(pos, buf, chunk);
+          if (!r) break;
+          pos += r; got += r;
+        }
+        unsigned long dt = millis() - t0;
+        fh.close();
+        free(buf);
+        if (!dt) dt = 1;
+        Serial.printf("[FSTEST]   raw sequential @%2u KB chunks: %6.2f MB/s  (%llu MB in %lu ms)\n",
+                      (unsigned)(chunk / 1024),
+                      (double)got / 1048576.0 / ((double)dt / 1000.0),
+                      (unsigned long long)(got / 1048576), dt);
+      }
+    }
+  }
+
+  Serial.printf("[FSTEST] ======== %d passed, %d failed, %d skipped ========\n\n",
+                g_fsTestPass, g_fsTestFail, g_fsTestSkip);
+}
+#endif  // NOMAD_FS_SELFTEST
+
 
 void setup() {
     Serial.begin(115200);
@@ -5291,6 +6239,12 @@ void setup() {
     nomadFirmwareBoot();   // new firmware proving itself, or the result of going back
     nomadSafeBoot();       // count crash restarts, safe mode at three in a row, read the stored crash
     Serial.println("=== Booting Nomad (debug) ===");
+    // Which board, and the two facts most likely to be wrong on a fresh bring-up.
+    Serial.printf("[BOOT] board=%s  sd_slot=%d  sd_pins clk=%d cmd=%d d0=%d d1=%d d2=%d d3=%d  ldo_chan=%d\n",
+                  NOMAD_BOARD_NAME, NOMAD_SD_SLOT, NOMAD_SD_CLK, NOMAD_SD_CMD,
+                  NOMAD_SD_D0, NOMAD_SD_D1, NOMAD_SD_D2, NOMAD_SD_D3, NOMAD_SD_LDO_CHANNEL);
+    Serial.printf("[BOOT] display=%d  usb_host=%d  usb_msc_dev=%d  flash_ui=%d\n",
+                  NOMAD_HAS_DISPLAY, NOMAD_HAS_USB_HOST, NOMAD_HAS_USB_MSC_DEV, NOMAD_HAS_FLASH_UI);
     // Crash Diagnostic, checks what went wrong, and helps me when yall send me logs.
     {
       esp_reset_reason_t rr = esp_reset_reason();
@@ -5308,13 +6262,18 @@ void setup() {
       Serial.printf("[BOOT] reset_reason=%d (%s)  freeHeap=%u  minEverHeap=%u\n",
                     (int)rr, n, (unsigned)ESP.getFreeHeap(), (unsigned)ESP.getMinFreeHeap());
     }
-    pinMode(BOOT_BUTTON_PIN, INPUT_PULLUP);
+#if NOMAD_BOOT_BUTTON_PIN >= 0
+    pinMode(NOMAD_BOOT_BUTTON_PIN, INPUT_PULLUP);
+#endif
 
     if (get_boot_mode() == USB_MODE) {
       clear_boot_mode();    // next boot will go back to MEDIA
+#if NOMAD_HAS_USB_MSC_DEV
       // disk first, display second: the host starts mounting the moment the
       // MSC LUN is ready, so every millisecond before usb_setup() is wait time
+#if NOMAD_HAS_NATIVE_BT
       btStop(); //Stops bluetooth (dont need)
+#endif
       usb_setup();
       LCD_Init();
       Lvgl_Init();
@@ -5328,6 +6287,11 @@ void setup() {
         usb_loop();
       }
       return;
+#else
+      // No device-mode port to be a card reader on: the Type-C is a CH34x UART bridge and
+      // the OTG high-speed port is the storage host. Fall through to media mode.
+      Serial.println("[BOOT] USB card-reader mode is not available on this board, continuing to media mode");
+#endif
     }
 
 
@@ -5356,14 +6320,47 @@ if (!SD_MMC.setPins(SD_CLK_PIN, SD_CMD_PIN, SD_D0_PIN, SD_D1_PIN, SD_D2_PIN, SD_
     sdBootHalt("SD card error");
 }
 
-if (!mountSDCard()) {
-    Serial.println("ERROR: SDMMC Card initialization failed.");
-    sdBootHalt("No SD card\nInsert a card to boot");
+bool sdOk = mountSDCard();
+if (!sdOk) Serial.println("No card, or it would not mount; looking for a USB volume.");
+
+// USB host comes up whether or not the card did. With both, the two volumes are one
+// library, with only a drive it is the library.
+bool usbOk = nomadWaitForUsbVolume(sdOk ? 2500 : 6000);
+
+if (!sdOk && !usbOk) {
+    Serial.println("ERROR: no storage at all - no card and no USB device.");
+    // Before anything else: with no volume there is no settings.json, and the empty
+    // default admin password would turn auth off on a board about to bring up a hotspot.
+    // See isAdminAuthRequired().
+    g_settingsUnbacked = true;
+    sdBootHalt("No storage\nInsert a card to boot");
+    // Only reached on a board that serves its interface from flash (sdBootHalt() doesn't
+    // return anywhere else). Each block below tests sdOk / usbOk before touching a volume.
 }
 
-Serial.println("SD Card initialized successfully!");
+// The interface partition is independent of the card and mounts either way, so a card
+// that failed still gets a page that can say so.
+if (nomadUiBegin()) {
+    Serial.printf("[UIFLASH] partition mounted, %u of %u bytes used, interface %s (build %s)\n",
+                  (unsigned)nomadUiUsedBytes(), (unsigned)nomadUiTotalBytes(),
+                  nomadUiActive() ? "served from flash" : "still served from the card",
+                  nomadUiVersion()[0] ? nomadUiVersion() : "unknown - not a shipped image");
+}
 
+if (sdOk) {
+    Serial.println("SD Card initialized successfully!");
     webLogf("success", "SD Card initialized successfully - %s, %s, Size: %.1f GB", NomadSD.fsTypeName(), g_sdModeDesc, (float)SD_MMC.cardSize() / (1024.0 * 1024.0 * 1024.0));
+}
+if (usbOk) {
+    webLogf("success", "USB volume mounted - %s, %s, Size: %.1f GB", SD_MMC.volumeFsTypeName(NOMAD_VOL_USB),
+            nomadUsbProduct(), (float)nomadUsbCapacityBytes() / (1024.0 * 1024.0 * 1024.0));
+}
+if (sdOk && usbOk) {
+    webLog("[STORAGE] card and USB volume are both up; the media library is the union of the two", "info");
+}
+#ifdef NOMAD_FS_SELFTEST
+nomadFsSelfTest();   // test builds only, see the function
+#endif
 
     refreshCachedTotalsFromStat();
 
@@ -5430,6 +6427,7 @@ Serial.println("SD Card initialized successfully!");
       }
     }
 
+    if (!g_fsJobMutex) g_fsJobMutex = xSemaphoreCreateMutex();
     if (!gameMutex) {
       gameMutex = xSemaphoreCreateMutex();
       if (!gameMutex) {
@@ -5463,6 +6461,71 @@ Serial.println("SD Card initialized successfully!");
       saveSettings();
       SD_MMC.remove("/config/sessions.json");
       Serial.println("[Auth] admin password cleared by NOMAD_RESET_ADMIN_PASSWORD");
+    }
+#endif
+#if defined(NOMAD_TEST_STASH_ADMIN) || defined(NOMAD_TEST_UNSTASH_ADMIN)
+    // for testing on someone's own Nomad: STASH moves the admin password and kept sign-ins
+    // into /config (never served) and runs with no password, UNSTASH puts them back. The
+    // password is never printed or sent, only moved on the card. Each step waits for the
+    // config writer, so a reset mid-write leaves the password either still set or stashed.
+    {
+      const char *stash = "/config/.admin-stash", *kept = "/config/sessions.json",
+                 *keptStash = "/config/.sessions-stash.json";
+      auto readStash = [&]() -> String {
+        File f = SD_MMC.open(stash, FILE_READ);
+        String v = f ? f.readString() : String();
+        if (f) f.close();
+        return v;
+      };
+      auto flushSettings = [&]() {
+        const uint32_t before = g_cfgWritesDone;
+        saveSettings();
+        // the first write after a mount can take seconds on a full card (primeSdAlloc)
+        for (int i = 0; i < 600 && cfgWriteQueue && g_cfgWritesDone == before; ++i) vTaskDelay(pdMS_TO_TICKS(50));
+        vTaskDelay(pdMS_TO_TICKS(200));
+      };
+#ifdef NOMAD_TEST_STASH_ADMIN
+      if (settings.adminPassword.length()) {
+        if (SD_MMC.exists(stash) && readStash().length() == 0) SD_MMC.remove(stash);   // cut off mid-write
+        bool have = SD_MMC.exists(stash) && readStash() == settings.adminPassword;
+        if (!have && !SD_MMC.exists(stash)) {
+          File f = SD_MMC.open(stash, FILE_WRITE);
+          have = f && f.print(settings.adminPassword) == settings.adminPassword.length();
+          if (f) f.close();
+          have = have && readStash() == settings.adminPassword;
+        }
+        if (have) {
+          if (SD_MMC.exists(kept) && !SD_MMC.exists(keptStash)) SD_MMC.rename(kept, keptStash);
+          settings.adminPassword = "";
+          flushSettings();
+          Serial.println("[Auth] test build: admin password stashed in /config");
+        } else {
+          File sf = SD_MMC.open(stash, FILE_READ);
+          Serial.printf("[Auth] test build: stash missing or different, password left as it was "
+                        "(exists=%d open=%d size=%d dir=%d readLen=%d pwLen=%d)\n",
+                        (int)SD_MMC.exists(stash), (int)(bool)sf, sf ? (int)sf.size() : -1,
+                        sf ? (int)sf.isDirectory() : -1, (int)readStash().length(),
+                        (int)settings.adminPassword.length());
+          if (sf) sf.close();
+        }
+      } else {
+        Serial.printf("[Auth] test build: no password set, stash on card=%d\n", (int)SD_MMC.exists(stash));
+      }
+#else
+      if (SD_MMC.exists(stash)) {
+        String pw = readStash();
+        if (pw.length()) {
+          settings.adminPassword = pw;
+          flushSettings();
+          SD_MMC.remove(kept);   // sign-ins made while testing
+          if (SD_MMC.exists(keptStash)) SD_MMC.rename(keptStash, kept);
+          SD_MMC.remove(stash);
+          Serial.println("[Auth] test build: admin password restored from /config");
+        }
+      } else {
+        Serial.println("[Auth] test build: nothing stashed");
+      }
+#endif
     }
 #endif
     nomadAuthLoad();      // devices kept signed in, from before the restart
@@ -5565,12 +6628,6 @@ Serial.println("SD Card initialized successfully!");
     nomadCreateTask(storageMonitorTask, "StorageMonitor", 4096, NULL, 1, &storageMonitorTaskHandle, 0);
 
     delay(2000);
-#if NOMAD_ROUTES_PSRAM
-    // Everything malloc'd while the routes are made goes to PSRAM. Routes are small
-    // objects but there are a lot of them, and otherwise they sit in the internal RAM
-    // films need. Routes are only read on the network task, never while flash is written.
-    heap_caps_malloc_extmem_enable(16);
-#endif
     // Captive DNS already started by startNetwork() (hotspot only, never on a home network)
     //OPDS Endpoint (still needs fixing)
     server.on("/opds/root.xml", HTTP_GET, handleOPDSRoot);
@@ -5717,31 +6774,8 @@ Serial.println("SD Card initialized successfully!");
     );
 
     server.on("/sdinfo", HTTP_GET, handleSDInfo);
-  // Name resolution diagnostics.
-    // "nomad.local doesn't work" has three causes that look the same from a browser:
-    // the client was never told to ask us (dnsOffered false), it asked and we said no
-    // (queries and nxdomain climbing), or it never asks over unicast because .local is
-    // mDNS only. dnsQueries tells them apart.
-    server.on("/api/netdiag", HTTP_GET, [](AsyncWebServerRequest *request) {
-      uint32_t q = 0, a = 0, nx = 0;
-      String last;
-      nomadDnsStats(q, a, nx, last);
-      String j = "{";
-      j += "\"mode\":\"" + String(g_staMode ? "station" : "hotspot") + "\"";
-      j += ",\"ip\":\"" + nomadLocalIP().toString() + "\"";
-      j += ",\"mdnsRunning\":" + String(g_mdnsRunning ? "true" : "false");
-      j += ",\"mdnsName\":\"" + String(MDNS_HOSTNAME) + ".local\"";
-      j += ",\"unicastName\":\"" + String(UNICAST_HOSTNAME) + "\"";
-      j += ",\"dnsOffered\":" + String(g_dnsOffered ? "true" : "false");
-      j += ",\"captivePortalUri\":" + String(g_captivePortalUri ? "true" : "false");
-      j += ",\"dnsCatchAll\":" + String(settings.dnsCatchAll ? "true" : "false");
-      j += ",\"dnsQueries\":" + String((unsigned long)q);
-      j += ",\"dnsAnswered\":" + String((unsigned long)a);
-      j += ",\"dnsNxdomain\":" + String((unsigned long)nx);
-      j += ",\"dnsLastName\":\"" + last + "\"";
-      j += "}";
-      request->send(200, "application/json", j);
-    });
+    // /api/netdiag is registered once, with the board routes further down: admin-only (it
+    // reports the last name any client looked up) and with the wired side where there is one.
 
     server.on("/api/sd-breakdown", HTTP_GET, [](AsyncWebServerRequest *request){
       std::vector<std::pair<String, BreakdownStats>> entries = sortedBreakdownEntries(g_lastBreakdown);
@@ -5766,7 +6800,10 @@ Serial.println("SD Card initialized successfully!");
       if (!checkAdminAuth(request)) { request->send(401, "application/json", "{\"error\":\"Unauthorized\"}"); return; }
       webLog("[ADMIN] Media generation requested by user interface", "info");
 
-      if (SD_MMC.cardType() == CARD_NONE) {
+      // a library can be a USB drive with no card in (P4-NANO): any mounted volume will do
+      bool anyVolume = false;
+      for (int v = 0; v < NOMAD_VOL_COUNT; v++) anyVolume |= SD_MMC.volumeMounted(v);
+      if (!anyVolume) {
         request->send(500, "text/plain", "SD card not available.");
         webLog("[ADMIN] SD card not mounted - cannot generate media", "error");
         return;
@@ -5864,12 +6901,16 @@ Serial.println("SD Card initialized successfully!");
     // of the portal page is how phones keep showing a stale landing screen
     server.on("/hotspot-detect.html", HTTP_GET, [](AsyncWebServerRequest *request) {
         Serial.println("Apple captive portal request detected, serving appleindex.html");
-        nomadSendCardFile(request, "/appleindex.html", "text/html", "no-cache");
+        AsyncWebServerResponse *r = request->beginResponse(nomadUiFS("/appleindex.html"), "/appleindex.html", "text/html");
+        r->addHeader("Cache-Control", "no-cache");
+        request->send(r);
     });
 
     server.on("/generate_204", HTTP_GET, [](AsyncWebServerRequest *request) {
         Serial.println("Android/NORMAL captive portal request detected, serving index.html");
-        nomadSendCardFile(request, "/index.html", "text/html", "no-cache");
+        AsyncWebServerResponse *r = request->beginResponse(nomadUiFS("/index.html"), "/index.html", "text/html");
+        r->addHeader("Cache-Control", "no-cache");
+        request->send(r);
     });
     // the rest of the OS/browser connectivity probe paths. serving the portal page
     // instead of the expected token is what flips each one into "sign in to network".
@@ -5889,7 +6930,9 @@ Serial.println("SD Card initialized successfully!");
       for (const auto &p : kProbePaths) {
         const char *page = p.apple ? "/appleindex.html" : "/index.html";
         server.on(p.path, HTTP_GET, [page](AsyncWebServerRequest *request) {
-          nomadSendCardFile(request, page, "text/html", "no-cache");
+          AsyncWebServerResponse *r = request->beginResponse(nomadUiFS(page), page, "text/html");
+          r->addHeader("Cache-Control", "no-cache");
+          request->send(r);
         });
       }
     }
@@ -5989,6 +7032,12 @@ Serial.println("SD Card initialized successfully!");
             // table. Otherwise those reach the browser as text/plain and download.
             const bool userBucket = filePath.startsWith("/Gallery/") || filePath.startsWith("/Files/");
             String mime = userBucket ? mimeForPath(filePath) : getMimeType(filePath);
+            // Same substitution as the ranged handler, for grids that link the cover
+            // path directly instead of going through /media.
+            if (request->hasParam("thumb")) {
+                String t = nomadThumbLookup(filePath);
+                if (t.length()) { filePath = t; mime = "image/jpeg"; }
+            }
             // same rule as serveProtectedFile: pages revalidate every time. The
             // emulator cores (big, never edited on the card) and the two user buckets
             // can sit in the browser cache for a day.
@@ -6003,13 +7052,17 @@ Serial.println("SD Card initialized successfully!");
     // home network a mistyped URL should get the normal landing page)
     if (!g_staMode && userAgent.length()) {
         if (userAgent.indexOf("iPhone") >= 0 || userAgent.indexOf("iPad") >= 0 || userAgent.indexOf("Macintosh") >= 0) {
-            nomadSendCardFile(request, "/appleindex.html", "text/html", "no-cache");
+            AsyncWebServerResponse *r = request->beginResponse(nomadUiFS("/appleindex.html"), "/appleindex.html", "text/html");
+            r->addHeader("Cache-Control", "no-cache");
+            request->send(r);
             return;
         }
     }
 
     {
-      nomadSendCardFile(request, "/index.html", "text/html", "no-cache");
+      AsyncWebServerResponse *r = request->beginResponse(nomadUiFS("/index.html"), "/index.html", "text/html");
+      r->addHeader("Cache-Control", "no-cache");
+      request->send(r);
     }
 });
     // /Gallery and /Files are served from onNotFound, don't use serveStatic for them:
@@ -6051,7 +7104,7 @@ server.on("/upload-cancel", HTTP_POST, [](AsyncWebServerRequest *request) {
     nomadUploadJson(request, 503, "{\"error\":\"SD busy\"}");
     return;
   }
-  SD_MMC.remove(part);
+  SD_MMC.removeAll(part.c_str());                 // wherever it was written
   if (sdMutex) xSemaphoreGive(sdMutex);
   nomadUploadJson(request, 200, "{\"status\":\"cancelled\"}");
 });
@@ -6076,7 +7129,7 @@ server.on(
           // the part is closed under the lock, if the card is still busy, onDisconnect does it
           if (!sdMutex || xSemaphoreTake(sdMutex, pdMS_TO_TICKS(5000)) == pdTRUE) {
             if (u.f) u.f.close();
-            if (!u.total) SD_MMC.remove(u.part);
+            if (!u.total) SD_MMC.removeOn(u.vol, u.part.c_str());
             if (sdMutex) xSemaphoreGive(sdMutex);
             g_uploads.erase(it);
           }
@@ -6088,6 +7141,7 @@ server.on(
       return;
     }
     struct Release { ~Release() { if (sdMutex) xSemaphoreGive(sdMutex); } } release;
+
 
     if (index == 0) {
       const String fullPath = nomadUploadTarget(request, filename);
@@ -6101,32 +7155,48 @@ server.on(
           return;
         }
       }
+
+      // A name already there is kept, and the page asks first (skip, or a new name). An
+      // admin can send overwrite=1 to replace it. The old copy only goes once the new one is
+      // whole, so a dropped upload costs nothing.
+      bool replace = false;
       if (SD_MMC.exists(fullPath)) {
-        Serial.println("[Upload] Duplicate file detected: " + fullPath);
-        nomadUploadJson(request, 409, "{\"error\":\"File already exists\"}");
-        return;
+        const String ow = nomadParamValue(request, "overwrite");
+        const bool wantsOverwrite = ow.length() && ow != "0";
+        if (!wantsOverwrite || !checkAdminAuth(request)) {
+          Serial.println("[Upload] Duplicate file detected: " + fullPath);
+          nomadUploadJson(request, 409, wantsOverwrite ? "{\"error\":\"Overwriting needs the admin password\"}"
+                                                       : "{\"error\":\"File already exists\"}");
+          return;
+        }
+        replace = true;
       }
       const int64_t freeNow = nomadFreeBytes();
       if (total && freeNow >= 0 && total > offset && (int64_t)(total - offset) > freeNow) {
         nomadUploadJson(request, 507, "{\"error\":\"Card full\",\"free\":" + String((long long)freeNow) + "}");
         return;
       }
-      // Ensure directory exists
+      // The parent's volume, asked explicitly: volumeForNewPath walks up to the nearest
+      // folder that exists, so a new sub-folder of a folder on the USB drive is made on the
+      // drive. Don't use SD_MMC.mkdir()/open(FILE_WRITE) here, they always pick the card.
+      int vol = SD_MMC.volumeForNewPath(fullPath.c_str());
+      if (vol == NOMAD_VOL_NONE) vol = NOMAD_VOL_SD;
       const String folder = fullPath.substring(0, fullPath.lastIndexOf('/'));
-      if (folder.length() && !SD_MMC.exists(folder)) SD_MMC.mkdir(folder);
+      if (folder.length() && !SD_MMC.existsOn(vol, folder.c_str())) SD_MMC.mkdirOn(vol, folder.c_str());
 
       File f;
       if (offset == 0) {
-        f = SD_MMC.open(part, FILE_WRITE);         // starts over: any earlier part is cut to 0
+        f = SD_MMC.openOn(vol, part.c_str(), FILE_WRITE, true);   // starts over: any earlier part is cut to 0
       } else {
         // carry on only from exactly where the part ends, so nothing is doubled or skipped
-        const uint64_t have = SD_MMC.fileSize64(part.c_str());
+        const uint64_t have = SD_MMC.existsOn(vol, part.c_str()) ? SD_MMC.fileSize64(part.c_str()) : 0;
         if (have != offset) {
           nomadUploadJson(request, 409, "{\"error\":\"offset\",\"have\":" + String((unsigned long long)have) + "}");
           return;
         }
-        f = SD_MMC.open(part, FILE_APPEND);
+        f = SD_MMC.openOn(vol, part.c_str(), FILE_APPEND);
       }
+
       if (!f) {
         webLogf("error", "Upload failed to open file: %s", part.c_str());
         nomadUploadJson(request, 500, "{\"error\":\"Failed to open file\"}");
@@ -6138,6 +7208,8 @@ server.on(
       u.finalPath = fullPath;
       u.total = total;
       u.have = offset;
+      u.vol = vol;
+      u.replace = replace;
       it = g_uploads.find(request);
       // An aborted upload never delivers a final chunk. The part stays for the page to
       // carry on from. A whole-file upload (no total) can't, so its part goes.
@@ -6147,7 +7219,7 @@ server.on(
         Serial.println("[Upload] Client disconnected mid-upload");
         if (!sdMutex || xSemaphoreTake(sdMutex, pdMS_TO_TICKS(3000)) == pdTRUE) {
           if (d->second.f) d->second.f.close();
-          if (!d->second.total) SD_MMC.remove(d->second.part);
+          if (!d->second.total) SD_MMC.removeOn(d->second.vol, d->second.part.c_str());
           if (sdMutex) xSemaphoreGive(sdMutex);
         }
         g_uploads.erase(d);
@@ -6168,7 +7240,7 @@ server.on(
         u.failCode = full ? 507 : 503;
         u.failMsg = full ? "Card full" : "Write failed";
         webLogf("error", "Upload write failed at %llu: %s", (unsigned long long)u.have, u.part.c_str());
-        if (!u.total) SD_MMC.remove(u.part);
+        if (!u.total) SD_MMC.removeOn(u.vol, u.part.c_str());
       }
     }
     if (!final) return;
@@ -6186,20 +7258,32 @@ server.on(
       return;
     }
     if (u.total && u.have != u.total) {            // more than the file's size: start over
-      SD_MMC.remove(u.part);
+      SD_MMC.removeOn(u.vol, u.part.c_str());
       nomadUploadJson(request, 409, "{\"error\":\"offset\",\"have\":0}");
       g_uploads.erase(it);
       return;
     }
-    // All there: into place. If the name was taken meanwhile, the next free "name (2).ext".
+    // All there: into place. An admin's replacement takes the old copy's place now (on the
+    // volume that holds it, and not while a reply is still reading it). Otherwise, if the
+    // name was taken meanwhile, the next free "name (2).ext".
     String dest = u.finalPath;
+    if (u.replace && SD_MMC.exists(dest)) {
+      if (releaseStreamsFor(dest) != 0) {
+        nomadUploadJson(request, 409, "{\"error\":\"That file is playing right now\",\"have\":" + String((unsigned long long)u.have) + "}");
+        g_uploads.erase(it);
+        return;
+      }
+      const int oldVol = SD_MMC.volumeOf(dest.c_str());
+      if (oldVol != NOMAD_VOL_NONE) SD_MMC.removeOn(oldVol, dest.c_str());
+      Serial.printf("[Upload] Replacing %s on %s\n", dest.c_str(), SD_MMC.volumeLabel(oldVol));
+    }
     if (SD_MMC.exists(dest)) {
       const int slash = dest.lastIndexOf('/'), dot = dest.lastIndexOf('.');
       const String stem = dot > slash ? dest.substring(0, dot) : dest;
       const String ext = dot > slash ? dest.substring(dot) : String();
       for (int n = 2; n < 100 && SD_MMC.exists(dest); ++n) dest = stem + " (" + n + ")" + ext;
     }
-    if (!SD_MMC.rename(u.part, dest)) {
+    if (!SD_MMC.renameOn(u.vol, u.part.c_str(), dest.c_str())) {
       webLogf("error", "Upload could not be moved into place: %s", dest.c_str());
       nomadUploadJson(request, 500, "{\"error\":\"Could not save the file\"}");
       g_uploads.erase(it);
@@ -6207,6 +7291,9 @@ server.on(
     }
     cachedUsedBytes += u.have;                     // until the next measurement
     Serial.println("[Upload] Finished: " + dest);
+    // Nothing else notices a new file: without this it stays out of every listing that
+    // reads the index until a full scan (/rename and /delete do the same)
+    triggerIndexingIfNeeded(dest);
     String body = "{\"status\":\"done\",\"path\":\"";
     for (size_t i = 0; i < dest.length(); ++i) {
       const char c = dest.charAt(i);
@@ -6224,6 +7311,10 @@ server.on("/list-assets", HTTP_GET, [](AsyncWebServerRequest *request){
   }
 
   String dir = request->getParam("dir")->value();
+  if (isConfigPath(dir)) {
+    request->send(404, "application/json", "{\"error\":\"Invalid dir\"}");
+    return;
+  }
   if (sdMutex && xSemaphoreTake(sdMutex, pdMS_TO_TICKS(1500)) != pdTRUE) {
     request->send(503, "application/json", "{\"error\":\"SD busy\"}");
     return;
@@ -6283,8 +7374,13 @@ server.on("/mkdir", HTTP_POST, [](AsyncWebServerRequest *request) {
         request->send(400, "text/plain", "Invalid directory name");
         return;
     }
-    if (isConfigPath(dirName) && !checkAdminAuth(request)) {
+    if (isProtectedWritePath(dirName) && !checkAdminAuth(request)) {
         request->send(401, "text/plain", "Unauthorized");
+        return;
+    }
+    if (!g_sdAllocPrimed) {   // a new folder is a cluster too (configWriterTask)
+        AsyncWebServerResponse *r = request->beginResponse(503, "text/plain", "Nomad is still getting the card ready. Try again in a few seconds.");
+        if (r) { r->addHeader("Retry-After", "2"); request->send(r); } else request->send(503);
         return;
     }
 
@@ -6309,6 +7405,7 @@ server.on("/mkdir", HTTP_POST, [](AsyncWebServerRequest *request) {
     bool made = SD_MMC.mkdir(dirName);
     if (sdMutex) xSemaphoreGive(sdMutex);
     if (made) {
+        triggerIndexingIfNeeded(dirName);   // same reason as /upload and /delete
         webLogf("info", "Directory created: %s", dirName.c_str());
         request->send(200, "text/plain", "OK");
     } else {
@@ -6336,7 +7433,7 @@ server.on("/save", HTTP_POST, [](AsyncWebServerRequest *request){
   if (path.indexOf("..") >= 0) {
     return request->send(400, "text/plain", "Invalid path");
   }
-  if (isConfigPath(path) && !checkAdminAuth(request)) {
+  if (isProtectedWritePath(path) && !checkAdminAuth(request)) {
     return request->send(401, "text/plain", "Unauthorized");
   }
   if (!checkAdminAuth(request)) {
@@ -6350,6 +7447,8 @@ server.on("/save", HTTP_POST, [](AsyncWebServerRequest *request){
   // The config writer task does the write (see queueConfigWrite), OK means it's queued.
   // the file is about to be replaced: drop any handle still on the old one, or the next
   // read is served the old contents from it
+  if (nomadUiHas(path) || nomadUiShadows(path))   // a P4's pages live in flash: a card copy would do nothing
+    return request->send(409, "text/plain", "This page is kept in Nomad's own memory, not on the card. Use Update the web interface in the admin page.");
   if (releaseStreamsFor(path) == 1) return request->send(409, "text/plain", "File is in use");
   if (!queueConfigWrite(path, content)) {
     return request->send(503, "text/plain", "Write queue full, try again");
@@ -6473,7 +7572,10 @@ server.on("/settings", HTTP_POST, [](AsyncWebServerRequest *request){
   // (POST /auth/password is the normal way, and never sends the password itself)
   if (doc.containsKey("adminPassword")) {
     const String pw = doc["adminPassword"].as<String>();
-    if (pw.length() == 0 || pw == "null") authStoreRecord("");
+    // "__set__" is the placeholder /settings hands out for "a password exists": echoed
+    // back it means unchanged, never "make the password the literal string __set__"
+    if (pw == "__set__") {}
+    else if (pw.length() == 0 || pw == "null") authStoreRecord("");
     else authSetPlain(pw);
   }
   if (doc.containsKey("wifiSSID")) {
@@ -6487,6 +7589,7 @@ server.on("/settings", HTTP_POST, [](AsyncWebServerRequest *request){
     if (pw.length() >= 8 && pw.length() <= 63 && pw != "__set__") settings.wifiPassword = pw;
     else if (pw.length() == 0 && (doc["wifiOpen"] | false)) settings.wifiPassword = "";
   }
+
   if (doc.containsKey("brightness")) settings.brightness = constrain(doc["brightness"].as<int>(), 0, 100);
   if (doc.containsKey("autoGenerateMedia")) settings.autoGenerateMedia = doc["autoGenerateMedia"].as<bool>();
   if (doc.containsKey("dlnaEnabled")) {
@@ -6894,7 +7997,7 @@ server.on("/api/wifi-scan", HTTP_GET, [](AsyncWebServerRequest *request){
     Serial.printf("[Index] Request for '%s' - index missing, enqueuing\n", indexPath.c_str());
     enqueueIndexUpdateForPath(indexPath);
     request->send(202, "application/json",
-      "{\"status\":\"building\",\"path\":\"" + indexPath + "\"}");
+      "{\"status\":\"building\",\"path\":\"" + jsonEscape(indexPath) + "\"}");
   });
 
   // GET /api/index-nested -> serves nested index files (JSON format) or builds them
@@ -6993,6 +8096,12 @@ server.on("/api/wifi-scan", HTTP_GET, [](AsyncWebServerRequest *request){
       webLog("[ADMIN] Reindex request ignored - indexing already in progress", "warning");
       return;
     }
+    // The thumbnail pass walks and writes the card too. The pairing has to be symmetric:
+    // it already refuses to start while indexing, and this is the other half.
+    if (nomadThumbsBusy()) {
+      request->send(409, "application/json", "{\"error\":\"Cover optimisation is running. Try again once it finishes\"}");
+      return;
+    }
     if (sdScanInProgress) {
       request->send(409, "application/json", "{\"error\":\"A full SD scan is running. Try again once it finishes.\"}");
       webLog("[ADMIN] Reindex request ignored - full SD scan in progress", "warning");
@@ -7045,9 +8154,15 @@ server.on("/api/wifi-scan", HTTP_GET, [](AsyncWebServerRequest *request){
       buildBucketIndex("/Books");
     } else if(p.startsWith("/Books/")){
       buildBucketIndex("/Books");
-    } else {
+    } else if (p.indexOf('/', 1) < 0) {
       // For other top-level buckets, rebuild that bucket
       buildBucketIndex(p);
+    } else {
+      // Anything nested that didn't match a bucket rule above. /api/index asks a nested path
+      // for the encoded "Movies__Foo.nested.ndjson", which is what this writes. Don't use
+      // buildBucketIndex here: it names the output "Movies/Foo.index.ndjson", inside a
+      // folder that doesn't exist.
+      writeNDIndexForDir(p, encodeIndexName(p) + ".nested.ndjson");
     }
 
       indexingInProgress = false;
@@ -7101,6 +8216,12 @@ server.on("/api/wifi-scan", HTTP_GET, [](AsyncWebServerRequest *request){
 
     // dont walk the whole card while indexing, two heavy SD tasks under low heap was
     // the heap corruption cause. indexing refreshes totals on its own, so just wait
+    if (nomadThumbsBusy()) {
+      request->send(409, "application/json",
+        "{\"error\":\"Cover optimisation is running. Try the scan again once it finishes\"}");
+      webLog("[API] SD scan refused - cover optimisation in progress", "warning");
+      return;
+    }
     if (indexingInProgress || indexingTasksActive || requestIndexing) {
       request->send(409, "application/json",
         "{\"error\":\"Indexing in progress - try the scan again once it finishes\"}");
@@ -7171,32 +8292,241 @@ server.on("/api/wifi-scan", HTTP_GET, [](AsyncWebServerRequest *request){
     }
   });
 
-  // GET /api/health -> one cheap "is this thing all right" for the admin page and for
-  // debugging from a phone. Every field is an existing global, nothing here touches the
-  // card. Free space comes from cachedUsedBytes, NEVER the free-cluster count, which can
-  // hold sdMutex for tens of seconds on a full card.
+  // bulk file operations: POST start, GET poll, POST cancel
+  {
+    // Bodies arrive in fragments, accumulate per request before parsing.
+    static std::map<AsyncWebServerRequest *, String> fsBodies;
+
+    server.on("/api/fs/job", HTTP_POST,
+      [](AsyncWebServerRequest *request) {
+        String body = fsBodies.count(request) ? fsBodies[request] : String();
+        fsBodies.erase(request);
+
+        if (!checkAdminAuth(request)) { request->send(401, "application/json", "{\"error\":\"Unauthorized\"}"); return; }
+        if (!body.length())           { request->send(400, "application/json", "{\"error\":\"Missing body\"}"); return; }
+
+        DynamicJsonDocument doc(12288);
+        if (deserializeJson(doc, body)) { request->send(400, "application/json", "{\"error\":\"Invalid JSON\"}"); return; }
+
+        // One job at a time, and never alongside the other things that own the card.
+        if (g_fsJobActive)     { request->send(409, "application/json", "{\"error\":\"A file operation is already running\"}"); return; }
+        if (indexingInProgress){ request->send(409, "application/json", "{\"error\":\"The library is being indexed. Try again shortly\"}"); return; }
+        if (sdScanInProgress)  { request->send(409, "application/json", "{\"error\":\"A card scan is running. Try again shortly\"}"); return; }
+        if (nomadThumbsBusy()) { request->send(409, "application/json", "{\"error\":\"Cover optimisation is running. Try again shortly\"}"); return; }
+
+        String op        = doc["op"]        | "";
+        String dest      = doc["dest"]      | "";
+        String collision = doc["collision"] | "skip";
+        int    destVol   = doc["destVol"]   | -1;
+        if (op != "move" && op != "copy" && op != "delete") {
+          request->send(400, "application/json", "{\"error\":\"op must be move, copy or delete\"}"); return;
+        }
+        if (collision != "skip" && collision != "replace" && collision != "rename") {
+          request->send(400, "application/json", "{\"error\":\"bad collision mode\"}"); return;
+        }
+        JsonArray arr = doc["items"].as<JsonArray>();
+        if (arr.isNull() || arr.size() == 0) { request->send(400, "application/json", "{\"error\":\"No items\"}"); return; }
+        if ((int)arr.size() > FSJOB_MAX_ITEMS) {
+          request->send(400, "application/json", "{\"error\":\"Too many items in one operation\"}"); return;
+        }
+
+        FsJob *job = new FsJob();
+        job->op = op; job->collision = collision;
+
+        if (op != "delete") {
+          if (!dest.length() || dest.indexOf("..") >= 0) {
+            delete job; request->send(400, "application/json", "{\"error\":\"Bad destination\"}"); return;
+          }
+          job->dest = normalizePath(dest);
+          if (isProtectedWritePath(job->dest)) {
+            delete job; request->send(403, "application/json", "{\"error\":\"That destination is protected\"}"); return;
+          }
+          // Destination volume is explicit, or inferred from the folder itself. Never from
+          // a path that doesn't exist yet, that lands on the wrong volume.
+          job->destVol = (destVol >= 0 && destVol < NOMAD_VOL_COUNT) ? destVol
+                                                                     : SD_MMC.volumeForNewPath((job->dest + "/x").c_str());
+          if (job->destVol == NOMAD_VOL_NONE || !SD_MMC.volumeMounted(job->destVol)) {
+            delete job; request->send(400, "application/json", "{\"error\":\"No such destination volume\"}"); return;
+          }
+          if (!SD_MMC.existsOn(job->destVol, job->dest.c_str()) && !SD_MMC.mkdirOn(job->destVol, job->dest.c_str())) {
+            delete job; request->send(400, "application/json", "{\"error\":\"Destination folder does not exist\"}"); return;
+          }
+        }
+
+        // Validate every item up front, so a bad batch is refused now rather than at
+        // item thirty with half of it already applied.
+        for (JsonObject o : arr) {
+          FsJobItem it;
+          it.path = String((const char *)(o["path"] | ""));
+          it.vol  = o["vol"] | -1;
+          if (!it.path.length() || it.path.indexOf("..") >= 0 || canonicalPath(it.path) == "/") {
+            delete job; request->send(400, "application/json", "{\"error\":\"Bad path in items\"}"); return;
+          }
+          it.path = normalizePath(it.path);
+          if (isProtectedWritePath(it.path)) {
+            delete job; request->send(403, "application/json", "{\"error\":\"'" + jsonEscape(it.path) + "' is protected\"}"); return;
+          }
+          if (it.vol < 0 || it.vol >= NOMAD_VOL_COUNT) it.vol = SD_MMC.volumeOf(it.path.c_str());
+          if (it.vol == NOMAD_VOL_NONE || !SD_MMC.existsOn(it.vol, it.path.c_str())) {
+            delete job; request->send(404, "application/json", "{\"error\":\"'" + jsonEscape(it.path) + "' is not on that volume\"}"); return;
+          }
+          if (pathInUseByStream(it.path)) {
+            delete job; request->send(409, "application/json", "{\"error\":\"'" + jsonEscape(it.path) + "' is playing right now\"}"); return;
+          }
+          job->items.push_back(it);
+        }
+
+        // Size the job, and refuse one that can't fit instead of filling the card and
+        // failing partway.
+        if (op != "delete") {
+          for (auto &it : job->items) job->totalBytes += fsSizeOn(it.vol, it.path);
+          bool crossing = false;
+          for (auto &it : job->items) if (it.vol != job->destVol) crossing = true;
+          if (crossing) {
+            const uint64_t freeBytes = SD_MMC.volumeTotalBytes(job->destVol) - SD_MMC.volumeUsedBytes(job->destVol);
+            if (job->totalBytes + (64ULL << 20) > freeBytes) {
+              delete job;
+              request->send(507, "application/json", "{\"error\":\"Not enough room on the destination\"}"); return;
+            }
+          }
+        }
+
+        job->id        = g_fsJobNextId++;
+        job->startedMs = millis();
+        { FsJobLock lk(1000); FsJob *old = g_fsJob; g_fsJob = job; if (old) delete old; }
+        g_fsJobActive = true;
+
+        if (nomadCreateTask(fsJobTask, "FsJobTask", 12 * 1024, job, 1, NULL, 1) != pdPASS) {
+          g_fsJobActive = false; g_fsJob = nullptr; delete job;
+          request->send(500, "application/json", "{\"error\":\"Could not start the operation\"}"); return;
+        }
+        request->send(202, "application/json",
+                      "{\"id\":" + String(job->id) + ",\"items\":" + String((int)job->items.size()) +
+                      ",\"bytes\":" + String((unsigned long long)job->totalBytes) + "}");
+      },
+      NULL,
+      [](AsyncWebServerRequest *request, uint8_t *data, size_t len, size_t index, size_t total) {
+        if (index == 0) fsBodies[request] = String();
+        if (total > 16384) return;                       // refuse to buffer a silly body
+        String &b = fsBodies[request];
+        for (size_t i = 0; i < len; ++i) b += (char)data[i];
+      });
+  }
+
+  // GET /api/fs/job -> the whole picture in one poll. The UI must never open a request
+  // per item: this board panics under many concurrent slow readers.
+  server.on("/api/fs/job", HTTP_GET, [](AsyncWebServerRequest *request) {
+    if (!checkAdminAuth(request)) { request->send(401, "application/json", "{\"error\":\"Unauthorized\"}"); return; }
+    FsJobLock lk(150);
+    FsJob *j = g_fsJob;
+    if (!j) { request->send(200, "application/json", "{\"state\":\"idle\"}"); return; }
+    if (!lk.held) { request->send(503, "application/json", "{\"error\":\"busy, poll again\"}"); return; }
+
+    String out = "{\"id\":" + String(j->id) + ",\"op\":\"" + j->op + "\",\"state\":\"" + j->state + "\"";
+    out += ",\"items\":{\"done\":" + String(j->doneItems) + ",\"total\":" + String((int)j->items.size()) + "}";
+    out += ",\"bytes\":{\"done\":" + String((unsigned long long)j->doneBytes) +
+           ",\"total\":" + String((unsigned long long)j->totalBytes) + "}";
+    out += ",\"current\":{\"path\":\"" + escapeJsonString(j->curPath) + "\",\"done\":" +
+           String((unsigned long long)j->curDone) + ",\"total\":" + String((unsigned long long)j->curTotal) + "}";
+    out += ",\"throttled\":" + String(j->throttled ? "true" : "false");
+    out += ",\"elapsedMs\":" + String((unsigned long)((j->finishedMs ? j->finishedMs : millis()) - j->startedMs));
+    out += ",\"results\":[";
+    for (size_t i = 0; i < j->items.size(); ++i) {
+      if (i) out += ",";
+      out += "{\"path\":\"" + escapeJsonString(j->items[i].path) + "\",\"vol\":" + String(j->items[i].vol) +
+             ",\"status\":\"" + (j->items[i].status.length() ? j->items[i].status : String("pending")) +
+             "\",\"detail\":\"" + escapeJsonString(j->items[i].detail) + "\"}";
+    }
+    out += "]}";
+    AsyncWebServerResponse *r = request->beginResponse(200, "application/json", out);
+    r->addHeader("Cache-Control", "no-store");
+    request->send(r);
+  });
+
+  server.on("/api/fs/job/cancel", HTTP_POST, [](AsyncWebServerRequest *request) {
+    if (!checkAdminAuth(request)) { request->send(401, "application/json", "{\"error\":\"Unauthorized\"}"); return; }
+    if (!g_fsJob || g_fsJob->finished) { request->send(404, "application/json", "{\"error\":\"Nothing is running\"}"); return; }
+    g_fsJob->cancel = true;   // the worker acts on it between chunks
+    request->send(200, "application/json", "{\"cancelling\":true}");
+  });
+
+  // POST /api/fs/rm {path, vol} -> delete on ONE named volume.
+  //
+  // /delete removes from every volume carrying the name. This one is for when it has to
+  // be WHICH copy (a move, or cleaning up a file that shadows its twin). Admin-only.
+  server.on("/api/fs/rm", HTTP_POST, [](AsyncWebServerRequest *request){
+    if (!checkAdminAuth(request)) { request->send(401, "application/json", "{\"error\":\"Unauthorized\"}"); return; }
+
+    auto p = [&](const char *k) -> String {
+      if (request->hasParam(k, true)) return request->getParam(k, true)->value();
+      if (request->hasParam(k))       return request->getParam(k)->value();
+      return String();
+    };
+    String path = p("path");
+    String volS = p("vol");
+    if (!path.length() || !volS.length()) {
+      request->send(400, "application/json", "{\"error\":\"Need path and vol\"}"); return;
+    }
+    if (path.indexOf("..") >= 0) {
+      request->send(400, "application/json", "{\"error\":\"Invalid path\"}"); return;
+    }
+    path = normalizePath(path);
+    if (path == "/" || isProtectedWritePath(path)) {
+      request->send(403, "application/json", "{\"error\":\"Protected path\"}"); return;
+    }
+    const int vol = volS.toInt();
+    if (vol < 0 || vol >= NOMAD_VOL_COUNT || !SD_MMC.volumeMounted(vol)) {
+      request->send(400, "application/json", "{\"error\":\"No such volume\"}"); return;
+    }
+    if (!SD_MMC.existsOn(vol, path.c_str())) {
+      request->send(404, "application/json", "{\"error\":\"Not on that volume\"}"); return;
+    }
+    // Freeing clusters under a live reader turns a playing file into garbage. Same
+    // prefix-aware check /delete and /rename use.
+    if (pathInUseByStream(path)) {
+      request->send(409, "application/json", "{\"error\":\"That file is playing right now\"}"); return;
+    }
+
+    bool ok;
+    if (sdMutex && xSemaphoreTake(sdMutex, pdMS_TO_TICKS(3000)) != pdTRUE) {
+      request->send(503, "application/json", "{\"error\":\"Card busy\"}"); return;
+    }
+    ok = deleteRecursiveOn(vol, path);
+    if (sdMutex) xSemaphoreGive(sdMutex);
+
+    Serial.printf("[FS] rm %s on %s -> %s\n", path.c_str(), SD_MMC.volumeLabel(vol), ok ? "ok" : "FAILED");
+    if (ok) {
+      webLogf("info", "Deleted '%s' from %s", path.c_str(), SD_MMC.volumeLabel(vol));
+      enqueueIndexUpdateForPath(path);
+      request->send(200, "application/json", "{\"status\":\"deleted\"}");
+    } else {
+      request->send(500, "application/json", "{\"error\":\"Delete failed\"}");
+    }
+  });
+
+  // GET /api/health -> one cheap answer to "is this thing all right", for the admin
+  // page and for debugging from a phone. Every field is a global that's already kept up,
+  // nothing here walks the card. Free space comes from cachedUsedBytes and NEVER from the
+  // free-cluster hunt, which takes tens of seconds on a full card under sdMutex.
   server.on("/api/health", HTTP_GET, [](AsyncWebServerRequest *request){
     const bool cardOk   = !sdErrorFlag;
     const bool indexing = indexingInProgress;
     const bool scanning = sdScanInProgress;
-    // This board has no on-device thumbnailer (covers are made on a PC), so never busy
-    // with thumbnails.
-    const bool thumbing = false;
+    const bool thumbing = nomadThumbsBusy();   // always false on a board without the thumbnailer
     const bool busy     = indexing || scanning || thumbing;
 
     String json = "{";
-    // Settings always live on the card on this board, so sdErrorFlag covers whether
-    // they can be saved.
-    json += "\"ok\":" + String(cardOk ? "true" : "false") + ",";
+    json += "\"ok\":" + String((cardOk && !g_settingsUnbacked) ? "true" : "false") + ",";
     json += "\"uptimeMs\":" + String((unsigned long)millis()) + ",";
     json += "\"card\":{";
     json += "\"ok\":" + String(cardOk ? "true" : "false") + ",";
     json += "\"usedBytes\":" + String((unsigned long long)cachedUsedBytes) + ",";
     json += "\"totalBytes\":" + String((unsigned long long)cachedTotalBytes);
     json += "},";
-    // settingsBacked false means the config can't be written. The device is running on
-    // defaults and will forget everything on the next boot, even though it looks fine.
-    json += "\"settingsBacked\":" + String(cardOk ? "true" : "false") + ",";   // the card is the only backing store on this board
+    // settingsBacked false means the config can't be written (a P4 that booted with no
+    // volume mounted, on an S3 sdErrorFlag covers it), so the device is running on defaults
+    // and will forget everything on the next boot.
+    json += "\"settingsBacked\":" + String(g_settingsUnbacked ? "false" : "true") + ",";
     json += "\"busy\":" + String(busy ? "true" : "false") + ",";
     json += "\"indexing\":" + String(indexing ? "true" : "false") + ",";
     json += "\"scanning\":" + String(scanning ? "true" : "false") + ",";
@@ -7268,10 +8598,223 @@ server.on("/api/wifi-scan", HTTP_GET, [](AsyncWebServerRequest *request){
   });
 
 
-// USB mode switch: jump to USB MSC on Boot button press
-attachInterrupt(BOOT_BUTTON_PIN, [](){
+// ─── USB‑mode switch: jump to USB MSC on Boot‑button press ───
+#if NOMAD_BOOT_BUTTON_PIN >= 0
+attachInterrupt(NOMAD_BOOT_BUTTON_PIN, [](){
   bootButtonPressed = true;
 }, FALLING);
+#endif
+  // Per-volume storage breakdown behind the single figure the storage bar and
+  // /api/storage report, so the admin panel can show what's on which volume.
+  server.on("/api/storage/volumes", HTTP_GET, [](AsyncWebServerRequest *request) {
+    String j = "{\"volumes\":[";
+    bool first = true;
+    for (int v = 0; v < NOMAD_VOL_COUNT; v++) {
+      if (!SD_MMC.volumeMounted(v)) continue;
+      if (!first) j += ",";
+      first = false;
+      j += "{\"id\":" + String(v);
+      j += ",\"label\":\"" + jsonEscape(String(SD_MMC.volumeLabel(v))) + "\"";
+      j += ",\"fs\":\"" + String(SD_MMC.volumeFsTypeName(v)) + "\"";
+      j += ",\"primary\":" + String(v == NOMAD_VOL_SD ? "true" : "false");
+      j += ",\"total\":" + String((unsigned long long)SD_MMC.volumeTotalBytes(v));
+      j += ",\"used\":" + String((unsigned long long)SD_MMC.volumeUsedBytes(v));
+      if (v == NOMAD_VOL_USB) {
+        j += ",\"device\":\"" + jsonEscape(String(nomadUsbProduct())) + "\"";
+      }
+      j += "}";
+    }
+    j += "],\"usbSupported\":" + String(NOMAD_HAS_USB_HOST ? "true" : "false");
+    j += ",\"usbPresent\":" + String(nomadUsbReady() ? "true" : "false");
+    j += ",\"board\":\"" NOMAD_BOARD_NAME "\"}";
+    request->send(200, "application/json", j);
+  });
+
+  // What this board has. One interface runs on every board, so the admin panel asks here
+  // and hides controls for anything not fitted (no brightness slider on a P4).
+  server.on("/api/board", HTTP_GET, [](AsyncWebServerRequest *request) {
+    String j = "{";
+    j += "\"board\":\"" NOMAD_BOARD_NAME "\"";
+    j += ",\"display\":" + String(NOMAD_HAS_DISPLAY ? "true" : "false");
+    j += ",\"rgbLed\":" + String(NOMAD_HAS_RGB_LED ? "true" : "false");
+    j += ",\"bootButton\":" + String(NOMAD_BOOT_BUTTON_PIN >= 0 ? "true" : "false");
+    j += ",\"usbMscDevice\":" + String(NOMAD_HAS_USB_MSC_DEV ? "true" : "false");
+    j += ",\"usbHost\":" + String(NOMAD_HAS_USB_HOST ? "true" : "false");
+    j += ",\"flashUi\":" + String(NOMAD_HAS_FLASH_UI ? "true" : "false");
+    j += ",\"thumbnailer\":" + String(NOMAD_HAS_THUMBNAILER ? "true" : "false");
+    j += ",\"nativeBt\":" + String(NOMAD_HAS_NATIVE_BT ? "true" : "false");
+    j += ",\"ethernet\":" + String(nomadEthSupported() ? "true" : "false");
+    j += ",\"cardPowerSwitch\":" + String(NOMAD_SD_PWR_PIN >= 0 ? "true" : "false");
+    // Booted with nothing mounted: the panel should say why its controls won't work,
+    // instead of letting every save fail with a bare 401.
+    j += ",\"adminLocked\":" + String(g_settingsUnbacked ? "true" : "false");
+    j += "}";
+    request->send(200, "application/json", j);
+  });
+
+  // Cover thumbnails. Status is open like the rest of the storage reporting, anything
+  // that spends card writes or CPU needs the admin session.
+  server.on("/api/thumbs", HTTP_GET, [](AsyncWebServerRequest *request) {
+    NomadThumbStats st;
+    nomadThumbsStatus(st);
+    static const char *kPhase[] = { "idle", "scanning", "working", "done", "stopped", "failed" };
+    String j = "{";
+    j += "\"supported\":" + String(nomadThumbsSupported() ? "true" : "false");
+    j += ",\"phase\":\"" + String(kPhase[(int)st.phase]) + "\"";
+    j += ",\"running\":" + String((st.phase == NOMAD_THUMB_SCANNING || st.phase == NOMAD_THUMB_WORKING) ? "true" : "false");
+    j += ",\"allOptimised\":" + String(nomadThumbsAllOptimised() ? "true" : "false");
+    j += ",\"covers\":" + String((unsigned long)st.covers);
+    j += ",\"upToDate\":" + String((unsigned long)st.upToDate);
+    j += ",\"converted\":" + String((unsigned long)st.converted);
+    j += ",\"skipped\":" + String((unsigned long)st.skipped);
+    j += ",\"progressive\":" + String((unsigned long)st.progressive);
+    j += ",\"alreadySmall\":" + String((unsigned long)st.alreadySmall);
+    j += ",\"noSaving\":" + String((unsigned long)st.noSaving);
+    j += ",\"tooBig\":" + String((unsigned long)st.tooBig);
+    j += ",\"notJpeg\":" + String((unsigned long)st.notJpeg);
+    j += ",\"progressiveBytes\":" + String((unsigned long long)st.progressiveBytes);
+    j += ",\"failed\":" + String((unsigned long)st.failed);
+    j += ",\"srcBytes\":" + String((unsigned long long)st.srcBytes);
+    j += ",\"thumbBytes\":" + String((unsigned long long)st.thumbBytes);
+    j += ",\"elapsedMs\":" + String((unsigned long)st.elapsedMs);
+    j += ",\"maxPx\":" + String(NOMAD_THUMB_MAX_PX);
+    j += ",\"quality\":" + String(NOMAD_THUMB_QUALITY);
+    j += ",\"current\":\"" + jsonEscape(String(st.current)) + "\"";
+    j += ",\"lastError\":\"" + jsonEscape(String(st.lastError)) + "\"";
+    j += "}";
+    request->send(200, "application/json", j);
+  });
+
+  server.on("/api/thumbs/start", HTTP_POST, [](AsyncWebServerRequest *request) {
+    if (!checkAdminAuth(request)) {
+      request->send(401, "application/json", "{\"error\":\"Unauthorized\"}");
+      return;
+    }
+    if (!nomadThumbsSupported()) {
+      request->send(400, "application/json", "{\"error\":\"This board has no hardware JPEG codec\"}");
+      return;
+    }
+    bool rebuild = request->hasParam("rebuild") && request->getParam("rebuild")->value() == "1";
+    if (!nomadThumbsStart(rebuild)) {
+      NomadThumbStats st;
+      nomadThumbsStatus(st);
+      String why = st.lastError[0] ? String(st.lastError) : String("A pass is already running");
+      request->send(409, "application/json", "{\"error\":\"" + jsonEscape(why) + "\"}");
+      return;
+    }
+    request->send(200, "application/json", "{\"status\":\"started\"}");
+  });
+
+  server.on("/api/thumbs/stop", HTTP_POST, [](AsyncWebServerRequest *request) {
+    if (!checkAdminAuth(request)) {
+      request->send(401, "application/json", "{\"error\":\"Unauthorized\"}");
+      return;
+    }
+    nomadThumbsStop();
+    request->send(200, "application/json", "{\"status\":\"stopping\"}");
+  });
+
+  server.on("/api/thumbs/clear", HTTP_POST, [](AsyncWebServerRequest *request) {
+    if (!checkAdminAuth(request)) {
+      request->send(401, "application/json", "{\"error\":\"Unauthorized\"}");
+      return;
+    }
+    if (!nomadThumbsClear()) {
+      request->send(409, "application/json", "{\"error\":\"Cannot clear while a pass is running\"}");
+      return;
+    }
+    request->send(202, "application/json", "{\"status\":\"clearing\"}");
+  });
+
+  // Name resolution diagnostics. "nomad.local doesn't work" has three causes that look the
+  // same from a browser: nobody told the client to ask us (dnsOffered false), the client
+  // asked and we said no (queries and nxdomain climbing), or the client never asks over
+  // unicast because .local is mDNS-only. dnsQueries separates them.
+  server.on("/api/netdiag", HTTP_GET, [](AsyncWebServerRequest *request) {
+    // admin-only: it reports the last name any client looked up, which is one visitor's
+    // browsing shown to another
+    if (!checkAdminAuth(request)) { request->send(401, "application/json", "{\"error\":\"Unauthorized\"}"); return; }
+    uint32_t q = 0, a = 0, nx = 0;
+    String last;
+    nomadDnsStats(q, a, nx, last);
+    String j = "{";
+    j += "\"mode\":\"" + String(g_staMode ? "station" : "hotspot") + "\"";
+    j += ",\"ip\":\"" + nomadLocalIP().toString() + "\"";
+    j += ",\"mdnsRunning\":" + String(g_mdnsRunning ? "true" : "false");
+    j += ",\"mdnsName\":\"" + String(MDNS_HOSTNAME) + ".local\"";
+    j += ",\"unicastName\":\"" + String(UNICAST_HOSTNAME) + "\"";
+    j += ",\"dnsOffered\":" + String(g_dnsOffered ? "true" : "false");
+    j += ",\"captivePortalUri\":" + String(g_captivePortalUri ? "true" : "false");
+    j += ",\"dnsCatchAll\":" + String(settings.dnsCatchAll ? "true" : "false");
+    j += ",\"dnsQueries\":" + String((unsigned long)q);
+    j += ",\"dnsAnswered\":" + String((unsigned long)a);
+    j += ",\"dnsNxdomain\":" + String((unsigned long)nx);
+    // This came off the wire, and a DNS label may legally contain a quote or a backslash,
+    // so escape it.
+    j += ",\"dnsLastName\":\"" + jsonEscape(last) + "\"";
+    // The wired side, when there is one. Read "state": link without a lease looks like a
+    // working NIC otherwise.
+    j += ",\"ethSupported\":" + String(nomadEthSupported() ? "true" : "false");
+    j += ",\"ethState\":\"" + String(nomadEthState()) + "\"";
+    j += ",\"ethIp\":\"" + nomadEthIP().toString() + "\"";
+    j += ",\"ethSpeed\":" + String((unsigned)nomadEthSpeed());
+    j += ",\"ethFullDuplex\":" + String(nomadEthFullDuplex() ? "true" : "false");
+    j += ",\"ethLinkUps\":" + String((unsigned long)nomadEthLinkUps());
+    j += ",\"ethLinkDowns\":" + String((unsigned long)nomadEthLinkDowns());
+    j += "}";
+    request->send(200, "application/json", j);
+  });
+
+  // Interface-in-flash control. Read-only status is open, same as the rest of the
+  // storage reporting. The two actions that change what gets served need the admin session.
+  server.on("/api/ui-flash", HTTP_GET, [](AsyncWebServerRequest *request) {
+    String j = "{";
+    j += "\"supported\":" + String(NOMAD_HAS_FLASH_UI ? "true" : "false");
+    j += ",\"active\":" + String(nomadUiActive() ? "true" : "false");
+    j += ",\"syncing\":" + String(nomadUiSyncing() ? "true" : "false");
+    j += ",\"version\":\"" + String(nomadUiVersion()) + "\"";
+    j += ",\"files\":" + String(nomadUiFileCount());
+    j += ",\"used\":" + String((unsigned long)nomadUiUsedBytes());
+    j += ",\"total\":" + String((unsigned long)nomadUiTotalBytes());
+    j += "}";
+    request->send(200, "application/json", j);
+  });
+
+  server.on("/api/ui-flash/sync", HTTP_POST, [](AsyncWebServerRequest *request) {
+    if (!checkAdminAuth(request)) {
+      request->send(401, "application/json", "{\"error\":\"Unauthorized\"}");
+      return;
+    }
+    if (nomadUiSyncing()) {
+      request->send(409, "application/json", "{\"error\":\"A sync is already running\"}");
+      return;
+    }
+    if (!nomadUiStartSync()) {
+      request->send(400, "application/json", "{\"error\":\"No interface on the card to copy, or no flash partition\"}");
+      return;
+    }
+    request->send(200, "application/json", "{\"status\":\"started\"}");
+  });
+
+  server.on("/api/ui-flash/clear", HTTP_POST, [](AsyncWebServerRequest *request) {
+    if (!checkAdminAuth(request)) {
+      request->send(401, "application/json", "{\"error\":\"Unauthorized\"}");
+      return;
+    }
+    if (!nomadUiClear()) {
+      request->send(409, "application/json", "{\"error\":\"Busy, or nothing to clear\"}");
+      return;
+    }
+    request->send(200, "application/json", "{\"status\":\"cleared\"}");
+  });
+
+#if CONFIG_IDF_TARGET_ESP32P4
+  // Every connection gets the S3's send budget, not the P4 core's 64 KB (NomadReadAhead.h)
+  server.addMiddleware([](AsyncWebServerRequest *request, ArMiddlewareNext next) {
+    nomadCapSndBuf(request, NOMAD_CORE_SNDBUF);
+    next();
+  });
+#endif
 // Path rules for every request, routes and catch-all alike (NomadGuardWeb.h)
   installNomadGuard(server, NomadGuardHooks{
     [](AsyncWebServerRequest *request) { return checkAdminAuth(request); },
@@ -7298,9 +8841,6 @@ attachInterrupt(BOOT_BUTTON_PIN, [](){
   nomadZimRegister(server);
 #endif
   nomadChatRegister(server);
-#if NOMAD_ROUTES_PSRAM
-  heap_caps_malloc_extmem_enable(CONFIG_SPIRAM_MALLOC_ALWAYSINTERNAL);   // back to the core's own rule
-#endif
   server.begin();
   nomadFirmwareServerUp();
   lv_textarea_set_text(ui_MediaGen, "");
@@ -7309,6 +8849,14 @@ attachInterrupt(BOOT_BUTTON_PIN, [](){
   lv_timer_handler();
   updateToggleStatus(); // Reflect initial WiFi and SD status
   webLog("[SYSTEM] Web server started - ready to accept connections", "success");
+
+  // Don't auto-sync from the card here. The interface ships in the image build-p4.sh
+  // writes to the partition, and a card copy could be older than the firmware. If the
+  // partition is empty the card serves the interface, and says so.
+  if (NOMAD_HAS_FLASH_UI && !nomadUiActive()) {
+    webLog("[UIFLASH] no interface in flash - serving it off the card. Flash one with "
+           "build-p4.sh --ui-only, or POST /api/ui-flash/sync to copy the card's copy.", "warning");
+  }
   {
     BaseType_t t;
 
@@ -7397,6 +8945,8 @@ attachInterrupt(BOOT_BUTTON_PIN, [](){
     }
   }
 
+  // last, so the walk it may take doesn't share the card with setup's own unlocked reads
+  if (!queueConfigWrite(String(), String())) g_sdAllocPrimed = true;
   webLog("[SYSTEM] System initialization complete - ready for use", "success");
   nomadSafeLog();
   // re-print reset reason here since USB-CDC reconnects after the early print and misses it.
@@ -7411,9 +8961,28 @@ attachInterrupt(BOOT_BUTTON_PIN, [](){
                   (int)rr, n, (unsigned)ESP.getFreeHeap(), (unsigned)ESP.getMinFreeHeap());
 
     esp_core_dump_summary_t *cdSum = (esp_core_dump_summary_t *)malloc(sizeof(esp_core_dump_summary_t));
-    if (cdSum && esp_core_dump_get_summary(cdSum) == ESP_OK) {
-      Serial.printf("[DIAG] COREDUMP task=%s  PC=0x%08x  faultAddr=0x%08x  depth=%u corrupted=%d\n",
-                    cdSum->exc_task, (unsigned)cdSum->exc_pc,
+    // On P4 esp_core_dump_get_summary answers ESP_OK against an erased coredump
+    // partition and fills the struct with whatever was in flash. An empty stack dump means
+    // there's no crash, so test that.
+#if defined(__riscv)
+    bool cdValid = cdSum && esp_core_dump_get_summary(cdSum) == ESP_OK && cdSum->exc_bt_info.dump_size > 0;
+#else
+    bool cdValid = cdSum && esp_core_dump_get_summary(cdSum) == ESP_OK && cdSum->exc_bt_info.depth > 0;
+#endif
+    if (cdValid) {
+#if defined(__riscv)
+      // RISC-V can't walk its own stack without DWARF, so the summary carries a raw stack
+      // dump instead of a backtrace. The trap registers are the useful part. The dump
+      // decodes with riscv32-esp-elf-gdb against this build's .elf.
+      Serial.printf("[DIAG] COREDUMP task=%.*s  PC=0x%08x  mcause=0x%08x  mtval=0x%08x  ra=0x%08x  sp=0x%08x\n",
+                    (int)sizeof(cdSum->exc_task), cdSum->exc_task, (unsigned)cdSum->exc_pc,
+                    (unsigned)cdSum->ex_info.mcause, (unsigned)cdSum->ex_info.mtval,
+                    (unsigned)cdSum->ex_info.ra, (unsigned)cdSum->ex_info.sp);
+      Serial.printf("[DIAG] COREDUMP stackdump %u bytes; decode with gdb against the build .elf\n",
+                    (unsigned)cdSum->exc_bt_info.dump_size);
+#else
+      Serial.printf("[DIAG] COREDUMP task=%.*s  PC=0x%08x  faultAddr=0x%08x  depth=%u corrupted=%d\n",
+                    (int)sizeof(cdSum->exc_task), cdSum->exc_task, (unsigned)cdSum->exc_pc,
                     (unsigned)cdSum->ex_info.exc_vaddr,
                     (unsigned)cdSum->exc_bt_info.depth, (int)cdSum->exc_bt_info.corrupted);
       Serial.print("[DIAG] COREDUMP backtrace:");
@@ -7421,6 +8990,7 @@ attachInterrupt(BOOT_BUTTON_PIN, [](){
         Serial.printf(" 0x%08x", (unsigned)cdSum->exc_bt_info.bt[cdI]);
       }
       Serial.println();
+#endif
     } else {
       Serial.println("[DIAG] no core dump stored (or no coredump partition in the flashed scheme)");
     }
@@ -7434,6 +9004,14 @@ attachInterrupt(BOOT_BUTTON_PIN, [](){
   } else {
     Serial.println("[BootCoord] Task spawned");
   }
+
+#ifdef NOMAD_THUMB_SELFTEST
+  // Test hook, never on in a normal build. Runs the thumbnail pass from a serial console
+  // with no client on the hotspot.
+  //   firmware/build-p4.sh --selftest --upload
+  Serial.println("[THUMBS] selftest build: starting a pass at boot");
+  nomadThumbsStart(false);
+#endif
 }
 // main loop
 
@@ -7453,6 +9031,12 @@ void loop() {
         for (int i = 0; i < 6; ++i) { lv_timer_handler(); delay(30); }
       }
       delay(150);   // let the HTTP response finish leaving the radio
+#if !NOMAD_HAS_USB_MSC_DEV
+      // On the P4 esptool puts the board in download mode over the CH34x bridge's DTR/RTS.
+      // There's no usb_persist_restart or RTC_CNTL_OPTION1_REG here, so just restart.
+      Serial.println("[FLASH] restarting; esptool drives download mode on this board");
+      ESP.restart();
+#else
       // The core's own download-mode path (same one the 1200-baud touch uses): registers a
       // shutdown handler so RTC_CNTL_FORCE_DOWNLOAD_BOOT is written last, and switches the
       // USB PHY back to the hardware JTAG/serial unit so the ROM enumerates for esptool.
@@ -7461,6 +9045,7 @@ void loop() {
       // hand and take a CPU-only reset, which cannot clear it on the way down
       REG_WRITE(RTC_CNTL_OPTION1_REG, RTC_CNTL_FORCE_DOWNLOAD_BOOT);
       SET_PERI_REG_MASK(RTC_CNTL_OPTIONS0_REG, RTC_CNTL_SW_PROCPU_RST);
+#endif
     }
     if (bootButtonPressed) {
       bootButtonPressed = false;
@@ -7481,8 +9066,16 @@ void loop() {
       Timer_Loop();
       if (currentLEDMode == 1) RGB_Lamp_Loop(2);
     }
+    // Ahead of the recovery gate below, which returns early. This is the only thing that
+    // mounts or drops the USB half of the library, and with no card it's the only storage.
+    nomadPollUsbVolume();
+
     if (sdErrorFlag) {
-        if (millis() > sdErrorCooldownUntil && tryRecoverSDCard()) {
+        if (!SD_MMC.volumeMounted(NOMAD_VOL_SD) && SD_MMC.usbMounted()) {
+            // No card to recover and a drive to serve, so don't spin here.
+            Serial.println("[SD] no card to recover; carrying on with the USB volume");
+            sdErrorFlag = false;
+        } else if (millis() > sdErrorCooldownUntil && tryRecoverSDCard()) {
             sdErrorFlag = false;  // we’re back in business
         } else {
             delay(5);  // keep feeding WDT while waiting

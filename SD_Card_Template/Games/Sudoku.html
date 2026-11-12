@@ -1,0 +1,470 @@
+<!DOCTYPE html>
+<!-- Version 1 -->
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no"/>
+<meta name="nomad-modes" content="solo"/>
+<title>Nomad • Sudoku</title>
+<link rel="icon" href="/favicon.ico" type="image/x-icon">
+<link rel="stylesheet" href="/master.css">
+<script src="/theme-boot.js"></script>
+<script src="/theme-manager.js"></script>
+<script src="/assets/sudoku.js"></script>
+<style>
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0}
+  main{max-width:520px;margin:0 auto;padding:12px 12px 28px}
+
+  .bar{display:flex;gap:8px;align-items:center;justify-content:center;flex-wrap:wrap;margin-bottom:12px}
+  .seg{display:flex;border:1px solid #dee2e6;border-radius:8px;overflow:hidden}
+  .seg button{
+    background:#ffffff;color:#333333;border:none;padding:8px 14px;font-size:.95rem;
+    cursor:pointer;border-right:1px solid #dee2e6}
+  .seg button:last-child{border-right:none}
+  .seg button[aria-pressed="true"]{background:#007bff;color:#ffffff}
+  .btn{background:#007bff;color:#ffffff;border:none;border-radius:8px;
+    padding:9px 16px;cursor:pointer;font-size:.95rem}
+  .btn.secondary{background:transparent;color:#007bff;border:1px solid #007bff}
+  .btn:disabled{opacity:.45;cursor:default}
+
+  .status{text-align:center;color:#6b7280;min-height:1.4em;margin:6px 0 10px}
+  .status.win{color:#28a745;font-weight:700}
+
+  /* Board. The 3x3 box lines are thicker cell borders on the 3rd and 6th seams.
+     Don't use grid gap plus box-shadow for this, the shadow ends up under the
+     neighbouring cell and doesn't show. */
+  #board{
+    display:grid;grid-template-columns:repeat(9,1fr);aspect-ratio:1;width:100%;
+    border:3px solid var(--sd-rule);border-radius:4px;overflow:hidden;
+    background:var(--sd-cell);touch-action:manipulation;user-select:none}
+  .cell{
+    background:var(--sd-cell);display:flex;align-items:center;justify-content:center;
+    font-size:clamp(1.05rem,5.2vw,1.7rem);line-height:1;cursor:pointer;position:relative;
+    color:var(--sd-entry);font-variant-numeric:tabular-nums;
+    border-right:1px solid var(--sd-line);border-bottom:1px solid var(--sd-line)}
+  .cell.given{color:var(--sd-given);font-weight:700}
+  .cell.sel{background:var(--sd-sel)}
+  .cell.peer{background:var(--sd-peer)}
+  .cell.same{background:var(--sd-same)}
+  .cell.bad{color:#dc3545}
+  .cell[data-c="2"],.cell[data-c="5"]{border-right:2px solid var(--sd-rule)}
+  .cell[data-r="2"],.cell[data-r="5"]{border-bottom:2px solid var(--sd-rule)}
+  .cell[data-c="8"]{border-right:none}
+  .cell[data-r="8"]{border-bottom:none}
+
+  .marks{position:absolute;inset:2px;display:grid;grid-template-columns:repeat(3,1fr);
+    grid-template-rows:repeat(3,1fr);pointer-events:none}
+  .marks span{font-size:.5em;line-height:1;display:flex;align-items:center;
+    justify-content:center;color:#6b7280}
+
+  .pad{display:grid;grid-template-columns:repeat(5,1fr);gap:8px;margin-top:14px}
+  .pad button{
+    background:#ffffff;color:#333333;border:1px solid #dee2e6;border-radius:10px;
+    padding:14px 0;font-size:1.3rem;cursor:pointer;font-variant-numeric:tabular-nums}
+  .pad button:active{background:var(--sd-sel)}
+  .pad button.wide{grid-column:span 1;font-size:.95rem}
+  .pad button.done{opacity:.35}
+
+  .foot{display:flex;gap:8px;justify-content:center;flex-wrap:wrap;margin-top:12px}
+  .meta{display:flex;justify-content:space-between;color:#6b7280;font-size:.9rem;
+    margin:0 2px 8px;font-variant-numeric:tabular-nums}
+  :focus-visible{outline:2px solid #007bff;outline-offset:2px}
+
+  /* Board colours come from the theme, so Sudoku follows the user's palette.
+     Only the selection tints are its own. */
+  :root{
+    --sd-cell:#ffffff;
+    --sd-rule:#333333;
+    --sd-line:#dee2e6;
+    --sd-given:#333333;
+    --sd-entry:#007bff;
+    --sd-sel:rgba(0,123,255,.22);
+    --sd-peer:rgba(0,123,255,.07);
+    --sd-same:rgba(0,123,255,.14);
+  }
+</style>
+</head>
+<body>
+  <header>
+    <h1>Sudoku</h1>
+    <a class="back-btn" href="/games">← Back to Games</a>
+  </header>
+
+  <main>
+    <div class="bar">
+      <div class="seg" id="diff" role="group" aria-label="Difficulty">
+        <button type="button" data-d="easy" aria-pressed="true">Easy</button>
+        <button type="button" data-d="medium" aria-pressed="false">Medium</button>
+        <button type="button" data-d="hard" aria-pressed="false">Hard</button>
+      </div>
+      <button class="btn" id="newBtn" type="button">New puzzle</button>
+    </div>
+
+    <div class="meta">
+      <span id="timer">0:00</span>
+      <span id="best"></span>
+    </div>
+
+    <div id="board" role="grid" aria-label="Sudoku board"></div>
+    <div class="status" id="status"></div>
+
+    <div class="pad" id="pad"></div>
+
+    <div class="foot">
+      <button class="btn secondary" id="notesBtn" type="button" aria-pressed="false">Notes</button>
+      <button class="btn secondary" id="undoBtn" type="button">Undo</button>
+      <button class="btn secondary" id="hintBtn" type="button">Hint</button>
+    </div>
+  </main>
+
+<script>
+'use strict';
+/* Sudoku. Solo only, never touches /api/mp/*.
+
+   The generator is robatron/sudoku.js at /assets/sudoku.js. Only easy/medium/hard
+   are offered, the harder tiers can take seconds and freeze a phone. See that
+   file's header. */
+
+if (typeof sudoku === 'undefined') {
+  document.addEventListener('DOMContentLoaded', function () {
+    document.getElementById('status').textContent =
+      'Sudoku engine failed to load (/assets/sudoku.js). Re-copy the assets folder to the card.';
+  });
+  throw new Error('sudoku.js missing');
+}
+
+var BLANK = '.';
+var SAVE_KEY = 'nomadgame_sudoku_save';
+var BEST_KEY = 'nomadgame_sudoku_best';
+
+var boardEl  = document.getElementById('board');
+var statusEl = document.getElementById('status');
+var padEl    = document.getElementById('pad');
+var timerEl  = document.getElementById('timer');
+var bestEl   = document.getElementById('best');
+var notesBtn = document.getElementById('notesBtn');
+
+var puzzle = '';      // the givens, 81 chars, '.' for blank
+var solution = '';    // the unique solution, 81 chars
+var cells = [];       // current entries, 0 = empty
+var marks = [];       // array of Sets, pencil marks per cell
+var undoStack = [];     // undo stack
+var selected = -1;
+var notesMode = false;
+var difficulty = 'easy';
+var startedAt = 0, elapsed = 0, tick = null, solved = false;
+
+function idx(r, c) { return r * 9 + c; }
+function rowOf(i) { return (i / 9) | 0; }
+function colOf(i) { return i % 9; }
+function boxOf(i) { return ((rowOf(i) / 3) | 0) * 3 + ((colOf(i) / 3) | 0); }
+
+/* Conflicts are checked against the current grid, not the solution, so a wrong
+   entry is only flagged when it clashes. Otherwise every cell is a free hint. */
+function conflicts() {
+  var bad = {};
+  for (var i = 0; i < 81; i++) {
+    if (!cells[i]) continue;
+    for (var j = i + 1; j < 81; j++) {
+      if (!cells[j] || cells[i] !== cells[j]) continue;
+      if (rowOf(i) === rowOf(j) || colOf(i) === colOf(j) || boxOf(i) === boxOf(j)) {
+        bad[i] = true; bad[j] = true;
+      }
+    }
+  }
+  return bad;
+}
+
+function render() {
+  var bad = conflicts();
+  var selVal = selected >= 0 ? cells[selected] : 0;
+  for (var i = 0; i < 81; i++) {
+    var el = boardEl.children[i];
+    var given = puzzle[i] !== BLANK;
+    el.className = 'cell' + (given ? ' given' : '');
+    if (i === selected) el.classList.add('sel');
+    else if (selected >= 0 &&
+             (rowOf(i) === rowOf(selected) || colOf(i) === colOf(selected) ||
+              boxOf(i) === boxOf(selected))) el.classList.add('peer');
+    if (selVal && cells[i] === selVal && i !== selected) el.classList.add('same');
+    if (bad[i]) el.classList.add('bad');
+
+    el.textContent = '';
+    if (cells[i]) {
+      el.textContent = String(cells[i]);
+    } else if (marks[i] && marks[i].size) {
+      var wrap = document.createElement('div');
+      wrap.className = 'marks';
+      for (var n = 1; n <= 9; n++) {
+        var s = document.createElement('span');
+        s.textContent = marks[i].has(n) ? String(n) : '';
+        wrap.appendChild(s);
+      }
+      el.appendChild(wrap);
+    }
+  }
+  // Grey out a pad digit once all nine are placed.
+  var counts = {};
+  for (var k = 0; k < 81; k++) if (cells[k]) counts[cells[k]] = (counts[cells[k]] || 0) + 1;
+  for (var d = 1; d <= 9; d++) {
+    var b = padEl.querySelector('[data-n="' + d + '"]');
+    if (b) b.classList.toggle('done', counts[d] === 9);
+  }
+  checkWin(bad);
+}
+
+function checkWin(bad) {
+  if (solved) return;
+  for (var i = 0; i < 81; i++) if (!cells[i]) return;
+  for (var k in bad) if (bad.hasOwnProperty(k)) return;
+  solved = true;
+  stopTimer();
+  statusEl.textContent = 'Solved in ' + fmt(elapsed) + '.';
+  statusEl.className = 'status win';
+  var key = BEST_KEY + '_' + difficulty;
+  var prev = 0;
+  try { prev = parseInt(localStorage.getItem(key), 10) || 0; } catch (e) {}
+  if (!prev || elapsed < prev) {
+    try { localStorage.setItem(key, String(elapsed)); } catch (e) {}
+    statusEl.textContent = 'Solved in ' + fmt(elapsed) + '. Best yet.';
+  }
+  showBest();
+  clearSave();
+}
+
+function fmt(s) {
+  var m = (s / 60) | 0;
+  var r = s % 60;
+  return m + ':' + (r < 10 ? '0' : '') + r;
+}
+
+function showBest() {
+  var v = 0;
+  try { v = parseInt(localStorage.getItem(BEST_KEY + '_' + difficulty), 10) || 0; } catch (e) {}
+  bestEl.textContent = v ? 'Best ' + fmt(v) : '';
+}
+
+function startTimer() {
+  stopTimer();
+  startedAt = Date.now() - elapsed * 1000;
+  tick = setInterval(function () {
+    elapsed = Math.floor((Date.now() - startedAt) / 1000);
+    timerEl.textContent = fmt(elapsed);
+    save();
+  }, 1000);
+}
+function stopTimer() { if (tick) { clearInterval(tick); tick = null; } }
+
+function push() {
+  undoStack.push({
+    cells: cells.slice(),
+    marks: marks.map(function (m) { return m ? Array.from(m) : []; })
+  });
+  if (undoStack.length > 200) undoStack.shift();
+  document.getElementById('undoBtn').disabled = false;
+}
+
+function undo() {
+  var prev = undoStack.pop();
+  if (!prev) return;
+  cells = prev.cells;
+  marks = prev.marks.map(function (a) { return new Set(a); });
+  solved = false;
+  statusEl.textContent = '';
+  statusEl.className = 'status';
+  document.getElementById('undoBtn').disabled = !undoStack.length;
+  render();
+  save();
+}
+
+function place(n) {
+  if (selected < 0 || solved) return;
+  if (puzzle[selected] !== BLANK) return;   // never overwrite a given
+  push();
+  if (notesMode && n) {
+    if (!marks[selected]) marks[selected] = new Set();
+    if (marks[selected].has(n)) marks[selected]['delete'](n);
+    else marks[selected].add(n);
+    cells[selected] = 0;
+  } else {
+    cells[selected] = (cells[selected] === n) ? 0 : n;   // tapping the same digit clears
+    if (marks[selected]) marks[selected].clear();
+    if (cells[selected]) clearPeerMarks(selected, cells[selected]);
+  }
+  render();
+  save();
+}
+
+/* Placing a digit removes it from the pencil marks of every peer. */
+function clearPeerMarks(i, n) {
+  for (var j = 0; j < 81; j++) {
+    if (j === i || !marks[j]) continue;
+    if (rowOf(i) === rowOf(j) || colOf(i) === colOf(j) || boxOf(i) === boxOf(j)) {
+      marks[j]['delete'](n);
+    }
+  }
+}
+
+function hint() {
+  if (solved) return;
+  var target = -1;
+  if (selected >= 0 && puzzle[selected] === BLANK && !cells[selected]) {
+    target = selected;
+  } else {
+    var empties = [];
+    for (var i = 0; i < 81; i++) if (!cells[i] && puzzle[i] === BLANK) empties.push(i);
+    if (!empties.length) return;
+    target = empties[Math.floor(Math.random() * empties.length)];
+  }
+  push();
+  cells[target] = parseInt(solution[target], 10);
+  if (marks[target]) marks[target].clear();
+  clearPeerMarks(target, cells[target]);
+  selected = target;
+  statusEl.textContent = 'Filled one square for you.';
+  statusEl.className = 'status';
+  render();
+  save();
+}
+
+function newPuzzle(d) {
+  difficulty = d || difficulty;
+  puzzle = sudoku.generate(difficulty);
+  solution = sudoku.solve(puzzle);
+  cells = [];
+  marks = [];
+  for (var i = 0; i < 81; i++) {
+    cells[i] = puzzle[i] === BLANK ? 0 : parseInt(puzzle[i], 10);
+    marks[i] = new Set();
+  }
+  undoStack = [];
+  document.getElementById('undoBtn').disabled = true;
+  selected = -1;
+  solved = false;
+  elapsed = 0;
+  timerEl.textContent = '0:00';
+  statusEl.textContent = '';
+  statusEl.className = 'status';
+  showBest();
+  render();
+  startTimer();
+  save();
+}
+
+function save() {
+  if (solved) return;
+  try {
+    localStorage.setItem(SAVE_KEY, JSON.stringify({
+      puzzle: puzzle, solution: solution, difficulty: difficulty,
+      cells: cells, elapsed: elapsed,
+      marks: marks.map(function (m) { return m ? Array.from(m) : []; })
+    }));
+  } catch (e) {}
+}
+function clearSave() { try { localStorage.removeItem(SAVE_KEY); } catch (e) {} }
+
+/* Phones lock mid-puzzle all the time, so an unfinished grid is restored on load. */
+function restore() {
+  var raw = null;
+  try { raw = localStorage.getItem(SAVE_KEY); } catch (e) {}
+  if (!raw) return false;
+  var s;
+  try { s = JSON.parse(raw); } catch (e) { return false; }
+  if (!s || !s.puzzle || s.puzzle.length !== 81 || !s.solution) return false;
+  puzzle = s.puzzle; solution = s.solution;
+  difficulty = s.difficulty || 'easy';
+  cells = s.cells || [];
+  marks = (s.marks || []).map(function (a) { return new Set(a); });
+  for (var i = 0; i < 81; i++) { if (typeof cells[i] !== 'number') cells[i] = 0;
+                                 if (!marks[i]) marks[i] = new Set(); }
+  elapsed = s.elapsed || 0;
+  undoStack = [];
+  solved = false;
+  document.getElementById('undoBtn').disabled = true;
+  document.querySelectorAll('#diff button').forEach(function (b) {
+    b.setAttribute('aria-pressed', String(b.dataset.d === difficulty));
+  });
+  timerEl.textContent = fmt(elapsed);
+  showBest();
+  render();
+  startTimer();
+  return true;
+}
+
+// --- build the DOM once -----------------------------------------------------
+for (var i = 0; i < 81; i++) {
+  var d = document.createElement('div');
+  d.className = 'cell';
+  d.dataset.r = rowOf(i);
+  d.dataset.c = colOf(i);
+  d.setAttribute('role', 'gridcell');
+  (function (n) {
+    d.onclick = function () { selected = n; render(); };
+  })(i);
+  boardEl.appendChild(d);
+}
+for (var n = 1; n <= 9; n++) {
+  var b = document.createElement('button');
+  b.type = 'button';
+  b.dataset.n = n;
+  b.textContent = String(n);
+  (function (v) { b.onclick = function () { place(v); }; })(n);
+  padEl.appendChild(b);
+}
+var erase = document.createElement('button');
+erase.type = 'button';
+erase.className = 'wide';
+erase.textContent = 'Erase';
+erase.onclick = function () {
+  if (selected < 0 || puzzle[selected] === BLANK && !cells[selected] &&
+      (!marks[selected] || !marks[selected].size)) return;
+  if (puzzle[selected] !== BLANK) return;
+  push();
+  cells[selected] = 0;
+  if (marks[selected]) marks[selected].clear();
+  render(); save();
+};
+padEl.appendChild(erase);
+
+document.querySelectorAll('#diff button').forEach(function (b) {
+  b.onclick = function () {
+    document.querySelectorAll('#diff button').forEach(function (o) {
+      o.setAttribute('aria-pressed', String(o === b));
+    });
+    newPuzzle(b.dataset.d);
+  };
+});
+document.getElementById('newBtn').onclick = function () { newPuzzle(difficulty); };
+document.getElementById('undoBtn').onclick = undo;
+document.getElementById('hintBtn').onclick = hint;
+notesBtn.onclick = function () {
+  notesMode = !notesMode;
+  notesBtn.setAttribute('aria-pressed', String(notesMode));
+};
+
+document.addEventListener('keydown', function (e) {
+  if (e.key >= '1' && e.key <= '9') { place(parseInt(e.key, 10)); return; }
+  if (e.key === 'Backspace' || e.key === 'Delete' || e.key === '0') { erase.onclick(); return; }
+  if (selected < 0) return;
+  var r = rowOf(selected), c = colOf(selected);
+  if (e.key === 'ArrowUp') r = (r + 8) % 9;
+  else if (e.key === 'ArrowDown') r = (r + 1) % 9;
+  else if (e.key === 'ArrowLeft') c = (c + 8) % 9;
+  else if (e.key === 'ArrowRight') c = (c + 1) % 9;
+  else return;
+  e.preventDefault();
+  selected = idx(r, c);
+  render();
+});
+
+// Keep the clock right when the tab is backgrounded on a phone.
+document.addEventListener('visibilitychange', function () {
+  if (document.hidden) { stopTimer(); save(); }
+  else if (!solved && puzzle) { startTimer(); }
+});
+
+if (!restore()) newPuzzle('easy');
+</script>
+</body>
+</html>

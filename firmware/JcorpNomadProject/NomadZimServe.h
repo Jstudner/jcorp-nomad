@@ -1,7 +1,7 @@
-// NomadZimServe.h - the archive reader's pages, served by the Nomad itself:
+// NomadZimServe.h - the archive reader's pages, served by Nomad itself:
 //
 //   GET /zimview/<n>/<namespace>/<path>     one entry of archive <n>, as the page asked for it
-//   GET /api/zimserve                        {"v":1,...}: archive.html's "can this Nomad do it"
+//   GET /api/zimserve                        {"v":1,...}: archive.html's "can Nomad do it"
 //
 // <n> is the archive's idx in /Archive/.nomad-zim/manifest.json, the same address the
 // service worker (zim-sw.js) answers, so archive.html opens the same URL either way. Where
@@ -298,8 +298,8 @@ static String typeOf(const std::string &mime) {
   return t;
 }
 
-// an archive page runs its own scripts at the Nomad's address (as in Kiwix's reader). They
-// may only talk to the archive itself, not the Nomad's admin, upload or delete calls
+// an archive page runs its own scripts at Nomad's address (as in Kiwix's reader). They
+// may only talk to the archive itself, not Nomad's admin, upload or delete calls
 static void pageHeaders(AsyncWebServerResponse *r, const String &host, bool isPage) {
   if (isPage) {
     String o = "http://" + host;

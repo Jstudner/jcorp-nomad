@@ -117,6 +117,17 @@ static void nomadStorageHealthRegister(AsyncWebServer &server) {
     chk["ago"] = c.ran ? (millis() - c.startedMs) / 1000 : -1;
     JsonArray bad = chk.createNestedArray("bad");
     for (uint32_t i = 0; i < c.errors && i < 4; i++) bad.add(c.badSectors[i]);
+    // Everything above is the card's. A library can be more than the card (a P4-NANO merges
+    // a USB drive in), so its volumes are listed too. "boot" and "check" are the card alone.
+    JsonArray vols = doc["volumes"].to<JsonArray>();
+    for (int v = 0; v < NOMAD_VOL_COUNT; v++) {
+      if (!NomadSD.volumeMounted(v)) continue;
+      JsonObject o = vols.add<JsonObject>();
+      o["id"] = v;
+      o["label"] = NomadSD.volumeLabel(v);
+      o["fs"] = NomadSD.volumeFsTypeName(v);
+      o["bytes"] = NomadSD.volumeTotalBytes(v);
+    }
     String out;
     serializeJson(doc, out);
     AsyncWebServerResponse *res = r->beginResponse(200, "application/json", out);
@@ -127,6 +138,8 @@ static void nomadStorageHealthRegister(AsyncWebServer &server) {
   server.on("/api/storage-health/check", HTTP_POST, [](AsyncWebServerRequest *r) {
     if (!checkAdminAuth(r)) { r->send(401, "application/json", "{\"error\":\"Unauthorized\"}"); return; }
     if (g_sdCheck.running) { r->send(409, "application/json", "{\"error\":\"A check is already running\"}"); return; }
+    // a P4 can run with no card in: there is nothing to read, and 0 reads isn't a pass
+    if (NomadSD.cardType() == CARD_NONE) { r->send(409, "application/json", "{\"error\":\"There is no SD card in Nomad\"}"); return; }
     g_sdCheck = StorageCheck();
     g_sdCheck.running = true;
     g_sdCheck.startedMs = millis();

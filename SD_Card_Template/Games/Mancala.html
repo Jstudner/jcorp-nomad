@@ -1,0 +1,265 @@
+<!DOCTYPE html>
+<!-- Version 1 -->
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<meta name="nomad-modes" content="pass,room"/>
+<title>Nomad • Mancala</title>
+<link rel="icon" href="/favicon.ico" type="image/x-icon">
+<link rel="stylesheet" href="/master.css">
+<script src="/theme-boot.js"></script>
+<script src="/theme-manager.js"></script>
+<script src="/assets/mp-client.js"></script>
+<script src="/assets/game-shell.js"></script>
+<style>
+  main{max-width:600px;margin:0 auto;padding:14px}
+  /* Fixed wooden board colours, they don't follow the theme. */
+  #board{display:grid;grid-template-columns:0.9fr repeat(6,1fr) 0.9fr;
+    grid-template-rows:auto auto;gap:6px;background:#8a5c2d;border-radius:16px;
+    padding:10px;max-width:min(96vw,560px);margin:0 auto;
+    touch-action:manipulation;user-select:none}
+  .pit{position:relative;display:flex;align-items:center;justify-content:center;
+    aspect-ratio:1;border-radius:50%;background:#6d4520;border:none;padding:0;
+    color:#f5e6d3;font-size:1.15rem;font-weight:700;cursor:default;
+    box-shadow:inset 0 3px 6px rgba(0,0,0,.45)}
+  .pit.mine{cursor:pointer}
+  .pit.mine:not(:disabled){background:#7d5327}
+  .pit.playable{outline:3px solid #f0c070;outline-offset:2px}
+  .pit.empty{color:#b08a63}
+  .store{grid-row:span 2;aspect-ratio:auto;border-radius:36px;background:#5a3617;
+    font-size:1.5rem;box-shadow:inset 0 4px 10px rgba(0,0,0,.5)}
+  /* seeds drawn behind the count so you can see how full a pit is */
+  .seeds{position:absolute;inset:14%;pointer-events:none;opacity:.55}
+  .seed{position:absolute;width:16%;height:16%;border-radius:50%;background:#e8c88c}
+  #stores{text-align:center;color:var(--muted);font-size:.9rem;margin-bottom:8px}
+  #stores b{color:var(--text)}
+</style>
+</head>
+<body>
+  <header>
+    <h1>Mancala</h1>
+    <a class="back-btn" href="/games">← Back to Games</a>
+  </header>
+
+  <main></main>
+
+<script>
+/* Mancala (Kalah, 6 pits a side, 4 seeds each).
+
+   Sow counter-clockwise, skipping the other player's store. Land your last seed
+   in your own store and you go again. Land it in an empty pit on your own side
+   and, if the pit facing it has seeds, you take both into your store. When
+   either side's six pits are empty the other player sweeps their own remaining
+   seeds into their store, and the bigger pile wins.
+
+   Extra turns break seq parity. The firmware decides whose turn it is with
+   seat == seq % 2, so a second move in a row can't be sent. Extra turns are
+   played locally and nothing is sent until the turn ends, so seq goes up once
+   per turn. In pass-and-play the phone gets handed over at the right time too. */
+GameShell.init({
+  id: 'mancala',
+  name: 'Mancala',
+  modes: ['pass', 'room'],
+  seats_named: ['South', 'North'],
+  hudHtml: '<div id="stores"></div>',
+  onStart: render,
+  onUpdate: onUpdate,
+  onInfo: onInfo,
+  onRematch: playAgain,
+  isOver: isOver,
+  pollInterval: 1000
+});
+
+/* Pit 0-5 are South's, 6 is South's store. 7-12 are North's, 13 is North's.
+   Sowing runs 0,1,...,13,0,... and skips the store that is not yours. The pit
+   facing pit i is 12 - i, which is why the two rows are numbered in opposite
+   directions on screen. */
+const PITS = 14, STORE = [6, 13];
+const B64 = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_';
+const START = [4,4,4,4,4,4,0,4,4,4,4,4,4,0];
+
+let board = START.slice();
+let over = false;
+
+const mySide = () => MP.room.seat === 0 ? 0 : 1;
+const sideName = s => s === 0 ? 'South' : 'North';
+const ownPits = s => s === 0 ? [0,1,2,3,4,5] : [7,8,9,10,11,12];
+
+const boardEl = document.getElementById('board');
+const statusEl = document.getElementById('status');
+
+// 48 seeds never all land in one pit, but even if they did 48 < 64, so one
+// base64 character per pit is always enough
+const encode = b => b.map(n => B64[Math.min(n, 63)]).join('');
+const decode = s => s.split('').map(c => Math.max(0, B64.indexOf(c)));
+
+function sideEmpty(b, s){
+  return ownPits(s).every(i => b[i] === 0);
+}
+
+function isOver(){
+  return sideEmpty(board, 0) || sideEmpty(board, 1);
+}
+
+/* Sweep: when one side runs out, the other takes what is left on their own row.
+   Applied on read as well as write, so a board from the room is never shown
+   un-swept. */
+function settle(b){
+  for (const s of [0, 1]){
+    if (sideEmpty(b, s)){
+      const other = 1 - s;
+      for (const i of ownPits(other)){ b[STORE[other]] += b[i]; b[i] = 0; }
+      break;
+    }
+  }
+  return b;
+}
+
+/* Returns the board after sowing from `pit`, and whether the mover goes again.
+   Doesn't touch the globals, so it can be tested on its own. */
+function sow(b0, pit, side){
+  const b = b0.slice();
+  let n = b[pit];
+  b[pit] = 0;
+  let i = pit;
+  while (n > 0){
+    i = (i + 1) % PITS;
+    if (i === STORE[1 - side]) continue;     // never sow the other store
+    b[i]++; n--;
+  }
+  if (i === STORE[side]) return { b: settle(b), again: true };
+  // last seed into an empty pit of your own, facing a pit that has something
+  const facing = 12 - i;
+  if (ownPits(side).includes(i) && b[i] === 1 && b[facing] > 0){
+    b[STORE[side]] += b[i] + b[facing];
+    b[i] = 0; b[facing] = 0;
+  }
+  return { b: settle(b), again: false };
+}
+
+function render(){
+  boardEl.innerHTML = '';
+  over = isOver();
+  const me = mySide();
+  const canMove = !over && MP.myTurn() && MP.room.joined;
+
+  const cell = (i, cls) => {
+    const b = document.createElement('button');
+    b.className = 'pit ' + cls + (board[i] === 0 ? ' empty' : '');
+    b.textContent = board[i];
+    const mine = ownPits(me).includes(i);
+    if (cls === 'store'){
+      b.disabled = true;
+      b.setAttribute('aria-label', `${sideName(i === 6 ? 0 : 1)} store: ${board[i]}`);
+    } else {
+      if (mine) b.classList.add('mine');
+      const legal = canMove && mine && board[i] > 0;
+      if (legal) b.classList.add('playable');
+      b.disabled = !legal;
+      b.onclick = () => play(i);
+    }
+    // no seed ring in the stores, it's sized for round pits and spills out
+    if (board[i] > 0 && cls !== 'store') b.insertAdjacentHTML('afterbegin', seedsHtml(i, board[i]));
+    return b;
+  };
+
+  // North's store, North's pits right-to-left, South's pits left-to-right,
+  // South's store. Same way up for both players
+  boardEl.appendChild(cell(13, 'store'));
+  for (let i = 12; i >= 7; i--) boardEl.appendChild(cell(i, 'pit'));
+  boardEl.appendChild(cell(6, 'store'));
+  for (let i = 0; i <= 5; i++) boardEl.appendChild(cell(i, 'pit'));
+  updateStatus();
+}
+
+/* A ring of dots behind the number, seeded from the pit index so the seeds
+   don't jump around between renders. */
+function seedsHtml(i, n){
+  const shown = Math.min(n, 8);
+  let out = '<span class="seeds">';
+  for (let k = 0; k < shown; k++){
+    const a = (k / shown) * Math.PI * 2 + i;
+    const x = 42 + Math.cos(a) * 34, y = 42 + Math.sin(a) * 34;
+    out += `<span class="seed" style="left:${x}%;top:${y}%"></span>`;
+  }
+  return out + '</span>';
+}
+
+function updateStatus(){
+  statusEl.classList.remove('hot');
+  over = isOver();
+  document.getElementById('againBtn').classList.toggle('hidden', !over || !MP.room.joined);
+  const me = sideName(mySide());
+  // the outline shows your row on your turn, the store counts show the score
+  document.getElementById('stores').innerHTML =
+    `South <b>${board[6]}</b> &nbsp;·&nbsp; North <b>${board[13]}</b>` +
+    (over ? '' : ` &nbsp;&middot;&nbsp; you are <b>${me}</b>`);
+  if (over){
+    const s = board[6], n = board[13];
+    const w = s > n ? 'South' : n > s ? 'North' : null;
+    statusEl.textContent = `Game over. South ${s} : North ${n}. ` +
+      (w === null ? "It's a tie!" : `${w} wins` + (w === me ? ' (you!)' : ''));
+    statusEl.classList.add('hot');
+  } else if (!MP.room.joined){
+    statusEl.textContent = `Share the code and wait for North to join… (you are ${me})`;
+  } else if (MP.myTurn()){
+    statusEl.textContent = `Your turn (${me})`;
+    statusEl.classList.add('hot');
+  } else {
+    statusEl.textContent = `Opponent's turn (you are ${me})`;
+  }
+}
+
+async function play(pit){
+  if (over || !MP.myTurn() || !MP.room.joined) return;
+  const side = mySide();
+  if (!ownPits(side).includes(pit) || board[pit] === 0) return;
+
+  const res = sow(board, pit, side);
+  board = res.b;
+
+  // An extra turn stays on this device until the turn ends (see top)
+  if (res.again && !isOver()){
+    render();
+    GameShell.note('Landed in your store - go again');
+    return;
+  }
+  GameShell.note('');
+  try {
+    await MP.move(JSON.stringify({ p: encode(board) }));
+    render();
+  } catch(e){
+    statusEl.textContent = e.message;
+  }
+}
+
+function onUpdate(stateStr){
+  try {
+    const s = JSON.parse(stateStr);
+    if (s && typeof s.p === 'string' && s.p.length === PITS){
+      board = settle(decode(s.p));
+    }
+  } catch(e){}
+  render();
+}
+
+async function playAgain(){
+  try {
+    await MP.reset(JSON.stringify({ p: encode(START) }));
+    board = START.slice();
+    over = false;
+    GameShell.note('');
+    render();
+  } catch(e){
+    statusEl.textContent = e.message;
+  }
+}
+
+function onInfo(j){
+  if (j.gone){ statusEl.textContent = 'Room expired.'; over = true; render(); MP.stop(); return; }
+  render();
+}
+</script>
+</body>
+</html>

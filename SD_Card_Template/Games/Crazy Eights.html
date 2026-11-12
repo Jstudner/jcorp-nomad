@@ -4,6 +4,7 @@
 <head>
 <meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no"/>
+<meta name="nomad-modes" content="pass"/>
 <title>Nomad • Crazy Eights</title>
 <link rel="icon" href="/favicon.ico" type="image/x-icon">
 <link rel="stylesheet" href="/master.css">
@@ -113,7 +114,10 @@
     background:var(--bg,#f4f4f9);padding:26px;text-align:center;
   }
   .overlay.show{display:flex}
-  .overlay.modal{background:rgba(0,0,0,.5)}
+  /* Translucent scrim for the suit picker. Called `dim` because master.css's
+     `.modal button` rules override the suit button styles (size, border, red and
+     black colours). */
+  .overlay.dim{background:rgba(0,0,0,.5)}
   .ov-suits{font-size:1.4rem;letter-spacing:.3em}
   .ov-suits .r{color:#e4405f}
   .ov-title{font-size:1.5rem;font-weight:800;max-width:360px}
@@ -188,7 +192,7 @@
   </div>
 
   <!-- Suit picker (shown after playing an 8) -->
-  <div class="overlay modal" id="suitpick">
+  <div class="overlay dim" id="suitpick">
     <div class="sheet">
       <div class="sheet-title">Choose a suit</div>
       <div class="suit-picker">

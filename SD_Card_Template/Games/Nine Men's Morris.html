@@ -1,0 +1,309 @@
+<!DOCTYPE html>
+<!-- Version 1 -->
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<meta name="nomad-modes" content="pass,room"/>
+<title>Nomad • Nine Men's Morris</title>
+<link rel="icon" href="/favicon.ico" type="image/x-icon">
+<link rel="stylesheet" href="/master.css">
+<script src="/theme-boot.js"></script>
+<script src="/theme-manager.js"></script>
+<script src="/assets/mp-client.js"></script>
+<script src="/assets/game-shell.js"></script>
+<style>
+  main{max-width:520px;margin:0 auto;padding:14px}
+  /* Fixed wooden board colours, they don't follow the theme. */
+  #board{position:relative;width:100%;max-width:min(94vw,420px);margin:0 auto;
+    aspect-ratio:1;background:#d9b382;border-radius:12px;
+    touch-action:manipulation;user-select:none}
+  #board svg{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}
+  /* The rings are about 14.7% of the board apart. 11% men keep the lines
+     visible with all eighteen down. */
+  .pt{position:absolute;width:11%;height:11%;transform:translate(-50%,-50%);
+    border-radius:50%;border:none;padding:0;background:transparent;cursor:default}
+  .pt::after{content:'';position:absolute;inset:33%;border-radius:50%;background:#8a6a45}
+  .pt.w::after,.pt.b::after{inset:6%;box-shadow:0 2px 3px rgba(0,0,0,.35)}
+  .pt.w::after{background:radial-gradient(circle at 35% 30%,#fff,#d8cdbd 75%)}
+  .pt.b::after{background:radial-gradient(circle at 35% 30%,#555,#111 70%)}
+  .pt.live{cursor:pointer}
+  /* a place you can go is a thin ring, the man you picked up is a solid one */
+  .pt.live::before{content:'';position:absolute;inset:-6%;border-radius:50%;
+    box-shadow:0 0 0 2px var(--primary);opacity:.65}
+  .pt.sel::before{content:'';position:absolute;inset:-14%;border-radius:50%;
+    box-shadow:0 0 0 4px var(--primary);opacity:1}
+  /* a piece you may take is marked differently from a square you may play */
+  .pt.takeable::before{content:'';position:absolute;inset:-10%;border-radius:50%;
+    box-shadow:0 0 0 3px #dc2626;opacity:1}
+  #hands{text-align:center;color:var(--muted);font-size:.92rem;margin-bottom:8px}
+  #hands b{color:var(--text)}
+</style>
+</head>
+<body>
+  <header>
+    <h1>Nine Men's Morris</h1>
+    <a class="back-btn" href="/games">← Back to Games</a>
+  </header>
+
+  <main></main>
+
+<script>
+/* Nine Men's Morris.
+
+   Place your nine men one at a time, then move them along the lines. Three in a
+   line is a mill, and completing one lets you take an enemy man off the board -
+   but not one that is itself in a mill, unless every man they have left is.
+   Down to three men you may fly: move anywhere. Down to two, or with no legal
+   move, you have lost.
+
+   A turn can be more than one action: closing a mill adds a capture, and a move
+   in the second phase is two taps. As in Mancala, nothing is sent until the turn
+   is finished, so seq goes up once per turn and seat == seq % 2 holds.
+
+   The board tables below are the standard board: 16 mills, twelve points of
+   degree 2, eight of degree 3 and four of degree 4. */
+GameShell.init({
+  id: 'morris',
+  name: "Nine Men's Morris",
+  modes: ['pass', 'room'],
+  seats_named: ['White', 'Black'],
+  hudHtml: '<div id="hands"></div>',
+  onStart: render,
+  onUpdate: onUpdate,
+  onInfo: onInfo,
+  onRematch: playAgain,
+  isOver: function(){ return !!winner(); },
+  pollInterval: 1000
+});
+
+const MILLS = [[0,1,2],[2,3,4],[4,5,6],[6,7,0],[8,9,10],[10,11,12],[12,13,14],
+               [14,15,8],[16,17,18],[18,19,20],[20,21,22],[22,23,16],
+               [1,9,17],[3,11,19],[5,13,21],[7,15,23]];
+const ADJ = [[1,7],[0,2,9],[1,3],[2,4,11],[3,5],[4,6,13],[5,7],[0,6,15],
+             [9,15],[1,8,10,17],[9,11],[3,10,12,19],[11,13],[5,12,14,21],[13,15],[7,8,14,23],
+             [17,23],[9,16,18],[17,19],[11,18,20],[19,21],[13,20,22],[21,23],[15,16,22]];
+/* grid cells on a 7x7 lattice, ring by ring: TL TM TR RM BR BM BL LM */
+const CELLS = [[0,0],[0,3],[0,6],[3,6],[6,6],[6,3],[6,0],[3,0],
+               [1,1],[1,3],[1,5],[3,5],[5,5],[5,3],[5,1],[3,1],
+               [2,2],[2,3],[2,4],[3,4],[4,4],[4,3],[4,2],[3,2]];
+const EMPTY = '-'.repeat(24);
+
+let board = EMPTY;
+let hand = [9, 9];      // men still to place, by seat
+let sel = -1;           // the man picked up, in the moving phase
+let taking = false;     // a mill was just closed, this turn owes a capture
+let over = false;
+
+const myPiece = () => MP.room.seat === 0 ? 'W' : 'B';
+const foe = p => p === 'W' ? 'B' : 'W';
+const pieceName = p => p === 'W' ? 'White' : 'Black';
+const seatOf = p => p === 'W' ? 0 : 1;
+const count = p => board.split('').filter(c => c === p).length;
+
+const boardEl = document.getElementById('board');
+const statusEl = document.getElementById('status');
+
+const pct = v => (6 + (v / 6) * 88);
+
+function inMill(b, i, p){
+  return MILLS.some(m => m.includes(i) && m.every(k => b[k] === p));
+}
+
+// every man they have is fair game only when every man they have is in a mill
+function takeable(p){
+  const theirs = [];
+  for (let i = 0; i < 24; i++) if (board[i] === p) theirs.push(i);
+  const open = theirs.filter(i => !inMill(board, i, p));
+  return open.length ? open : theirs;
+}
+
+function movesFor(p){
+  const flying = hand[seatOf(p)] === 0 && count(p) === 3;
+  const out = [];
+  for (let i = 0; i < 24; i++){
+    if (board[i] !== p) continue;
+    const dests = flying
+      ? Array.from({ length: 24 }, (_, k) => k).filter(k => board[k] === '-')
+      : ADJ[i].filter(k => board[k] === '-');
+    for (const d of dests) out.push([i, d]);
+  }
+  return out;
+}
+
+/* Nobody loses during the placing phase, there are still men in hand. */
+function winner(){
+  if (hand[0] > 0 || hand[1] > 0) return null;
+  for (const p of ['W', 'B']){
+    if (count(p) < 3) return foe(p);
+    if (!movesFor(p).length) return foe(p);
+  }
+  return null;
+}
+
+function phaseFor(p){
+  if (hand[seatOf(p)] > 0) return 'place';
+  return count(p) === 3 ? 'fly' : 'move';
+}
+
+function render(){
+  const me = myPiece();
+  /* Set `over` before building the board, or the losing position is drawn with
+     every point still live. */
+  over = !!winner();
+  const mine = MP.myTurn() && MP.room.joined && !over;
+
+  let svg = '<svg viewBox="0 0 100 100" aria-hidden="true">';
+  const line = (a, b) =>
+    `<line x1="${pct(CELLS[a][1])}" y1="${pct(CELLS[a][0])}" ` +
+    `x2="${pct(CELLS[b][1])}" y2="${pct(CELLS[b][0])}" ` +
+    `stroke="#6b4f2f" stroke-width="1.1" stroke-linecap="round"/>`;
+  for (let r = 0; r < 3; r++){
+    for (let k = 0; k < 8; k++) svg += line(r * 8 + k, r * 8 + (k + 1) % 8);
+  }
+  for (const m of [1, 3, 5, 7]) svg += line(m, m + 8) + line(m + 8, m + 16);
+  svg += '</svg>';
+  boardEl.innerHTML = svg;
+
+  const canTake = taking ? takeable(foe(me)) : [];
+  const legal = (!taking && mine) ? movesFor(me) : [];
+  const fromSet = new Set(legal.map(m => m[0]));
+  const toSet = new Set(legal.filter(m => m[0] === sel).map(m => m[1]));
+
+  for (let i = 0; i < 24; i++){
+    const v = board[i];
+    const b = document.createElement('button');
+    let cls = 'pt' + (v === 'W' ? ' w' : v === 'B' ? ' b' : '');
+    let live = false;
+    if (mine && taking){
+      if (canTake.includes(i)) { cls += ' takeable'; live = true; }
+    } else if (mine && phaseFor(me) === 'place'){
+      if (v === '-') live = true;
+    } else if (mine){
+      if (i === sel) cls += ' sel';
+      if (fromSet.has(i) || toSet.has(i)) live = true;
+    }
+    if (live) cls += ' live';
+    b.className = cls;
+    b.style.left = pct(CELLS[i][1]) + '%';
+    b.style.top  = pct(CELLS[i][0]) + '%';
+    b.disabled = !live;
+    b.setAttribute('aria-label',
+      `Point ${i + 1}${v === '-' ? ' empty' : ', ' + pieceName(v)}`);
+    b.onclick = () => tap(i);
+    boardEl.appendChild(b);
+  }
+  updateStatus();
+}
+
+function updateStatus(){
+  statusEl.classList.remove('hot');
+  over = !!winner();
+  document.getElementById('againBtn').classList.toggle('hidden', !over || !MP.room.joined);
+  const me = myPiece();
+  document.getElementById('hands').innerHTML =
+    `White <b>${count('W')}</b> on board, <b>${hand[0]}</b> in hand &nbsp;·&nbsp; ` +
+    `Black <b>${count('B')}</b> on board, <b>${hand[1]}</b> in hand`;
+
+  const w = winner();
+  if (w){
+    statusEl.textContent = `${pieceName(w)} wins` +
+      ((!GameShell.isLocal() && w === me) ? ' (you!)' : '');
+    statusEl.classList.add('hot');
+  } else if (!MP.room.joined){
+    statusEl.textContent = `Share the code and wait for Black to join… (you are ${pieceName(me)})`;
+  } else if (MP.myTurn()){
+    const ph = phaseFor(me);
+    statusEl.textContent = taking ? 'Mill! Take one of their men'
+      : ph === 'place' ? `Place a man (${pieceName(me)}) - ${hand[seatOf(me)]} left`
+      : ph === 'fly' ? `Down to three - fly a man anywhere (${pieceName(me)})`
+      : sel >= 0 ? 'Now tap where it goes'
+      : `Move a man along a line (${pieceName(me)})`;
+    statusEl.classList.add('hot');
+  } else {
+    statusEl.textContent = `Opponent's turn (you are ${pieceName(me)})`;
+  }
+}
+
+function tap(i){
+  if (over || !MP.myTurn() || !MP.room.joined) return;
+  const me = myPiece();
+
+  if (taking){
+    if (!takeable(foe(me)).includes(i)) return;
+    board = board.slice(0, i) + '-' + board.slice(i + 1);
+    taking = false;
+    endTurn();
+    return;
+  }
+
+  if (phaseFor(me) === 'place'){
+    if (board[i] !== '-') return;
+    board = board.slice(0, i) + me + board.slice(i + 1);
+    hand[seatOf(me)]--;
+    afterPlacement(i, me);
+    return;
+  }
+
+  // moving or flying: first tap picks a man up, second puts it down
+  if (board[i] === me){ sel = (sel === i ? -1 : i); render(); return; }
+  if (sel < 0) return;
+  if (!movesFor(me).some(m => m[0] === sel && m[1] === i)) return;
+  board = board.slice(0, sel) + '-' + board.slice(sel + 1);
+  board = board.slice(0, i) + me + board.slice(i + 1);
+  sel = -1;
+  afterPlacement(i, me);
+}
+
+/* A closed mill owes a capture as part of this turn, so don't send the state
+   until it's taken. */
+function afterPlacement(i, me){
+  if (inMill(board, i, me) && takeable(foe(me)).length){
+    taking = true;
+    render();
+    return;
+  }
+  endTurn();
+}
+
+async function endTurn(){
+  sel = -1;
+  try {
+    await MP.move(JSON.stringify({ b: board, h: hand.join('') }));
+    render();
+  } catch(e){
+    statusEl.textContent = e.message;
+  }
+}
+
+function onUpdate(stateStr){
+  try {
+    const s = JSON.parse(stateStr);
+    if (s && typeof s.b === 'string' && s.b.length === 24){
+      board = s.b;
+      if (typeof s.h === 'string' && s.h.length === 2){
+        hand = [Number(s.h[0]) || 0, Number(s.h[1]) || 0];
+      }
+      sel = -1; taking = false;
+    }
+  } catch(e){}
+  render();
+}
+
+async function playAgain(){
+  try {
+    await MP.reset(JSON.stringify({ b: EMPTY, h: '99' }));
+    board = EMPTY; hand = [9, 9]; sel = -1; taking = false; over = false;
+    render();
+  } catch(e){
+    statusEl.textContent = e.message;
+  }
+}
+
+function onInfo(j){
+  if (j.gone){ statusEl.textContent = 'Room expired.'; over = true; render(); MP.stop(); return; }
+  render();
+}
+</script>
+</body>
+</html>

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Build and flash the Nomad S3 firmware, with no physical replug.
+# Build and flash Nomad S3 firmware, with no physical replug.
 #
 #   ./tools/flash-nomad.sh [--usbc] <sketch-dir> [build-dir] [port]
 #
@@ -49,10 +49,18 @@ ESPTOOL="$HOME/.arduino15/packages/esp32/tools/esptool_py/5.1.0/esptool"
 [ -n "$PORT" ] && [ -c "$PORT" ] || { echo "no Espressif device found (looked for USB 303a:1001 on /dev/ttyACM* and /dev/ttyUSB*)" >&2; exit 1; }
 echo "==> port $PORT"
 
+# src/usb_msc is the P4's USB-drive driver. Arduino compiles everything under src/ for
+# every board, so its include folders are needed here too (on the S3 it compiles to
+# nothing). Same folders firmware/build-p4.sh passes.
+INC="-DLV_CONF_INCLUDE_SIMPLE -I$SKETCH"
+for d in src/usb_msc/include src/usb_msc/include/usb src/usb_msc/include/esp_private src/usb_msc/private_include; do
+  [ -d "$SKETCH/$d" ] && INC="$INC -I$SKETCH/$d"
+done
+
 echo "==> compile ($([ "$USBC" = 1 ] && echo 'USB-C / 1.47B, backlight GPIO 46' || echo 'USB-A / 1.47, backlight GPIO 48'))"
 "$CLI" compile --fqbn "$FQBN" --build-path "$BUILD" \
-  --build-property "compiler.cpp.extra_flags=-DLV_CONF_INCLUDE_SIMPLE -I$SKETCH$USBC_FLAG" \
-  --build-property "compiler.c.extra_flags=-DLV_CONF_INCLUDE_SIMPLE -I$SKETCH$USBC_FLAG" \
+  --build-property "compiler.cpp.extra_flags=$INC$USBC_FLAG" \
+  --build-property "compiler.c.extra_flags=$INC$USBC_FLAG" \
   "$SKETCH"
 
 NAME="$(basename "$SKETCH")"

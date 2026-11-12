@@ -4,6 +4,7 @@
 <head>
 <meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no"/>
+<meta name="nomad-modes" content="pass"/>
 <title>Nomad • Dots and Boxes</title>
 <link rel="icon" href="/favicon.ico" type="image/x-icon">
 <link rel="stylesheet" href="/master.css">
@@ -44,8 +45,10 @@
     background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='10' height='6'><path d='M0 0l5 6 5-6z' fill='%23888'/></svg>");
     background-repeat:no-repeat;background-position:right 10px center;}
 
-  .controls{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:14px;align-items:center}
-  .controls label{font-size:13px;color:var(--muted,#777)}
+  /* Named db-controls because master.css already uses .controls for the media
+     player (a 3-column grid), which breaks this row. */
+  .db-controls{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:14px;align-items:center}
+  .db-controls label{font-size:13px;color:var(--muted,#777)}
 
   .status{
     display:flex;flex-wrap:wrap;gap:8px;margin-bottom:14px;
@@ -69,7 +72,9 @@
   svg#board{width:min(92vw,460px);height:auto;display:block;touch-action:manipulation}
   .placeholder{stroke:var(--line,#dcdce3);opacity:.6}
   .dotc{fill:var(--muted,#777)}
-  .boxlabel{fill:#fff;font-weight:700;font-family:inherit;text-anchor:middle;dominant-baseline:central;pointer-events:none}
+  /* No fill here. The label sets fill="<player colour>" as an attribute and any
+     CSS fill would override it. */
+  .boxlabel{font-weight:700;font-family:inherit;text-anchor:middle;dominant-baseline:central;pointer-events:none}
   .hit{fill:transparent;cursor:pointer}
 
   .result{
@@ -96,7 +101,7 @@
   <div class="topbar">
     </div>
 
-  <div class="controls">
+  <div class="db-controls">
     <label for="pcount">Players</label>
     <select id="pcount" class="btn">
       <option value="2">2 players</option>
@@ -189,7 +194,7 @@
       vEdges[r][c] = current;
     }
 
-    // an edge borders up to two boxes; closing one claims it and the same player goes again
+    // an edge borders up to two boxes. closing one claims it and the same player goes again
     var B = DOTS - 1;
     var completed = 0;
     var adj = (type === "h")

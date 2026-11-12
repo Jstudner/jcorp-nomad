@@ -144,7 +144,7 @@
         if (!r.ok) { entries = []; say(r.status === 404 ? 'This folder is not on the card.' : 'Nomad did not answer (HTTP ' + r.status + ').'); draw(); return; }
         const arr = JSON.parse(await r.text());
         truncated = arr.some((e) => e && e.truncated);
-        entries = arr.filter((e) => e && e.name && !e.truncated).map((e) => ({ name: String(e.name).replace(/\/$/, ''), dir: !!e.isDir, size: +e.size || 0 }));
+        entries = arr.filter((e) => e && e.name && !e.truncated).map((e) => ({ name: String(e.name).replace(/\/$/, ''), dir: !!e.isDir, size: +e.size || 0, vol: e.vol }));
         if (opts.onPath) opts.onPath(path);
         draw();
       } catch (e) {
@@ -177,7 +177,7 @@
         return `<div class="nf-row" role="listitem" data-name="${esc(e.name)}" data-dir="${e.dir ? 1 : 0}">
           <div class="nf-ico${e.dir ? ' dir' : ''}">${icon ? svg(icon, 18) : `<span class="ext">${esc(x.slice(0, 4) || 'file')}</span>`}</div>
           <div class="nf-main"><div class="nf-name">${esc(e.name)}</div>
-            <div class="nf-meta">${e.dir ? 'Folder' : size(e.size)}${h ? `<span class="nf-dot ${h.level}"></span>${esc(h.label)}` : ''}</div></div>
+            <div class="nf-meta">${e.dir ? 'Folder' : size(e.size)}${e.vol === 1 ? ' · USB drive' : ''}${h ? `<span class="nf-dot ${h.level}"></span>${esc(h.label)}` : ''}</div></div>
           <span class="nf-chev">${svg(e.dir ? 'chevron-right' : 'menu', 16)}</span></div>`;
       }).join('');
     }

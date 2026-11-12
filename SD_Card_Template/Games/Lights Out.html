@@ -1,0 +1,198 @@
+<!DOCTYPE html>
+<!-- Version 1 -->
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no"/>
+<meta name="nomad-modes" content="solo"/>
+<title>Nomad • Lights Out</title>
+<link rel="icon" href="/favicon.ico" type="image/x-icon">
+<link rel="stylesheet" href="/master.css">
+<script src="/theme-boot.js"></script>
+<script src="/theme-manager.js"></script>
+<style>
+  main{max-width:480px;margin:0 auto;padding:14px}
+  .bar{display:flex;gap:10px;align-items:center;flex-wrap:wrap;justify-content:center;margin-bottom:12px}
+  .seg{display:inline-flex;border:1px solid var(--line);border-radius:8px;overflow:hidden}
+  .seg button{background:var(--bg);color:var(--text);border:none;padding:9px 14px;
+    cursor:pointer;font-size:.95rem}
+  .seg button[aria-pressed="true"]{background:var(--primary);color:var(--color-white,#fff)}
+  .btn{background:var(--primary);color:var(--color-white,#fff);border:none;border-radius:8px;
+    padding:10px 18px;cursor:pointer;font-size:1rem;min-height:44px}
+  .btn.secondary{background:transparent;color:var(--primary);border:1px solid var(--primary)}
+  .hud{display:flex;justify-content:center;gap:18px;color:var(--muted);font-size:.92rem;margin-bottom:10px}
+  .hud b{color:var(--text)}
+  /* Fixed colours from the cover art: a dark panel of amber lamps. */
+  /* Don't make the gap a percentage. A percentage row-gap depends on the grid's
+     height, which depends on the gap, and the bottom row ends up outside the
+     panel. Viewport units are fine. */
+  #board{display:grid;gap:clamp(5px,2.2vw,13px);width:100%;max-width:min(92vw,400px);
+    margin:0 auto;background:#2b3440;border-radius:18px;
+    padding:clamp(6px,2.6vw,16px);box-sizing:border-box;
+    touch-action:manipulation;user-select:none}
+  .lamp{aspect-ratio:1;border:none;border-radius:14%;background:#3f4a58;cursor:pointer;
+    padding:0;position:relative;transition:background .12s ease}
+  .lamp.on{background:#f2c530;box-shadow:0 0 14px rgba(242,197,48,.55)}
+  .lamp.on::after{content:'';position:absolute;inset:16%;border-radius:12%;background:#f7dc78}
+  .lamp:disabled{cursor:default}
+  .status{text-align:center;color:var(--muted);min-height:1.5em;margin:12px 0}
+  .status.win{color:var(--primary);font-weight:700;font-size:1.1rem}
+  .foot{display:flex;gap:10px;justify-content:center;margin-top:6px;flex-wrap:wrap}
+</style>
+</head>
+<body>
+  <header>
+    <h1>Lights Out</h1>
+    <a class="back-btn" href="/games">← Back to Games</a>
+  </header>
+
+  <main>
+    <div class="bar">
+      <div class="seg" id="sizeSeg" role="group" aria-label="Grid size">
+        <button type="button" data-n="3" aria-pressed="false">3 × 3</button>
+        <button type="button" data-n="5" aria-pressed="true">5 × 5</button>
+        <button type="button" data-n="7" aria-pressed="false">7 × 7</button>
+      </div>
+      <button class="btn" id="newBtn" type="button">New puzzle</button>
+    </div>
+
+    <div class="hud">
+      <span>Lit <b id="lit">0</b></span>
+      <span>Taps <b id="taps">0</b></span>
+      <span>Best <b id="best">—</b></span>
+    </div>
+
+    <div id="board" role="grid" aria-label="Lights"></div>
+    <div class="status" id="status"></div>
+
+    <div class="foot">
+      <button class="btn secondary" id="undoBtn" type="button">Undo</button>
+    </div>
+  </main>
+
+<script>
+'use strict';
+/* Lights Out. Solo, so it never touches /api/mp/*.
+
+   Tap a lamp and it toggles, along with the four beside it. Turn them all off.
+
+   SOLVABILITY. On a 5x5 grid only a quarter of all boards can be solved (the
+   toggle matrix over GF(2) has a two-dimensional null space), so random lights
+   would be unsolvable three times in four. The generator starts dark and taps at
+   random instead. Tapping the same cells again solves it, since every tap is its
+   own inverse. */
+
+const boardEl  = document.getElementById('board');
+const statusEl = document.getElementById('status');
+const litEl    = document.getElementById('lit');
+const tapsEl   = document.getElementById('taps');
+const bestEl   = document.getElementById('best');
+
+let n = 5;
+let grid = [];         // 1 = lit
+let taps = 0;
+/* Don't call this `history`. `var history = []` assigns to window.history,
+   which throws in strict mode and kills the whole script. */
+let undoStack = [];
+let done = true;
+
+const bestKey = () => 'nomad_lightsout_best_' + n;
+const litCount = () => grid.reduce((a, v) => a + v, 0);
+
+function readBest(){
+  try { return parseInt(localStorage.getItem(bestKey()), 10) || 0; } catch(e){ return 0; }
+}
+function writeBest(v){
+  try { localStorage.setItem(bestKey(), String(v)); } catch(e){}
+}
+
+/* The cell itself and its four orthogonal neighbours, clipped at the edges. */
+function pressSet(i){
+  const r = Math.floor(i / n), c = i % n;
+  const out = [i];
+  if (r > 0)     out.push(i - n);
+  if (r < n - 1) out.push(i + n);
+  if (c > 0)     out.push(i - 1);
+  if (c < n - 1) out.push(i + 1);
+  return out;
+}
+
+function press(i, counted){
+  for (const k of pressSet(i)) grid[k] ^= 1;
+  if (counted){ taps++; undoStack.push(i); }
+}
+
+function tap(i){
+  if (done) return;
+  press(i, true);
+  render();
+  if (litCount() === 0) finish();
+}
+
+function undo(){
+  if (done || !undoStack.length) return;
+  const i = undoStack.pop();
+  for (const k of pressSet(i)) grid[k] ^= 1;   // every tap is its own inverse
+  taps++;                                      // undoing is still a tap you made
+  render();
+}
+
+function finish(){
+  done = true;
+  const prev = readBest();
+  const record = !prev || taps < prev;
+  if (record) writeBest(taps);
+  statusEl.className = 'status win';
+  statusEl.textContent = record
+    ? `All out in ${taps} taps - a new best!`
+    : `All out in ${taps} taps.`;
+  render();
+}
+
+function render(){
+  boardEl.style.gridTemplateColumns = `repeat(${n},1fr)`;
+  boardEl.innerHTML = '';
+  for (let i = 0; i < n * n; i++){
+    const b = document.createElement('button');
+    b.className = 'lamp' + (grid[i] ? ' on' : '');
+    b.disabled = done;
+    b.setAttribute('aria-label',
+      `Row ${Math.floor(i / n) + 1} column ${i % n + 1}, ${grid[i] ? 'lit' : 'out'}`);
+    b.setAttribute('aria-pressed', String(!!grid[i]));
+    b.onclick = () => tap(i);
+    boardEl.appendChild(b);
+  }
+  litEl.textContent = litCount();
+  tapsEl.textContent = taps;
+  const best = readBest();
+  bestEl.textContent = best ? best + ' taps' : '—';
+  document.getElementById('undoBtn').disabled = done || !undoStack.length;
+}
+
+/* Start dark, then tap at random, so the board is always solvable. */
+function newPuzzle(){
+  grid = new Array(n * n).fill(0);
+  const presses = Math.max(3, Math.round(n * n * 0.6));
+  for (let k = 0; k < presses; k++) press(Math.floor(Math.random() * n * n), false);
+  if (litCount() === 0) return newPuzzle();      // a dark board is not a puzzle
+  taps = 0; undoStack = []; done = false;
+  statusEl.className = 'status';
+  statusEl.textContent = 'Turn them all off.';
+  render();
+}
+
+document.getElementById('newBtn').onclick = newPuzzle;
+document.getElementById('undoBtn').onclick = undo;
+document.getElementById('sizeSeg').addEventListener('click', e => {
+  const b = e.target.closest('button');
+  if (!b) return;
+  n = Number(b.dataset.n);
+  [].forEach.call(e.currentTarget.children, el =>
+    el.setAttribute('aria-pressed', String(el === b)));
+  newPuzzle();
+});
+
+newPuzzle();
+</script>
+</body>
+</html>

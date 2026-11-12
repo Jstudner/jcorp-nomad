@@ -4,6 +4,7 @@
 <head>
 <meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover"/>
+<meta name="nomad-modes" content="solo"/>
 <title>Nomad • Snake</title>
 <link rel="icon" href="/favicon.ico" type="image/x-icon">
 <link rel="stylesheet" href="/master.css">
@@ -292,8 +293,15 @@
 
   function setDir(x, y){
     if(over) return;
-    if(waiting){ nextDir = {x:x, y:y}; if(x !== -dir.x || y !== -dir.y) dir = nextDir; beginRun(); return; }
-    // no 180° turn onto itself
+    if(waiting){
+      /* Ignore a reversal on the start screen for both dir and nextDir. step()
+         uses nextDir straight away, so a reversal there would run the head into
+         the body on the first tick. Play starts in the direction it's facing. */
+      if(!(x === -dir.x && y === -dir.y)){ dir = {x:x, y:y}; nextDir = {x:x, y:y}; }
+      beginRun();
+      return;
+    }
+    // Can't reverse directly onto the current heading.
     if(x === -dir.x && y === -dir.y) return;
     // nor via two quick inputs within one step
     if(x === -nextDir.x && y === -nextDir.y && snake.length > 1) return;

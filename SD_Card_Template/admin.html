@@ -992,10 +992,12 @@
       </label>
 
       <p class="wifi-help">
-        Nomad restarts and joins your network. Its screen shows the new address.
-        If the network can't be reached, Nomad goes back to hotspot mode.
-        To force hotspot mode, unplug and replug it, or with auto-reconnect on, hold the
-        side button while it boots. Set an admin password before joining a shared network.
+        Nomad restarts, joins your network, and serves its library (plus DLNA and OPDS)
+        to every device on it, with no captive portal. <span id="wifi-screen-note">Nomad's screen shows the address it
+        was given.</span> If the network can't be reached, it falls back to hotspot mode on its own.
+        Without auto-reconnect, unplugging and replugging always returns to hotspot mode;
+        <span id="wifi-escape-hatch">with it, hold the side button while Nomad boots to force hotspot mode.</span>
+        Tip: set an admin password before joining a shared network.
       </p>
 
       <div class="wifi-actions">
@@ -1057,11 +1059,15 @@
       </div>
 
       <div class="card" data-sec="overview">
-        <div class="adm-h2row"><h2>Storage</h2><span id="sd-trust-badge" class="adm-badge" style="display: none;"></span><b id="sd-percent" class="adm-big">--%</b></div>
+        <div class="adm-h2row"><h2 id="storage-title">Storage</h2><span id="sd-trust-badge" class="adm-badge" style="display: none;"></span><b id="sd-percent" class="adm-big">--%</b></div>
         <div class="progress"><div id="sd-bar" class="progress-bar" style="width: 0%"></div></div>
         <div class="adm-sub"><span id="sd-used">-- GB used</span> <span id="sd-total">of -- GB</span></div>
+        <div id="sd-combined-label" class="adm-sub" style="display: none;">Card and USB together</div>
+        <!-- one row per mounted volume, hidden on a board with no second volume -->
+        <div id="storage-volumes" style="display: none; margin-top: 10px; gap: 10px; flex-direction: column;
+             border-top: 1px solid var(--card-border); padding-top: 10px;"></div>
         <div class="adm-btn-row">
-          <button onclick="triggerSDScan()" class="btn btn-secondary">Scan card</button>
+          <button onclick="triggerSDScan()" class="btn btn-secondary">Scan storage</button>
           <button id="video-check-btn" onclick="triggerVideoCheck()" class="btn btn-secondary">Check videos</button>
         </div>
         <div id="sd-scan-msg" class="adm-msg"></div>
@@ -1147,6 +1153,27 @@
           their own.</p></details>
       </div>
 
+      <!-- Cover thumbnails: hardware JPEG + PPA, P4 only. Hidden where /api/thumbs says unsupported -->
+      <div class="card" data-sec="library" id="thumbs-card" style="display: none;">
+        <h2>Cover thumbnails</h2>
+        <div id="thumbs-summary" class="adm-sub">Checking&hellip;</div>
+        <div id="thumbs-progress-wrap" class="adm-progress" style="display: none;">
+          <div id="thumbs-current" style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap;"></div>
+          <div class="progress"><div id="thumbs-progress-bar" class="progress-bar" style="width: 0%"></div></div>
+        </div>
+        <div class="adm-btn-row">
+          <button id="thumbs-start" onclick="startThumbs(false)" class="btn btn-primary">Optimise covers</button>
+          <button id="thumbs-stop" onclick="stopThumbs()" class="btn btn-secondary" style="display: none;">Stop</button>
+          <button id="thumbs-rebuild" onclick="startThumbs(true)" class="btn btn-secondary">Rebuild all</button>
+          <button id="thumbs-clear" onclick="clearThumbs()" class="btn btn-secondary">Delete thumbnails</button>
+        </div>
+        <div id="thumbs-msg" class="adm-msg"></div>
+        <details class="adm-why"><summary>How this works</summary><p>Makes a small copy of every cover so the
+          library grids load a few kilobytes per card instead of the full-size artwork. Detail pages keep the
+          original. Progressive JPEGs can't be read by this board's decoder and are left as they are.</p></details>
+      </div>
+
+      <!-- ===== Pages: show, download, upload per page ===== -->
       <div class="card adm-wide" data-sec="pages">
         <h2>Pages</h2>
         <table class="perm-table">
@@ -1220,8 +1247,8 @@
           <button id="btn-usbmode" class="btn btn-secondary">USB mode</button>
           <button id="btn-flashmode" class="btn btn-secondary">Flash mode</button>
         </div>
-        <details class="adm-why"><summary>How this works</summary><p>USB mode shows the card to a computer over
-          the cable, like the BOOT button. Flash mode readies Nomad for new firmware. Both ask first.</p></details>
+        <details class="adm-why" id="power-why"><summary>How this works</summary><p>USB mode shows the card to the computer Nomad is plugged into, same as pressing the BOOT button. Flash mode
+          gets Nomad ready for new firmware. Both ask before doing anything.</p></details>
       </div>
       <div class="card" data-sec="device">
         <h2>Admin password</h2>
@@ -1247,6 +1274,11 @@
       <div class="card adm-risky" data-sec="device" id="fw-card">
         <div class="adm-h2row"><h2>Firmware</h2><span class="adm-badge warn">Risky</span></div>
         <div id="fw-now" class="adm-sub">Asking Nomad&hellip;</div>
+        <div id="ui-build" class="adm-sub" hidden></div>
+        <div id="ui-card-row" class="adm-btn-row" hidden>
+          <button id="ui-card-check" class="btn btn-secondary">Check the pages kept on the card</button>
+        </div>
+        <div id="ui-card-msg" class="adm-msg"></div>
         <p class="adm-risk">Updating restarts Nomad and stops whatever is playing. If the new firmware
           doesn't start, Nomad goes back to this one. Keep it plugged in while it updates.</p>
         <div id="fw-last" class="adm-msg"></div>
@@ -1302,7 +1334,7 @@
           minutes of starting, Nomad starts in safe mode with indexing and TV support off. Start normally, or
           unplugging it, goes back to a normal start.</p></details>
       </div>
-      <div class="card" data-sec="device">
+      <div class="card" data-sec="device" id="lcd-card">
         <div class="adm-h2row"><h2>Screen</h2><b id="brightness-percent" class="adm-big">--%</b></div>
         <input type="range" id="brightness" class="adm-range" min="1" max="100" aria-label="Brightness"
                oninput="updateBrightnessLabel(this.value)"
@@ -1313,7 +1345,7 @@
         </div>
         <button id="lcd-toggle" class="btn btn-secondary">Turn off</button>
       </div>
-      <div class="card" data-sec="device">
+      <div class="card" data-sec="device" id="rgb-card">
         <h2>Lights</h2>
         <div class="adm-seg-row">
           <div class="adm-seg" role="group" aria-label="Light mode">
@@ -1377,9 +1409,9 @@
   </div>
 
   <!-- version query busts the firmware's max-age file caching (bump when admin.js changes) -->
-  <script src="/nomad-utils.js?v=49"></script>
-  <script src="/assets/nomad-files.js?v=3"></script>
-  <script src="admin.js?v=55"></script>
+  <script src="/nomad-utils.js?v=50"></script>
+  <script src="/assets/nomad-files.js?v=4"></script>
+  <script src="admin.js?v=60"></script>
 </body>
 </html>
 

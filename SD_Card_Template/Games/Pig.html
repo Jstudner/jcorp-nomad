@@ -1,0 +1,244 @@
+<!DOCTYPE html>
+<!-- Version 1 -->
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<meta name="nomad-modes" content="pass,room"/>
+<title>Nomad • Pig</title>
+<link rel="icon" href="/favicon.ico" type="image/x-icon">
+<link rel="stylesheet" href="/master.css">
+<script src="/theme-boot.js"></script>
+<script src="/theme-manager.js"></script>
+<script src="/assets/mp-client.js"></script>
+<script src="/assets/game-shell.js"></script>
+<style>
+  main{max-width:520px;margin:0 auto;padding:14px}
+  #tally{display:flex;justify-content:center;gap:28px;margin-bottom:6px}
+  .who{text-align:center;color:var(--muted);font-size:.9rem;min-width:88px}
+  .who b{display:block;color:var(--text);font-size:2rem;line-height:1.1;
+    font-variant-numeric:tabular-nums}
+  .who.up{color:var(--primary)}
+  .who.up b{color:var(--primary)}
+  #pot{text-align:center;color:var(--muted);font-size:.95rem;min-height:1.4em;margin-bottom:10px}
+  #pot b{color:var(--text);font-variant-numeric:tabular-nums}
+  /* Fixed colours: a die is white with black pips. */
+  #dieWrap{display:flex;justify-content:center;margin-bottom:12px}
+  .die{position:relative;width:min(34vw,120px);aspect-ratio:1;border:none;padding:0;
+    border-radius:16%;background:#fdfdfb;box-shadow:0 3px 6px rgba(0,0,0,.3);cursor:default}
+  .die.bust{background:#fecaca;box-shadow:0 0 0 3px #dc2626}
+  .pip{position:absolute;width:16%;height:16%;border-radius:50%;background:#1a1a1a;
+    transform:translate(-50%,-50%)}
+  #acts{display:flex;justify-content:center;gap:12px;flex-wrap:wrap}
+</style>
+</head>
+<body>
+  <header>
+    <h1>Pig</h1>
+    <a class="back-btn" href="/games">← Back to Games</a>
+  </header>
+
+  <main></main>
+
+<script>
+/* Pig. Roll as often as you dare, every face but a one adds to the pot. Roll a
+   one and you lose the pot and your turn. Hold to bank what you have. First
+   past the target wins.
+
+   A turn is any number of rolls and then a hold, so as in Mancala nothing is
+   sent until the turn ends. Holding and rolling a one both send exactly one
+   state, so seq goes up once per turn.
+
+   Passing the target doesn't win until the turn is banked. Rolling to 103 and
+   then rolling a one scores nothing. */
+GameShell.init({
+  id: 'pig',
+  name: 'Pig',
+  modes: ['pass', 'room'],
+  seats_named: ['One', 'Two'],
+  preCreateHtml:
+    '<select id="targetSel" aria-label="Target score">' +
+      '<option value="50">First to 50 - quick</option>' +
+      '<option value="100" selected>First to 100</option>' +
+    '</select>',
+  hudHtml: '<div id="tally"></div><div id="pot"></div>' +
+           '<div id="dieWrap"></div><div id="acts"></div>',
+  onStart: onStart,
+  onUpdate: onUpdate,
+  onInfo: onInfo,
+  onRematch: playAgain,
+  isOver: isOver,
+  pollInterval: 1000
+});
+
+let target = 100;
+let banked = [0, 0];
+let pot = 0;             // this turn's running total, never sent
+let face = 0;            // 0 = nothing rolled yet this turn
+let busted = false;
+let over = false;
+
+const statusEl = document.getElementById('status');
+const mySeat = () => MP.room.seat;
+
+function isOver(){
+  return banked[0] >= target || banked[1] >= target;
+}
+
+function winner(){
+  if (banked[0] >= target) return 0;
+  if (banked[1] >= target) return 1;
+  return -1;
+}
+
+function pips(v){
+  const L = 25, M = 50, R = 75;
+  return ({
+    1: [[M,M]], 2: [[L,L],[R,R]], 3: [[L,L],[M,M],[R,R]],
+    4: [[L,L],[R,L],[L,R],[R,R]],
+    5: [[L,L],[R,L],[M,M],[L,R],[R,R]],
+    6: [[L,L],[R,L],[L,M],[R,M],[L,R],[R,R]]
+  })[v] || [];
+}
+
+function render(){
+  over = isOver();
+  const mine = MP.myTurn() && MP.room.joined && !over && !busted;
+
+  document.getElementById('tally').innerHTML = [0, 1].map(s =>
+    `<div class="who${(!over && MP.room.joined && MP.room.seat === s) ? ' up' : ''}">` +
+    `${GameShell.seatName(s)}<b>${banked[s]}</b></div>`).join('');
+
+  document.getElementById('pot').innerHTML = over ? `First to ${target}`
+    : busted ? 'A one - the pot is gone'
+    : pot ? `Pot this turn <b>${pot}</b>` : `First to ${target}`;
+
+  const wrap = document.getElementById('dieWrap');
+  wrap.innerHTML = '';
+  const d = document.createElement('div');
+  d.className = 'die' + (busted ? ' bust' : '');
+  d.setAttribute('role', 'img');
+  d.setAttribute('aria-label', face ? `Die showing ${face}` : 'Die not yet rolled');
+  for (const [x, y] of pips(face)){
+    const p = document.createElement('span');
+    p.className = 'pip'; p.style.left = x + '%'; p.style.top = y + '%';
+    d.appendChild(p);
+  }
+  wrap.appendChild(d);
+
+  const acts = document.getElementById('acts');
+  acts.innerHTML = '';
+  if (busted){
+    const b = document.createElement('button');
+    b.className = 'btn'; b.textContent = 'Hand over';
+    b.onclick = endTurn;
+    acts.appendChild(b);
+  } else {
+    const r = document.createElement('button');
+    r.className = 'btn'; r.textContent = pot ? 'Roll again' : 'Roll';
+    r.disabled = !mine;
+    r.onclick = roll;
+    acts.appendChild(r);
+    const h = document.createElement('button');
+    h.className = 'btn secondary';
+    h.textContent = pot ? `Hold and bank ${pot}` : 'Hold';
+    h.disabled = !mine || !pot;
+    h.onclick = hold;
+    acts.appendChild(h);
+  }
+  updateStatus();
+}
+
+function updateStatus(){
+  statusEl.classList.remove('hot');
+  over = isOver();
+  document.getElementById('againBtn').classList.toggle('hidden', !over || !MP.room.joined);
+  const me = mySeat();
+  if (over){
+    const w = winner();
+    statusEl.textContent = `${GameShell.seatName(w)} wins, ${banked[w]} to ${banked[1 - w]}` +
+      ((!GameShell.isLocal() && w === me) ? ' (you!)' : '');
+    statusEl.classList.add('hot');
+  } else if (!MP.room.joined){
+    statusEl.textContent = 'Share the code and wait for a second player…';
+  } else if (busted){
+    statusEl.textContent = `${GameShell.seatName(me)} rolled a one and banks nothing`;
+    statusEl.classList.add('hot');
+  } else if (MP.myTurn()){
+    statusEl.textContent = `${GameShell.seatName(me)} - roll, or hold what you have`;
+    statusEl.classList.add('hot');
+  } else {
+    statusEl.textContent = "Opponent's turn";
+  }
+}
+
+function roll(){
+  if (!MP.myTurn() || !MP.room.joined || over || busted) return;
+  face = 1 + Math.floor(Math.random() * 6);
+  if (face === 1){
+    // the die has ended the turn: the pot is lost and nothing is banked
+    pot = 0;
+    busted = true;
+    render();
+    return;
+  }
+  pot += face;
+  render();
+}
+
+/* Banking ends the turn, and is the only place a score changes. */
+function hold(){
+  if (!MP.myTurn() || !pot || over || busted) return;
+  banked[mySeat()] += pot;
+  pot = 0;
+  endTurn();
+}
+
+async function endTurn(){
+  const me = mySeat();
+  busted = false; pot = 0;
+  render();
+  try {
+    await MP.move(JSON.stringify({ t: target, b: banked.join(',') }));
+    render();
+  } catch(e){
+    statusEl.textContent = e.message;
+  }
+}
+
+function onStart(){
+  target = Number(document.getElementById('targetSel').value) || 100;
+  banked = [0, 0]; pot = 0; face = 0; busted = false; over = false;
+  render();
+}
+
+function onUpdate(stateStr){
+  try {
+    const s = JSON.parse(stateStr);
+    if (s && typeof s.b === 'string'){
+      const parts = s.b.split(',').map(Number);
+      if (parts.length === 2 && parts.every(n => Number.isFinite(n))) banked = parts;
+      if (s.t) target = Number(s.t);
+    }
+  } catch(e){}
+  pot = 0; face = 0; busted = false;
+  render();
+}
+
+async function playAgain(){
+  try {
+    await MP.reset(JSON.stringify({ t: target, b: '0,0' }));
+    banked = [0, 0]; pot = 0; face = 0; busted = false; over = false;
+    render();
+  } catch(e){
+    statusEl.textContent = e.message;
+  }
+}
+
+function onInfo(j){
+  if (j.gone){ statusEl.textContent = 'Room expired.'; over = true; render(); MP.stop(); return; }
+  render();
+}
+</script>
+</body>
+</html>

@@ -1,12 +1,12 @@
 # Cookbook
 
-Recipes for the Nomad's Cookbook page. Drop files in here, then turn the page on
+Recipes for Nomad's Cookbook page. Drop files in here, then turn the page on
 in **Admin → Menu Pages → Cookbook** (it ships off).
 
 Subfolders become categories, so `Cookbook/Bread/Cornbread.md` shows up under
 "Bread". Only one level deep, anything deeper isn't scanned.
 
-## Writing recipes on the Nomad itself
+## Writing recipes on Nomad itself
 
 You don't have to prepare files on a computer. The Cookbook page has a
 **＋ New recipe** button that writes straight to this folder, and an **Edit**

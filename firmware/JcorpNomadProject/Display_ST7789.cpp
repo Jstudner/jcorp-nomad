@@ -1,4 +1,20 @@
 #include "Display_ST7789.h"
+#include "nomad_board.h"
+
+#if !NOMAD_HAS_DISPLAY
+
+// No panel fitted (the P4 board ships without one). LVGL still runs into a sink, so
+// every lv_*/ui_* call site in the firmware is unchanged and the boot messages that
+// would have gone to the screen go to serial and the web log instead.
+void LCD_Init(void) {}
+void LCD_SetRotation180(bool) {}
+void LCD_SetCursor(uint16_t, uint16_t, uint16_t, uint16_t) {}
+void LCD_addWindow(uint16_t, uint16_t, uint16_t, uint16_t, uint16_t *) {}
+void Backlight_Init(void) {}
+void Set_Backlight(uint8_t) {}
+
+#else
+
    
 SPIClass LCDspi(FSPI);
 #define SPI_WRITE(_dat)         LCDspi.transfer(_dat)
@@ -159,9 +175,9 @@ parameter :
 note: XORing MX|MY (0xC0) into MADCTL flips both scan directions = 180 turn.
       The 172px-wide panel sits centered in the ST7789's 240px RAM
       (Offset_X 34 on BOTH sides), so LCD_SetCursor's offsets stay valid in
-      either orientation. Caller must repaint the full screen afterward -
+      either orientation. Caller must repaint the full screen afterward,
       panel RAM contents display mirrored until redrawn. Only call from the
-      task that drives LVGL flushes; interleaving this command mid-flush
+      task that drives LVGL flushes. Interleaving this command mid-flush
       would corrupt the panel's address window.
 ******************************************************************************/
 void LCD_SetRotation180(bool flip)
@@ -248,7 +264,4 @@ void Set_Backlight(uint8_t Light)                        //
   }
 }
 
-
-
-
-
+#endif  // NOMAD_HAS_DISPLAY

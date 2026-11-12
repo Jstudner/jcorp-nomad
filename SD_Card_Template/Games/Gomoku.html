@@ -1,0 +1,208 @@
+<!DOCTYPE html>
+<!-- Version 1 -->
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<meta name="nomad-modes" content="pass,room"/>
+<title>Nomad • Gomoku</title>
+<link rel="icon" href="/favicon.ico" type="image/x-icon">
+<link rel="stylesheet" href="/master.css">
+<script src="/theme-boot.js"></script>
+<script src="/theme-manager.js"></script>
+<script src="/assets/mp-client.js"></script>
+<script src="/assets/game-shell.js"></script>
+<style>
+  main{max-width:560px;margin:0 auto;padding:14px}
+  /* Fixed board colours, they don't follow the theme. */
+  #board{display:grid;margin:0 auto;background:#deb867;border-radius:8px;padding:8px;
+    max-width:min(94vw,520px);touch-action:manipulation;user-select:none}
+  .pt{position:relative;aspect-ratio:1;background:transparent;border:none;padding:0;cursor:pointer}
+  /* board lines: a centred cross per intersection, clipped at the edges */
+  .pt::before,.pt::after{content:'';position:absolute;background:#4a3413;pointer-events:none}
+  .pt::before{left:0;right:0;top:50%;height:1.2px;transform:translateY(-50%)}
+  .pt::after{top:0;bottom:0;left:50%;width:1.2px;transform:translateX(-50%)}
+  .pt.edge-l::before{left:50%}  .pt.edge-r::before{right:50%}
+  .pt.edge-t::after{top:50%}    .pt.edge-b::after{bottom:50%}
+  /* The five star points on a 15x15 board. Painted as the cell's background
+     since ::before and ::after are already the two board lines. */
+  .pt.star{background:radial-gradient(circle at 50% 50%,#4a3413 0 2.6px,transparent 2.6px)}
+  .stone{position:absolute;inset:9%;border-radius:50%;z-index:1;pointer-events:none}
+  .stone.b{background:radial-gradient(circle at 35% 30%,#555,#000 70%)}
+  .stone.w{background:radial-gradient(circle at 35% 30%,#fff,#cfcfcf 75%);border:1px solid #999}
+  .stone .last{position:absolute;inset:32%;border-radius:50%;border:2px solid var(--primary)}
+  .stone.win{box-shadow:0 0 0 2px var(--primary)}
+</style>
+</head>
+<body>
+  <header>
+    <h1>Gomoku</h1>
+    <a class="back-btn" href="/games">← Back to Games</a>
+  </header>
+
+  <main></main>
+
+<script>
+/* Gomoku, five in a row on a 15x15 board. Freestyle rules: no opening
+   restriction, no overline rule, five or more wins. That's how most people
+   play it casually.
+
+   Written for a room. For pass-and-play, game-shell.js swaps in a local MP whose
+   seat follows the move count, so myStone() is whoever is holding the phone.
+   GameShell.init has to be first, it injects the markup the getElementById
+   calls below need. */
+GameShell.init({
+  id: 'gomoku',
+  name: 'Gomoku',
+  modes: ['pass', 'room'],
+  seats_named: ['Black', 'White'],
+  onStart: render,
+  onUpdate: onUpdate,
+  onInfo: onInfo,
+  onRematch: playAgain,
+  isOver: isOver,
+  pollInterval: 1000
+});
+
+const N = 15;                       // 225 intersections, a full board is 234
+const EMPTY = '-'.repeat(N * N);    // bytes on the wire, well inside the 512
+const STARS = [[3,3],[11,3],[7,7],[3,11],[11,11]];
+
+let board = EMPTY;
+let last = -1;                      // index of the most recent stone
+let over = false;
+
+const myStone = () => MP.room.seat === 0 ? 'B' : 'W';
+const stoneName = s => s === 'B' ? 'Black' : 'White';
+
+const boardEl = document.getElementById('board');
+const statusEl = document.getElementById('status');
+
+/* Returns the five (or more) indices that win, or null. Only four directions
+   (east, south, south-east, south-west), scanning every cell covers the
+   opposite ones from the other end. */
+function winnerLine(){
+  const DIRS = [[1,0],[0,1],[1,1],[-1,1]];
+  for (let y = 0; y < N; y++){
+    for (let x = 0; x < N; x++){
+      const v = board[y*N+x];
+      if (v === '-') continue;
+      for (const [dx,dy] of DIRS){
+        // only start a run at its own end, or the same line is found five times
+        const px = x - dx, py = y - dy;
+        if (px >= 0 && px < N && py >= 0 && py < N && board[py*N+px] === v) continue;
+        const run = [];
+        let cx = x, cy = y;
+        while (cx >= 0 && cx < N && cy >= 0 && cy < N && board[cy*N+cx] === v){
+          run.push(cy*N+cx); cx += dx; cy += dy;
+        }
+        if (run.length >= 5) return run;
+      }
+    }
+  }
+  return null;
+}
+
+function isOver(){
+  return !!winnerLine() || !board.includes('-');
+}
+
+function render(){
+  boardEl.style.gridTemplateColumns = `repeat(${N},1fr)`;
+  boardEl.innerHTML = '';
+  const win = winnerLine();
+  const winSet = win ? new Set(win) : null;
+  // set `over` before the buttons are built, each one checks it
+  over = isOver();
+  for (let y = 0; y < N; y++){
+    for (let x = 0; x < N; x++){
+      const i = y*N+x;
+      const b = document.createElement('button');
+      b.className = 'pt' +
+        (x === 0 ? ' edge-l' : '') + (x === N-1 ? ' edge-r' : '') +
+        (y === 0 ? ' edge-t' : '') + (y === N-1 ? ' edge-b' : '') +
+        (STARS.some(p => p[0] === x && p[1] === y) ? ' star' : '');
+      const v = board[i];
+      if (v !== '-'){
+        const s = document.createElement('span');
+        s.className = 'stone ' + (v === 'B' ? 'b' : 'w') + (winSet && winSet.has(i) ? ' win' : '');
+        if (i === last && !winSet) s.innerHTML = '<span class="last"></span>';
+        b.appendChild(s);
+      }
+      b.disabled = over || v !== '-' || !MP.myTurn() || !MP.room.joined;
+      b.onclick = () => play(i);
+      boardEl.appendChild(b);
+    }
+  }
+  updateStatus(win);
+}
+
+function updateStatus(win){
+  statusEl.classList.remove('hot');
+  over = isOver();
+  document.getElementById('againBtn').classList.toggle('hidden', !over || !MP.room.joined);
+  const me = stoneName(myStone());
+  if (win){
+    const w = stoneName(board[win[0]]);
+    statusEl.textContent = w === me ? `You win! (${w})` : `${w} wins. Better luck next time`;
+    statusEl.classList.add('hot');
+  } else if (over){
+    statusEl.textContent = "The board is full - it's a draw!";
+  } else if (!MP.room.joined){
+    statusEl.textContent = `Share the code and wait for White to join… (you are ${me})`;
+  } else if (MP.myTurn()){
+    statusEl.textContent = `Your move (${me})`;
+    statusEl.classList.add('hot');
+  } else {
+    statusEl.textContent = `Opponent's move (you are ${me})`;
+  }
+}
+
+async function play(i){
+  if (over || board[i] !== '-' || !MP.myTurn()) return;
+  const next = board.slice(0, i) + myStone() + board.slice(i + 1);
+  const prevLast = last;
+  last = i;
+  try {
+    await MP.move(JSON.stringify({ b: next, l: i }));
+    board = next;
+    render();
+  } catch(e){
+    last = prevLast;
+    statusEl.textContent = e.message;
+    render();
+  }
+}
+
+function onUpdate(stateStr){
+  try {
+    const s = JSON.parse(stateStr);
+    if (s && typeof s.b === 'string' && s.b.length === N*N){
+      board = s.b;
+      last = (typeof s.l === 'number') ? s.l : -1;
+    }
+  } catch(e){}
+  render();
+}
+
+/* Rematch in the same room, same code. The firmware alternates who opens, and
+   the local driver does the same. */
+async function playAgain(){
+  try {
+    await MP.reset(JSON.stringify({ b: EMPTY, l: -1 }));
+    board = EMPTY;
+    last = -1;
+    over = false;
+    render();
+  } catch(e){
+    statusEl.textContent = e.message;
+  }
+}
+
+function onInfo(j){
+  if (j.gone){ statusEl.textContent = 'Room expired.'; over = true; render(); MP.stop(); return; }
+  render();
+}
+</script>
+</body>
+</html>

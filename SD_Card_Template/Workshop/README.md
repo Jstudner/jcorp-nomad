@@ -1,6 +1,6 @@
 # Workshop
 
-3D models for the Nomad's Workshop page. Drop files in here and the Workshop tile
+3D models for Nomad's Workshop page. Drop files in here and the Workshop tile
 appears on the menu as soon as this folder has anything in it.
 
 Subfolders become collections, so `Workshop/Repairs/Hose Clip.stl` shows up under

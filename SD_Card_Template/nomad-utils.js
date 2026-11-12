@@ -612,15 +612,6 @@ const NomadProjector = {
   MAX: 50,   // slider travel, percent of the edge that is pulled in at full deflection
   CAPTION: 0.05,   // room captions: type size as a share of the picture's height
 
-  // every visible string of the projector panel
-  TEXT: {
-    button: 'Projector',
-    flipH:  'Flip horizontal',
-    flipV:  'Flip vertical',
-    keyV:   'Vertical keystone',
-    keyH:   'Horizontal keystone',
-    reset:  'Reset'
-  },
   // a trapezoid on a base line. geometric glyph in the style of Plyr's own icons
   ICON: '<svg role="presentation" focusable="false" viewBox="0 0 18 18" width="18" height="18"><path d="M4 3h10l2.5 9h-15L4 3zm1.2 1.5L3.6 10.5h10.8l-1.6-6H5.2zM3 14h12v1.6H3V14z" fill="currentColor"/></svg>',
 
@@ -694,12 +685,11 @@ const NomadProjector = {
     surface.appendChild(el.wrapper);
     if (el.captions) surface.appendChild(el.captions);
 
-    const T = this.TEXT;
     const id = 'nomad-proj-' + Math.random().toString(36).slice(2, 8);
     const btn = document.createElement('button');
     btn.type = 'button';
     btn.className = 'plyr__controls__item plyr__control nomad-proj-btn';
-    btn.setAttribute('aria-label', T.button);
+    btn.setAttribute('aria-label', 'Projector');
     btn.setAttribute('aria-expanded', 'false');
     btn.setAttribute('aria-controls', id);
     btn.innerHTML = this.ICON;
@@ -717,11 +707,12 @@ const NomadProjector = {
       '<label class="nomad-proj-slider"><span></span><input type="range" min="-' + this.MAX + '" max="' + this.MAX + '" step="1" data-k="kh"></label>' +
       '<button type="button" class="nomad-proj-reset"></button>';
     const q = sel => panel.querySelector(sel);
-    q('[data-k="fh"]').textContent = T.flipH;
-    q('[data-k="fv"]').textContent = T.flipV;
-    q('label:nth-of-type(1) span').textContent = T.keyV;
-    q('label:nth-of-type(2) span').textContent = T.keyH;
-    q('.nomad-proj-reset').textContent = T.reset;
+    // Mirror is for rear projection, upside down for a ceiling mount
+    q('[data-k="fh"]').textContent = 'Mirror';
+    q('[data-k="fv"]').textContent = 'Upside down';
+    q('label:nth-of-type(1) span').textContent = 'Keystone up/down';
+    q('label:nth-of-type(2) span').textContent = 'Keystone left/right';
+    q('.nomad-proj-reset').textContent = 'Reset';
 
     const controls = el.controls;
     if (controls) {
@@ -788,8 +779,41 @@ const NomadImages = {
   RETRIES: 4,
   _q: [], _active: 0, _io: null,
 
+  /* Grid covers ask for the device-made thumbnail (?thumb=1). The firmware serves the
+     original when there isn't one.
+
+     Only ask where the board can make thumbnails. ?thumb=1 is a different cache key from
+     the bare path the detail views use, so on a board without a thumbnailer (every Mk4)
+     opening a card would download the full image again. The answer is cached per session. */
+  _thumbOk: false,
+  _capsAsked: false,
+
+  _ensureCaps(){
+    if (this._capsAsked) return;
+    this._capsAsked = true;
+    try {
+      const cached = sessionStorage.getItem('nomad:thumbs');
+      if (cached !== null) { this._thumbOk = cached === '1'; return; }
+    } catch (e) { /* private mode: just ask */ }
+    fetch('/api/board', { cache: 'no-store' })
+      .then(r => r.ok ? r.json() : null)
+      .then(b => {
+        this._thumbOk = !!(b && b.thumbnailer);
+        try { sessionStorage.setItem('nomad:thumbs', this._thumbOk ? '1' : '0'); } catch (e) {}
+      })
+      .catch(() => { this._thumbOk = false; });
+  },
+
+  _thumbed(src){
+    if (!this._thumbOk) return src;
+    if (!src || /^(data:|blob:|https?:)/i.test(src)) return src;
+    if (/[?&]thumb=/.test(src)) return src;
+    return src + (src.indexOf('?') === -1 ? '?thumb=1' : '&thumb=1');
+  },
+
   observe(img, src){
     if (!img || !src) return;
+    this._ensureCaps();
     img.dataset.src = src;
     if (!this._io && window.IntersectionObserver) {
       this._io = new IntersectionObserver(entries => {
@@ -813,8 +837,9 @@ const NomadImages = {
   _pump(){
     while (this._active < this.LIMIT && this._q.length) {
       const img = this._q.shift();
-      const src = img.dataset.src;
-      if (!src || !img.isConnected) { delete img.dataset.queued; continue; }
+      const raw = img.dataset.src;
+      if (!raw || !img.isConnected) { delete img.dataset.queued; continue; }
+      const src = this._thumbed(raw);
       this._active++;
       const free = () => { this._active = Math.max(0, this._active - 1); this._pump(); };
       const onLoad = () => { img.removeEventListener('error', onError); free(); };

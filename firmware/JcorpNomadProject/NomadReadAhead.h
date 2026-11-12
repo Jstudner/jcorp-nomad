@@ -41,9 +41,9 @@ static bool nomadReadAheadEnsureBuffer() {
   return g_nomadRaDma != nullptr;
 }
 
-// What the media fill path is actually asked to do: how big the fills are, whether the
-// buffer it gets is in PSRAM, whether the file position is sector-aligned, and how long
-// the card read takes. Only the async_tcp task writes it, /bench/stats reads it.
+// What the media fill path is asked to do: fill sizes, whether the buffer is in PSRAM,
+// whether the file position is sector-aligned, and how long the card read takes. Only
+// the async_tcp task writes it, /bench/stats reads it.
 static const int NOMAD_FILL_HIST = 6;   // maxLen <=1K, <=2K, <=4K, <=8K, <=16K, more
 struct NomadFillStats {
   uint32_t fills, refills, retries, psramBuffer, unalignedPos;
@@ -82,6 +82,21 @@ static inline void nomadRaiseSndBuf(AsyncWebServerRequest *request, uint32_t byt
   if (!pcb) return;
   LOCK_TCPIP_CORE();
   if (pcb->snd_queuelen == 0 && pcb->snd_buf < bytes) pcb->snd_buf = (tcpwnd_size_t)bytes;
+  UNLOCK_TCPIP_CORE();
+}
+
+// The P4's prebuilt core is the other way round: 65,534 bytes per connection
+// (CONFIG_LWIP_TCP_SND_BUF_DEFAULT), all of it internal RAM, so a few stuck page readers
+// use up the DMA memory and reset the board. Bring every idle connection down to the S3's
+// budget so both boards start from the same place. The cut sticks, lwIP only adds back
+// what is acked.
+static const uint32_t NOMAD_CORE_SNDBUF = 5744;
+static inline void nomadCapSndBuf(AsyncWebServerRequest *request, uint32_t bytes) {
+  if (!bytes || !request || !request->client()) return;
+  tcp_pcb *pcb = request->client()->pcb();
+  if (!pcb) return;
+  LOCK_TCPIP_CORE();
+  if (pcb->snd_queuelen == 0 && pcb->snd_buf > bytes) pcb->snd_buf = (tcpwnd_size_t)bytes;
   UNLOCK_TCPIP_CORE();
 }
 

@@ -1,0 +1,335 @@
+<!DOCTYPE html>
+<!-- Version 1 -->
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<meta name="nomad-modes" content="pass,room"/>
+<title>Nomad • Yacht</title>
+<link rel="icon" href="/favicon.ico" type="image/x-icon">
+<link rel="stylesheet" href="/master.css">
+<script src="/theme-boot.js"></script>
+<script src="/theme-manager.js"></script>
+<script src="/assets/mp-client.js"></script>
+<script src="/assets/game-shell.js"></script>
+<style>
+  main{max-width:560px;margin:0 auto;padding:14px}
+  /* Fixed colours: dice are white with black pips wherever you buy them. */
+  #dice{display:flex;justify-content:center;gap:3%;margin:4px auto 10px;
+    max-width:min(94vw,420px);touch-action:manipulation;user-select:none}
+  .die{position:relative;flex:1 1 0;aspect-ratio:1;border:none;padding:0;
+    border-radius:16%;background:#fdfdfb;box-shadow:0 2px 4px rgba(0,0,0,.3);
+    cursor:pointer;transition:transform .1s ease}
+  .die:disabled{cursor:default}
+  .die.held{background:#fde68a;transform:translateY(6%) scale(.94)}
+  .die.held::before{content:'';position:absolute;inset:0;border-radius:16%;
+    box-shadow:inset 0 0 0 3px #d97706}
+  .pip{position:absolute;width:17%;height:17%;border-radius:50%;background:#1a1a1a;
+    transform:translate(-50%,-50%)}
+  #rollRow{display:flex;justify-content:center;align-items:center;gap:12px;margin-bottom:10px}
+  #holdHint{text-align:center;color:var(--muted);font-size:.85rem;min-height:1.2em;margin-bottom:8px}
+  table{border-collapse:collapse;width:100%;max-width:min(94vw,420px);margin:0 auto}
+  th,td{padding:5px 8px;border-bottom:1px solid var(--line);font-size:.92rem}
+  th{text-align:left;font-weight:500;color:var(--text)}
+  td{text-align:center;width:34%;font-variant-numeric:tabular-nums}
+  thead th{color:var(--muted);font-size:.8rem;text-transform:uppercase;letter-spacing:.04em}
+  tbody tr.total{font-weight:700}
+  tbody tr.total td,tbody tr.total th{border-top:2px solid var(--line);border-bottom:none}
+  .slot{display:block;width:100%;border:1px dashed var(--line);border-radius:6px;
+    background:transparent;color:var(--muted);padding:4px 0;cursor:default;font-size:.9rem}
+  .slot.open{border-style:solid;border-color:var(--primary);color:var(--primary);
+    cursor:pointer;font-weight:700}
+  .slot.open:hover{background:var(--primary);color:var(--color-white,#fff)}
+  .slot.taken{border:none;color:var(--text);font-weight:600}
+  .slot.zero{color:var(--muted)}
+</style>
+</head>
+<body>
+  <header>
+    <h1>Yacht</h1>
+    <a class="back-btn" href="/games">← Back to Games</a>
+  </header>
+
+  <main></main>
+
+<script>
+/* Yacht, the public-domain dice game. Twelve categories, five dice, three rolls
+   a turn, every category used once.
+
+   A turn is up to four actions: roll, re-roll, re-roll, then pick a category.
+   The firmware decides whose turn it is with seat == seq % 2, so as in Mancala
+   the whole turn is played locally and one state is sent when the category is
+   picked. The dice go along with it so the other phone can see them.
+
+   Only the player whose turn it is rolls, so rolls don't need syncing. */
+GameShell.init({
+  id: 'yacht',
+  name: 'Yacht',
+  modes: ['pass', 'room'],
+  seats_named: ['One', 'Two'],
+  hudHtml: '<div id="dice"></div>' +
+           '<div id="rollRow"><button class="btn" id="rollBtn" onclick="roll()">Roll</button></div>' +
+           '<div id="holdHint"></div>',
+  onStart: onStart,
+  onUpdate: onUpdate,
+  onInfo: onInfo,
+  onRematch: playAgain,
+  isOver: isOver,
+  pollInterval: 1000
+});
+
+const CATS = [
+  { key: 'ones',   name: 'Ones',            hint: 'every 1' },
+  { key: 'twos',   name: 'Twos',            hint: 'every 2' },
+  { key: 'threes', name: 'Threes',          hint: 'every 3' },
+  { key: 'fours',  name: 'Fours',           hint: 'every 4' },
+  { key: 'fives',  name: 'Fives',           hint: 'every 5' },
+  { key: 'sixes',  name: 'Sixes',           hint: 'every 6' },
+  { key: 'full',   name: 'Full House',      hint: 'three and a pair - all five' },
+  { key: 'four',   name: 'Four of a Kind',  hint: 'the four alike' },
+  { key: 'little', name: 'Little Straight', hint: '1-2-3-4-5 - 30' },
+  { key: 'big',    name: 'Big Straight',    hint: '2-3-4-5-6 - 30' },
+  { key: 'choice', name: 'Choice',          hint: 'all five, whatever they are' },
+  { key: 'yacht',  name: 'Yacht',           hint: 'five alike - 50' }
+];
+const NCAT = 12;
+const B64 = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_';
+const BLANK = '.'.repeat(NCAT * 2);
+
+let sheet = BLANK;      // seat 0's twelve, then seat 1's; '.' = not yet used
+let dice = [1,1,1,1,1];
+let held = [false,false,false,false,false];
+let rollsLeft = 3;
+let rolledThisTurn = false;
+let over = false;
+
+const mySeat = () => MP.room.seat;
+const cellOf = (seat, cat) => seat * NCAT + cat;
+const used = (seat, cat) => sheet[cellOf(seat, cat)] !== '.';
+const valueAt = (seat, cat) => B64.indexOf(sheet[cellOf(seat, cat)]);
+
+const statusEl = document.getElementById('status');
+
+/* Yacht's scoring differs from the branded game in two places: Four of a Kind
+   scores only the four matching dice, and a Full House is the sum of all five
+   instead of a flat 25. Five alike is a Yacht, not a Full House. */
+function scoreFor(cat, d){
+  const counts = [0,0,0,0,0,0,0];
+  for (const v of d) counts[v]++;
+  const sum = d.reduce((a, b) => a + b, 0);
+  const sorted = d.slice().sort((a, b) => a - b).join('');
+  switch (CATS[cat].key){
+    case 'ones': case 'twos': case 'threes':
+    case 'fours': case 'fives': case 'sixes': {
+      const face = cat + 1;
+      return face * counts[face];
+    }
+    case 'full': {
+      const shape = counts.filter(Boolean).sort().join('');
+      return shape === '23' ? sum : 0;       // exactly three and a pair
+    }
+    case 'four': {
+      for (let v = 1; v <= 6; v++) if (counts[v] >= 4) return v * 4;
+      return 0;
+    }
+    case 'little': return sorted === '12345' ? 30 : 0;
+    case 'big':    return sorted === '23456' ? 30 : 0;
+    case 'choice': return sum;
+    case 'yacht':  return counts.some(c => c === 5) ? 50 : 0;
+  }
+  return 0;
+}
+
+function totalFor(seat){
+  let t = 0;
+  for (let c = 0; c < NCAT; c++) if (used(seat, c)) t += valueAt(seat, c);
+  return t;
+}
+
+function isOver(){
+  for (let s = 0; s < 2; s++) for (let c = 0; c < NCAT; c++) if (!used(s, c)) return false;
+  return true;
+}
+
+function pipPositions(v){
+  const L = 26, M = 50, R = 74;
+  const map = {
+    1: [[M,M]],
+    2: [[L,L],[R,R]],
+    3: [[L,L],[M,M],[R,R]],
+    4: [[L,L],[R,L],[L,R],[R,R]],
+    5: [[L,L],[R,L],[M,M],[L,R],[R,R]],
+    6: [[L,L],[R,L],[L,M],[R,M],[L,R],[R,R]]
+  };
+  return map[v] || [];
+}
+
+function render(){
+  over = isOver();
+  const me = mySeat();
+  const mine = MP.myTurn() && MP.room.joined && !over;
+
+  // ---- dice ----
+  const diceEl = document.getElementById('dice');
+  diceEl.innerHTML = '';
+  for (let i = 0; i < 5; i++){
+    const b = document.createElement('button');
+    b.className = 'die' + (held[i] ? ' held' : '');
+    b.disabled = !(mine && rolledThisTurn && rollsLeft > 0);
+    b.setAttribute('aria-label', `Die showing ${dice[i]}${held[i] ? ', held' : ''}`);
+    b.setAttribute('aria-pressed', String(held[i]));
+    for (const [x, y] of pipPositions(dice[i])){
+      const p = document.createElement('span');
+      p.className = 'pip';
+      p.style.left = x + '%'; p.style.top = y + '%';
+      b.appendChild(p);
+    }
+    b.onclick = () => toggleHold(i);
+    diceEl.appendChild(b);
+  }
+
+  const rollBtn = document.getElementById('rollBtn');
+  rollBtn.disabled = !(mine && rollsLeft > 0);
+  rollBtn.textContent = !rolledThisTurn ? 'Roll' : `Roll again (${rollsLeft} left)`;
+  document.getElementById('holdHint').textContent =
+    (mine && rolledThisTurn && rollsLeft > 0) ? 'Tap a die to keep it' : '';
+
+  // ---- scorecard ----
+  let html = '<table><thead><tr><th>Category</th>' +
+    `<th${me === 0 ? ' style="color:var(--primary)"' : ''}>${GameShell.seatName(0)}</th>` +
+    `<th${me === 1 ? ' style="color:var(--primary)"' : ''}>${GameShell.seatName(1)}</th>` +
+    '</tr></thead><tbody>';
+  for (let c = 0; c < NCAT; c++){
+    html += `<tr><th title="${CATS[c].hint}">${CATS[c].name}</th>`;
+    for (let s = 0; s < 2; s++){
+      if (used(s, c)){
+        const v = valueAt(s, c);
+        html += `<td><span class="slot taken${v === 0 ? ' zero' : ''}">${v}</span></td>`;
+      } else if (mine && s === me && rolledThisTurn){
+        const v = scoreFor(c, dice);
+        html += `<td><button class="slot open" data-cat="${c}" ` +
+          `aria-label="Score ${v} in ${CATS[c].name}">${v}</button></td>`;
+      } else {
+        html += '<td><span class="slot">&nbsp;</span></td>';
+      }
+    }
+    html += '</tr>';
+  }
+  html += `<tr class="total"><th>Total</th><td>${totalFor(0)}</td><td>${totalFor(1)}</td></tr>`;
+  html += '</tbody></table>';
+  document.getElementById('board').innerHTML = html;
+  document.getElementById('board').querySelectorAll('.slot.open').forEach(el => {
+    el.addEventListener('click', () => choose(Number(el.dataset.cat)));
+  });
+
+  updateStatus();
+}
+
+function updateStatus(){
+  statusEl.classList.remove('hot');
+  over = isOver();
+  document.getElementById('againBtn').classList.toggle('hidden', !over || !MP.room.joined);
+  const me = mySeat();
+  if (over){
+    const a = totalFor(0), b = totalFor(1);
+    const w = a > b ? 0 : b > a ? 1 : -1;
+    statusEl.textContent = w < 0
+      ? `A tie, ${a} each!`
+      : `${GameShell.seatName(w)} wins, ${Math.max(a, b)} to ${Math.min(a, b)}` +
+        ((!GameShell.isLocal() && w === me) ? ' (you!)' : '');
+    statusEl.classList.add('hot');
+  } else if (!MP.room.joined){
+    statusEl.textContent = `Share the code and wait for a second player…`;
+  } else if (MP.myTurn()){
+    statusEl.textContent = !rolledThisTurn ? 'Your turn - roll the dice'
+      : rollsLeft > 0 ? 'Keep what you want, roll again, or write it down'
+      : 'Last roll - write it down';
+    statusEl.classList.add('hot');
+  } else {
+    statusEl.textContent = "Opponent's turn";
+  }
+}
+
+function toggleHold(i){
+  if (!MP.myTurn() || !rolledThisTurn || rollsLeft === 0 || over) return;
+  held[i] = !held[i];
+  render();
+}
+
+function roll(){
+  if (!MP.myTurn() || !MP.room.joined || over || rollsLeft === 0) return;
+  for (let i = 0; i < 5; i++){
+    if (rolledThisTurn && held[i]) continue;
+    dice[i] = 1 + Math.floor(Math.random() * 6);
+  }
+  rolledThisTurn = true;
+  rollsLeft--;
+  render();
+}
+
+/* Writing the score down ends the turn, and is the only time anything is sent. */
+async function choose(cat){
+  if (!MP.myTurn() || !rolledThisTurn || over) return;
+  const seat = mySeat();
+  if (used(seat, cat)) return;
+  const v = scoreFor(cat, dice);
+  const i = cellOf(seat, cat);
+  const next = sheet.slice(0, i) + B64[v] + sheet.slice(i + 1);
+  const prev = sheet;
+  sheet = next;
+  resetTurn();
+  render();
+  try {
+    await MP.move(JSON.stringify({ s: sheet, d: dice.join('') }));
+  } catch(e){
+    sheet = prev;
+    statusEl.textContent = e.message;
+    render();
+  }
+}
+
+function resetTurn(){
+  held = [false,false,false,false,false];
+  rollsLeft = 3;
+  rolledThisTurn = false;
+}
+
+function onStart(){
+  sheet = BLANK;
+  dice = [1,1,1,1,1];
+  resetTurn();
+  over = false;
+  render();
+}
+
+function onUpdate(stateStr){
+  try {
+    const s = JSON.parse(stateStr);
+    if (s && typeof s.s === 'string' && s.s.length === NCAT * 2){
+      sheet = s.s;
+      if (typeof s.d === 'string' && s.d.length === 5){
+        dice = s.d.split('').map(Number);
+      }
+      resetTurn();
+    }
+  } catch(e){}
+  render();
+}
+
+async function playAgain(){
+  try {
+    await MP.reset(JSON.stringify({ s: BLANK, d: '11111' }));
+    sheet = BLANK; dice = [1,1,1,1,1]; resetTurn(); over = false;
+    render();
+  } catch(e){
+    statusEl.textContent = e.message;
+  }
+}
+
+function onInfo(j){
+  if (j.gone){ statusEl.textContent = 'Room expired.'; over = true; render(); MP.stop(); return; }
+  render();
+}
+</script>
+</body>
+</html>
