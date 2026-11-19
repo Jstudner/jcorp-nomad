@@ -3,6 +3,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8"/>
+<script>/* nomad-load-guard: reload, twice at most, when one of Nomad's own scripts or stylesheets fails to load */(function(){var k='nomadLoadGuard:'+location.pathname;window.addEventListener('error',function(e){var t=e.target;if(!t||!t.tagName)return;var s=t.tagName==='SCRIPT',c=t.tagName==='LINK'&&/stylesheet/i.test(t.rel||'');if(!s&&!c)return;var u=t.src||t.href||'';if(u.indexOf(location.origin+'/')!==0)return;var n=0;try{n=+sessionStorage.getItem(k)||0;}catch(x){return;}if(n>=2)return;try{sessionStorage.setItem(k,String(n+1));}catch(x){return;}setTimeout(function(){location.reload();},1500*(n+1));},true);window.addEventListener('load',function(){setTimeout(function(){try{sessionStorage.removeItem(k);}catch(x){}},15000);});})();</script>
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,interactive-widget=resizes-content"/>
 <meta name="description" content="Jcorp Nomad Media Server – Offline Maps">
 <title>Nomad • Maps</title>
@@ -29,13 +30,13 @@
 <script src="/assets/maps/nomad-overzoom.js"></script>
 <script src="/assets/maps/nomad-coords.js"></script>
 <script src="/nomad-icons.js"></script>
-<script src="/nomad-utils.js?v=49"></script>
+<script src="/nomad-utils.js?v=51"></script>
 <style>
   /* The map is the page, everything else floats on it. */
   html,body{height:100%;margin:0;overflow:hidden}
   body{background:var(--bg)}
-  #wrap{position:fixed;inset:0}
-  #map{position:absolute;inset:0;background:var(--bg)}
+  #wrap{position:fixed;top:0;right:0;bottom:0;left:0;inset:0}
+  #map{position:absolute;top:0;right:0;bottom:0;left:0;inset:0;background:var(--bg)}
   .maplibregl-ctrl-group{background:var(--card)!important;box-shadow:var(--shadow-medium)!important}
   body.dark .maplibregl-ctrl-group button .maplibregl-ctrl-icon{filter:invert(1)}
   .maplibregl-ctrl-group button+button{border-top-color:var(--card-border)!important}
@@ -195,7 +196,7 @@
     background:var(--card);color:var(--text);border:1px solid var(--card-border);border-radius:var(--radius-large);
     padding:10px 16px;font-size:.88rem;max-width:min(88vw,480px);text-align:center;box-shadow:var(--shadow-large);opacity:0;pointer-events:none;transition:opacity .2s;box-sizing:border-box}
   .toast.show{opacity:1}
-  #empty{position:absolute;inset:0;display:none;flex-direction:column;align-items:center;justify-content:center;gap:10px;
+  #empty{position:absolute;top:0;right:0;bottom:0;left:0;inset:0;display:none;flex-direction:column;align-items:center;justify-content:center;gap:10px;
     padding:24px;text-align:center;color:var(--muted);background:var(--bg);z-index:40;line-height:1.45}
   #empty b{color:var(--text);font-size:1.05rem}
 
@@ -211,7 +212,7 @@
   .me.heading .dotc{display:none}
   body.navigating .maplibregl-ctrl-top-right{top:calc(var(--banner-h,110px) + 8px)}
 
-  .gps-modal{display:none;position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:var(--z-modal,1000);overflow-y:auto;
+  .gps-modal{display:none;position:fixed;top:0;right:0;bottom:0;left:0;inset:0;background:rgba(0,0,0,.55);z-index:var(--z-modal,1000);overflow-y:auto;
     padding:max(12px,env(safe-area-inset-top)) 12px max(12px,env(safe-area-inset-bottom))}
   .gps-modal.open{display:flex}
   .gps-modal .content{background:var(--card);color:var(--text);border:1px solid var(--line);border-radius:12px;
@@ -273,7 +274,6 @@
   <div class="gps-modal" id="gpsModal">
     <div class="content">
       <h2>Use this phone's location</h2>
-      <p class="lead">Browsers only share your location with pages they trust.</p>
       <div id="gpsChrome" hidden>
         <h3>Chrome on Android</h3>
         <p class="lead">Once per phone:</p>
@@ -287,9 +287,9 @@
       </div>
       <div id="gpsIphone" hidden>
         <h3>iPhone or iPad</h3>
-        <p class="lead">Location isn't available here on iPhone or iPad.</p>
+        <p class="lead">Location isn't available here.</p>
       </div>
-      <p class="note">No location? Directions still work: search for the start, or tap the map to choose it.</p>
+      <p class="note">Directions work without it: search for the start or tap the map.</p>
       <button class="btn wide" onclick="document.getElementById('gpsModal').classList.remove('open')">Close</button>
     </div>
   </div>

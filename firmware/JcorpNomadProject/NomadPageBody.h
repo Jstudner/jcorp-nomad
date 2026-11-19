@@ -19,7 +19,7 @@
 #include <esp_heap_caps.h>
 #include <memory>
 #include <new>
-#include <ESPAsyncWebServer.h>
+#include "src/AsyncWebServer/ESPAsyncWebServer.h"   // carried here, with Nomad's limits (src/AsyncWebServer/README.md)
 #include "NomadSD.h"
 
 static const size_t NOMAD_PAGE_BLOCK = 4096;
@@ -58,13 +58,18 @@ static bool nomadPageRefill(NomadPageBody &b, uint64_t pos) {
   size_t k = NOMAD_PAGE_BLOCK;
   if (aligned + k > b.size) k = (size_t)(b.size - aligned);
   if (sdMutex && xSemaphoreTake(sdMutex, pdMS_TO_TICKS(NOMAD_PAGE_LOCK_MS)) != pdTRUE) return false;
-  // whole sectors (the file's last part sector rounded up), so SdFat reads straight into it
-  uint8_t *dma = (uint8_t *)heap_caps_aligned_alloc(64, (k + 511) & ~(size_t)511, MALLOC_CAP_DMA | MALLOC_CAP_INTERNAL);
+  // whole sectors (the file's last part sector rounded up), so SdFat reads straight into it.
+  // Borrows the films' read-ahead buffer when there is one (only used under sdMutex, held
+  // here): a fresh 4 KB DMA block per refill often fails while the WiFi driver holds frames.
+  const bool shared = g_nomadAlignedReads && k <= NOMAD_RA_MAX &&
+                      (g_nomadRaDma || (!g_nomadRaTried && nomadReadAheadEnsureBuffer()));
+  uint8_t *dma = shared ? g_nomadRaDma
+                        : (uint8_t *)heap_caps_aligned_alloc(64, (k + 511) & ~(size_t)511, MALLOC_CAP_DMA | MALLOC_CAP_INTERNAL);
   size_t got = 0;
   if (dma) {
     got = b.f.readAt(aligned, dma, k);
     if (got == k) memcpy(b.blk, dma, k);
-    heap_caps_free(dma);
+    if (!shared) heap_caps_free(dma);
   }
   if (sdMutex) xSemaphoreGive(sdMutex);
   if (got != k) return false;
@@ -129,7 +134,9 @@ public:
       }
       b.stuck = false;
       size_t take = (size_t)(b.blkStart + b.blkLen - pos);
-      const size_t room = c->space();
+      size_t room = c->space();
+      // the same DMA memory rule as every library reply (nomad_send_gate). 0 = wait for an ack.
+      if (nomad_send_gate && room) room = nomad_send_gate(c, room);
       if (take > room) take = room;
       if (!take) break;
       const size_t w = c->add((const char *)b.blk + (pos - b.blkStart), take);

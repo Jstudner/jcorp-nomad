@@ -3,6 +3,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
+<script>/* nomad-load-guard: reload, twice at most, when one of Nomad's own scripts or stylesheets fails to load */(function(){var k='nomadLoadGuard:'+location.pathname;window.addEventListener('error',function(e){var t=e.target;if(!t||!t.tagName)return;var s=t.tagName==='SCRIPT',c=t.tagName==='LINK'&&/stylesheet/i.test(t.rel||'');if(!s&&!c)return;var u=t.src||t.href||'';if(u.indexOf(location.origin+'/')!==0)return;var n=0;try{n=+sessionStorage.getItem(k)||0;}catch(x){return;}if(n>=2)return;try{sessionStorage.setItem(k,String(n+1));}catch(x){return;}setTimeout(function(){location.reload();},1500*(n+1));},true);window.addEventListener('load',function(){setTimeout(function(){try{sessionStorage.removeItem(k);}catch(x){}},15000);});})();</script>
   <meta name="viewport" content="width=device-width,initial-scale=1.0">
   <meta name="description" content="Jcorp Nomad Media Server - Cookbook">
   <title>Nomad • Cookbook</title>
@@ -11,7 +12,7 @@
   <script src="/theme-boot.js?v=5"></script>
 <script src="/nomad-icons.js?v=1"></script>
   <script src="/theme-manager.js?v=5"></script>
-  <script src="/nomad-utils.js?v=49"></script>
+  <script src="/nomad-utils.js?v=51"></script>
   <style>
     body { display: flex; flex-direction: column; min-height: 100vh; }
 
@@ -54,12 +55,12 @@
       border-radius: var(--radius); overflow: hidden; box-shadow: var(--shadow);
     }
     .fallback-text {
-      position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+      position: absolute; top:0;right:0;bottom:0;left:0;inset:0; display: flex; align-items: center; justify-content: center;
       z-index: 2; text-align: center; font-weight: 700; color: var(--thumb-title, var(--text));
       pointer-events: none; padding: 8px; font-size: .95rem; line-height: 1.25;
     }
     .media-thumb {
-      width: 100%; height: 100%; object-fit: cover; position: absolute; inset: 0;
+      width: 100%; height: 100%; object-fit: cover; position: absolute; top:0;right:0;bottom:0;left:0;inset:0;
       z-index: 1; opacity: 0; transition: opacity .35s ease;
     }
     .meta { padding: 6px 4px 0; text-align: center; }
@@ -139,7 +140,7 @@
 
     .empty { text-align: center; color: var(--muted); padding: 2.5rem 1rem; line-height: 1.7; }
     .empty code { background: var(--card); padding: .12rem .4rem; border-radius: 4px; }
-    /* an incomplete listing has to say so, or a missing recipe reads as a lost file */
+    /* an incomplete listing gets a notice, or a missing recipe reads as a lost file */
     .notice {
       margin: 0 0 .8rem; padding: .55rem .8rem; border-radius: var(--radius);
       font-size: .85rem; line-height: 1.5;
@@ -252,7 +253,7 @@
 
   <div class="toolbar">
     <input id="searchInput" type="search" placeholder="Search" aria-label="Search recipes">
-    <select id="catSelect" aria-label="Filter by category"><option value="">All Categories</option></select>
+    <select id="catSelect" aria-label="Filter by category"><option value="">All categories</option></select>
     <select id="sortSelect" aria-label="Sort recipes">
       <option value="nameAsc">A → Z</option>
       <option value="nameDesc">Z → A</option>
@@ -352,12 +353,12 @@
       </div>
 
       <div class="field">
-        <label for="fIng">Ingredients <span class="sub">one per line, amount first so it can rescale</span></label>
+        <label for="fIng">Ingredients <span class="sub">one per line, amount first</span></label>
         <textarea id="fIng" rows="9" placeholder="1 cup cornmeal&#10;1 1/2 tsp salt&#10;2 eggs&#10;salt to taste"></textarea>
       </div>
 
       <div class="field">
-        <label for="fSteps">Steps <span class="sub">one per line, times become timers</span></label>
+        <label for="fSteps">Steps <span class="sub">one per line</span></label>
         <textarea id="fSteps" rows="9" placeholder="Heat the oven to 425°F.&#10;Bake 20-25 minutes until the top springs back."></textarea>
       </div>
 
@@ -367,7 +368,7 @@
       </div>
 
       <div class="editor-actions">
-        <button id="saveBtn" class="primary">Save to card</button>
+        <button id="saveBtn" class="primary">Save</button>
         <button id="editorCancel">Cancel</button>
         <button id="deleteBtn" class="danger" style="display:none;">Delete recipe</button>
       </div>
@@ -445,7 +446,7 @@ let filtered    = [];
 let current     = null;  // recipe being viewed
 let scale       = 1;
 let debounce    = null;
-let currentSize = localStorage.getItem('nomadCookbookSize') || 'medium';
+let currentSize = NomadPrefs.raw('nomadCookbookSize') || 'medium';
 
 /* Quantity parsing: an ingredient line's leading amount is pulled out and multiplied.
    Everything after the number stays as the author wrote it. */
@@ -719,8 +720,8 @@ async function loadLibrary() {
   libraryWarning = '';
 
   const top  = await NomadList.dir(COOKBOOK_DIR);
-  if (top.truncated) libraryWarning = 'This folder holds more files than Nomad can list in one go. ' +
-    'Run Admin → Library Index so the rest show up, or move some recipes into subfolders.';
+  if (top.truncated) libraryWarning = 'Not every recipe is listed. ' +
+    'Run Admin → Library index, or move some recipes into subfolders.';
 
   const dirs = top.entries.filter(e => e.isDir && !e.name.startsWith('.'));
   const all  = [{ dir: COOKBOOK_DIR, category: '', entries: top.entries.filter(e => !e.isDir) }];
@@ -732,8 +733,8 @@ async function loadLibrary() {
   for (const d of dirs.slice(0, MAX_CATEGORY_DIRS)) {
     const sub = await NomadList.dir(d.path);
     if (sub.truncated && !libraryWarning) {
-      libraryWarning = '"' + d.name + '" holds more files than Nomad can list in one go. ' +
-        'Run Admin → Library Index so the rest show up.';
+      libraryWarning = 'Not every recipe in "' + d.name + '" is listed. ' +
+        'Run Admin → Library index.';
     }
     all.push({ dir: d.path, category: d.name, entries: sub.entries.filter(e => !e.isDir) });
   }
@@ -775,7 +776,7 @@ async function loadLibrary() {
 async function loadAllMeta() {
   const queue = recipes.slice(0, META_LIMIT);
   // past the cap a recipe still opens and reads fine, it just has no time/servings
-  // on its card and its ingredients are not in the search box. Say so rather than
+  // on its card and its ingredients are not in the search box. Show that rather than
   // letting the search quietly cover only part of the shelf.
   if (recipes.length > META_LIMIT && !libraryWarning) {
     libraryWarning = 'Search covers the ingredients of the first ' + META_LIMIT + ' of ' +
@@ -813,7 +814,7 @@ async function loadAllMeta() {
 function buildCategories() {
   const cats = [...new Set(recipes.map(r => r.category).filter(Boolean))].sort((a, b) => a.localeCompare(b));
   const keep = catSelect.value;
-  catSelect.innerHTML = '<option value="">All Categories</option>' +
+  catSelect.innerHTML = '<option value="">All categories</option>' +
     cats.map(c => `<option value="${escapeHtml(c)}">${escapeHtml(c)}</option>`).join('');
   if (cats.includes(keep)) catSelect.value = keep;
 }
@@ -823,7 +824,7 @@ function setViewSize(size) {
   currentSize = size;
   grid.className = `media-grid ${size}`;
   viewButtons.forEach(b => b.classList.toggle('active', b.dataset.size === size));
-  localStorage.setItem('nomadCookbookSize', size);
+  NomadPrefs.setRaw('nomadCookbookSize', size);
 }
 setViewSize(currentSize);
 viewButtons.forEach(b => b.addEventListener('click', () => setViewSize(b.dataset.size)));
@@ -865,15 +866,15 @@ function renderGrid() {
 
   if (!recipes.length) {
     grid.innerHTML = '<div class="empty" style="grid-column:1/-1;">' +
-      '<strong>No recipes on this card yet.</strong><br>' +
-      (writesAllowed ? 'Tap <strong>New recipe</strong> to write one here, or drop ' : 'Drop ') +
-      '<code>.md</code>, <code>.cook</code> or <code>.json</code> recipe files into <code>/Cookbook</code>' +
+      '<strong>No recipes</strong><br>' +
+      (writesAllowed ? 'Tap <strong>New recipe</strong>, or add ' : 'Add ') +
+      '<code>.md</code>, <code>.cook</code> or <code>.json</code> recipe files to <code>/Cookbook</code>' +
       '.' +
       '</div>';
     return;
   }
   if (!filtered.length) {
-    grid.innerHTML = '<p class="empty" style="grid-column:1/-1;">No recipes match that.</p>';
+    grid.innerHTML = '<p class="empty" style="grid-column:1/-1;">No matches</p>';
     return;
   }
 
@@ -980,7 +981,7 @@ function renderIngredients() {
   ul.innerHTML = '';
   const list = current.meta.ingredients;
   if (!list.length) {
-    ul.innerHTML = '<li style="cursor:default;color:var(--muted);"><span class="txt">No ingredients listed.</span></li>';
+    ul.innerHTML = '<li style="cursor:default;color:var(--muted);"><span class="txt">No ingredients</span></li>';
     return;
   }
   const saved = Checks.get(current);
@@ -999,7 +1000,7 @@ function renderSteps() {
   ol.innerHTML = '';
   const list = current.meta.steps;
   if (!list.length) {
-    ol.innerHTML = '<li style="cursor:default;color:var(--muted);"><span class="txt">No steps listed.</span></li>';
+    ol.innerHTML = '<li style="cursor:default;color:var(--muted);"><span class="txt">No steps</span></li>';
     return;
   }
   const saved = Checks.get(current);
@@ -1034,7 +1035,7 @@ function renderSteps() {
 const Checks = {
   KEY: 'nomad_cookbook_checks',
   KEEP_MS: 24 * 3600e3,
-  all() { try { return JSON.parse(localStorage.getItem(this.KEY) || '{}') || {}; } catch (e) { return {}; } },
+  all() { try { return JSON.parse(NomadPrefs.raw(this.KEY) || '{}') || {}; } catch (e) { return {}; } },
   get(r) {
     const e = this.all()[r.path];
     if (!e || Date.now() - e.t > this.KEEP_MS) return null;
@@ -1049,7 +1050,7 @@ const Checks = {
     if (i.length || s.length) all[current.path] = { t: now, n: [current.meta.ingredients.length, current.meta.steps.length], i, s };
     else delete all[current.path];
     for (const k of Object.keys(all)) if (!all[k] || now - all[k].t > this.KEEP_MS) delete all[k];
-    try { localStorage.setItem(this.KEY, JSON.stringify(all)); } catch (e) {}
+    try { NomadPrefs.setRaw(this.KEY, JSON.stringify(all)); } catch (e) {}
   }
 };
 
@@ -1120,7 +1121,7 @@ const NomadTimers = (() => {
 
   function load() {
     try {
-      const raw = JSON.parse(localStorage.getItem(KEY) || '[]');
+      const raw = JSON.parse(NomadPrefs.raw(KEY) || '[]');
       const now = Date.now();
       list = (Array.isArray(raw) ? raw : [])
         // forget anything that finished more than two hours ago
@@ -1130,7 +1131,7 @@ const NomadTimers = (() => {
   }
 
   function save() {
-    try { localStorage.setItem(KEY, JSON.stringify(list.map(({ id, label, endsAt, total }) => ({ id, label, endsAt, total })))); }
+    try { NomadPrefs.setRaw(KEY, JSON.stringify(list.map(({ id, label, endsAt, total }) => ({ id, label, endsAt, total })))); }
     catch (e) {}
   }
 
@@ -1281,7 +1282,7 @@ const NomadTimers = (() => {
 /* Cook mode uses the shared wake lock helper from nomad-utils.js, the same one the
    video player uses, so a recipe left open on the counter doesnt blank out. */
 // plain http has no wake lock, so only promise it where the browser has one
-if ('wakeLock' in navigator) document.getElementById('cookBtn').title = 'Bigger type and keeps the screen awake';
+if ('wakeLock' in navigator) document.getElementById('cookBtn').title = 'Bigger type, screen stays on';
 function setCookMode(on) {
   document.body.classList.toggle('cooking', on);
   document.getElementById('cookBtn').classList.toggle('on', on);
@@ -1404,12 +1405,12 @@ async function saveRecipe() {
   // only guard new files: saving over the one being edited is the point
   if (!editingPath && recipes.some(r => r.path.toLowerCase() === path.toLowerCase())) {
     msg.className = 'err';
-    msg.textContent = 'A recipe file with that name is already on the card. Change the title, or open that one and edit it.';
+    msg.textContent = 'A recipe with that name is already on the card. Change the title, or edit that one.';
     return;
   }
 
   F('saveBtn').disabled = true;
-  msg.className = ''; msg.textContent = 'Writing to the card…';
+  msg.className = ''; msg.textContent = 'Saving…';
   try {
     const res = await fetch('/save', {
       method: 'POST',
@@ -1418,7 +1419,7 @@ async function saveRecipe() {
     });
     if (!res.ok) throw new Error('the device answered ' + res.status + ' ' + (await res.text()).slice(0, 90));
 
-    msg.className = 'ok'; msg.textContent = 'Saved.';
+    msg.className = 'ok'; msg.textContent = 'Saved';
     editingPath = path;
     // the firmware queues the write, so the file is not on the card the instant
     // /save answers. Re-list until it turns up rather than guessing at one delay.
@@ -1432,10 +1433,10 @@ async function saveRecipe() {
     // it before closeEditor() decides which view to restore
     current = null;
     if (!saved) {
-      // written, but not showing up yet. say so, or a good save looks like it did nothing
+      // written, but not showing up yet. show a notice, or a good save looks like it did nothing
       msg.className = 'ok';
-      msg.textContent = 'Saved to ' + path + '. It has not appeared in the library yet; ' +
-        'reload the page in a moment, or run Admin → Library Index if it stays missing.';
+      msg.textContent = 'Saved to ' + path + '. Not in the library yet: ' +
+        'reload in a moment, or run Admin → Library index if it stays missing.';
       return;
     }
     closeEditor();

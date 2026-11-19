@@ -3,6 +3,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
+<script>/* nomad-load-guard: reload, twice at most, when one of Nomad's own scripts or stylesheets fails to load */(function(){var k='nomadLoadGuard:'+location.pathname;window.addEventListener('error',function(e){var t=e.target;if(!t||!t.tagName)return;var s=t.tagName==='SCRIPT',c=t.tagName==='LINK'&&/stylesheet/i.test(t.rel||'');if(!s&&!c)return;var u=t.src||t.href||'';if(u.indexOf(location.origin+'/')!==0)return;var n=0;try{n=+sessionStorage.getItem(k)||0;}catch(x){return;}if(n>=2)return;try{sessionStorage.setItem(k,String(n+1));}catch(x){return;}setTimeout(function(){location.reload();},1500*(n+1));},true);window.addEventListener('load',function(){setTimeout(function(){try{sessionStorage.removeItem(k);}catch(x){}},15000);});})();</script>
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta name="description" content="Jcorp Nomad Theme Customization">
   <title>Nomad • Theme</title>
@@ -57,7 +58,7 @@
 
     .page-bg {
       position: fixed;
-      inset: 0;
+      top:0;right:0;bottom:0;left:0;inset:0;
       background: linear-gradient(135deg, var(--bg) 0%, var(--card) 100%);
       z-index: -1;
       pointer-events: none;
@@ -453,7 +454,6 @@
       <div class="color-grid">
         <div class="color-input-group">
           <label class="color-label">Primary colour</label>
-          <div class="color-help">Headers, buttons, active states</div>
           <div class="color-input-wrapper">
             <input type="color" id="color-primary" class="color-input" value="#007bff">
             <input type="text" id="text-primary" class="color-text-input" value="#007bff">
@@ -461,7 +461,6 @@
         </div>
         <div class="color-input-group">
           <label class="color-label">Primary hover</label>
-          <div class="color-help">Button hover states</div>
           <div class="color-input-wrapper">
             <input type="color" id="color-primary-dark" class="color-input" value="#0056b3">
             <input type="text" id="text-primary-dark" class="color-text-input" value="#0056b3">
@@ -490,7 +489,6 @@
         </div>
         <div class="color-input-group">
           <label class="color-label">Light muted text</label>
-          <div class="color-help">Secondary text in light mode</div>
           <div class="color-input-wrapper">
             <input type="color" id="color-muted-light" class="color-input" value="#6b7280">
             <input type="text" id="text-muted-light" class="color-text-input" value="#6b7280">
@@ -519,7 +517,6 @@
         </div>
         <div class="color-input-group">
           <label class="color-label">Dark muted text</label>
-          <div class="color-help">Secondary text in dark mode</div>
           <div class="color-input-wrapper">
             <input type="color" id="color-muted-dark" class="color-input" value="#93a9c6">
             <input type="text" id="text-muted-dark" class="color-text-input" value="#93a9c6">
@@ -701,7 +698,7 @@
     }
     function showMode() {
       document.querySelectorAll('#mode-seg button').forEach(b => b.classList.toggle('on', b.dataset.mode === cardMode));
-      // a browser with its own pick doesn't see the default change; say so, with a way back
+      // a browser with its own pick doesn't see the default change; show a note, with a way back
       const own = ThemeManager.hasOwnDarkMode();
       const ownDark = own && localStorage.getItem(ThemeManager.STORAGE_KEY) === 'true';
       const differs = own && (cardMode === 'auto' || ownDark !== (cardMode === 'dark'));

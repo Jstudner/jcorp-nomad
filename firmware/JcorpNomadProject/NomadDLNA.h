@@ -9,7 +9,7 @@
 #ifndef NOMAD_DLNA_H
 #define NOMAD_DLNA_H
 
-#include <ESPAsyncWebServer.h>
+#include "src/AsyncWebServer/ESPAsyncWebServer.h"   // carried here, with Nomad's limits (src/AsyncWebServer/README.md)
 
 // register /dlna/* HTTP routes; call before server.begin()
 void dlnaRegisterRoutes(AsyncWebServer &server);

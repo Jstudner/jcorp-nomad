@@ -1311,7 +1311,7 @@
               {
                 "nid": 1020,
                 "strtype": "IMAGE/Asset",
-                "strval": "assets/icons8-micro-sd-48 (1).png",
+                "strval": "assets/nomad-card-48.png",
                 "InheritedType": 5
               },
               {
@@ -1463,7 +1463,7 @@
               {
                 "nid": 1020,
                 "strtype": "IMAGE/Asset",
-                "strval": "assets/icons8-wifi-48 (1).png",
+                "strval": "assets/nomad-wifi-48.png",
                 "InheritedType": 5
               },
               {

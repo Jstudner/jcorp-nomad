@@ -17,7 +17,7 @@
 #pragma once
 #include <Arduino.h>
 #include <ArduinoJson.h>
-#include <ESPAsyncWebServer.h>
+#include "src/AsyncWebServer/ESPAsyncWebServer.h"   // carried here, with Nomad's limits (src/AsyncWebServer/README.md)
 #include <esp_random.h>
 #include <mbedtls/md.h>
 #include <mbedtls/pkcs5.h>
@@ -66,6 +66,9 @@ static void authSha(const uint8_t *in, size_t n, uint8_t out[32]) { mbedtls_sha2
 static void authRandom(uint8_t *out, size_t n) { esp_fill_random(out, n); }
 
 struct AuthRecord { uint32_t iter; uint8_t salt[16]; uint8_t key[32]; };
+// The most rounds a new password may be stored with (the page uses 10,000). A typed password
+// is checked on the network task at the stored count, and a big count stalls every phone.
+static const uint32_t AUTH_MAX_NEW_ITER = 20000;
 static bool authParse(const String &stored, AuthRecord &r) {
   if (!stored.startsWith("v2$")) return false;
   const int a = stored.indexOf('$', 3), b = a > 0 ? stored.indexOf('$', a + 1) : -1;
@@ -181,6 +184,9 @@ bool checkAdminAuth(AsyncWebServerRequest *request) {
 static bool authPlainMatches(const String &pw) {
   AuthRecord r;
   if (authParse(settings.adminPassword, r)) {
+    // runs on the network task: a record with more rounds than the page sets signs in by
+    // challenge only
+    if (r.iter > AUTH_MAX_NEW_ITER) return false;
     uint8_t k[32];
     authDerive(pw, r.salt, r.iter, k);
     return authSame(k, r.key, 32);
@@ -246,7 +252,13 @@ void nomadAuthRegister(AsyncWebServer &server) {
     }
     if (!hasBody) { authSend(request, 400, "{\"error\":\"Missing body\"}"); return; }
     // checked before the guess is even read, so a locked-out device does no work
-    const uint32_t waitMs = nomadLoginWaitMs();
+    const uint32_t who = request->client() ? (uint32_t)request->client()->remoteIP() : 0;
+#if NOMAD_BENCH
+    const uint32_t whoKey = request->hasParam("benchip") ? (uint32_t)request->getParam("benchip")->value().toInt() : who;   // a made-up address, to try the cap across addresses
+#else
+    const uint32_t whoKey = who;
+#endif
+    const uint32_t waitMs = nomadLoginWaitMs(whoKey);
     if (waitMs) {
       AsyncWebServerResponse *r = request->beginResponse(429, "application/json",
           "{\"error\":\"Too many wrong passwords\",\"wait\":" + String((waitMs + 999) / 1000) + "}");
@@ -278,7 +290,7 @@ void nomadAuthRegister(AsyncWebServer &server) {
       ok = plain.length() && authPlainMatches(plain);
       upgrade = ok && !v2;
     }
-    nomadLoginResult(ok);
+    nomadLoginResult(whoKey, ok);
     if (!ok) { authSend(request, 401, "{\"error\":\"Invalid password\"}"); return; }
     if (upgrade) {
       authSetPlain(plain);          // stored the new way from now on (ends other sessions)
@@ -332,7 +344,7 @@ void nomadAuthRegister(AsyncWebServer &server) {
     uint8_t salt[16], key[32];
     const uint32_t iter = d["iter"] | 0u;
     if (authUnhex(String((const char *)(d["salt"] | "")), salt, 16) && authUnhex(String((const char *)(d["key"] | "")), key, 32) &&
-        iter >= 1000 && iter <= 200000) {
+        iter >= 1000 && iter <= AUTH_MAX_NEW_ITER) {
       authStoreRecord(authRecordString(iter, salt, key));
     } else {
       const String pw = String((const char *)(d["password"] | ""));

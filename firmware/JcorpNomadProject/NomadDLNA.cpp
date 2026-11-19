@@ -436,81 +436,142 @@ static bool browseDir(const String &dirPath, const BucketDef *b, const String &c
     return true;
   }
 
-  // Buffered line reader.
+  // A folder's entries, out of an index that lists its whole subtree (bucket and nested
+  // indexes are recursive): only the entries whose parent is this folder.
   //
-  // Every browse re-reads the whole index on the async server task, the same one the
-  // media fills run on, so the scan stalls playback. readStringUntil() is a byte at a
-  // time and way too slow for that, 512-byte blocks are much faster. Don't hand sdMutex
-  // back mid-scan: the reader and the fills are the same task, so yielding only adds
-  // stall. Keep the scan short.
-  bool headerSkipped = false;
-  uint32_t match = 0;
-  uint8_t rbuf[512];
-  size_t rlen = 0, rpos = 0;
-  String line;
-  line.reserve(256);
-  auto nextLine = [&](String &out) -> bool {
-    out = "";
-    for (;;) {
-      if (rpos >= rlen) {
-        int n = f.read(rbuf, sizeof(rbuf));
-        if (n <= 0) return out.length() > 0;   // trailing line with no newline
-        rlen = (size_t)n;
-        rpos = 0;
+  // A TV pages a folder 30 at a time, and a full index scan on the network task is slow
+  // (Music: about 2 s). The first page scans in 4 KB blocks and keeps where each of this
+  // folder's entries starts; the pages after it seek straight to theirs. Kept for the last
+  // few folders, and only while the index is the same one (its header line and size).
+  struct BrowseCache { String dir, file; uint32_t key; uint32_t *offs; uint32_t n, cap, used; };
+  static BrowseCache s_cache[6];
+  static uint32_t s_cacheTick = 0;
+
+  // The path as the index writes it (quote, backslash, newline and return escaped): most
+  // lines are turned away by their "p" before any JSON is parsed, the slow part of a scan.
+  String escDir;
+  for (size_t q = 0; q < dirPath.length(); q++) {
+    const char c = dirPath[q];
+    if (c == '"' || c == '\\') { escDir += '\\'; escDir += c; }
+    else if (c == '\n') escDir += "\\n";
+    else if (c == '\r') escDir += "\\r";
+    else escDir += c;
+  }
+  escDir += '/';
+  auto emit = [&](const char *line, uint32_t at) -> bool {
+    // true when the line is one of this folder's entries (and, when at is in range, emitted)
+    const char *pp = strstr(line, "\"p\":\"");
+    if (pp) {
+      pp += 5;
+      if (strncmp(pp, escDir.c_str(), escDir.length()) != 0) return false;
+      for (const char *q = pp + escDir.length(); *q && *q != '"'; q++) {
+        if (*q == '\\') { if (!*++q) break; continue; }
+        if (*q == '/') return false;               // a level further down
       }
-      size_t seg = rpos;
-      while (rpos < rlen && rbuf[rpos] != '\n') rpos++;
-      if (rpos > seg) {
-        char tmp[sizeof(rbuf) + 1];
-        size_t len = rpos - seg;
-        memcpy(tmp, rbuf + seg, len);
-        tmp[len] = '\0';
-        out += tmp;
-      }
-      if (rpos < rlen) { rpos++; return true; }  // consumed the newline
     }
-  };
-
-  while (nextLine(line)) {
-    line.trim();
-    if (!line.length()) continue;
-    if (!headerSkipped) { headerSkipped = true; continue; }
-
-    // 1KB: a long nested path overflows 512B and the item silently vanishes
-    // from the TV's listing (and its paging count)
     StaticJsonDocument<1024> doc;
-    if (deserializeJson(doc, line)) continue;
+    if (deserializeJson(doc, line)) return false;
     const char *t = doc["t"] | "";
     const char *n = doc["n"] | "";
     const char *p = doc["p"] | "";
-    if (!n[0]) continue;
+    if (!n[0]) return false;
     String full = p[0] ? String(p) : dirPath + "/" + n;
-    // Only set when falling back to the bucket index: keep this folder's subtree.
-    if (prefixFilter.length() && !full.startsWith(prefixFilter)) continue;
-
+    if (full.substring(0, full.lastIndexOf('/')) != dirPath) return false;   // deeper down: not this folder's
     if (t[0] == 'd') {
-      if (match >= start && returned < want) {
-        didl += didlContainer("c:" + full, containerId, String(n));
-        returned++;
-      }
-      match++;
-    } else if (t[0] == 'f') {
-      String lower = String(n);
-      lower.toLowerCase();
-      String mime = mimeForName(lower);
-      if (mime.length() == 0 || !typeAllowed(mime, b)) continue;
-      if (match >= start && returned < want) {
-        uint64_t sz = doc["sz"] | (uint64_t)0;
-        didl += didlItem(full, String(n), containerId, mime, sz);
-        returned++;
-      }
-      match++;
+      if (at != UINT32_MAX && returned < want) { didl += didlContainer("c:" + full, containerId, String(n)); returned++; }
+      return true;
     }
-    yield();
+    if (t[0] != 'f') return false;
+    String lower = String(n);
+    lower.toLowerCase();
+    const String mime = mimeForName(lower);
+    if (mime.length() == 0 || !typeAllowed(mime, b)) return false;
+    if (at != UINT32_MAX && returned < want) {
+      uint64_t sz = doc["sz"] | (uint64_t)0;
+      didl += didlItem(full, String(n), containerId, mime, sz);
+      returned++;
+    }
+    return true;
+  };
+
+  const uint32_t fsize = (uint32_t)f.size();
+  char *line = (char *)heap_caps_malloc(1100, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+  uint8_t *blk = (uint8_t *)heap_caps_malloc(4096, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+  if (!line || !blk) { free(line); free(blk); f.close(); if (sdMutex) xSemaphoreGive(sdMutex); return false; }
+
+  // the header line names the build (its signature and count): with the size, the key
+  size_t hl = 0;
+  {
+    const int k = f.read(blk, 1024);
+    while (hl < (size_t)(k > 0 ? k : 0) && blk[hl] != '\n') hl++;
   }
+  uint32_t key = 2166136261u ^ fsize;
+  for (size_t q = 0; q < hl; q++) { key ^= blk[q]; key *= 16777619u; }
+  key ^= (uint32_t)prefixFilter.length();
+
+  BrowseCache *hit = nullptr;
+  for (auto &c : s_cache) if (c.offs && c.key == key && c.dir == dirPath && c.file == indexFile) { hit = &c; break; }
+
+  if (hit) {
+    hit->used = ++s_cacheTick;
+    const uint32_t end = (start + want < hit->n) ? start + want : hit->n;
+    for (uint32_t k = start; k < end; k++) {
+      if (!f.seek(hit->offs[k])) break;
+      const int got = f.read((uint8_t *)line, 1024);
+      if (got <= 0) break;
+      int len = 0;
+      while (len < got && line[len] != '\n') len++;
+      line[len] = 0;
+      emit(line, k);
+    }
+    total = hit->n;
+  } else {
+    // a fresh scan: every entry of this folder, its offset kept, the requested ones emitted
+    uint32_t *offs = nullptr, n = 0, cap = 0;
+    bool keep = true;
+    f.seek(0);
+    uint32_t base = 0, lineAt = 0;
+    size_t ll = 0;
+    bool header = true, tooLong = false;
+    for (;;) {
+      const int got = f.read(blk, 4096);
+      if (got <= 0) break;
+      for (int q = 0; q < got; q++) {
+        const char c = (char)blk[q];
+        if (c != '\n') {
+          if (ll < 1023) line[ll++] = c; else tooLong = true;
+          continue;
+        }
+        line[ll] = 0;
+        if (header) header = false;
+        else if (ll && !tooLong && emit(line, n >= start ? n : UINT32_MAX)) {
+          if (keep && n == cap) {
+            const uint32_t nc = cap ? cap * 2 : 256;
+            uint32_t *g = (uint32_t *)heap_caps_realloc(offs, nc * sizeof(uint32_t), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+            if (g) { offs = g; cap = nc; } else keep = false;
+          }
+          if (keep) offs[n] = lineAt;
+          n++;
+        }
+        ll = 0; tooLong = false;
+        lineAt = base + q + 1;
+      }
+      base += got;
+    }
+    total = n;
+    if (keep && offs) {
+      BrowseCache *slot = &s_cache[0];
+      for (auto &c : s_cache) if (!c.offs || c.used < slot->used) { slot = &c; if (!c.offs) break; }
+      free(slot->offs);
+      *slot = BrowseCache{ dirPath, indexFile, key, offs, n, cap, ++s_cacheTick };
+    } else {
+      free(offs);
+    }
+  }
+  free(line);
+  free(blk);
   f.close();
   if (sdMutex) xSemaphoreGive(sdMutex);
-  total = match;
   return true;
 }
 
@@ -582,8 +643,10 @@ static void handleBrowse(AsyncWebServerRequest *request, const String &body) {
 // malloc'd buffer because the library free()s _tempObject if the client
 // disconnects mid request.
 static void collectBody(AsyncWebServerRequest *request, uint8_t *data, size_t len, size_t index, size_t total) {
-  if (total == 0 || total > 8192) return;
-  if (index == 0) request->_tempObject = calloc(1, total + 1);
+  if (!s_enabled || total == 0 || total > 8192) return;
+  // the server hands over whatever arrives, even past the Content-Length the buffer was sized from
+  if (index + len > total) return;
+  if (index == 0 && !request->_tempObject) request->_tempObject = calloc(1, total + 1);
   char *buf = (char *)request->_tempObject;
   if (!buf) return;
   memcpy(buf + index, data, len);

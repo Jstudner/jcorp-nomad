@@ -2,13 +2,14 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
+<script>/* nomad-load-guard: reload, twice at most, when one of Nomad's own scripts or stylesheets fails to load */(function(){var k='nomadLoadGuard:'+location.pathname;window.addEventListener('error',function(e){var t=e.target;if(!t||!t.tagName)return;var s=t.tagName==='SCRIPT',c=t.tagName==='LINK'&&/stylesheet/i.test(t.rel||'');if(!s&&!c)return;var u=t.src||t.href||'';if(u.indexOf(location.origin+'/')!==0)return;var n=0;try{n=+sessionStorage.getItem(k)||0;}catch(x){return;}if(n>=2)return;try{sessionStorage.setItem(k,String(n+1));}catch(x){return;}setTimeout(function(){location.reload();},1500*(n+1));},true);window.addEventListener('load',function(){setTimeout(function(){try{sessionStorage.removeItem(k);}catch(x){}},15000);});})();</script>
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
   <title>Nomad • Files</title>
   <script src="/theme-boot.js?v=5"></script>
   <script src="/nomad-icons.js?v=1"></script>
   <link rel="stylesheet" href="master.css">
   <script src="theme-manager.js?v=5"></script>
-  <script src="/nomad-utils.js?v=49"></script>
+  <script src="/nomad-utils.js?v=51"></script>
   <script src="/assets/nomad-files.js?v=3"></script>
   <style>
     /* Full-screen form of the admin page's Files browser (assets/nomad-files.js). */

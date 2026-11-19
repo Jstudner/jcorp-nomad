@@ -3,6 +3,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8"/>
+<script>/* nomad-load-guard: reload, twice at most, when one of Nomad's own scripts or stylesheets fails to load */(function(){var k='nomadLoadGuard:'+location.pathname;window.addEventListener('error',function(e){var t=e.target;if(!t||!t.tagName)return;var s=t.tagName==='SCRIPT',c=t.tagName==='LINK'&&/stylesheet/i.test(t.rel||'');if(!s&&!c)return;var u=t.src||t.href||'';if(u.indexOf(location.origin+'/')!==0)return;var n=0;try{n=+sessionStorage.getItem(k)||0;}catch(x){return;}if(n>=2)return;try{sessionStorage.setItem(k,String(n+1));}catch(x){return;}setTimeout(function(){location.reload();},1500*(n+1));},true);window.addEventListener('load',function(){setTimeout(function(){try{sessionStorage.removeItem(k);}catch(x){}},15000);});})();</script>
 <meta name="viewport" content="width=device-width,initial-scale=1"/>
 
 <title>Nomad • Movies</title>
@@ -11,7 +12,7 @@
 <script src="/theme-boot.js?v=5"></script>
 <script src="/nomad-icons.js?v=1"></script>
 <script src="/assets/nomad-marks.js?v=1"></script>
-<script src="/nomad-utils.js?v=49"></script>
+<script src="/nomad-utils.js?v=51"></script>
 <script>document.addEventListener('DOMContentLoaded', () => NomadPlyr.ready());</script>
 <script src="/assets/plyr.min.js"></script>
 <script src="/theme-manager.js?v=5"></script>
@@ -60,7 +61,7 @@
   .media-grid.large  {grid-template-columns:repeat(auto-fit,minmax(220px,1fr));}
 
   /* card specifics */
-  .media-card{width:100%;max-width:220px;margin:0 auto;will-change:transform,opacity;}
+  .media-card{width:100%;max-width:220px;margin:0 auto;}
   .media-grid.small  .media-card{max-width:120px;}
   .media-grid.medium .media-card{max-width:160px;}
   .media-grid.large  .media-card{max-width:220px;}
@@ -73,7 +74,7 @@
   }
 
   .thumb-wrapper{position:relative;display:flex;align-items:center;justify-content:center;background:var(--thumb-bg);color:var(--thumb-text);font-size:0.9rem;text-align:center;width:100%;aspect-ratio:2/3;}
-  .fallback-text{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;z-index:2;text-align:center;font-weight:700;color:var(--thumb-title);pointer-events:none;padding:6px}
+  .fallback-text{position:absolute;top:0;right:0;bottom:0;left:0;inset:0;display:flex;align-items:center;justify-content:center;z-index:2;text-align:center;font-weight:700;color:var(--thumb-title);pointer-events:none;padding:6px}
   .media-thumb{width:100%;height:100%;object-fit:cover;position:absolute;top:0;left:0;z-index:1;opacity:0;transition:opacity .35s ease;}
   .badge-resume{position:absolute;left:50%;transform:translateX(-50%);bottom:8px;background:rgba(0,0,0,0.6);color:#fff;padding:5px 10px 6px;border-radius:10px;font-weight:700;font-size:12px;line-height:1.25;z-index:4;display:block;min-width:40px;max-width:85%;overflow:hidden;text-align:center;white-space:nowrap;text-overflow:ellipsis}
   /* how far into the film: a thin bar under the resume time */
@@ -87,7 +88,7 @@
   .meta .dir{font-size:12px;color:var(--text-gray);overflow:hidden;white-space:nowrap;text-overflow:ellipsis; display:none}
 
   /* modal specifics */
-  .modal,.video-modal{display:none;position:fixed;inset:0;background:var(--overlay-modal);justify-content:center;align-items:center;z-index:1000;padding:20px;}
+  .modal,.video-modal{display:none;position:fixed;top:0;right:0;bottom:0;left:0;inset:0;background:var(--overlay-modal);justify-content:center;align-items:center;z-index:1000;padding:20px;}
   .modal-content {
     background: var(--card-bg);
     color: var(--text);
@@ -227,7 +228,7 @@
         <video id="videoPlayer" controls playsinline aria-label="Video player"></video>
       </div>
       <div class="video-btns">
-        <button id="videoMarksBtn" class="close-btn marks-b" aria-label="Bookmarks and notes" data-icon="pin"> Bookmarks</button>
+        <button id="videoMarksBtn" class="close-btn marks-b" data-icon="pin"> Bookmarks</button>
         <button id="videoCloseBtn" class="close-btn" onclick="closeVideo()" aria-label="Close video" data-icon="x"> Close</button>
       </div>
     </div>
@@ -280,13 +281,13 @@ window.addEventListener('storage', (ev) => {
 // optional helper for local toggles
 function toggleThemeLocal(){
   const isDark = document.body.classList.toggle('dark');
-  try { localStorage.setItem(THEME_KEY, isDark ? 'true' : 'false'); }catch(e){}
+  try { NomadPrefs.setRaw(THEME_KEY, isDark ? 'true' : 'false'); }catch(e){}
 }
 
 /* State */
 let movies = [];      // list of {name, rawName, cover, path, dir, sz, mt, subtitles}
 let filtered = [];
-let currentSize = localStorage.getItem('nomadMoviesSize') || 'medium';
+let currentSize = NomadPrefs.raw('nomadMoviesSize') || 'medium';
 let currentMovie = null;
 let autosaveTimer = null;
 let mediaReadyFor = null;     // the film path the player has really loaded (saves wait for it)
@@ -303,8 +304,41 @@ function isVideoName(n){ return VIDEO_EXTS.includes(ext(n)); }
 function isImageName(n){ return IMAGE_EXTS.includes(ext(n)); }
 function isSubtitleName(n){ return SUB_EXTS.includes(ext(n)); }
 function fileUrl(path){ return `${MEDIA_ENDPOINT}?file=${encodeURIComponent(path)}`; }
-function readResume(){ try{ return JSON.parse(localStorage.getItem(RESUME_KEY)||'{}'); }catch(e){return{};} }
-function writeResume(v){ try { localStorage.setItem(RESUME_KEY, JSON.stringify(v)); } catch(e){ /* quota / private mode */ } }
+// the store is parsed once and kept, with lookup maps, until this page or another tab writes
+// it. Kept to the 500 most recent films
+let _resume = null;
+function readResume(){
+  if(_resume) return _resume.store;
+  let store = {};
+  try{ store = JSON.parse(NomadPrefs.raw(RESUME_KEY)||'{}') || {}; }catch(e){ store = {}; }
+  _resume = { store, maps: null };
+  return store;
+}
+function resumeMaps(){
+  readResume();
+  if(_resume.maps) return _resume.maps;
+  const byPath = new Map(), byTail = new Map(), byBase = new Map();
+  for(const k of Object.keys(_resume.store)){
+    const p = k.split('|')[0] || '';
+    const n = normalizePath(p);
+    if(!byPath.has(n)) byPath.set(n, k);
+    const tail = p.replace(/^\//,'');
+    if(!byTail.has(tail)) byTail.set(tail, k);
+    const base = p.toLowerCase().split('/').pop();
+    if(!byBase.has(base)) byBase.set(base, k);
+  }
+  return (_resume.maps = { byPath, byTail, byBase });
+}
+function writeResume(v){
+  const keys = Object.keys(v);
+  if(keys.length > 500){
+    keys.sort((a, b) => ((v[b] && v[b].updated) || 0) - ((v[a] && v[a].updated) || 0));
+    for(const k of keys.slice(500)) delete v[k];
+  }
+  NomadPrefs.setRaw(RESUME_KEY, JSON.stringify(v));   // quota or private mode: just not kept
+  _resume = null;
+}
+window.addEventListener('storage', (e) => { if(!e.key || e.key === RESUME_KEY) _resume = null; });
 function fileKey(path, sz=0, mt=0){ return `${normalizePath(path)}|${sz||0}|${mt||0}`; }
 function formatTime(sec){ if(!sec||!isFinite(sec)) return '0:00'; sec=Math.floor(sec); const h=Math.floor(sec/3600), m=Math.floor((sec%3600)/60), s=sec%60; if(h) return `${h}:${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`; return `${m}:${String(s).padStart(2,'0')}`; }
 
@@ -346,21 +380,10 @@ function findResume(movie){
   const norm = normalizePath(movie.path);
   const exact = fileKey(movie.path, movie.sz||0, movie.mt||0);
   if(store[exact]) return { key: exact, entry: store[exact] };
-
-  for(const k of Object.keys(store)){
-    const p = (k.split('|')[0] || '');
-    if(normalizePath(p) === norm) return { key:k, entry:store[k] };
-  }
-  for(const k of Object.keys(store)){
-    const p = (k.split('|')[0] || '').replace(/^\//,'');
-    if(p === norm.replace(/^\//,'')) return { key:k, entry:store[k] };
-  }
-  const base = norm.split('/').pop().toLowerCase();
-  for(const k of Object.keys(store)){
-    const p = (k.split('|')[0] || '').toLowerCase();
-    if(p.split('/').pop() === base) return { key:k, entry:store[k] };
-  }
-  return null;
+  // in order of preference: the path, the path without its slash, the name
+  const m = resumeMaps();
+  const k = m.byPath.get(norm) || m.byTail.get(norm.replace(/^\//,'')) || m.byBase.get(norm.split('/').pop().toLowerCase());
+  return k ? { key: k, entry: store[k] } : null;
 }
 /* this phone's place in a film: { pos, dur, done }. A place saved in the credits counts as
    finished too, even if it was never marked completed */
@@ -544,8 +567,8 @@ function renderGrid(){
   gridEl.appendChild(frag);
 
   // Decide if we should animate now:
-  const animKey = rootSig ? `${ANIM_KEY_BASE}:${rootSig}` : ANIM_KEY_BASE;
-  const already = localStorage.getItem(animKey);
+  const animKey = ANIM_KEY_BASE;   // once per browser, not per library change
+  const already = NomadPrefs.raw(animKey);
   if(!already && filtered.length > 0){
     runStaggeredAnimation(animKey);
   }
@@ -561,11 +584,13 @@ function escapeHtml(str){
 
 /* Animation logic: compute grid columns and set animationDelay for each card row-by-row left->right */
 function runStaggeredAnimation(storeKey){
-  const cards = Array.from(gridEl.querySelectorAll('.media-card'));
-  if(!cards.length) { localStorage.setItem(storeKey, Date.now()); return; }
+  if(!gridEl.querySelector('.media-card')) { NomadPrefs.setRaw(storeKey, Date.now()); return; }
 
-  // allow layout to stabilize
+  // allow layout to stabilize. The cards are taken here, not before: a second render in
+  // the same frame replaces them
   requestAnimationFrame(() => {
+    const cards = Array.from(gridEl.querySelectorAll('.media-card'));
+    if(!cards.length || NomadPrefs.raw(storeKey)) return;
     const gridStyles = getComputedStyle(gridEl);
     const gapPx = parseFloat(gridStyles.gap) || 16;
     const gridWidth = Math.max(1, gridEl.clientWidth);
@@ -576,6 +601,9 @@ function runStaggeredAnimation(storeKey){
     const columns = Math.max(1, Math.floor((gridWidth + gapPx) / (cardWidth + gapPx)));
 
     const stagger = 45; // ms per step (keeps animation quick)
+    // the first screenful only: card N waits N x 45 ms hidden
+    const shown = Math.min(cards.length, columns * Math.max(1, Math.ceil(window.innerHeight / Math.max(1, firstCardRect.height))) + columns);
+    cards.length = shown;
     cards.forEach((card, i) => {
       const row = Math.floor(i / columns);
       const col = i % columns;
@@ -587,7 +615,7 @@ function runStaggeredAnimation(storeKey){
     });
 
     // mark as animated so it won't run again until signature changes
-    try { localStorage.setItem(storeKey, Date.now()); } catch(e){ /* ignore */ }
+    try { NomadPrefs.setRaw(storeKey, Date.now()); } catch(e){ /* ignore */ }
 
     // cleanup inline animationDelay after animation end to keep DOM cleaner
     const maxDelay = (Math.ceil(cards.length / columns) * columns) * stagger + 500;
@@ -605,6 +633,8 @@ const resumeButton = document.getElementById('resumeButton');
 const downloadButton = document.getElementById('downloadButton');
 const videoModal = document.getElementById('videoModal');
 const videoPlayer = document.getElementById('videoPlayer');
+// a film Nomad turns away or that stops arriving is asked for again at its place
+NomadStream.keep(videoPlayer, { retryHost: document.querySelector('#videoModal .video-btns') });
 const videoTitle = document.getElementById('videoTitle');
 
 function showMovieOptions(movie){
@@ -716,10 +746,8 @@ function startDownload(movie){
 }
 
 async function openVideo(src, useResume=false){
-  console.log('[openVideo] currentMovie:', currentMovie ? currentMovie.path : 'NONE', 'useResume:', useResume);
   const saved = filmState(currentMovie);
   const startTime = (useResume && hasPlace(saved)) ? saved.pos : 0;
-  console.log('[openVideo] startTime will be:', startTime);
 
   // save nothing until the player has this film: the last one's time and length linger
   // on the element until then
@@ -749,7 +777,6 @@ async function openVideo(src, useResume=false){
           img.removeAttribute('src');
         }
       });
-      console.log('Paused lazy image loading for video playback');
     } catch(e) {
       console.warn('Could not pause image loading', e);
     }
@@ -791,7 +818,6 @@ async function openVideo(src, useResume=false){
         if(vid.readyState >= 1 && vid.duration > 0){
           seekDone = true;
           vid.currentTime = startTime;
-          console.log('Resume position set to:', startTime);
         }
       } catch(e){ console.warn('Seek failed:', e); }
     };
@@ -818,6 +844,13 @@ function closeVideo(){
   if (window.plyrInstance) {
     window.plyrInstance.pause();
   }
+  // let go of the stream: a paused, hidden player keeps its reply open, and Nomad has eight
+  // of those for everyone. The place was saved above; nothing is saved from the empty player.
+  openGen++;
+  mediaReadyFor = null;
+  videoPlayer.removeAttribute('src');
+  videoPlayer.innerHTML = '';
+  videoPlayer.load();
   videoModal.style.display = 'none';
   NomadBack.done('film');
   stopAutosave();
@@ -832,7 +865,6 @@ function closeVideo(){
         delete img.dataset.originalSrc;
       }
     });
-    console.log('Resumed lazy image loading');
   } catch(e) {
     console.warn('Could not resume image loading', e);
   }
@@ -866,12 +898,15 @@ function setMediaSession(movie){
 async function loadLibrary(){
   try {
     const list = await buildFromIndexes(ROOT_PATH);
+    NomadRetry.done('library');
     if(list && list.length){
       movies = list;
       filtered = movies.slice();
       renderGrid();
       return;
     }
+    gridEl.innerHTML = '<p style="grid-column:1/-1;text-align:center;color:var(--primary-dark);">No movies yet</p>';
+    return;
   } catch(e){
     if(e && e.message === 'INDEX_BUILDING') {
       // capped so a build that never finishes doesn't leave every phone polling
@@ -881,14 +916,16 @@ async function loadLibrary(){
         setTimeout(() => loadLibrary(), 3000);
         return;
       }
-      gridEl.innerHTML = '<p style="grid-column:1/-1;text-align:center;color:var(--primary-dark);">Index is still building. Refresh to try again.</p>';
+      gridEl.innerHTML = '<p style="grid-column:1/-1;text-align:center;color:var(--primary-dark);">Building movie index…</p>';
+      NomadRetry.later('library', loadLibrary);
       return;
     }
     console.warn('index build failed, falling back', e);
   }
 
   // no media.json fallback: on this firmware it only holds bucket counts
-  gridEl.innerHTML = '<p style="grid-column:1/-1;text-align:center;color:var(--primary-dark);">Couldn\'t load movies. Refresh to try again.</p>';
+  gridEl.innerHTML = '<p style="grid-column:1/-1;text-align:center;color:var(--primary-dark);">Couldn\'t load movies. Trying again…</p>';
+  NomadRetry.later('library', loadLibrary);
 }
 
 /* UI: search, sort, size buttons */
@@ -912,7 +949,7 @@ function setViewSize(size){
     btn.setAttribute('aria-pressed', btn.dataset.size === size ? 'true' : 'false');
   });
   gridEl.className = `media-grid ${size}`;
-  localStorage.setItem('nomadMoviesSize', size);
+  NomadPrefs.setRaw('nomadMoviesSize', size);
 }
 
 /* index poll (cheap) to refresh if index sig changes */

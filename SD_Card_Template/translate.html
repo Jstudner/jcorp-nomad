@@ -3,6 +3,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8"/>
+<script>/* nomad-load-guard: reload, twice at most, when one of Nomad's own scripts or stylesheets fails to load */(function(){var k='nomadLoadGuard:'+location.pathname;window.addEventListener('error',function(e){var t=e.target;if(!t||!t.tagName)return;var s=t.tagName==='SCRIPT',c=t.tagName==='LINK'&&/stylesheet/i.test(t.rel||'');if(!s&&!c)return;var u=t.src||t.href||'';if(u.indexOf(location.origin+'/')!==0)return;var n=0;try{n=+sessionStorage.getItem(k)||0;}catch(x){return;}if(n>=2)return;try{sessionStorage.setItem(k,String(n+1));}catch(x){return;}setTimeout(function(){location.reload();},1500*(n+1));},true);window.addEventListener('load',function(){setTimeout(function(){try{sessionStorage.removeItem(k);}catch(x){}},15000);});})();</script>
 <meta name="viewport" content="width=device-width,initial-scale=1"/>
 <meta name="description" content="Jcorp Nomad Media Server - Offline Translation">
 <title>Nomad • Translate</title>
@@ -74,7 +75,7 @@
     border:1px solid var(--primary)}
 
   /* setup screen: covers the typing area until the pack is ready */
-  .setup{position:absolute;inset:0;z-index:50;background:var(--bg);
+  .setup{position:absolute;top:0;right:0;bottom:0;left:0;inset:0;z-index:50;background:var(--bg);
     display:none;flex-direction:column;align-items:center;justify-content:center;
     padding:26px 22px;text-align:center;overflow-y:auto}
   .setup.open{display:flex}
@@ -203,24 +204,24 @@
          touching the language pickers. -->
     <div class="pane" id="paneA">
       <div class="pane-lang" id="langLabelA"></div>
-      <button class="icon-btn clear" id="clearA" title="Clear this box" aria-label="Clear this box" data-icon="x" hidden></button>
+      <button class="icon-btn clear" id="clearA" title="Clear" aria-label="Clear" data-icon="x" hidden></button>
       <textarea id="textA" placeholder="Type here" autocomplete="off"
                 autocapitalize="sentences" spellcheck="false"></textarea>
       <div class="pane-foot">
         <span class="count" id="countA"></span>
-        <span class="acts"><button class="icon-btn" id="speakA" title="Read it out loud" hidden>Read aloud</button>
-        <button class="icon-btn" id="copyA" title="Copy this text" disabled>Copy</button></span>
+        <span class="acts"><button class="icon-btn" id="speakA" hidden>Read aloud</button>
+        <button class="icon-btn" id="copyA" disabled>Copy</button></span>
       </div>
     </div>
     <div class="pane" id="paneB">
       <div class="pane-lang" id="langLabelB"></div>
-      <button class="icon-btn clear" id="clearB" title="Clear this box" aria-label="Clear this box" data-icon="x" hidden></button>
+      <button class="icon-btn clear" id="clearB" title="Clear" aria-label="Clear" data-icon="x" hidden></button>
       <textarea id="textB" placeholder="Type here" autocomplete="off"
                 autocapitalize="sentences" spellcheck="false"></textarea>
       <div class="pane-foot">
         <span class="count" id="countB"></span>
-        <span class="acts"><button class="icon-btn" id="speakB" title="Read it out loud" hidden>Read aloud</button>
-        <button class="icon-btn" id="copyB" title="Copy this text" disabled>Copy</button></span>
+        <span class="acts"><button class="icon-btn" id="speakB" hidden>Read aloud</button>
+        <button class="icon-btn" id="copyB" disabled>Copy</button></span>
       </div>
     </div>
 
@@ -229,8 +230,8 @@
     <!-- Covers the typing area (either mode), not the header. -->
     <div class="setup open" id="setup">
       <div class="setup-inner">
-        <h2 id="setupTitle">Getting things ready</h2>
-        <p class="lead" id="setupLead">Checking which languages are on Nomad.</p>
+        <h2 id="setupTitle">Loading</h2>
+        <p class="lead" id="setupLead"></p>
 
         <div class="notice" id="setupNotice" style="display:none">
           <span class="ico" aria-hidden="true" data-icon="warning"></span>
@@ -282,7 +283,7 @@ env.backends.onnx.wasm.numThreads = 1;
 env.backends.onnx.wasm.proxy      = false;
 
 /* pieces() already feeds the model a sentence at a time. This cap just keeps one paste
- * from tying the phone up for minutes. Text past it is cut and the box says so. */
+ * from tying the phone up for minutes. Text past it is cut, with a note in the box. */
 const MAX_CHARS = 2000;
 const cut = { a: false, b: false };
 
@@ -556,21 +557,18 @@ async function refreshPairStatus() {
 
   if (st.have > 0) {
     setup('offer', {
-      title: 'Picking up where you left off',
-      lead: 'You have ' + fmtMB(st.have) + ' of the ' + langs + ' packs. Loading the '
-          + 'remaining ' + fmtMB(Math.max(0, total - st.have)) + '.',
+      title: 'Set up ' + langs,
+      lead: fmtMB(st.have) + ' of ' + fmtMB(total) + ' loaded.',
       notice: 'Keep this page open until it reaches 100 percent.',
       button: 'Continue loading',
-      onClick: () => ensurePipelines(true),
-      foot: 'If it stops, it picks up from here.'
+      onClick: () => ensurePipelines(true)
     });
     return;
   }
 
   setup('offer', {
     title: 'Set up ' + langs,
-    lead: 'This phone needs its own copy of the ' + langs + ' packs, about '
-        + fmtMB(total) + '.'
+    lead: 'Saves about ' + fmtMB(total) + ' to this phone.'
         + oneWayNote,
     notice: 'Takes a few minutes. Keep this page open while it loads. You can stop '
           + 'and come back later.',
@@ -581,9 +579,9 @@ async function refreshPairStatus() {
 
 function readyLine() {
   const a = nameOf(srcSel.value), b = nameOf(tgtSel.value);
-  if (dir.ab && dir.ba) return 'Ready to translate between ' + a + ' and ' + b + '.';
+  if (dir.ab && dir.ba) return 'Ready';
   const from = dir.ab ? a : b, to = dir.ab ? b : a;
-  return 'Ready. This card only has ' + from + ' into ' + to + '.';
+  return 'Ready. Only ' + from + ' into ' + to + ' is on this card.';
 }
 
 async function ensurePipelines(userAsked) {
@@ -606,8 +604,6 @@ async function ensurePipelines(userAsked) {
 
     setup('loading', {
       title: 'Loading ' + langs,
-      lead: 'Loading ' + (list.length > 1 ? 'both language packs' : 'the language pack')
-          + '.',
       notice: 'Keep this page open until it reaches 100 percent.'
     });
     showProgress(0, total || 1, 'Starting');
@@ -620,10 +616,7 @@ async function ensurePipelines(userAsked) {
     const dl = (performance.now() - t0) / 1000;
 
     setup('loading', {
-      title: 'Almost there',
-      lead: 'Everything is loaded. Starting the '
-          + (list.length > 1 ? 'translators' : 'translator')
-          + ', a few more seconds.',
+      title: 'Loading ' + langs,
       notice: 'Keep this page open a moment longer.'
     });
     showProgress(total || 1, total || 1, 'Starting the translator');
@@ -641,17 +634,15 @@ async function ensurePipelines(userAsked) {
     dir.ba = ba ? pipeCache.get(ba.model) : null;
     dir.key = dirKey();
 
-    setupDone(readyLine() + ' Loaded in ' + Math.round(dl) + ' seconds.');
+    setupDone(readyLine());
     applyDirectionUI();
     if (boxA.value.trim()) translateFrom('a');
   } catch (err) {
     console.error('[translate] load failed', err);
     if (myGen !== loadGen) return;   // stale load, the screen belongs to the new pair now
     setup('error', {
-      title: 'That did not finish',
-      lead: 'Loading stopped. Trying again carries on '
-          + 'from where it stopped'
-          + '.',
+      title: 'Loading stopped',
+      lead: 'Try again to pick up where it stopped.',
       notice: 'If it keeps stopping, move closer to Nomad'
             + '.',
       bad: true,
@@ -725,8 +716,8 @@ function applyDirectionUI(activeWhich) {
   const canA = !!dir.ab, canB = !!dir.ba;   // can this box act as a source
   boxA.readOnly = !canA;
   boxB.readOnly = !canB;
-  boxA.placeholder = canA ? 'Type here' : 'Translation appears here';
-  boxB.placeholder = canB ? 'Type here' : 'Translation appears here';
+  boxA.placeholder = canA ? 'Type here' : 'Translation';
+  boxB.placeholder = canB ? 'Type here' : 'Translation';
   $('langLabelA').textContent = nameOf(srcSel.value);
   $('langLabelB').textContent = nameOf(tgtSel.value);
   updateTurns();
@@ -880,8 +871,7 @@ function saveLog() { try { localStorage.setItem(LOG_KEY, JSON.stringify(log.slic
 function esc(t) { return String(t).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])); }
 function renderLog() {
   if (!log.length) {
-    logEl.innerHTML = '<div class="empty">Pick who\'s talking, then type and send. '
-      + '</div>';
+    logEl.innerHTML = '<div class="empty">No messages yet</div>';
     return;
   }
   logEl.innerHTML = log.map((m, i) => `<div class="msg ${m.who}">
@@ -1011,16 +1001,14 @@ tgtSel.addEventListener('change', () => {
 
 (async function boot() {
   setup('checking', {
-    title: 'Getting things ready',
-    lead: 'Checking which languages are on Nomad.'
+    title: 'Loading'
   });
   try {
     manifest = await loadManifest();
   } catch (err) {
     setup('none', {
       title: 'No languages on this card',
-      lead: 'Add translation packs '
-          + 'with Nomad-Tools.',
+      lead: 'Add language packs with Nomad-Tools.',
       bad: true
     });
     srcSel.disabled = tgtSel.disabled = true;

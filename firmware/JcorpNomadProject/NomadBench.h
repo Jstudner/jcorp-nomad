@@ -21,7 +21,7 @@
 #define NOMAD_BENCH_H
 
 #include <Arduino.h>
-#include <ESPAsyncWebServer.h>
+#include "src/AsyncWebServer/ESPAsyncWebServer.h"   // carried here, with Nomad's limits (src/AsyncWebServer/README.md)
 #include <esp_wifi.h>
 #include <esp_timer.h>
 #include <esp_heap_caps.h>
@@ -530,10 +530,370 @@ static void benchAirStart(AsyncWebServerRequest *request) {
 
 // routes
 
+// Requests driven over USB serial, for when there is no WiFi client to hand. A line typed
+// at the serial port is run by a task on the board as a web request to the board itself:
+//   get /path?query [first-last]                (a byte range, as a player asks)
+//   post /path a=b&c=d                          (a form body, already URL-encoded)
+//   up /Files name.bin 1500000 [total offset]   (a multipart upload of that many made-up bytes)
+// The answer comes back as "[Cmd] <code> <ms> ms <bytes> B" and the start of the body. The
+// radio is not in the path, so this tests what the firmware does, not how WiFi carries it.
+extern volatile uint32_t g_lcdFlushes;
+static QueueHandle_t s_benchCmdQ = nullptr;
+static void benchCmdRun(const String &line) {
+  const int sp = line.indexOf(' ');
+  const String verb = sp < 0 ? line : line.substring(0, sp);
+  String rest = sp < 0 ? String() : line.substring(sp + 1);
+  rest.trim();
+  String path = rest, arg;
+  const int sp2 = rest.indexOf(' ');
+  if (sp2 > 0) { path = rest.substring(0, sp2); arg = rest.substring(sp2 + 1); arg.trim(); }
+  const bool dump = verb == "dump";      // dump /path: a get whose whole body (to 12 KB) is printed, in short lines
+  if (!path.startsWith("/") || (verb != "get" && verb != "post" && verb != "up" && !dump)) {
+    Serial.println("[Cmd] ? get /path | post /path body | up /dir name bytes [total offset]");
+    return;
+  }
+  WiFiClient c;
+  c.setTimeout(60000);
+  const uint32_t t0 = millis();
+  if (!c.connect(IPAddress(127, 0, 0, 1), 80, 3000) && !c.connect(WiFi.softAPIP(), 80, 3000)) {
+    Serial.println("[Cmd] could not connect");
+    return;
+  }
+  const char *host = "Host: 192.168.4.1\r\nConnection: close\r\n";
+  if (verb == "get" || dump) {
+    if (arg.length()) c.printf("GET %s HTTP/1.1\r\n%sRange: bytes=%s\r\n\r\n", path.c_str(), host, arg.c_str());   // get /path 0-65535
+    else c.printf("GET %s HTTP/1.1\r\n%s\r\n", path.c_str(), host);
+  } else if (verb == "post") {
+    c.printf("POST %s HTTP/1.1\r\n%sContent-Type: application/x-www-form-urlencoded\r\nContent-Length: %u\r\n\r\n",
+             path.c_str(), host, (unsigned)arg.length());
+    c.print(arg);
+  } else {
+    // up <dir> <name> <bytes> [total offset]
+    String name = arg, nums;
+    const int a = arg.indexOf(' ');
+    if (a > 0) { name = arg.substring(0, a); nums = arg.substring(a + 1); }
+    unsigned long bytes = 0, total = 0, offset = 0;
+    sscanf(nums.c_str(), "%lu %lu %lu", &bytes, &total, &offset);
+    if (!total) total = bytes;
+    const String head = String("--nomadbench\r\nContent-Disposition: form-data; name=\"dir\"\r\n\r\n") + path +
+                        "\r\n--nomadbench\r\nContent-Disposition: form-data; name=\"file\"; filename=\"" + name +
+                        "\"\r\nContent-Type: application/octet-stream\r\n\r\n";
+    const char *tail = "\r\n--nomadbench--\r\n";
+    c.printf("POST /upload?dir=%s&total=%lu&offset=%lu HTTP/1.1\r\n%sContent-Type: multipart/form-data; boundary=nomadbench\r\nContent-Length: %lu\r\n\r\n",
+             path.c_str(), total, offset, host, (unsigned long)(head.length() + bytes + strlen(tail)));
+    c.print(head);
+    uint8_t blk[1024];
+    for (size_t i = 0; i < sizeof(blk); i++) blk[i] = (uint8_t)(i * 7 + 3);
+    unsigned long left = bytes;
+    while (left && c.connected()) {
+      const size_t n = left > sizeof(blk) ? sizeof(blk) : left;
+      const size_t w = c.write(blk, n);
+      if (!w) { if (millis() - t0 > 120000) break; delay(5); continue; }
+      left -= w;
+    }
+    c.print(tail);
+  }
+  // the reply: status line, then everything until the board closes
+  String first, body;
+  size_t got = 0;
+  bool inBody = false;
+  String hdr;
+  const uint32_t t1 = millis();
+  while ((c.connected() || c.available()) && millis() - t1 < 120000) {
+    if (!c.available()) { delay(5); continue; }
+    if (inBody && body.length() >= (dump ? 12000u : 200u)) {        // the rest is only counted
+      uint8_t skip[1024];
+      const int k = c.read(skip, sizeof(skip));
+      if (k > 0) got += k;
+      continue;
+    }
+    const int ch = c.read();
+    if (ch < 0) continue;
+    if (!inBody) {
+      hdr += (char)ch;
+      if (hdr.endsWith("\r\n\r\n")) { inBody = true; first = hdr.substring(0, hdr.indexOf('\r')); hdr = String(); }
+      else if (hdr.length() > 2048) hdr.remove(0, 1024);
+      continue;
+    }
+    got++;
+    if (body.length() < (dump ? 12000u : 200u)) body += (dump || (ch >= 0x20 && ch < 0x7f)) ? (char)ch : ' ';
+  }
+  c.stop();
+  Serial.printf("[Cmd] %s %s -> %s  %lu ms  %u B\n", verb.c_str(), path.c_str(),
+                first.length() ? first.c_str() + (first.startsWith("HTTP/1.1 ") ? 9 : 0) : "no reply",
+                (unsigned long)(millis() - t0), (unsigned)got);
+  if (dump) {
+    // hex, 80 bytes a line, so nothing in the body can break a line or be lost to the console
+    for (size_t at = 0; at < body.length(); at += 80) {
+      char hex[176];
+      size_t k = 0;
+      for (size_t i = at; i < body.length() && i < at + 80; i++) k += snprintf(hex + k, sizeof(hex) - k, "%02x", (uint8_t)body[i]);
+      Serial.printf("[Dump] %s\n", hex);
+      delay(12);
+    }
+    Serial.println("[Dump] end");
+  } else if (body.length()) { Serial.print("[Cmd] | "); Serial.println(body); }
+}
+static void benchCmdTask(void *) {
+  for (;;) {
+    String *line = nullptr;
+    if (xQueueReceive(s_benchCmdQ, &line, portMAX_DELAY) != pdTRUE || !line) continue;
+    benchCmdRun(*line);
+    delete line;
+  }
+}
+static void benchCmdTick() {
+  static String buf;
+  while (Serial.available()) {
+    const int ch = Serial.read();
+    if (ch == '\r') continue;
+    if (ch != '\n') { if (buf.length() < 400) buf += (char)ch; continue; }
+    buf.trim();
+    if (buf.length()) {
+      if (!s_benchCmdQ) {
+        s_benchCmdQ = xQueueCreate(8, sizeof(String *));
+        xTaskCreatePinnedToCore(benchCmdTask, "BenchCmd", 8 * 1024, NULL, 1, NULL, 1);
+      }
+      String *line = new String(buf);
+      if (!s_benchCmdQ || xQueueSend(s_benchCmdQ, &line, 0) != pdTRUE) delete line;
+    }
+    buf = String();
+  }
+}
+
+// loop(), bench builds: one serial line every 30 s with free memory and every task's lowest
+// stack headroom, so memory and stack changes can be measured over USB serial alone.
+static void benchSerialTick() {
+  benchCmdTick();
+  static uint32_t last = 0;
+  const uint32_t now = millis();
+  if (now - last < 30000) return;
+  last = now;
+  const UBaseType_t cap = uxTaskGetNumberOfTasks() + 4;
+  TaskStatus_t *st = (TaskStatus_t *)heap_caps_malloc(cap * sizeof(TaskStatus_t), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+  if (!st) return;
+  const UBaseType_t n = uxTaskGetSystemState(st, cap, NULL);
+  // short lines: the USB serial buffer is 256 bytes, and a longer write is cut before its newline
+  Serial.printf("[Bench] up %lu s  dma %u (low %u)  heap low %u\n", (unsigned long)(now / 1000),
+                (unsigned)heap_caps_get_free_size(MALLOC_CAP_DMA | MALLOC_CAP_INTERNAL),
+                (unsigned)heap_caps_get_minimum_free_size(MALLOC_CAP_DMA | MALLOC_CAP_INTERNAL),
+                (unsigned)heap_caps_get_minimum_free_size(MALLOC_CAP_INTERNAL));
+  String line = "[Bench] stacks:";
+  for (UBaseType_t i = 0; i < n; i++) {
+    const char *nm = st[i].pcTaskName;
+    if (!strncmp(nm, "IDLE", 4) || !strncmp(nm, "ipc", 3)) continue;
+    line += " " + String(nm) + "=" + String((unsigned)st[i].usStackHighWaterMark);
+    if (line.length() > 150) { Serial.println(line); line = "[Bench] stacks:"; }
+  }
+  if (line.length() > 15) Serial.println(line);
+  free(st);
+}
+
+// /bench/memwhy: where internal memory goes under load. A 20 ms sampler keeps the lowest
+// internal free and, at each new low, what was holding it: TCP data queued or waiting for
+// an ack (and whether lwIP put those buffers in internal RAM or PSRAM), connections, media
+// replies. Every failed allocation is kept too (size, caps, task), and a 1 s timeline in
+// PSRAM. ?reset=1 starts over. ?csv=1 gives the timeline.
+#include "lwip/priv/tcp_priv.h"
+#include <esp_memory_utils.h>
+struct MwTcp { uint16_t pcbs, tw, segs; uint32_t unsent, unacked, bufInt, bufExt, ooseq; };
+struct MwSnap { uint32_t ms, freeInt, largestInt, freeDma; MwTcp t; int16_t media, streams; uint16_t qlen; };
+// the async_tcp event queue, if the AsyncTCP build has these probes (weak: absent = not counted)
+extern "C" size_t asynctcp_queue_len() __attribute__((weak));
+extern "C" size_t asynctcp_queue_peak_reset() __attribute__((weak));
+struct MwFail { uint32_t ms, size, caps; char task[12]; char fn[20]; };
+static volatile uint32_t s_mwLow = UINT32_MAX;
+static MwSnap s_mwAtLow = {};
+static MwFail s_mwFails[24];
+static volatile uint32_t s_mwFailN = 0;
+static MwSnap *s_mwLine = nullptr;          // PSRAM, one a second
+static const uint32_t MW_LINE = 1800;       // 30 minutes
+static volatile uint32_t s_mwLineN = 0;
+static TaskHandle_t s_mwTask = nullptr;
+// used internal blocks by size, at the low: who holds the memory
+static const int MW_B = 9;
+static const uint16_t s_mwEdge[MW_B] = {64, 256, 1024, 1590, 1700, 2800, 2950, 8192, 65535};
+struct MwWalk { uint32_t n[MW_B], bytes[MW_B]; uint16_t topSize[8]; uint16_t topN[8]; uint32_t freeBlocks, freeBytes; };
+static MwWalk s_mwWalkAtLow = {};
+struct MwTally { MwWalk w; uint16_t sz[48]; uint16_t cnt[48]; };
+// ?blocks=1: every used internal block of 256 B or less, with its first two words, so the
+// new ones at the low can be told apart and a vtable or function address in them named
+struct MwBlk { uint32_t ptr; uint16_t size; uint32_t w0, w1; };
+static MwBlk *s_mwBlk = nullptr;          // PSRAM
+static const uint32_t MW_BLK = 1400;
+static volatile uint32_t s_mwBlkN = 0;
+static volatile bool s_mwBlkWant = false;
+static bool mwWalkCb(walker_heap_into_t, walker_block_info_t b, void *u) {
+  MwTally &t = *(MwTally *)u;
+  if (!b.used) { t.w.freeBlocks++; t.w.freeBytes += b.size; return true; }
+  int i = 0; while (i < MW_B - 1 && b.size > s_mwEdge[i]) i++;
+  t.w.n[i]++; t.w.bytes[i] += b.size;
+  if (s_mwBlkWant && b.size <= 256 && s_mwBlk && s_mwBlkN < MW_BLK) {
+    const uint32_t *w = (const uint32_t *)b.ptr;
+    s_mwBlk[s_mwBlkN++] = MwBlk{(uint32_t)(uintptr_t)b.ptr, (uint16_t)w[1], b.size >= 12 ? w[2] : 0, b.size >= 16 ? w[3] : 0};   // w[0] is the poisoning canary, w[1] the size asked for
+  }
+  if (b.size >= 256) {
+    const uint16_t z = b.size > 65535 ? 65535 : b.size;
+    for (int k = 0; k < 48; k++) {
+      if (t.cnt[k] && t.sz[k] == z) { t.cnt[k]++; break; }
+      if (!t.cnt[k]) { t.sz[k] = z; t.cnt[k] = 1; break; }
+    }
+  }
+  return true;
+}
+static void mwWalk(MwWalk &out) {
+  static MwTally t;   // big for a 3 KB stack, and only this task walks
+  memset(&t, 0, sizeof t);
+  heap_caps_walk(MALLOC_CAP_INTERNAL, mwWalkCb, &t);
+  for (int r = 0; r < 8; r++) {   // the eight commonest sizes of 256 B and up
+    int best = -1;
+    for (int k = 0; k < 48; k++) if (t.cnt[k] && (best < 0 || t.cnt[k] > t.cnt[best])) best = k;
+    if (best < 0) break;
+    t.w.topSize[r] = t.sz[best]; t.w.topN[r] = t.cnt[best]; t.cnt[best] = 0;
+  }
+  out = t.w;
+}
+static String mwWalkJson(const MwWalk &w) {
+  String j = "{\"buckets\":[";
+  for (int i = 0; i < MW_B; i++) {
+    char b[64]; snprintf(b, sizeof b, "%s[%u,%u,%u]", i ? "," : "", (unsigned)s_mwEdge[i], (unsigned)w.n[i], (unsigned)w.bytes[i]); j += b;
+  }
+  j += "],\"top\":[";
+  for (int r = 0; r < 8 && w.topN[r]; r++) { char b[32]; snprintf(b, sizeof b, "%s[%u,%u]", r ? "," : "", w.topSize[r], w.topN[r]); j += b; }
+  char b[64]; snprintf(b, sizeof b, "],\"freeBlocks\":%u,\"freeBytes\":%u}", (unsigned)w.freeBlocks, (unsigned)w.freeBytes); j += b;
+  return j;
+}
+
+static void mwFailed(size_t size, uint32_t caps, const char *fn) {
+  const uint32_t i = s_mwFailN++;
+  MwFail &f = s_mwFails[i % 24];
+  f.ms = millis(); f.size = size; f.caps = caps;
+  strlcpy(f.task, pcTaskGetName(NULL), sizeof f.task);
+  strlcpy(f.fn, fn ? fn : "?", sizeof f.fn);
+}
+
+static void mwCountPbufs(struct tcp_seg *s, MwTcp &t, uint32_t &bytes) {
+  for (; s; s = s->next) {
+    t.segs++;
+    bytes += s->len;
+    for (struct pbuf *q = s->p; q; q = q->next) {
+      // a PBUF_RAM pbuf is one block: struct then payload. Count where that block lives.
+      const uint32_t sz = q->len + sizeof(struct pbuf);
+      if (esp_ptr_external_ram(q)) t.bufExt += sz; else t.bufInt += sz;
+    }
+  }
+}
+
+static MwTcp mwTcp() {
+  MwTcp t = {};
+  LOCK_TCPIP_CORE();
+  for (struct tcp_pcb *p = tcp_active_pcbs; p; p = p->next) {
+    t.pcbs++;
+    mwCountPbufs(p->unsent, t, t.unsent);
+    mwCountPbufs(p->unacked, t, t.unacked);
+#if TCP_QUEUE_OOSEQ
+    uint32_t oo = 0; mwCountPbufs(p->ooseq, t, oo); t.ooseq += oo;
+#endif
+  }
+  for (struct tcp_pcb *p = tcp_tw_pcbs; p; p = p->next) t.tw++;
+  UNLOCK_TCPIP_CORE();
+  return t;
+}
+
+static MwSnap mwSnap() {
+  MwSnap s;
+  s.ms = millis();
+  s.freeInt = heap_caps_get_free_size(MALLOC_CAP_INTERNAL);
+  s.largestInt = heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL);
+  s.freeDma = heap_caps_get_free_size(MALLOC_CAP_DMA);
+  s.t = mwTcp();
+  s.media = inFlightMediaResponses;
+  s.streams = activeStreams;
+  s.qlen = asynctcp_queue_len ? (uint16_t)asynctcp_queue_len() : 0xFFFF;
+  return s;
+}
+
+static void mwTaskFn(void *) {
+  uint32_t lastLine = 0;
+  for (;;) {
+    const uint32_t f = heap_caps_get_free_size(MALLOC_CAP_INTERNAL);
+    const uint32_t now = millis();
+    if (f < s_mwLow) {
+      s_mwLow = f; s_mwAtLow = mwSnap();
+      static uint32_t lastWalk = 0;
+      if (now - lastWalk >= 250) { lastWalk = now; mwWalk(s_mwWalkAtLow); }
+    }
+    if (s_mwLine && now - lastLine >= 1000) {
+      lastLine = now;
+      s_mwLine[s_mwLineN % MW_LINE] = mwSnap();
+      s_mwLineN++;
+    }
+    vTaskDelay(pdMS_TO_TICKS(20));
+  }
+}
+
+static void mwStart() {
+  if (s_mwTask) return;
+  s_mwLine = (MwSnap *)heap_caps_calloc(MW_LINE, sizeof(MwSnap), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+  heap_caps_register_failed_alloc_callback(mwFailed);
+  xTaskCreatePinnedToCore(mwTaskFn, "memwhy", 4096, nullptr, 2, &s_mwTask, 0);
+}
+
+static String mwSnapJson(const MwSnap &s) {
+  char b[300];
+  snprintf(b, sizeof b, "{\"ms\":%u,\"freeInt\":%u,\"largestInt\":%u,\"freeDma\":%u,\"pcbs\":%u,\"tw\":%u,\"segs\":%u,"
+           "\"unsent\":%u,\"unacked\":%u,\"tcpBufInt\":%u,\"tcpBufExt\":%u,\"ooseq\":%u,\"media\":%d,\"streams\":%d,\"qlen\":%u}",
+           (unsigned)s.ms, (unsigned)s.freeInt, (unsigned)s.largestInt, (unsigned)s.freeDma, s.t.pcbs, s.t.tw, s.t.segs,
+           (unsigned)s.t.unsent, (unsigned)s.t.unacked, (unsigned)s.t.bufInt, (unsigned)s.t.bufExt, (unsigned)s.t.ooseq,
+           s.media, s.streams, (unsigned)s.qlen);
+  return String(b);
+}
+
+static void benchMemWhy(AsyncWebServerRequest *r) {
+  mwStart();
+  if (r->hasParam("reset")) { memset(&s_mwWalkAtLow, 0, sizeof s_mwWalkAtLow); s_mwLow = UINT32_MAX; s_mwFailN = 0; s_mwLineN = 0; g_fillMemWaits = 0; g_fillMemTrims = 0; g_fillShareWaits = 0; g_fillNudges = 0; g_sendGateWaits = 0; }
+  if (r->hasParam("csv")) {
+    String c = "ms,freeInt,largestInt,freeDma,pcbs,tw,segs,unsent,unacked,tcpBufInt,tcpBufExt,ooseq,media,streams,qlen\n";
+    const uint32_t n = s_mwLineN, from = n > MW_LINE ? n - MW_LINE : 0;
+    for (uint32_t i = from; i < n; i++) {
+      const MwSnap &s = s_mwLine[i % MW_LINE];
+      char b[160];
+      snprintf(b, sizeof b, "%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%d,%d,%u\n", (unsigned)s.ms, (unsigned)s.freeInt,
+               (unsigned)s.largestInt, (unsigned)s.freeDma, s.t.pcbs, s.t.tw, s.t.segs, (unsigned)s.t.unsent,
+               (unsigned)s.t.unacked, (unsigned)s.t.bufInt, (unsigned)s.t.bufExt, (unsigned)s.t.ooseq, s.media, s.streams, (unsigned)s.qlen);
+      c += b;
+    }
+    r->send(200, "text/csv", c);
+    return;
+  }
+  if (r->hasParam("walk")) { MwWalk w; mwWalk(w); r->send(200, "application/json", mwWalkJson(w)); return; }
+  if (r->hasParam("blocks")) {
+    if (!s_mwBlk) s_mwBlk = (MwBlk *)heap_caps_calloc(MW_BLK, sizeof(MwBlk), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    s_mwBlkN = 0; s_mwBlkWant = true; MwWalk w; mwWalk(w); s_mwBlkWant = false;
+    String c; c.reserve(s_mwBlkN * 34);
+    for (uint32_t i = 0; i < s_mwBlkN; i++) { char b[48]; snprintf(b, sizeof b, "%08x %u %08x %08x\n", (unsigned)s_mwBlk[i].ptr, s_mwBlk[i].size, (unsigned)s_mwBlk[i].w0, (unsigned)s_mwBlk[i].w1); c += b; }
+    r->send(200, "text/plain", c);
+    return;
+  }
+  String j = "{\"now\":" + mwSnapJson(mwSnap()) + ",\"atLow\":" + mwSnapJson(s_mwAtLow) + ",\"walkAtLow\":" + mwWalkJson(s_mwWalkAtLow) +
+             ",\"fillReserve\":" + String((unsigned)g_fillDmaReserve) + ",\"fillMemWaits\":" + String((unsigned)g_fillMemWaits) +
+             ",\"fillMemTrims\":" + String((unsigned)g_fillMemTrims) + ",\"fillShareWaits\":" + String((unsigned)g_fillShareWaits) + ",\"fillNudges\":" + String((unsigned)g_fillNudges) + ",\"sendGateWaits\":" + String((unsigned)g_sendGateWaits) +
+             ",\"queuePeak\":" + String(asynctcp_queue_peak_reset ? (unsigned)asynctcp_queue_peak_reset() : 0) +
+             ",\"failCount\":" + String((unsigned)s_mwFailN) + ",\"fails\":[";
+  const uint32_t n = s_mwFailN, from = n > 24 ? n - 24 : 0;
+  for (uint32_t i = from; i < n; i++) {
+    const MwFail &f = s_mwFails[i % 24];
+    char b[120];
+    snprintf(b, sizeof b, "%s{\"ms\":%u,\"size\":%u,\"caps\":\"0x%x\",\"task\":\"%s\",\"fn\":\"%s\"}", i > from ? "," : "",
+             (unsigned)f.ms, (unsigned)f.size, (unsigned)f.caps, f.task, f.fn);
+    j += b;
+  }
+  j += "]}";
+  r->send(200, "application/json", j);
+}
+
 static void nomadBenchRegister(AsyncWebServer &server) {
-  // Don't allocate the read-ahead buffer at boot. Holding 16 KB of DMA heap pushes the
-  // board under the streaming floor and covers and seeks get refused during playback.
-  // /bench/stream?aligned=1 allocates it on demand.
+  server.on("/bench/memwhy", HTTP_GET, benchMemWhy);
   server.on("/bench/blast", HTTP_GET, benchBlast);
   server.on("/bench/stats", HTTP_GET, [](AsyncWebServerRequest *r) {
     if (r->hasParam("reset")) nomadFillStatsReset();
@@ -573,6 +933,116 @@ static void nomadBenchRegister(AsyncWebServer &server) {
   server.on("/bench/air", HTTP_POST, benchAirStart);
   server.on("/bench/air", HTTP_GET, [](AsyncWebServerRequest *r) {
     r->send(200, "application/json", g_benchAirResult);
+  });
+  // Test trees, made on a task of their own. /bench/mk?dir=/Files/zdeep&depth=10&files=20
+  // makes a chain of folders that deep with that many empty files in each;
+  // /bench/mk?dir=/Files/zbig&n=3000 makes one folder of n empty files. Serial says when done.
+  server.on("/bench/mk", HTTP_ANY, [](AsyncWebServerRequest *r) {
+    struct Job { String dir; int depth, files, n; };
+    auto num = [&](const char *k) { return r->hasParam(k) ? (int)r->getParam(k)->value().toInt() : 0; };
+    Job *j = new Job{ r->hasParam("dir") ? r->getParam("dir")->value() : String(), num("depth"), num("files"), num("n") };
+    if (!j->dir.startsWith("/Files/z")) { delete j; r->send(400, "text/plain", "dir must be under /Files/z"); return; }
+    xTaskCreatePinnedToCore([](void *pv) {
+      Job *j = (Job *)pv;
+      const uint32_t t0 = millis();
+      int made = 0;
+      auto touch = [&](const String &folder, int count) {
+        for (int i = 0; i < count; i++) {
+          char nm[40];
+          snprintf(nm, sizeof(nm), "/bench file %05d.txt", i);
+          if (sdMutex) xSemaphoreTake(sdMutex, portMAX_DELAY);
+          File f = SD_MMC.open(folder + nm, FILE_WRITE);
+          if (f) { f.close(); made++; }
+          if (sdMutex) xSemaphoreGive(sdMutex);
+          if ((i & 15) == 15) vTaskDelay(1);
+        }
+      };
+      String path = j->dir;
+      if (sdMutex) xSemaphoreTake(sdMutex, portMAX_DELAY);
+      SD_MMC.mkdir(path);
+      if (sdMutex) xSemaphoreGive(sdMutex);
+      touch(path, j->n);
+      for (int d = 1; d <= j->depth; d++) {
+        path += "/level " + String(d) + " of a tree copied from a phone";
+        if (sdMutex) xSemaphoreTake(sdMutex, portMAX_DELAY);
+        const bool ok = SD_MMC.mkdir(path);
+        if (sdMutex) xSemaphoreGive(sdMutex);
+        if (!ok) { Serial.printf("[Bench] mk: mkdir failed at level %d\n", d); break; }
+        touch(path, j->files);
+      }
+      Serial.printf("[Bench] mk done: %d files in %lu ms under %s\n", made, (unsigned long)(millis() - t0), j->dir.c_str());
+      delete j;
+      vTaskDelete(NULL);
+    }, "BenchMk", 8 * 1024, j, 1, NULL, 1);
+    r->send(202, "text/plain", "started");
+  });
+  // Fault injection. sdfail=N: every Nth one-sector card read fails after its transfer.
+  // sddirect=1: those reads go straight to the caller with no second try.
+  // cardgone=S: the card stops answering for S seconds, as if pulled and pushed back.
+  // fillguard=0: film and archive replies ask for a whole socket on a first piece.
+  // cfggap=ms / updgap=ms: pause inside the config writer and the interface update swap, to
+  // pull power in. hold=ms: a task keeps the card lock that long. sderr=1: ask for card recovery.
+  // 0 turns a setting off.
+  server.on("/bench/fault", HTTP_ANY, [](AsyncWebServerRequest *r) {
+    auto num = [&](const char *k, volatile uint32_t &dst) {
+      if (r->hasParam(k)) dst = (uint32_t)r->getParam(k)->value().toInt();
+    };
+    num("sdfail", g_benchSdFailEvery);
+    num("sddirect", g_benchSdDirect);
+    num("full", g_benchVolFull);
+    num("idxdirect", g_benchIdxDirect);
+    num("badread", g_benchBadRead);
+    num("hang", g_benchHang);
+    num("recount", g_benchRecountNow);
+    num("labelalways", g_benchLabelAlways);
+    if (r->hasParam("cardgone")) g_benchCardGoneUntil = millis() + 1000UL * (uint32_t)r->getParam("cardgone")->value().toInt();
+    if (r->hasParam("fillguard")) g_benchNoFillGuard = r->getParam("fillguard")->value().toInt() ? 0 : 1;
+    num("cfggap", g_benchCfgGapMs);
+    num("fillreserve", g_fillDmaReserve);
+    num("fillbudget", g_fillBudget);        // 0 = no per-reply shares
+    num("updgap", g_benchUpdGapMs);
+    if (r->hasParam("sderr")) { sdErrorFlag = true; sdErrorCooldownUntil = millis(); }
+    if (r->hasParam("hold")) {
+      const uint32_t ms = (uint32_t)r->getParam("hold")->value().toInt();
+      xTaskCreate([](void *arg) {
+        const uint32_t holdMs = (uint32_t)(uintptr_t)arg;
+        if (sdMutex && xSemaphoreTake(sdMutex, portMAX_DELAY) == pdTRUE) {
+          Serial.printf("[Bench] card lock held for %u ms\n", (unsigned)holdMs);
+          vTaskDelay(pdMS_TO_TICKS(holdMs));
+          xSemaphoreGive(sdMutex);
+        }
+        vTaskDelete(NULL);
+      }, "benchHold", 3072, (void *)(uintptr_t)ms, 1, NULL);
+    }
+    String j = "{\"sdfail\":" + String((unsigned)g_benchSdFailEvery);
+    { NomadSDStats st; nomadSDStats(st); j += ",\"cardReads\":" + String((unsigned)st.reads) + ",\"cardWrites\":" + String((unsigned)st.writes); }
+    j += ",\"dmaLow\":" + String((unsigned)heap_caps_get_minimum_free_size(MALLOC_CAP_DMA | MALLOC_CAP_INTERNAL)) + ",\"dmaNow\":" + String((unsigned)heap_caps_get_free_size(MALLOC_CAP_DMA | MALLOC_CAP_INTERNAL));
+    j += ",\"lcdFlushes\":" + String((unsigned)g_lcdFlushes);
+    j += ",\"recountMs\":" + String((unsigned)g_benchRecountMs) + ",\"wifiMode\":" + String((int)WiFi.getMode());
+    j += ",\"badread\":" + String((unsigned)g_benchBadRead) + ",\"givenUp\":" + String((unsigned)g_repliesGivenUp);
+    j += ",\"sddirect\":" + String((unsigned)g_benchSdDirect);
+    j += ",\"full\":" + String((unsigned)g_benchVolFull) + ",\"sdFull\":" + String(nomadSDFull() ? 1 : 0) + ",\"cardFull\":" + String(g_cardFull ? 1 : 0) + ",\"fullRefused\":" + String((unsigned)nomadSDFullRefused());
+    j += ",\"fillguard\":" + String(g_benchNoFillGuard ? 0 : 1);
+    j += ",\"cfggap\":" + String((unsigned)g_benchCfgGapMs);
+    j += ",\"updgap\":" + String((unsigned)g_benchUpdGapMs);
+    j += ",\"sdErrorFlag\":" + String(sdErrorFlag ? "true" : "false") + "}";
+    r->send(200, "application/json", j);
+  });
+  // Every task's lowest stack headroom since it started, in bytes.
+  server.on("/bench/tasks", HTTP_GET, [](AsyncWebServerRequest *r) {
+    const UBaseType_t cap = uxTaskGetNumberOfTasks() + 4;
+    TaskStatus_t *st = (TaskStatus_t *)heap_caps_malloc(cap * sizeof(TaskStatus_t), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    if (!st) { r->send(503, "application/json", "{\"error\":\"no memory\"}"); return; }
+    const UBaseType_t n = uxTaskGetSystemState(st, cap, NULL);
+    String j = "{\"uptimeMs\":" + String((unsigned long)millis()) + ",\"heap\":" + benchHeapJson() + ",\"tasks\":[";
+    for (UBaseType_t i = 0; i < n; i++) {
+      if (i) j += ",";
+      j += "{\"name\":\"" + String(st[i].pcTaskName) + "\",\"prio\":" + String((unsigned)st[i].uxCurrentPriority);
+      j += ",\"stackFree\":" + String((unsigned)st[i].usStackHighWaterMark) + "}";
+    }
+    j += "]}";
+    free(st);
+    r->send(200, "application/json", j);
   });
   Serial.println("[Bench] /bench/* endpoints registered (NOMAD_BENCH build)");
 }

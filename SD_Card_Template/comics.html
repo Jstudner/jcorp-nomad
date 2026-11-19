@@ -3,12 +3,13 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
+<script>/* nomad-load-guard: reload, twice at most, when one of Nomad's own scripts or stylesheets fails to load */(function(){var k='nomadLoadGuard:'+location.pathname;window.addEventListener('error',function(e){var t=e.target;if(!t||!t.tagName)return;var s=t.tagName==='SCRIPT',c=t.tagName==='LINK'&&/stylesheet/i.test(t.rel||'');if(!s&&!c)return;var u=t.src||t.href||'';if(u.indexOf(location.origin+'/')!==0)return;var n=0;try{n=+sessionStorage.getItem(k)||0;}catch(x){return;}if(n>=2)return;try{sessionStorage.setItem(k,String(n+1));}catch(x){return;}setTimeout(function(){location.reload();},1500*(n+1));},true);window.addEventListener('load',function(){setTimeout(function(){try{sessionStorage.removeItem(k);}catch(x){}},15000);});})();</script>
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Comic Reader - Nomad</title>
     <link rel="stylesheet" href="/master.css">
     <script src="/theme-boot.js?v=5"></script>
 <script src="/theme-manager.js?v=5"></script>
-    <script src="/nomad-utils.js?v=49"></script>
+    <script src="/nomad-utils.js?v=51"></script>
     <script src="/nomad-icons.js?v=1"></script>
     <script src="/assets/nomad-marks.js?v=1"></script>
     <script src="/assets/pako.min.js"></script>
@@ -310,7 +311,7 @@
 
         #overlay {
             position: fixed;
-            inset: 0;
+            top:0;right:0;bottom:0;left:0;inset:0;
             z-index: 500;
             background: rgba(0,0,0,0.85);
             display: flex;
@@ -377,7 +378,7 @@
         <div id="page-indicator"></div>
         <a id="next-comic" href="#" hidden onclick="openNextComic(); return false;">Next &#8250;</a>
         <div class="topbar-controls">
-            <button id="marks-btn" class="mode-select marks-btn" title="Bookmarks and notes" aria-label="Bookmarks and notes" data-icon="pin"></button>
+            <button id="marks-btn" class="mode-select marks-btn" title="Bookmarks" aria-label="Bookmarks" data-icon="pin"></button>
             <select id="mode-select" class="mode-select" onchange="changeMode()">
                 <option value="webtoon">Webtoon</option>
                 <option value="paged">Single page</option>
@@ -403,7 +404,7 @@
 
     <div id="overlay">
         <div class="spinner"></div>
-        <div id="overlay-status">Opening comic…</div>
+        <div id="overlay-status">Opening…</div>
     </div>
 
     <div id="error-banner"></div>
@@ -412,8 +413,8 @@
     const params      = new URLSearchParams(window.location.search);
     const comicPath   = params.get('path') || '';
     let   entries     = [];
-    let   mode        = localStorage.getItem('nomad_comic_mode') || 'webtoon';
-    let   direction   = localStorage.getItem('nomad_comic_direction') || 'ltr';
+    let   mode        = NomadPrefs.raw('nomad_comic_mode') || 'webtoon';
+    let   direction   = NomadPrefs.raw('nomad_comic_direction') || 'ltr';
     let   currentPage = 0;
     const blobURLs    = {};
     const PRELOAD     = 4;
@@ -464,7 +465,6 @@
 
     function setStatus(msg) {
         document.getElementById('overlay-status').textContent = msg;
-        console.log('[ComicReader]', msg);
     }
     function hideOverlay() {
         document.getElementById('overlay').classList.add('hidden');
@@ -489,8 +489,8 @@
         document.getElementById('comic-title').textContent = name;
         document.getElementById('back-btn').href = '/books';
 
-        const savedMode = localStorage.getItem('nomad_comic_mode') || 'webtoon';
-        const savedDirection = localStorage.getItem('nomad_comic_direction') || 'ltr';
+        const savedMode = NomadPrefs.raw('nomad_comic_mode') || 'webtoon';
+        const savedDirection = NomadPrefs.raw('nomad_comic_direction') || 'ltr';
 
         mode = savedMode;
         direction = savedDirection;
@@ -506,7 +506,7 @@
             document.getElementById('reader').className = 'webtoon';
         }
 
-        setStatus('Checking file type…');
+        setStatus('Opening…');
 
         try {
             const isCBZ = comicPath.toLowerCase().endsWith('.cbz');
@@ -541,7 +541,7 @@
     let zipTotal = 0;
     const u64 = (v, o) => v.getUint32(o, true) + v.getUint32(o + 4, true) * 4294967296;
     async function loadCBZFile() {
-        setStatus('Opening the comic…');
+        setStatus('Opening…');
         const url = '/media?file=' + encodeURIComponent(comicPath);
         const tail = await rangeRead(url, 'bytes=-65536');
         zipTotal = parseInt((/\/(\d+)\s*$/.exec(tail.range) || [])[1], 10) || tail.buf.byteLength;
@@ -564,7 +564,7 @@
         cdOff += shift;
         let cd;
         if (cdOff >= tailStart) cd = tail.buf.slice(cdOff - tailStart, cdOff - tailStart + cdSize);
-        else { setStatus('Reading the page list…'); cd = (await rangeRead(url, `bytes=${cdOff}-${cdOff + cdSize - 1}`)).buf; }
+        else { setStatus('Opening…'); cd = (await rangeRead(url, `bytes=${cdOff}-${cdOff + cdSize - 1}`)).buf; }
 
         const v = new DataView(cd), dec = new TextDecoder();
         const imageExts = /\.(jpe?g|png|gif|webp|bmp|avif)$/i;
@@ -592,7 +592,7 @@
             o += 46 + nameLen + extraLen + comLen;
         }
         entries = list.sort((a, b) => a.filename.localeCompare(b.filename, undefined, { numeric: true, sensitivity: 'base' }));
-        if (!entries.length) { showFatalError('No pages found in this CBZ (it holds no JPG, PNG, WEBP, GIF or AVIF images).'); return; }
+        if (!entries.length) { showFatalError('No JPG, PNG, WEBP, GIF or AVIF pages in this CBZ.'); return; }
         buildReader();
         updateIndicator();
         hideOverlay();
@@ -649,8 +649,7 @@
     }
 
     async function loadCBRFile() {
-        setStatus('Downloading CBR file…');
-        console.log('[ComicReader] Opening CBR file (full download required):', comicPath);
+        setStatus('Downloading…');
 
         const fileUrl = '/media?file=' + encodeURIComponent(comicPath);
 
@@ -673,7 +672,7 @@
 
             if (contentLength > 0) {
                 const percent = Math.floor((receivedLength / contentLength) * 100);
-                setStatus(`Downloading CBR file… ${percent}%`);
+                setStatus(`Downloading… ${percent}%`);
             }
         }
 
@@ -684,14 +683,13 @@
             position += chunk.length;
         }
 
-        setStatus('Extracting RAR archive…');
+        setStatus('Unpacking…');
         // libunrar.js fetches libunrar.js.mem after it loads. calling it before that lands
         // aborts with abort(0)
         for (let waited = 0; !(window.Module && window.Module.calledRun); waited += 100) {
             if (waited > 15000) throw new Error('The RAR reader did not finish loading.');
             await new Promise(r => setTimeout(r, 100));
         }
-        console.log('[ComicReader] Uncompressing RAR with uncompress.js');
 
         const archive = await new Promise((resolve, reject) => {
             archiveOpenArrayBuffer(comicPath.split('/').pop(), arrayBuffer.buffer, (archive, error) => {
@@ -703,14 +701,12 @@
             });
         });
 
-        console.log('[ComicReader] Archive opened, type:', archive.archive_type, 'entries:', archive.entries.length);
 
         const imageExts = /\.(jpe?g|png|gif|webp|bmp|avif)$/i;
         const imageEntries = archive.entries.filter(entry => entry.is_file && imageExts.test(entry.name));
 
-        console.log('[ComicReader] Found', imageEntries.length, 'image files');
 
-        setStatus('Loading image data…');
+        setStatus('Unpacking…');
 
         const loadedEntries = await Promise.all(
             imageEntries.map((entry, idx) => {
@@ -739,18 +735,18 @@
         archiveClose(archive);
 
         if (entries.length === 0) {
-            showFatalError('No images found in this CBR file.');
+            showFatalError('No pages found in this CBR.');
             return;
         }
 
-        setStatus('Building reader…');
+        setStatus('Opening…');
         buildReader();
         updateIndicator();
         hideOverlay();
     }
 
     async function loadComicDirectory() {
-        setStatus('Loading comic directory…');
+        setStatus('Opening…');
 
         // the firmware's NDJSON index first, then a live /listfiles scan. don't use /list,
         // on Nomad it falls through to the captive portal
@@ -800,11 +796,11 @@
             );
 
         if (entries.length === 0) {
-            showFatalError('No images found in this directory.');
+            showFatalError('No images in this folder.');
             return;
         }
 
-        setStatus('Building reader…');
+        setStatus('Opening…');
         buildReader();
         updateIndicator();
         hideOverlay();
@@ -841,7 +837,7 @@
         // read the saved place before applyMode, which saves currentPage in the page modes
         // and would overwrite it with page 1. A finished comic starts again from the top.
         const done = (NomadProgress.get(comicPath) || {}).done;
-        const savedPage = done ? 0 : parseInt(localStorage.getItem('comic_page_' + comicPath) || '0');
+        const savedPage = done ? 0 : parseInt(NomadPrefs.raw('comic_page_' + comicPath) || '0');
         currentPage = Math.max(0, Math.min(savedPage, entries.length - 1));
 
         document.getElementById('mode-select').value = mode;
@@ -944,7 +940,7 @@
     // menu's Continue (NomadProgress, nomad-utils.js). A finished comic opened again on its
     // first page stays finished until you turn one.
     function savePlace(idx) {
-        localStorage.setItem('comic_page_' + comicPath, idx);
+        NomadPrefs.setRaw('comic_page_' + comicPath, idx);
         const n = entries.length;
         if (!n) return;
         const was = NomadProgress.get(comicPath);
@@ -1042,7 +1038,6 @@
             if (newRetryCount < MAX_RETRIES) {
                 const retryDelay = Math.min(1000 * Math.pow(2, retryCount), 30000);
                 img.dataset.retryCount = newRetryCount.toString();
-                console.log(`[ComicReader] Retry ${newRetryCount}/${MAX_RETRIES} for page ${idx} in ${retryDelay}ms`);
                 setTimeout(() => decodeImage(idx), retryDelay);
             } else {
                 console.error(`[ComicReader] Page ${idx} failed permanently after ${MAX_RETRIES} retries`);
@@ -1053,14 +1048,14 @@
     function changeMode() {
         const modeSelect = document.getElementById('mode-select');
         mode = modeSelect.value;
-        localStorage.setItem('nomad_comic_mode', mode);
+        NomadPrefs.setRaw('nomad_comic_mode', mode);
         applyMode();
     }
 
     function changeDirection() {
         const directionSelect = document.getElementById('direction-select');
         direction = directionSelect.value;
-        localStorage.setItem('nomad_comic_direction', direction);
+        NomadPrefs.setRaw('nomad_comic_direction', direction);
         applyDirection();
     }
 
@@ -1258,7 +1253,6 @@
     } else if (typeof archiveOpenArrayBuffer === 'undefined') {
         showFatalError('The comic reader is missing a file. Copy the card files onto it again.');
     } else {
-        console.log('[ComicReader] Libraries loaded, initializing...');
         loadArchiveFormats(['rar']);
         init();
         findNextComic();

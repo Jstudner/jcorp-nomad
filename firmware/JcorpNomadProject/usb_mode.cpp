@@ -120,6 +120,14 @@ void usb_setup() {
 void usb_loop() {
   delay(25);  // feed WDT; button poll needs no more than this
 
+  // Store "the computer changed the card" as soon as it happens. Pulling the stick out of
+  // the computer is a power cut: neither the eject event nor the button below gets to run.
+  static bool flagStored = false;
+  if (s_usbWroteData && !flagStored) {
+    set_needs_reindex_flag();
+    flagStored = true;
+  }
+
   if (digitalRead(BOOT_BUTTON_PIN) == LOW) {
     if (s_usbWroteData) {
       set_needs_reindex_flag();

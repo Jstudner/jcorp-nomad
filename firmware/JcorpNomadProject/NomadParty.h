@@ -3,13 +3,13 @@
 // can start before anything is picked, and the host can let everyone vote.
 //
 // The host is the clock. It sends {playing, position} on play, pause and seek and every few
-// seconds. The Nomad keeps when that arrived, and every answer says how long ago that was
+// seconds. Nomad keeps when that arrived, and every answer says how long ago that was
 // (age, ms), so a viewer never compares its own clock with anyone's. The hotspot has no
 // internet time and phones on it disagree by seconds.
 //
 // Voting: the host opens a vote (most votes, a random pick from the picks, or two rounds).
 // Everyone nominates one film or episode, the picks show live with who chose them. When the
-// host closes it the Nomad decides (ties at random), and the winner becomes what plays.
+// host closes it Nomad decides (ties at random), and the winner becomes what plays.
 //
 //   POST /api/party/create {name, path?, title?, cover?}      -> {code, token, member}
 //   POST /api/party/join   {code, name}                        -> {code, member}
@@ -26,7 +26,7 @@
 #ifndef NOMAD_PARTY_H
 #define NOMAD_PARTY_H
 #include <Arduino.h>
-#include <ESPAsyncWebServer.h>
+#include "src/AsyncWebServer/ESPAsyncWebServer.h"   // carried here, with Nomad's limits (src/AsyncWebServer/README.md)
 #include <ArduinoJson.h>
 #include <esp_heap_caps.h>
 #include <esp_random.h>
@@ -72,6 +72,7 @@ struct Party {
   uint8_t nrunoff;
   int8_t winner;             // index into cand once decided
   PartyMember m[PARTY_MEMBERS];   // m[0] is the host
+  uint32_t hostIp;           // the address that started it
 };
 static Party *g_party = nullptr;
 static SemaphoreHandle_t g_partyMx = nullptr;
@@ -91,8 +92,9 @@ static void partyCopy(char *dst, size_t n, const char *src) {
     size_t len = *s < 0x80 ? 1 : (*s >> 5) == 6 ? 2 : (*s >> 4) == 14 ? 3 : (*s >> 3) == 30 ? 4 : 1;
     if (o + len >= n) break;
     if (*s < 0x20 || *s == 0x7f) { s++; continue; }
-    for (size_t k = 0; k < len && s[k]; k++) dst[o++] = s[k];
-    s += len;
+    size_t k = 0;
+    for (; k < len && s[k]; k++) dst[o++] = s[k];
+    s += k;   // a character cut short by the end of the text: stop at the end, not past it
   }
   dst[o] = 0;
   while (o && dst[o - 1] == ' ') dst[--o] = 0;
@@ -306,6 +308,20 @@ static void partyCreate(AsyncWebServerRequest *r, JsonDocument &b) {
   PartyLock lk;
   if (!lk.ok) { partyErr(r, 503, "busy"); return; }
   partyReap();
+  // One party per phone: starting another ends the one it was hosting, so one phone cannot
+  // hold all four (each lasts 10 minutes from its host's last word).
+  const uint32_t ip = r->client() ? (uint32_t)r->client()->remoteIP() : 0;
+#if NOMAD_BENCH
+  const uint32_t ipKey = r->hasParam("benchip") ? (uint32_t)r->getParam("benchip")->value().toInt() : ip;
+#else
+  const uint32_t ipKey = ip;
+#endif
+  for (int i = 0; i < PARTY_MAX; i++) {
+    if (g_party[i].active && ipKey && g_party[i].hostIp == ipKey) {
+      webLogf("info", "Watch together: party %s ended, its host started another", g_party[i].code);
+      g_party[i].active = false;
+    }
+  }
   Party *p = nullptr;
   for (int i = 0; i < PARTY_MAX; i++) if (!g_party[i].active) { p = &g_party[i]; break; }
   if (!p) { partyErr(r, 503, "Every watch party slot is in use. Try again when one ends."); return; }
@@ -321,6 +337,7 @@ static void partyCreate(AsyncWebServerRequest *r, JsonDocument &b) {
   p->m[0].seen = p->hostMs = p->updMs = millis();
   p->winner = -1;
   p->seq = 1;
+  p->hostIp = ipKey;
   p->active = true;
   JsonDocument o;
   o["code"] = p->code; o["token"] = p->token; o["member"] = p->m[0].id;

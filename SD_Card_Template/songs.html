@@ -3,12 +3,13 @@
 <html lang="en">
 <head>
 <meta charset="utf-8" />
+<script>/* nomad-load-guard: reload, twice at most, when one of Nomad's own scripts or stylesheets fails to load */(function(){var k='nomadLoadGuard:'+location.pathname;window.addEventListener('error',function(e){var t=e.target;if(!t||!t.tagName)return;var s=t.tagName==='SCRIPT',c=t.tagName==='LINK'&&/stylesheet/i.test(t.rel||'');if(!s&&!c)return;var u=t.src||t.href||'';if(u.indexOf(location.origin+'/')!==0)return;var n=0;try{n=+sessionStorage.getItem(k)||0;}catch(x){return;}if(n>=2)return;try{sessionStorage.setItem(k,String(n+1));}catch(x){return;}setTimeout(function(){location.reload();},1500*(n+1));},true);window.addEventListener('load',function(){setTimeout(function(){try{sessionStorage.removeItem(k);}catch(x){}},15000);});})();</script>
 <meta name="viewport" content="width=device-width,initial-scale=1" />
 <title>Songs</title>
 <link rel="stylesheet" href="master.css">
 <script src="/theme-boot.js?v=5"></script>
 <script src="/nomad-icons.js?v=1"></script>
-<script src="/nomad-utils.js?v=49"></script>
+<script src="/nomad-utils.js?v=51"></script>
 <script src="theme-manager.js?v=5"></script>
 <style>
 /* the frame is a column: the search bar, then the list filling what is left */
@@ -184,13 +185,14 @@ async function scanLibrary(){
     // index still being built (202): try again shortly rather than showing nothing
     if(NomadIndex.isBuilding(err) && (window.__idxRetries = (window.__idxRetries||0) + 1) <= 10){ setTimeout(scanLibrary, 3000); return; }
     console.warn('[Songs] index failed', err);
-    allListEl.innerHTML = '<p class="list-empty">Couldn\'t load music. Refresh to try again.</p>';
+    allListEl.innerHTML = '<p class="list-empty">Couldn\'t load music. Trying again…</p>';
+    NomadRetry.later('library', scanLibrary);
     return;
   }
+  NomadRetry.done('library');
   // artist and album, then the song: one collator, made once (localeCompare with options
   // builds a new one per comparison, which is slow on a big library)
   allTracks.sort((a, b) => COLL.compare(a.display, b.display) || COLL.compare(a.name, b.name));
-  console.log('[Songs] scan complete. tracks:', allTracks.length);
   applySearch(true);
   // the player may already be playing something, or hold a queue: ask, now the list can show it
   window.parent.postMessage({ type: 'REQUEST_STATE' }, location.origin);

@@ -5,6 +5,7 @@
     <link rel="stylesheet" href="/master.css">
     <script src="/theme-boot.js?v=5"></script>
     <meta charset="utf-8" />
+<script>/* nomad-load-guard: reload, twice at most, when one of Nomad's own scripts or stylesheets fails to load */(function(){var k='nomadLoadGuard:'+location.pathname;window.addEventListener('error',function(e){var t=e.target;if(!t||!t.tagName)return;var s=t.tagName==='SCRIPT',c=t.tagName==='LINK'&&/stylesheet/i.test(t.rel||'');if(!s&&!c)return;var u=t.src||t.href||'';if(u.indexOf(location.origin+'/')!==0)return;var n=0;try{n=+sessionStorage.getItem(k)||0;}catch(x){return;}if(n>=2)return;try{sessionStorage.setItem(k,String(n+1));}catch(x){return;}setTimeout(function(){location.reload();},1500*(n+1));},true);window.addEventListener('load',function(){setTimeout(function(){try{sessionStorage.removeItem(k);}catch(x){}},15000);});})();</script>
     <meta name="viewport" content="width=device-width,initial-scale=1" />
     <title>Nomad • PDF Reader</title>
     <script src="/assets/pdf.min.js"></script>
@@ -120,7 +121,7 @@
 
         .loading-overlay {
             position: absolute;
-            inset: 0;
+            top:0;right:0;bottom:0;left:0;inset:0;
             display: flex;
             flex-direction: column;
             justify-content: center;
@@ -242,7 +243,7 @@
     </style>
     <script src="theme-manager.js?v=5"></script>
     <script src="/nomad-icons.js?v=1"></script>
-    <script src="/nomad-utils.js?v=49"></script>
+    <script src="/nomad-utils.js?v=51"></script>
     <script src="/assets/nomad-marks.js?v=1"></script>
     <style>
         .reader-btn { position: relative; }
@@ -255,7 +256,7 @@
             <a class="reader-btn" href="/books" title="Back to Books" aria-label="Back to Books">&#8249; Books</a>
             <div class="reader-title" id="readerTitle">Loading…</div>
             <div class="reader-controls">
-                <button class="reader-btn" id="marksBtn" title="Bookmarks and notes" aria-label="Bookmarks and notes"><span data-icon="pin"></span></button>
+                <button class="reader-btn" id="marksBtn" title="Bookmarks" aria-label="Bookmarks"><span data-icon="pin"></span></button>
                 <button class="reader-btn" id="zoomOut" title="Zoom out" aria-label="Zoom out">&#8722;</button>
                 <button class="reader-btn" id="zoomReset" title="Reset zoom">100%</button>
                 <button class="reader-btn" id="zoomIn" title="Zoom in" aria-label="Zoom in">+</button>
@@ -510,7 +511,7 @@
             if (err && (err.name === 'InvalidPDFException' || /Invalid PDF/i.test(m))) return 'This file isn\'t a readable PDF. It may be damaged: try copying it to the card again.';
             if (m === 'missing') return 'The file is missing from the card.';
             if (err instanceof TypeError || /fetch|network/i.test(m)) return 'Lost touch with Nomad. Check you\'re still on its WiFi, then reload.';
-            return 'Could not open this PDF (' + m + ').';
+            return 'Couldn\'t open this PDF (' + m + ').';
         }
 
         async function loadPDF(path) {
@@ -544,8 +545,8 @@
                         transport.onDataRange(begin, new Uint8Array(r.buf));
                         if (pdfDoc) return;
                         const pct = Math.min(90, 5 + (got / total) * 85), secs = (Date.now() - t0) / 1000;
-                        if (secs > 20) setLoadingProgress(pct, `Still finding the pages of this ${mb(total)} MB PDF (${mb(got)} MB read). ` +
-                            'Re-saving this PDF on a computer (Save As or Print to PDF) makes it open faster.');
+                        if (secs > 20) setLoadingProgress(pct, `Still finding the pages… ${mb(got)} of ${mb(total)} MB read. ` +
+                            'Re-save it on a computer (Save As or Print to PDF) to open faster.');
                         else if (secs > 8) setLoadingProgress(pct, `Finding the pages… ${mb(got)} MB read`);
                         else setLoadingProgress(pct, `Opening… ${mb(got)} MB read`);
                     }).catch((e) => console.error('PDF read', begin, e));

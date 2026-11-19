@@ -11,9 +11,13 @@
 // So read whole sectors into one internal, DMA-capable buffer and keep them per response
 // in PSRAM. Later fills are a memcpy, and the card only sees aligned multi-sector reads.
 //
-// Off unless turned on (g_nomadAlignedReads), so it can be compared against the normal
-// path on the same build. One response owns one cache. Nothing here is shared between
-// responses except the DMA buffer, which is only touched with sdMutex held.
+// On by default. With eight downloads at once on the S3, the plain path spends 12.3 s of
+// every 30 in card reads on the network task (one card command and one DMA allocation per
+// sector) while ack events and WiFi frames back up behind it; aligned 8 KB reads take 1.4 s.
+// The buffer is taken at the first film, not at boot, and the plain path is the fallback when
+// it can't be had. /bench/stream?aligned=0 compares the two.
+// One response owns one cache. Nothing here is shared between responses except the DMA
+// buffer, which is only touched with sdMutex held.
 
 #ifndef NOMAD_READ_AHEAD_H
 #define NOMAD_READ_AHEAD_H
@@ -25,17 +29,21 @@
 #include <memory>
 #include "NomadSD.h"
 
-// 16 KB reads are fast into internal DMA memory on the S3. 32 KB isn't available as one
-// internal DMA block on a running Mk4 (largest free block ~31-36 KB).
-static const size_t NOMAD_RA_MAX = 16384;          // the DMA buffer, allocated once
-static volatile bool g_nomadAlignedReads = false;
-static volatile size_t g_nomadRaBytes = 16384;     // per refill, <= NOMAD_RA_MAX, multiple of 512
+// 8 KB reads cost the card no more time than 16 KB (1.4 s against 1.6 s of 30 for eight
+// downloads) and leave 8 KB more internal memory for the network.
+#ifndef NOMAD_ALIGNED_READS
+#define NOMAD_ALIGNED_READS 1
+#endif
+static const size_t NOMAD_RA_MAX = 8192;           // the DMA buffer, allocated once
+static volatile bool g_nomadAlignedReads = NOMAD_ALIGNED_READS;
+static volatile size_t g_nomadRaBytes = 8192;      // per refill, <= NOMAD_RA_MAX, multiple of 512
+static volatile bool g_nomadRaTried = false;       // one try at the buffer; the plain path if it failed
 static uint8_t *g_nomadRaDma = nullptr;
 
-// Allocate the shared DMA buffer. Called when the mode is turned on, so a build that never
-// uses it never pays for it. Internal RAM, 64-byte aligned (a superset of what sdmmc wants).
+// Allocate the shared DMA buffer, at the first film. Internal RAM, 64-byte aligned (a superset of what sdmmc wants).
 static bool nomadReadAheadEnsureBuffer() {
   if (g_nomadRaDma) return true;
+  g_nomadRaTried = true;
   g_nomadRaDma = (uint8_t *)heap_caps_aligned_alloc(64, NOMAD_RA_MAX,
                                                     MALLOC_CAP_DMA | MALLOC_CAP_INTERNAL);
   return g_nomadRaDma != nullptr;
@@ -75,7 +83,7 @@ static inline void nomadFillNote(size_t maxLen, const uint8_t *buffer, uint64_t 
 // the card reads badly. 0 = leave it alone.
 #include "lwip/tcpip.h"
 #include "lwip/tcp.h"
-#include <ESPAsyncWebServer.h>
+#include "src/AsyncWebServer/ESPAsyncWebServer.h"   // carried here, with Nomad's limits (src/AsyncWebServer/README.md)
 static inline void nomadRaiseSndBuf(AsyncWebServerRequest *request, uint32_t bytes) {
   if (!bytes || !request || !request->client()) return;
   tcp_pcb *pcb = request->client()->pcb();

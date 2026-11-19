@@ -3,6 +3,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8" />
+<script>/* nomad-load-guard: reload, twice at most, when one of Nomad's own scripts or stylesheets fails to load */(function(){var k='nomadLoadGuard:'+location.pathname;window.addEventListener('error',function(e){var t=e.target;if(!t||!t.tagName)return;var s=t.tagName==='SCRIPT',c=t.tagName==='LINK'&&/stylesheet/i.test(t.rel||'');if(!s&&!c)return;var u=t.src||t.href||'';if(u.indexOf(location.origin+'/')!==0)return;var n=0;try{n=+sessionStorage.getItem(k)||0;}catch(x){return;}if(n>=2)return;try{sessionStorage.setItem(k,String(n+1));}catch(x){return;}setTimeout(function(){location.reload();},1500*(n+1));},true);window.addEventListener('load',function(){setTimeout(function(){try{sessionStorage.removeItem(k);}catch(x){}},15000);});})();</script>
 <meta name="viewport" content="width=device-width,initial-scale=1" />
 <meta name="description" content="Jcorp Nomad Menu" />
 <title>Jcorp Nomad</title>
@@ -11,7 +12,7 @@
 <link rel="stylesheet" href="/master.css">
 <script src="/theme-boot.js?v=5"></script>
 <script src="/theme-manager.js?v=5"></script>
-<script src="/nomad-utils.js?v=49"></script>
+<script src="/nomad-utils.js?v=51"></script>
 <style>
   /* Menu-specific functional CSS layout and search functionality */
   :root {
@@ -32,7 +33,7 @@
   /* full-page background layer to avoid mobile variable bleed / white gaps */
   .page-bg {
     position:fixed;
-    inset:0;
+    top:0;right:0;bottom:0;left:0;inset:0;
     background:var(--bg);
     z-index:0;
     pointer-events:none;
@@ -304,7 +305,7 @@
     width:100%;
   }
 
-  /* the tiles come in together: a first visit holds the grid until the Nomad has said
+  /* the tiles come in together: a first visit holds the grid until Nomad has said
      which optional pages it has (at most 1.2 s), then fades it in whole. A tile that
      changes after that fades in on its own */
   #tiles { transition: opacity .18s ease-out; }
@@ -542,7 +543,7 @@
     background:none;border:0;padding:0;font:inherit;color:inherit;text-align:left;}
   .resume-thumb{position:relative;aspect-ratio:2/3;border-radius:10px;overflow:hidden;display:grid;place-items:center;color:#fff;
     background:linear-gradient(145deg,var(--primary),color-mix(in srgb,var(--primary) 55%,#000));box-shadow:0 4px 12px rgba(0,0,0,.12);}
-  .resume-thumb img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;}
+  .resume-thumb img{position:absolute;top:0;right:0;bottom:0;left:0;inset:0;width:100%;height:100%;object-fit:cover;}
   .resume-thumb .rt-name{padding:10px;font-weight:800;font-size:.82rem;line-height:1.25;text-align:center;overflow-wrap:anywhere;
     display:-webkit-box;-webkit-line-clamp:5;-webkit-box-orient:vertical;overflow:hidden;}
   .resume-item:hover .resume-thumb,.resume-item:focus-visible .resume-thumb{outline:2px solid var(--primary);outline-offset:2px;}
@@ -569,7 +570,7 @@
       <img src="/Logo.png" alt="Jcorp Nomad logo" onerror="this.style.display='none'">
     </div>
     <div style="min-width:0">
-      <div class="title" aria-label="Application title">Jcorp Nomad</div>
+      <div class="title">Jcorp Nomad</div>
     </div>
   </div>
 
@@ -999,9 +1000,11 @@ function previewPathFromItemPath(itemPath){
 
 /* Builds the search index and preview maps (concurrent fetches) */
 async function buildSearchIndex(forceRebuild = false){
-  if(!forceRebuild && searchIndexCache && searchIndexCache.entries) return searchIndexCache.entries;
+  // a partial index (a section Nomad didn't send) is built again, at most every 15 s
+  const stale = searchIndexCache && searchIndexCache.partial && Date.now() - searchIndexCache.ts > 15000;
+  if(!forceRebuild && !stale && searchIndexCache && searchIndexCache.entries) return searchIndexCache.entries;
 
-  // Built from the Nomad's own folder indexes every time. Don't save a copy to the card,
+  // Built from Nomad's own folder indexes every time. Don't save a copy to the card,
   // nothing would check it against the library. Unchanged folder indexes come back as
   // 304s from the browser's cache.
 
@@ -1018,14 +1021,30 @@ async function buildSearchIndex(forceRebuild = false){
       const byBucket = {};
       for(const b of BUCKETS) byBucket[b] = [];
 
-      const fetchPromises = LIVE_BUCKETS.map(b => {
+      // two at a time, each asked again on a busy answer or a dropped connection: all nine at
+      // once make Nomad turn some away. One still missing after that marks the index partial,
+      // and the next search builds it again.
+      let missing = 0;
+      const getBucket = async (b) => {
         const idxUrl = `${INDEX_DIR}/${b}.index.ndjson`;
-        return fetch(idxUrl, { cache: 'no-cache' })
-          .then(r => r.ok ? r.text() : '')
-          .catch(() => '')
-          .then(txt => ({ bucket: b, txt: /^\s*</.test(txt) ? '' : txt }));
-      });
-      const settled = await Promise.allSettled(fetchPromises);
+        for(let i = 0; i < 3; i++){
+          if(i) await new Promise(r => setTimeout(r, 800 * i));
+          try {
+            const r = await NomadNet.fetch(idxUrl, { cache: 'no-cache' }, 20000);
+            if(r.status === 404) return { bucket: b, txt: '' };     // no index for that section: nothing in it
+            if(!r.ok) continue;
+            const txt = await r.text();
+            return { bucket: b, txt: /^\s*</.test(txt) ? '' : txt };
+          } catch(e){}
+        }
+        missing++;
+        return { bucket: b, txt: '' };
+      };
+      const settled = [];
+      for(let i = 0; i < LIVE_BUCKETS.length; i += 2){
+        const two = await Promise.all(LIVE_BUCKETS.slice(i, i + 2).map(getBucket));
+        for(const value of two) settled.push({ status: 'fulfilled', value });
+      }
       for(const res of settled){
         if(res.status !== 'fulfilled') continue;
         const { bucket, txt } = res.value || {};
@@ -1065,7 +1084,7 @@ async function buildSearchIndex(forceRebuild = false){
                 const text = await tryFetchText(url, 2000); // 2s timeout
                 return { bucket, parentDir, text };
             });
-            const settled = await Promise.allSettled(batchPromises);
+            const settled = await Promise.all(batchPromises.map(p => p.then(value => ({ status: 'fulfilled', value }), () => ({ status: 'rejected' }))));
             nestedResults.push(...settled.filter(r => r.status === 'fulfilled').map(r => r.value));
         }
         const nestedSettled = nestedResults;
@@ -1201,13 +1220,17 @@ async function buildSearchIndex(forceRebuild = false){
         }
       })();
 
+      // what is already listed, as a set (entries.some() per file is quadratic)
+      const listed = new Set(entries.filter(e => e.path).map(e => (e.bucket || '').toLowerCase() + '|' + normalizePath(e.path)));
       function addMissingFilesFromBucket(bucketName){
         const list = byBucket[bucketName] || [];
         for(const it of list){
           if(it.kind !== 'file') continue;
           if(it.subtype === 'image') continue;
           const norm = normalizePath(it.path || '');
-          if(entries.some(e => e.path && normalizePath(e.path) === norm && (e.bucket || '').toLowerCase() === bucketName.toLowerCase())) continue;
+          const key = bucketName.toLowerCase() + '|' + norm;
+          if(listed.has(key)) continue;
+          listed.add(key);
           entries.push({
             title: friendlyDisplayName(it.name || it.path || ''),
             bucket: bucketName,
@@ -1284,8 +1307,7 @@ async function buildSearchIndex(forceRebuild = false){
       }
 
       for (const e of finalEntries) { delete e.raw; prepareForSearch(e); }
-      searchIndexCache = { entries: finalEntries, ts: Date.now() };
-      console.info('Search index built:', finalEntries.length);
+      searchIndexCache = { entries: finalEntries, ts: Date.now(), partial: missing > 0 };
       return finalEntries;
     } finally {
       delete buildSearchIndex._building;
@@ -1496,20 +1518,25 @@ function renderResults(rows, q, tokens, shortcuts){
       thumb.classList.add('rect');
       const img = document.createElement('img');
       if(preview){
-        img.src = preview;
         img.alt = r.title || '';
-        img.loading = 'lazy';
-        img.onerror = ()=> { img.style.display='none'; thumb.innerHTML = iconSVG(subtype === 'audio' ? 'audio' : (subtype === 'video' ? 'video' : 'file')); };
+        // the shared loader: three at a time, a refused one asked again
+        let given = false;
+        img.addEventListener('error', () => { if(given || +(img.dataset.tries || 0) < NomadImages.RETRIES) return; given = true; img.style.display='none'; thumb.innerHTML = iconSVG(subtype === 'audio' ? 'audio' : (subtype === 'video' ? 'video' : 'file')); });
         thumb.appendChild(img);
+        img.dataset.tries = String(NomadImages.RETRIES - 1);   // one retry: many guessed previews simply aren't there
+        NomadImages.observe(img, preview);
       } else {
         thumb.innerHTML = iconSVG(subtype === 'video' ? 'video' : 'file');
       }
     } else if(bucket === 'gallery' || bucket === 'cookbook' || bucket === 'workshop'){
       thumb.classList.add('square');
       if(preview){
-        const img = document.createElement('img'); img.src = preview; img.alt = r.title || ''; img.loading='lazy';
-        img.onerror = ()=> { img.style.display='none'; thumb.innerHTML = iconSVG('file'); };
+        const img = document.createElement('img'); img.alt = r.title || '';
+        let given = false;
+        img.addEventListener('error', () => { if(given || +(img.dataset.tries || 0) < NomadImages.RETRIES) return; given = true; img.style.display='none'; thumb.innerHTML = iconSVG('file'); });
         thumb.appendChild(img);
+        img.dataset.tries = String(NomadImages.RETRIES - 1);   // one retry: many guessed previews simply aren't there
+        NomadImages.observe(img, preview);
       } else {
         thumb.innerHTML = iconSVG('file');
       }
@@ -1623,7 +1650,7 @@ async function performSearch(q){
       }
     }
     mediaResults.sort((a, b) => b.sc - a.sc
-      || (BUCKET_ORDER[a.e.bucket] ?? 9) - (BUCKET_ORDER[b.e.bucket] ?? 9)
+      || (BUCKET_ORDER[a.e.bucket] != null ? BUCKET_ORDER[a.e.bucket] : 9) - (BUCKET_ORDER[b.e.bucket] != null ? BUCKET_ORDER[b.e.bucket] : 9)
       || (a.e.title || '').length - (b.e.title || '').length);
     mediaResults = mediaResults.map(r => r.e);
 
@@ -1724,7 +1751,6 @@ document.addEventListener('click', (ev) => {
 
 /* warm index and load resume on boot */
 (function warm(){
-  console.info('Page loaded - search index will build when needed');
 })();
 /* admin-controlled UI config: hidden pages, chat visibility, message of the day.
    The conditional-reveal probes below also honor it via isPageHidden() so a slow

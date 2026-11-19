@@ -428,7 +428,7 @@
     // Dijkstra/A* on one level. sources: [[node, cost]]; targets: Map node id -> extra cost
     // (minExtra: the smallest of those, when some are below zero). reverse: search
     // backwards (edges walked against their direction). Stops at the best target, or
-    // when stop(cost) says so (then returns everything settled).
+    // when stop(cost) returns true (then returns everything settled).
     async search(level, mode, sources, targets, goal, opts = {}) {
       const heap = new Heap();
       const dist = new Map(), came = new Map(), done = new Set();

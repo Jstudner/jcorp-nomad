@@ -94,17 +94,25 @@ const MP = {
   // Poll the room; onUpdate(state) fires whenever the server has a newer seq.
   // onInfo(j) fires every poll (join detection etc.). Call stop() to end.
   poll(onUpdate, onInfo, interval) {
-    // a poll already running would keep its own timer chain alive, since
-    // stop() can only clear the most recent one
+    // a fetch still in flight from an old poll() sees the gen changed and stops
     this.stop();
+    this._gen = (this._gen || 0) + 1;
+    const gen = this._gen;
     this._stopped = false;
+    // hidden: one look every 10 s. failing: twice as long each time, up to 10 s, back to
+    // normal on an answer
+    let wait = interval || 1200, busy = false;
+    const base = interval || 1200;
     const tick = async () => {
-      if (!this.room || this._stopped) return;
+      if (!this.room || this._stopped || this._gen !== gen || busy) return;   // one request at a time per poll()
+      busy = true;
       try {
         const r = await fetch(`/api/mp/state?code=${this.room.code}&since=${this._seen}`,
           { cache: 'no-store' });
         if (r.status === 404) { onInfo && onInfo({ gone: true }); return; }
+        if (!r.ok) throw new Error('HTTP ' + r.status);
         const j = await r.json();
+        wait = base;
         if (this.room.joined === false && j.joined) this.room.joined = true;
         onInfo && onInfo(j);
         if (j.seq > this._seen) {
@@ -112,12 +120,21 @@ const MP = {
           this.room.seq = j.seq;
           if (j.state) onUpdate && onUpdate(j.state, j);
         }
-      } catch (e) { /* transient network error, keep polling */ }
-      // stop() may have run while the fetch above was in flight, and
-      // rescheduling here would restart the loop for the life of the page
-      if (this._stopped) return;
-      this._pollTimer = setTimeout(tick, interval || 1200);
+      } catch (e) { wait = Math.min(10000, wait * 2); /* transient network error, keep polling */ }
+      finally { busy = false; }
+      // stop() or another poll() may have run during the fetch
+      if (this._stopped || this._gen !== gen) return;
+      this._pollTimer = setTimeout(tick, document.hidden ? Math.max(wait, 10000) : wait);
     };
+    // shown again: look at once rather than finishing a long wait
+    if (!this._visHooked) {
+      this._visHooked = true;
+      document.addEventListener('visibilitychange', () => {
+        if (document.hidden || this._stopped || !this._tick) return;
+        clearTimeout(this._pollTimer); this._tick();
+      });
+    }
+    this._tick = tick;
     tick();
   },
 

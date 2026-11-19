@@ -2,7 +2,7 @@
  * before 2021 compress their clusters with xz. Single-call mode only (the whole cluster in
  * one go, the output buffer doubling as the dictionary, so no 64 MB dictionary to hold).
  *
- * Internal RAM: XZ Embedded's own CRC tables are 3 KB of .bss, which kept the Nomad's
+ * Internal RAM: XZ Embedded's own CRC tables are 3 KB of .bss, which kept Nomad's
  * internal DMA memory under the media handler's 48 KB floor and every video was refused.
  * CRC32 is the ESP32's ROM routine instead (same contract: 0 to start, the last result to
  * go on), and CRC64-checked streams are decoded without checking (XZ_DEC_ANY_CHECK). */

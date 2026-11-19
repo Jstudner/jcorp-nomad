@@ -3,6 +3,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8"/>
+<script>/* nomad-load-guard: reload, twice at most, when one of Nomad's own scripts or stylesheets fails to load */(function(){var k='nomadLoadGuard:'+location.pathname;window.addEventListener('error',function(e){var t=e.target;if(!t||!t.tagName)return;var s=t.tagName==='SCRIPT',c=t.tagName==='LINK'&&/stylesheet/i.test(t.rel||'');if(!s&&!c)return;var u=t.src||t.href||'';if(u.indexOf(location.origin+'/')!==0)return;var n=0;try{n=+sessionStorage.getItem(k)||0;}catch(x){return;}if(n>=2)return;try{sessionStorage.setItem(k,String(n+1));}catch(x){return;}setTimeout(function(){location.reload();},1500*(n+1));},true);window.addEventListener('load',function(){setTimeout(function(){try{sessionStorage.removeItem(k);}catch(x){}},15000);});})();</script>
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/>
 <meta name="description" content="Jcorp Nomad Media Server – Offline Maps">
 <title>Nomad • Maps (basic)</title>
@@ -20,7 +21,7 @@
      WebGL. No directions or search. */
   html,body{height:100%;margin:0;overflow:hidden}
   body{background:var(--bg)}
-  #map{position:fixed;inset:0;background:var(--bg)}
+  #map{position:fixed;top:0;right:0;bottom:0;left:0;inset:0;background:var(--bg)}
   .leaflet-container{background:var(--bg);font-family:var(--font-primary)}
   .top{position:fixed;left:0;right:0;top:0;z-index:1000;padding:max(8px,env(safe-area-inset-top)) 10px 0;pointer-events:none}
   .bar{pointer-events:auto;display:flex;align-items:center;gap:4px;max-width:560px;box-sizing:border-box;background:var(--card);
@@ -54,12 +55,12 @@
     padding:10px 16px;font-size:.88rem;max-width:min(88vw,460px);text-align:center;box-shadow:var(--shadow-large);
     opacity:0;pointer-events:none;transition:opacity .2s;box-sizing:border-box}
   .toast.show{opacity:1}
-  #empty{position:fixed;inset:0;display:none;flex-direction:column;align-items:center;justify-content:center;gap:10px;
+  #empty{position:fixed;top:0;right:0;bottom:0;left:0;inset:0;display:none;flex-direction:column;align-items:center;justify-content:center;gap:10px;
     padding:24px;text-align:center;color:var(--muted);background:var(--bg);z-index:1200;line-height:1.45}
   #empty b{color:var(--text);font-size:1.05rem}
   #empty a{color:var(--primary)}
   /* location help: above Leaflet's panes (~400) and controls (~1000) */
-  .gps-modal{display:none;position:fixed;inset:0;background:var(--overlay-modal);z-index:5000;overflow-y:auto;padding:16px}
+  .gps-modal{display:none;position:fixed;top:0;right:0;bottom:0;left:0;inset:0;background:var(--overlay-modal);z-index:5000;overflow-y:auto;padding:16px}
   .gps-modal.open{display:flex}
   .gps-modal .content{background:var(--card);color:var(--text);border:1px solid var(--card-border);border-radius:var(--radius-large);
     max-width:480px;width:100%;box-sizing:border-box;margin:auto;padding:16px}
@@ -88,7 +89,7 @@
   <div class="gps-modal" id="gpsModal">
     <div class="content">
       <h2>Use this phone's location</h2>
-      <p style="margin:.3rem 0;font-size:.92rem">Browsers only share location with pages they trust. Tap the map to read coordinates any time.</p>
+      <p style="margin:.3rem 0;font-size:.92rem">Without it, tap the map for coordinates.</p>
       <p style="margin:.6rem 0 .2rem;font-size:.92rem"><b>Chrome:</b> allow this address once:</p>
       <ol>
         <li>Open <code>chrome://flags/#unsafely-treat-insecure-origin-as-secure</code> in a new tab</li>

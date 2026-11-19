@@ -114,7 +114,7 @@
       u.onend = () => { if (reading && !paused) { pi++; setTimeout(speak, 0); } };
       u.onerror = (e) => {
         if (e.error === 'interrupted' || e.error === 'canceled') return;
-        // no voice, or speech not allowed: say so rather than race through the book
+        // no voice, or speech not allowed: show a message rather than race through the book
         problem = e.error === 'not-allowed' ? 'The phone blocked speech. Tap Read from here again.'
                 : "No voice on this phone can read this. Pick another voice or add one in the phone's settings.";
         stop();
@@ -171,7 +171,7 @@
       pop.querySelector('.ra-rate-v').textContent = (s.rate || 1).toFixed(1) + '×';
       pop.querySelector('[data-a=play]').innerHTML = reading && !paused ? `${icon('volume-off')}Pause` : `${icon('play')}${paused ? 'Carry on' : 'Read from here'}`;
       pop.querySelector('[data-a=stop]').disabled = !reading;
-      pop.querySelector('.ra-state').textContent = problem || (!reading ? '' : paused ? 'Paused' : 'Reading · turning a page stops it');
+      pop.querySelector('.ra-state').textContent = problem || (!reading ? '' : paused ? 'Paused' : 'Reading');
     }
     function openPop() {
       if (pop) { closePop(); return; }

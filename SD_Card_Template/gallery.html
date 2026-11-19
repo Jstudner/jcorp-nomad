@@ -4,6 +4,7 @@
 <html lang="en">
 <head>
   <meta charset="utf-8" />
+<script>/* nomad-load-guard: reload, twice at most, when one of Nomad's own scripts or stylesheets fails to load */(function(){var k='nomadLoadGuard:'+location.pathname;window.addEventListener('error',function(e){var t=e.target;if(!t||!t.tagName)return;var s=t.tagName==='SCRIPT',c=t.tagName==='LINK'&&/stylesheet/i.test(t.rel||'');if(!s&&!c)return;var u=t.src||t.href||'';if(u.indexOf(location.origin+'/')!==0)return;var n=0;try{n=+sessionStorage.getItem(k)||0;}catch(x){return;}if(n>=2)return;try{sessionStorage.setItem(k,String(n+1));}catch(x){return;}setTimeout(function(){location.reload();},1500*(n+1));},true);window.addEventListener('load',function(){setTimeout(function(){try{sessionStorage.removeItem(k);}catch(x){}},15000);});})();</script>
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>Nomad • Gallery</title>
   <meta name="description" content="Jcorp Nomad Media Server – Images & Video" />
@@ -12,7 +13,7 @@
   <script src="/assets/plyr.min.js"></script>
   <script src="/theme-boot.js?v=5"></script>
 <script src="/nomad-icons.js?v=1"></script>
-  <script src="/nomad-utils.js?v=49"></script>
+  <script src="/nomad-utils.js?v=51"></script>
   <script src="/theme-manager.js?v=5"></script>
   <style>
     /* Functional CSS: Gallery-specific layout and positioning */
@@ -146,10 +147,10 @@
     @keyframes spin { 0% { transform: rotate(0); } 100% { transform: rotate(360deg); } }
 
     /* viewer: the whole screen, black in either theme */
-    .viewer { position: fixed; inset: 0; z-index: var(--z-modal, 1000); background: #000; color: #fff; overscroll-behavior: contain; }
+    .viewer { position: fixed; top:0;right:0;bottom:0;left:0;inset:0; z-index: var(--z-modal, 1000); background: #000; color: #fff; overscroll-behavior: contain; }
     .viewer[hidden] { display: none; }
-    .v-stage { position: absolute; inset: 0; overflow: hidden; touch-action: none; user-select: none; -webkit-user-select: none; }
-    .v-slide { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; }
+    .v-stage { position: absolute; top:0;right:0;bottom:0;left:0;inset:0; overflow: hidden; touch-action: none; user-select: none; -webkit-user-select: none; }
+    .v-slide { position: absolute; top:0;right:0;bottom:0;left:0;inset:0; display: flex; align-items: center; justify-content: center; }
     .v-slide > img { width: 100%; height: 100%; object-fit: contain; transform-origin: center center; will-change: transform; -webkit-user-drag: none; cursor: zoom-in; }
     /* a video sits between the bars so its own controls stay clear of them */
     .viewer.is-video .v-slide { top: 60px; bottom: 70px; }
@@ -213,7 +214,7 @@
         <button type="button" data-mode="folders" aria-pressed="true">Folders</button>
         <button type="button" data-mode="all" aria-pressed="false">All</button>
       </div>
-      <button id="uploadBtn" class="btn" title="Upload files" style="display:none">Upload</button>
+      <button id="uploadBtn" class="btn" style="display:none">Upload</button>
     </div>
 
     <select id="sortSelect" aria-label="Sort">
@@ -297,10 +298,10 @@ const vNext = document.getElementById('vNext');
 
 /* STATE */
 let items = [];
-let currentSize = localStorage.getItem('nomadGallery.viewSize') || 'medium';
-let sortMode = localStorage.getItem('nomadGallery.sort') || sortSelect.value;
+let currentSize = NomadPrefs.raw('nomadGallery.viewSize') || 'medium';
+let sortMode = NomadPrefs.raw('nomadGallery.sort') || sortSelect.value;
 if(![...sortSelect.options].some(o => o.value === sortMode)) sortMode = 'nameAsc';
-let mode = localStorage.getItem('nomadGallery.mode') === 'all' ? 'all' : 'folders';
+let mode = NomadPrefs.raw('nomadGallery.mode') === 'all' ? 'all' : 'folders';
 let folder = ROOT;          // the folder shown in Folders view
 let viewFolders = [];       // folder tiles in the grid, then
 let viewItems = [];         // the photos and videos, in the order the viewer steps through
@@ -841,7 +842,6 @@ async function fetchIndexWithFallback(path){
       // bounded: a build that keeps failing would otherwise be polled forever
       if(buildPolls < MAX_BUILD_POLLS){
         buildPolls++;
-        console.log(`Gallery index is building (202) - poll ${buildPolls}/${MAX_BUILD_POLLS}`);
         showGalleryMessage('Building gallery index…');
         setTimeout(async () => {
           try {
@@ -873,9 +873,9 @@ async function fetchIndexWithFallback(path){
     }catch(e){}
   }
 
-  // usually just an empty /Gallery: say so rather than asking the device to rebuild
+  // usually just an empty /Gallery: show that rather than asking the device to rebuild
   console.warn('No gallery index found in API or fallback files');
-  showGalleryMessage('No photos found. If you just added some, reindex from the admin page.');
+  showGalleryMessage('No photos found. Added some? Run Admin → Library index.');
 
   return { source: null, header: null, entries: [] };
 }
@@ -1175,7 +1175,7 @@ function setMode(m){
   if(dirSteps.length){ NomadBack.done('dir:' + dirSteps[0]); dirSteps.length = 0; }
   mode = m;
   folder = ROOT;
-  localStorage.setItem('nomadGallery.mode', m);
+  NomadPrefs.setRaw('nomadGallery.mode', m);
   render();
   window.scrollTo(0, 0);
 }
@@ -1184,12 +1184,12 @@ function setViewSize(size){
   currentSize = size;
   viewButtons.forEach(btn => { const on = btn.dataset.size === size; btn.classList.toggle('active', on); btn.setAttribute('aria-pressed', on ? 'true' : 'false'); });
   grid.className = 'media-grid ' + size;
-  localStorage.setItem('nomadGallery.viewSize', size);
+  NomadPrefs.setRaw('nomadGallery.viewSize', size);
   fillGrid();   // smaller tiles: more of them fit on screen
 }
 function applySort(){
   sortMode = sortSelect.value;
-  localStorage.setItem('nomadGallery.sort', sortMode);
+  NomadPrefs.setRaw('nomadGallery.sort', sortMode);
   render();
 }
 
@@ -1314,7 +1314,7 @@ function showAt(i, dir){
       }).catch(() => { v.controls = true; });
     }
   } else {
-    // HEIC and the like: most browsers can't show them, so say so and offer the file
+    // HEIC and the like: most browsers can't show them, so show a note and offer the file
     const isVid = FILE_EXTS[extFromName(item.file)] === 'video';
     const box = document.createElement('div');
     box.className = 'v-file';

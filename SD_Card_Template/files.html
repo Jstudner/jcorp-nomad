@@ -4,13 +4,14 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
+<script>/* nomad-load-guard: reload, twice at most, when one of Nomad's own scripts or stylesheets fails to load */(function(){var k='nomadLoadGuard:'+location.pathname;window.addEventListener('error',function(e){var t=e.target;if(!t||!t.tagName)return;var s=t.tagName==='SCRIPT',c=t.tagName==='LINK'&&/stylesheet/i.test(t.rel||'');if(!s&&!c)return;var u=t.src||t.href||'';if(u.indexOf(location.origin+'/')!==0)return;var n=0;try{n=+sessionStorage.getItem(k)||0;}catch(x){return;}if(n>=2)return;try{sessionStorage.setItem(k,String(n+1));}catch(x){return;}setTimeout(function(){location.reload();},1500*(n+1));},true);window.addEventListener('load',function(){setTimeout(function(){try{sessionStorage.removeItem(k);}catch(x){}},15000);});})();</script>
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <meta name="description" content="Jcorp Nomad Media Server – Files" />
   <title>Nomad • Files</title>
   <link rel="icon" href="favicon.ico" type="image/x-icon" />
   <link rel="stylesheet" href="/master.css" />
   <script src="/theme-boot.js?v=5"></script>
-  <script src="/nomad-utils.js?v=49"></script>
+  <script src="/nomad-utils.js?v=51"></script>
   <script src="/theme-manager.js?v=5"></script>
   <style>
     /* Functional CSS: Full-height layout and sticky positioning */
@@ -144,13 +145,13 @@
       background: var(--primary); color: var(--color-white, #fff); max-width: 90%; overflow: hidden; text-overflow: ellipsis;
     }
     .file-list.grid .ficon.folder { background: var(--primary-alpha-10, rgba(0,0,0,.06)); box-shadow: none; }
-    .ficon img.pv { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; opacity: 0; transition: opacity .3s ease; }
+    .ficon img.pv { position: absolute; top:0;right:0;bottom:0;left:0;inset:0; width: 100%; height: 100%; object-fit: cover; opacity: 0; transition: opacity .3s ease; }
     .ficon img.pv.on { opacity: 1; }
 
     .more { display: block; margin: .5rem auto 1rem; padding: .5rem 1rem; border: 1px solid var(--line); background: var(--card); color: var(--text); border-radius: var(--radius); cursor: pointer; }
 
     /* the viewer: pictures, video and sound in the page, and a details sheet for the rest */
-    .fv { position: fixed; inset: 0; z-index: 200; display: flex; flex-direction: column; background: rgba(0,0,0,.92); color: #fff; }
+    .fv { position: fixed; top:0;right:0;bottom:0;left:0;inset:0; z-index: 200; display: flex; flex-direction: column; background: rgba(0,0,0,.92); color: #fff; }
     .fv[hidden] { display: none; }
     .fv-bar { display: flex; align-items: center; gap: .5rem; padding: .5rem .6rem; padding-top: max(.5rem, env(safe-area-inset-top)); background: rgba(0,0,0,.55); }
     .fv-bar .fv-title { flex: 1; min-width: 0; display: flex; flex-direction: column; }
@@ -160,7 +161,7 @@
     .fv-body { flex: 1; min-height: 0; position: relative; display: flex; align-items: center; justify-content: center; padding: .5rem; }
     .fv-body img, .fv-body video { max-width: 100%; max-height: 100%; object-fit: contain; display: block; }
     .fv-body video { width: 100%; background: #000; }
-    .fv-wait { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; color: rgba(255,255,255,.7); font-size: .9rem; pointer-events: none; }
+    .fv-wait { position: absolute; top:0;right:0;bottom:0;left:0;inset:0; display: flex; align-items: center; justify-content: center; color: rgba(255,255,255,.7); font-size: .9rem; pointer-events: none; }
     .fv-nav { position: absolute; top: 50%; transform: translateY(-50%); z-index: 2; width: 44px; height: 64px; border: 0; border-radius: 10px; background: rgba(0,0,0,.45); color: #fff; font-size: 1.6rem; cursor: pointer; }
     .fv-nav.prev { left: 8px; } .fv-nav.next { right: 8px; }
     .fv-count { position: absolute; bottom: 10px; left: 50%; transform: translateX(-50%); font-size: .78rem; background: rgba(0,0,0,.5); padding: .15rem .55rem; border-radius: 999px; }
@@ -357,7 +358,7 @@
         openFromHash();
       } catch (e) {
         if (NomadIndex.isBuilding(e)) {
-          fileListEl.innerHTML = '<li class="msg">Index is building, please wait...</li>';
+          fileListEl.innerHTML = '<li class="msg">Index is building…</li>';
           setTimeout(init, 5000);
         } else {
           console.error('Error loading files:', e);
@@ -535,7 +536,7 @@
     const Thumbs = {
       PX: 320, HEAD: 69632, WHOLE_MAX: 3 * 1024 * 1024, WORKERS: 2, MARGIN: 120,
       q: [], busy: 0, io: null, gen: 0, urls: [],
-      paused: false,   // while the viewer is open, its one read has the Nomad to itself
+      paused: false,   // while the viewer is open, its one read has Nomad to itself
 
       reset() {
         this.gen++;
@@ -600,7 +601,7 @@
       }
     };
 
-    // the Nomad turns a read away (503) for a moment when it is busy: wait as asked and try again
+    // Nomad turns a read away (503) for a moment when it is busy: wait as asked and try again
     async function fetchRetry(url, opts) {
       for (let i = 0; ; i++) {
         const r = await fetch(url, opts);
@@ -713,7 +714,7 @@
       fvBody.innerHTML = '';
     }
 
-    /* The Nomad turns a read away (503) for a moment when it is busy, and a picture or a
+    /* Nomad turns a read away (503) for a moment when it is busy, and a picture or a
        player only sees that as an error. Try again after 1, 2 and 4 s before saying so. The
        retry gets its own query parameter because some browsers won't re-request a src. */
     function loadWithRetry(el, url, onFail) {
@@ -880,7 +881,7 @@ uploadInput.addEventListener('change', (e) => {
 /* admin toggle: the button only appears when uploads are allowed */
 NomadUI.config().then(c => {
   if(NomadUI.canUpload(c, 'files')) uploadBtn.style.display = '';
-  // downloads off for Files: no Download links (the Nomad refuses them anyway)
+  // downloads off for Files: no Download links (Nomad refuses them anyway)
   if(!NomadUI.canDownload(c, 'files')){ filesDownloadable = false; if(shown.length) renderFiles(); }
 });
 </script>

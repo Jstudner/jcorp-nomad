@@ -3,6 +3,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
+<script>/* nomad-load-guard: reload, twice at most, when one of Nomad's own scripts or stylesheets fails to load */(function(){var k='nomadLoadGuard:'+location.pathname;window.addEventListener('error',function(e){var t=e.target;if(!t||!t.tagName)return;var s=t.tagName==='SCRIPT',c=t.tagName==='LINK'&&/stylesheet/i.test(t.rel||'');if(!s&&!c)return;var u=t.src||t.href||'';if(u.indexOf(location.origin+'/')!==0)return;var n=0;try{n=+sessionStorage.getItem(k)||0;}catch(x){return;}if(n>=2)return;try{sessionStorage.setItem(k,String(n+1));}catch(x){return;}setTimeout(function(){location.reload();},1500*(n+1));},true);window.addEventListener('load',function(){setTimeout(function(){try{sessionStorage.removeItem(k);}catch(x){}},15000);});})();</script>
   <meta name="viewport" content="width=device-width,initial-scale=1.0">
   <meta name="description" content="Jcorp Nomad Media Server - Games">
   <title>Nomad • Games</title>
@@ -10,7 +11,7 @@
   <link rel="stylesheet" href="/master.css">
   <script src="/theme-boot.js?v=5"></script>
   <script src="/theme-manager.js?v=5"></script>
-  <script src="/nomad-utils.js?v=49"></script>
+  <script src="/nomad-utils.js?v=51"></script>
   <style>
     body {
       display: flex;
@@ -70,7 +71,7 @@
       background: var(--thumb-bg, var(--card)); color: var(--thumb-text, var(--text));
       font-size: 0.9rem; text-align: center; width: 100%; aspect-ratio: 2/3;
       border-radius: var(--radius); overflow: hidden; box-shadow: var(--shadow); }
-    .fallback-text { position: absolute; inset: 0; display: flex; align-items: center;
+    .fallback-text { position: absolute; top:0;right:0;bottom:0;left:0;inset:0; display: flex; align-items: center;
       justify-content: center; z-index: 2; text-align: center; font-weight: 700;
       color: var(--thumb-title, var(--text)); pointer-events: none; padding: 6px; }
     .media-thumb { width: 100%; height: 100%; object-fit: cover; position: absolute; top: 0; left: 0;
@@ -123,7 +124,7 @@
     <input id="searchInput" type="search" placeholder="Search" aria-label="Search games">
     <!-- filled from the games on the card -->
     <select id="consoleSelect" aria-label="Filter by console">
-      <option value="">All Consoles</option>
+      <option value="">All consoles</option>
     </select>
     <select id="sortSelect" aria-label="Sort games">
       <option value="nameAsc">A → Z</option>
@@ -146,7 +147,7 @@
       <div id="emuBar" style="display:none;align-items:center;justify-content:space-between;gap:.75rem;flex-wrap:wrap;padding:.4rem .75rem;background:var(--card);border:1px solid var(--line);border-radius:var(--radius);margin-bottom:.5rem;">
         <strong id="emuTitle" style="font-size:.95rem;"></strong>
         <span id="emuStatus" style="flex:1 1 100%;order:3;font-size:.78rem;color:var(--muted);"></span>
-        <button id="exitGame" style="background:transparent;border:1px solid var(--line);color:var(--text);border-radius:var(--radius);padding:.35rem .9rem;cursor:pointer;font-size:.85rem;">Exit Game</button>
+        <button id="exitGame" style="background:transparent;border:1px solid var(--line);color:var(--text);border-radius:var(--radius);padding:.35rem .9rem;cursor:pointer;font-size:.85rem;">Exit</button>
       </div>
       <div id="emuWrap"><div id="emu"></div></div>
     </div>
@@ -185,7 +186,7 @@
     let builtins      = [];   // built-in .html games shipped in /Games (delete the file -> card disappears)
     let filtered      = [];
     let debounceTimer = null;
-    let currentSize   = localStorage.getItem('nomadGamesSize') || 'medium';
+    let currentSize   = NomadPrefs.raw('nomadGamesSize') || 'medium';
     let running       = null; // the game on screen, once one is started
     const RECENT_KEY  = 'nomad:games:recent:v1';   // ROM paths, newest first, per phone
 
@@ -204,7 +205,7 @@
       currentSize = size;
       grid.className = `media-grid ${size}`;
       sizeSelect.value = size;
-      localStorage.setItem('nomadGamesSize', size);
+      NomadPrefs.setRaw('nomadGamesSize', size);
     }
     setViewSize(currentSize);
     sizeSelect.addEventListener('change', () => setViewSize(sizeSelect.value));
@@ -337,7 +338,7 @@
         playFromHash();
       } catch (err) {
         console.error('Failed to load Games index:', err);
-        grid.innerHTML = noteHTML('Could not load games.');
+        grid.innerHTML = noteHTML("Couldn't load games. Reload to try again.");
       }
     }
 
@@ -347,7 +348,7 @@
       const have = new Set(games.map(g => g.core));
       const order = Object.keys(CONSOLE_LABEL);
       const cores = [...have].sort((a, b) => order.indexOf(a) - order.indexOf(b));
-      consoleSelect.innerHTML = '<option value="">All Consoles</option>' +
+      consoleSelect.innerHTML = '<option value="">All consoles</option>' +
         cores.map(c => `<option value="${c}">${escapeHtml(CONSOLE_LABEL[c] || c.toUpperCase())}</option>`).join('');
       consoleSelect.value = have.has(keep) ? keep : '';
     }
@@ -429,7 +430,7 @@
         builtins.filter(b => b.name.toLowerCase().includes(txt));
 
       if (!shownBuiltins.length && !filtered.length) {
-        grid.innerHTML = noteHTML('No games found.');
+        grid.innerHTML = noteHTML('No games found');
         return;
       }
 
@@ -511,7 +512,7 @@
       const emuStatus = document.getElementById('emuStatus');
       const setStatus = (msg) => { emuStatus.textContent = msg; };
       setStatus('Loading emulator…');
-      window.EJS_ready = () => setStatus('Ready. Tap Start Game');
+      window.EJS_ready = () => setStatus('Ready');
       // after Start the emulator fetches the game, which the first time is the whole ROM
       document.addEventListener('click', (ev) => {
         if (!ev.target.closest || !ev.target.closest('.ejs_start_button')) return;
@@ -530,13 +531,13 @@
         setStatus('Error: ' + args.map(String).join(' ').slice(0, 140));
         origConsoleError(...args);
       };
-      // say so when the emulator has not started long after launch
+      // show a message when the emulator has not started long after launch
       let stallTicks = 0;
       const stallTimer = setInterval(() => {
         if (window.EJS_emulator && window.EJS_emulator.started) { clearInterval(stallTimer); return; }
         if (++stallTicks >= 4 && !emuStatus.textContent.startsWith('Error')) {
-          setStatus('Still loading after ' + (stallTicks * 10) + 's. The download may have stalled. ' +
-            'In the WiFi sign-in window? Open this page in your browser instead.');
+          setStatus('Still loading after ' + (stallTicks * 10) + 's. ' +
+            'In the WiFi sign-in window? Open this page in your browser.');
         }
       }, 10000);
 

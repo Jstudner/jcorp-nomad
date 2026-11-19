@@ -3,13 +3,14 @@
 <html lang="en">
 <head>
 <meta charset="utf-8" />
+<script>/* nomad-load-guard: reload, twice at most, when one of Nomad's own scripts or stylesheets fails to load */(function(){var k='nomadLoadGuard:'+location.pathname;window.addEventListener('error',function(e){var t=e.target;if(!t||!t.tagName)return;var s=t.tagName==='SCRIPT',c=t.tagName==='LINK'&&/stylesheet/i.test(t.rel||'');if(!s&&!c)return;var u=t.src||t.href||'';if(u.indexOf(location.origin+'/')!==0)return;var n=0;try{n=+sessionStorage.getItem(k)||0;}catch(x){return;}if(n>=2)return;try{sessionStorage.setItem(k,String(n+1));}catch(x){return;}setTimeout(function(){location.reload();},1500*(n+1));},true);window.addEventListener('load',function(){setTimeout(function(){try{sessionStorage.removeItem(k);}catch(x){}},15000);});})();</script>
 <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0" />
 <title>Nomad • Archive</title>
 <link rel="stylesheet" href="/master.css">
 <script src="/theme-boot.js?v=5"></script>
 <script src="/theme-manager.js?v=5"></script>
 <script src="/nomad-icons.js?v=1"></script>
-<script src="/nomad-utils.js?v=49"></script>
+<script src="/nomad-utils.js?v=51"></script>
 <script src="/assets/xzwasm.min.js?v=2"></script>
 <script src="/assets/fzstd.min.js?v=2"></script>
 <script src="/assets/nomad-zim.js?v=8"></script>
@@ -247,7 +248,7 @@ main {
 
 #overlay {
   position: fixed;
-  inset: 0;
+  top:0;right:0;bottom:0;left:0;inset:0;
   z-index: 500;
   background: rgba(0,0,0,0.85);
   display: flex;
@@ -381,7 +382,7 @@ body .toolbar #lib-search { flex: 1 1 0; }
     <ul id="zim-grid" class="zim-list"></ul>
     <div id="empty-state" class="empty-state" style="display:none;">
       <div class="icon" data-icon="books" data-icon-size="48"></div>
-      <h2>No archives yet</h2>
+      <h2>No archives</h2>
       <p>Add archives with Nomad-Tools, then refresh.</p>
     </div>
   </main>
@@ -1101,7 +1102,7 @@ function parseRangeLink(text){
   return { from:a, to:b };
 }
 
-/* short message in the reader, so a link that cant be opened says so instead of
+/* short message in the reader, so a link that cant be opened shows a message instead of
    looking like it did nothing */
 function readerNote(msg){
   let el = document.getElementById('reader-note');
@@ -1365,7 +1366,7 @@ async function setFrameApp(html, hit, hash){
     if (/^(https?:|\/\/)/i.test(src)) { doc = doc.replace(tag, ''); continue; }
     const isModule = /type\s*=\s*["']?module["']?/i.test(tag);
     try {
-      showOverlay('Loading app… ' + src.split('/').pop());
+      showOverlay('Loading app…');
       const r = await idx.openResource(hit.archiveIdx, base, src, decompressors);
       const js = new TextDecoder('utf-8').decode(r.data);
       const open = isModule ? '<script type="module">' : '<script>';
@@ -1569,7 +1570,7 @@ async function setFrameApp(html, hit, hash){
     if (!cdoc.getElementById('zim-grid')){ fitFrameWidth(cdoc); return; }
     frame.onload = null;
     frame.srcdoc = '<!DOCTYPE html><html><body></body></html>';
-    readerNote('That page is an interactive app that will not run offline.');
+    readerNote("That page is an app that won't run offline.");
     if (_currentArchive && _currentArchive.hasList) browseArchive(_currentArchive);
   };
   frame.srcdoc = doc;
@@ -1884,7 +1885,7 @@ function _szArchiveTitle(hit){
 async function szOpenMap(fragment){
   const region = await szFindRegion(_szArchiveTitle(_articleHit));
   if (region){ location.href = region.target + (fragment || ''); return; }
-  alert('This map is not on the card yet. ' +
+  alert('This map is not on the card. ' +
         'Add its region folder to /Maps to open it.');
 }
 
@@ -1898,8 +1899,8 @@ async function showMapLanding(hit){
   const region = await szFindRegion(title);
   const open = region
     ? '<p><a data-sz-target="' + escapeHtml(region.target) + '" href="' + escapeHtml(region.target) + '"' +
-      ' style="display:inline-block;padding:12px 22px;border-radius:10px;background:#1a56db;color:#fff;font-weight:600;">Open the map</a></p>'
-    : '<p>Add its region folder to <b>/Maps</b> on the card to open it from the Maps page.</p>' +
+      ' style="display:inline-block;padding:12px 22px;border-radius:10px;background:#1a56db;color:#fff;font-weight:600;">Open map</a></p>'
+    : '<p>Add its region folder to <b>/Maps</b> to open it.</p>' +
       '<p>Its place pages are searchable here.</p>';
   setFrame('<h1>' + escapeHtml(title) + '</h1>' + open);
 }
@@ -2003,7 +2004,7 @@ function sanitizeArticle(html){
     const href = hm ? (hm[2] != null ? hm[2] : hm[3]) : '';
     if (!href) return '<a' + attrs + '>';
     if (/^(https?:|mailto:|tel:|\/\/)/i.test(href))
-      return '<a data-zim-ext="1" title="Links to the live web, not saved in this archive">';
+      return '<a data-zim-ext="1" title="Not in this archive">';
     if (href.charAt(0) === '#') return '<a' + attrs + '>';
     const rest = attrs
       .replace(/\shref\s*=\s*("[^"]*"|'[^']*')/i, '')
@@ -2043,7 +2044,7 @@ function selectSearchResult(i){
 
 /* Full mode: every request an archive page makes is answered at /zimview/, so it keeps
    its own styles, scripts and links (web-app archives, Zimit copies). Answered by:
-     - the Nomad itself (NomadZimServe, per /api/zimserve), like kiwix-serve; any phone
+     - Nomad itself (NomadZimServe, per /api/zimserve), like kiwix-serve; any phone
      - zim-sw.js, a service worker; needs a secure page (older firmware, the online demo)
    Otherwise the script-less reader below carries on. */
 const FULL_OK = !/[?&]plain=1/.test(location.search);
@@ -2104,7 +2105,7 @@ async function openFull(hit){
   updateHistoryButtons();
   return true;
 }
-// the page's own script hook (assets/zim-frame.js, put in by the Nomad or zim-sw.js) calls these
+// the page's own script hook (assets/zim-frame.js, put in by Nomad or zim-sw.js) calls these
 window.nomadZimFrame = {
   external(){ readerNote('That link is on the live web, not in this archive.'); },
   ready(w){ if (_fullOn && w === document.getElementById('article-frame').contentWindow) fullPageReady(w); },

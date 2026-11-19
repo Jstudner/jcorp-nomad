@@ -81,7 +81,7 @@
   }
   function xml(text) {
     const d = new DOMParser().parseFromString(text, 'application/xml');
-    if (d.getElementsByTagName('parsererror').length) throw new Error('This file is damaged (its XML could not be read).');
+    if (d.getElementsByTagName('parsererror').length) throw new Error('This file is damaged.');
     return d;
   }
   // by local name, so namespace prefixes (w:, a:, text:) don't matter
@@ -93,6 +93,7 @@
   // a relationship attribute (r:id, r:embed): sldId carries a plain id="256" beside r:id
   function rid(el, name) { if (!el || !el.attributes) return null; for (const a of el.attributes) if (a.localName === name && /relationships/.test(a.namespaceURI || '')) return a.value; return at(el, name); }
   const on = (v) => v != null && v !== '0' && v !== 'false' && v !== 'none';
+  const onOr = (v) => v == null || on(v);   // an attribute left out means on
   function color(hex) { return /^[0-9a-f]{6}$/i.test(hex || '') ? '#' + hex : null; }
   function unit(v) {
     // ODF lengths: 2.54cm, 1in, 10mm, 12pt, 100px -> CSS px
@@ -119,7 +120,7 @@
     await needUnzip();
     let entries;
     try { ({ entries } = await window.unzipit.unzip(buffer)); }
-    catch (e) { throw new Error("This file isn't a valid document (it couldn't be unpacked)."); }
+    catch (e) { throw new Error("This file isn't a valid document."); }
     const get = (n) => entries[n] || entries[Object.keys(entries).find((k) => k.toLowerCase() === n.toLowerCase())];
     return {
       has: (n) => !!get(n),
@@ -259,10 +260,10 @@
       const rPr = kid(r, 'rPr');
       const st = {};
       if (rPr) {
-        if (kid(rPr, 'b') && on(at(kid(rPr, 'b'), 'val') ?? '1')) st.fontWeight = '700';
-        if (kid(rPr, 'i') && on(at(kid(rPr, 'i'), 'val') ?? '1')) st.fontStyle = 'italic';
-        const u = kid(rPr, 'u'); if (u && on(at(u, 'val') ?? 'single')) st.textDecoration = 'underline';
-        if (kid(rPr, 'strike') && on(at(kid(rPr, 'strike'), 'val') ?? '1')) st.textDecoration = (st.textDecoration ? st.textDecoration + ' ' : '') + 'line-through';
+        if (kid(rPr, 'b') && onOr(at(kid(rPr, 'b'), 'val'))) st.fontWeight = '700';
+        if (kid(rPr, 'i') && onOr(at(kid(rPr, 'i'), 'val'))) st.fontStyle = 'italic';
+        const u = kid(rPr, 'u'); if (u && onOr(at(u, 'val'))) st.textDecoration = 'underline';
+        if (kid(rPr, 'strike') && onOr(at(kid(rPr, 'strike'), 'val'))) st.textDecoration = (st.textDecoration ? st.textDecoration + ' ' : '') + 'line-through';
         const va = at(kid(rPr, 'vertAlign'), 'val');
         if (va === 'superscript') { st.verticalAlign = 'super'; st.fontSize = '.75em'; } else if (va === 'subscript') { st.verticalAlign = 'sub'; st.fontSize = '.75em'; }
         const c = color(at(kid(rPr, 'color'), 'val')); if (c && !link) st.color = c;
@@ -734,7 +735,7 @@
       for (const [img, target] of imgs) { const u = await zip.url(target); if (u) img.src = u; else img.remove(); }
       slides.push({ el, bg: bgOf(s) || bgOf(layout) || bgOf(master) || '#fff' });
     }
-    if (!slides.length) return message(host, 'No slides', ['This presentation has no slides to show.']);
+    if (!slides.length) return message(host, 'No slides', []);
     return slideStack(host, slides, W, H);
   }
 
@@ -796,7 +797,7 @@
       await loadImgs(imgs, zip);
       slides.push({ el, bg: S.get(at(page, 'style-name'), 'fill') || '#fff' });
     }
-    if (!slides.length) return message(host, 'No slides', ['This presentation has no slides to show.']);
+    if (!slides.length) return message(host, 'No slides', []);
     return slideStack(host, slides, W, H);
   }
 
@@ -837,11 +838,11 @@
     const wrap = h('div');
     wrap.append(h('div', { class: 'nd-sheet' }, t));
     if (sheet.cut || sheet.maxR + 1 > MAX_ROWS || sheet.maxC + 1 > MAX_COLS)
-      wrap.append(h('div', { class: 'nd-note', text: `Showing the first ${nR.toLocaleString()} rows and ${nC} columns. Download the file to see all of it.` }));
+      wrap.append(h('div', { class: 'nd-note', text: `First ${nR.toLocaleString()} rows and ${nC} columns only. Download the file for the rest.` }));
     return wrap;
   }
   function sheetBook(host, sheets) {
-    if (!sheets.length) return message(host, 'Empty', ['This spreadsheet has no sheets to show.']);
+    if (!sheets.length) return message(host, 'No sheets', []);
     let index = 0;
     const show = (i) => { index = Math.max(0, Math.min(sheets.length - 1, i)); host.replaceChildren(grid(sheets[index])); };
     show(0);
@@ -906,7 +907,7 @@
     if (st) {
       const sd = xml(st);
       for (const f of findAll(find(sd, 'numFmts'), 'numFmt')) fmts[at(f, 'numFmtId')] = at(f, 'formatCode');
-      const fonts = findAll(find(sd, 'fonts'), 'font').map((f) => !!kid(f, 'b') && on(at(kid(f, 'b'), 'val') ?? '1'));
+      const fonts = findAll(find(sd, 'fonts'), 'font').map((f) => !!kid(f, 'b') && onOr(at(kid(f, 'b'), 'val')));
       for (const x of kids(find(sd, 'cellXfs'), 'xf')) { xfs.push(+(at(x, 'numFmtId') || 0)); bolds.push(!!fonts[+(at(x, 'fontId') || 0)]); }
     }
     const sheets = [];
@@ -930,7 +931,7 @@
           if (pos) { rIdx = pos.r; cIdx = pos.c; }
           const t = at(c, 't'), v = kid(c, 'v'), sIdx = +(at(c, 's') || 0);
           let text = '', num = false;
-          if (t === 's') text = shared[+(v ? v.textContent : -1)] ?? '';
+          if (t === 's') { const sv = shared[+(v ? v.textContent : -1)]; text = sv == null ? '' : sv; }
           else if (t === 'inlineStr') text = findAll(kid(c, 'is'), 't').map((x) => x.textContent).join('');
           else if (t === 'b') text = v && v.textContent === '1' ? 'TRUE' : 'FALSE';
           else if (t === 'str' || t === 'e') text = v ? v.textContent : '';
@@ -1152,8 +1153,7 @@
     let url = '';
     try { url = JSON.parse(textDecode(buffer)).url || ''; } catch (e) {}
     const kind = { gdoc: ['Google Docs', '.docx'], gsheet: ['Google Sheets', '.xlsx'], gslides: ['Google Slides', '.pptx'] }[ext(name)] || ['Google Drive', ''];
-    return message(host, `This is a link to ${kind[0]} online`, [
-      `The file itself stays online.`,
+    return message(host, `Only a link to ${kind[0]}`, [
       `Open it in ${kind[0]}, choose File, then Download${kind[1] ? `, as ${kind[1]}` : ''}, and copy that file to the card.`,
       url ? h('p', null, h('code', { text: url })) : null,
     ].filter(Boolean));

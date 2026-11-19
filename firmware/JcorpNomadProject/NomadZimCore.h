@@ -1,4 +1,4 @@
-// NomadZimCore.h - reads pages out of a ZIM (Kiwix archive) on the Nomad itself, so the
+// NomadZimCore.h - reads pages out of a ZIM (Kiwix archive) on Nomad itself, so the
 // archive reader works on every phone over plain http, scripts and all. Kiwix's own
 // hotspots do the same with kiwix-serve. Without a server answering a page's requests,
 // a browser can only do it through a service worker, and those need a secure page.
@@ -36,7 +36,7 @@ namespace nzim {
 struct Hooks {
   // read [off, off+n) of one part file, false on a card error or a busy card
   bool (*read)(void *file, uint64_t off, uint8_t *buf, size_t n);
-  void *(*bigAlloc)(size_t n);   // PSRAM on the Nomad
+  void *(*bigAlloc)(size_t n);   // PSRAM on Nomad
   void (*bigFree)(void *p);
   size_t (*largestFree)();       // biggest single allocation bigAlloc could make now
   uint64_t (*nowUs)();           // optional: a clock, for the time counters below
@@ -89,6 +89,7 @@ public:
     // the mime list as it is in the file (NUL-separated), kept in PSRAM with an index
     // beside it. As separate strings it would sit in internal RAM, which SD and WiFi need
     size_t n = 2048;
+    if (mimeListPos >= total) return BAD;
     if (mimeListPos + n > total) n = total - mimeListPos;
     if (_mimes) { hooks.bigFree(_mimes); _mimes = nullptr; }
     _mimeCount = 0;
@@ -136,6 +137,7 @@ public:
   int direntAt(uint64_t off, Dirent &d) {
     size_t want = 512;
     for (int attempt = 0; attempt < 3; attempt++, want *= 4) {
+      if (off >= total) return BAD;   // a damaged pointer: total - off would wrap to about 4 GB
       size_t n = want;
       if (off + n > total) n = (size_t)(total - off);
       std::vector<uint8_t> b(n);

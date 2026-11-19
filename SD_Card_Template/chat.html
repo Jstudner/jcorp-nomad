@@ -3,6 +3,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8"/>
+<script>/* nomad-load-guard: reload, twice at most, when one of Nomad's own scripts or stylesheets fails to load */(function(){var k='nomadLoadGuard:'+location.pathname;window.addEventListener('error',function(e){var t=e.target;if(!t||!t.tagName)return;var s=t.tagName==='SCRIPT',c=t.tagName==='LINK'&&/stylesheet/i.test(t.rel||'');if(!s&&!c)return;var u=t.src||t.href||'';if(u.indexOf(location.origin+'/')!==0)return;var n=0;try{n=+sessionStorage.getItem(k)||0;}catch(x){return;}if(n>=2)return;try{sessionStorage.setItem(k,String(n+1));}catch(x){return;}setTimeout(function(){location.reload();},1500*(n+1));},true);window.addEventListener('load',function(){setTimeout(function(){try{sessionStorage.removeItem(k);}catch(x){}},15000);});})();</script>
 <meta name="viewport" content="width=device-width,initial-scale=1"/>
 <meta name="description" content="Jcorp Nomad Media Server - Chat">
 <title>Nomad • Chat</title>
@@ -81,6 +82,22 @@
   </main>
 
 <script>
+// storage that never throws: where site data is blocked a bare call stops the whole page
+var chatStore = {
+  get: function(k){ try { return localStorage.getItem(k); } catch(e){ return null; } },
+  set: function(k, v){ try { localStorage.setItem(k, v); } catch(e){} },
+  remove: function(k){ try { localStorage.removeItem(k); } catch(e){} }
+};
+// Nomad has no clock: once a visit, after the page settles, send the phone's time for
+// message times (NomadClock.h decides whether to take it)
+(function () {
+  try { if (sessionStorage.getItem('nomadClockSent')) return; sessionStorage.setItem('nomadClockSent', '1'); } catch (e) {}
+  setTimeout(function () {
+    try { fetch('/api/clock?t=' + Date.now(), { method: 'POST', keepalive: true }).catch(function () {}); } catch (e) {}
+  }, 1500);
+})();
+</script>
+<script>
 /* Chat kept by Nomad (NomadChat.h). Nomad numbers each message as it arrives, so order
    doesn't depend on anyone's clock, and a phone asks only for what came after its last
    number. A message waits in this phone's outbox (kept across reloads) and is resent until
@@ -96,16 +113,16 @@ const Chat = {
   POLL_MS: 2500,
   KEEP: 500,             // messages held here
   SHOW_LAST: 200,        // messages rendered
-  name: localStorage.getItem('nomad_chat_name') || '',
+  name: chatStore.get('nomad_chat_name') || '',
   // one id per phone (per browser), not per tab: your messages stay yours when you come back
   cid: (() => {
-    let id = localStorage.getItem('nomad_chat_cid');
-    if(!id){ id = newId(); localStorage.setItem('nomad_chat_cid', id); }
+    let id = chatStore.get('nomad_chat_cid');
+    if(!id){ id = newId(); chatStore.set('nomad_chat_cid', id); }
     return id;
   })(),
   msgs: new Map(),       // seq -> {s, t, n, x, c, m}
   epoch: 0, after: 0,
-  outbox: (() => { try { return JSON.parse(localStorage.getItem('nomad_chat_outbox')) || []; } catch(e){ return []; } })(),
+  outbox: (() => { try { return JSON.parse(chatStore.get('nomad_chat_outbox')) || []; } catch(e){ return []; } })(),
   legacy: false,
   _timer: null, _sending: false, _fails: 0,
   _from: 0,              // seq of the first message shown, moved on in steps so the list mostly grows
@@ -147,7 +164,7 @@ const Chat = {
     const v = document.getElementById('chatNameInput').value.trim().slice(0, 24);
     if(!v) return;
     this.name = v;
-    localStorage.setItem('nomad_chat_name', v);
+    chatStore.set('nomad_chat_name', v);
     document.getElementById('chatNameRow').hidden = true;
     document.getElementById('chatInput').focus();
   },
@@ -157,7 +174,7 @@ const Chat = {
     document.getElementById('chatNameInput').focus();
   },
 
-  _keepOutbox(){ try { localStorage.setItem('nomad_chat_outbox', JSON.stringify(this.outbox)); } catch(e){} },
+  _keepOutbox(){ try { chatStore.set('nomad_chat_outbox', JSON.stringify(this.outbox)); } catch(e){} },
 
   send(){
     if(this.legacy) return ChatFiles.send();
@@ -173,7 +190,7 @@ const Chat = {
     this.flush();
   },
 
-  // the outbox to the Nomad, oldest first, one at a time so they arrive in order
+  // the outbox to Nomad, oldest first, one at a time so they arrive in order
   async flush(){
     if(this._sending || this.legacy) return;
     this._sending = true;
@@ -195,7 +212,7 @@ const Chat = {
           this.render();
           continue;
         }
-        if(res && res.status === 400){ this.outbox.shift(); this._keepOutbox(); continue; }   // nothing the Nomad will take
+        if(res && res.status === 400){ this.outbox.shift(); this._keepOutbox(); continue; }   // nothing Nomad will take
         // no answer, the card busy, or sending too fast: try again shortly (the poll also does)
         this._fails++;
         this.render();
@@ -217,7 +234,7 @@ const Chat = {
         if(!res.ok) break;
         const j = await res.json();
         let count = this._loaded;                    // the history on arrival is not news
-        if(j.epoch !== this.epoch){                  // cleared, or the Nomad restarted: start over
+        if(j.epoch !== this.epoch){                  // cleared, or Nomad restarted: start over
           this.msgs.clear(); this.after = 0; this.epoch = j.epoch; this._from = 0; count = false;
         }
         let fresh = 0;
@@ -319,10 +336,11 @@ const ChatFiles = {
   SHOW_LAST: 200,        // merged messages rendered
   POLL_MS: 2500,
 
-  name: localStorage.getItem('nomad_chat_name') || '',
+  name: chatStore.get('nomad_chat_name') || '',
   id: (() => {
-    let id = sessionStorage.getItem('nomad_chat_id');   // per-tab, like the whiteboard
-    if(!id){ id = Math.random().toString(36).slice(2, 8); sessionStorage.setItem('nomad_chat_id', id); }
+    let id = null;
+    try { id = sessionStorage.getItem('nomad_chat_id'); } catch(e){}   // per-tab, like the whiteboard
+    if(!id){ id = Math.random().toString(36).slice(2, 8); try { sessionStorage.setItem('nomad_chat_id', id); } catch(e){} }
     return id;
   })(),
   own: [],               // [[ts, text], ...]
@@ -342,7 +360,7 @@ const ChatFiles = {
     const v = document.getElementById('chatNameInput').value.trim().slice(0, 24);
     if(!v) return;
     this.name = v;
-    localStorage.setItem('nomad_chat_name', v);
+    chatStore.set('nomad_chat_name', v);
     document.getElementById('chatNameRow').hidden = true;
     if(this.own.length) this.save();   // re-publish history under the new name
     this.render();

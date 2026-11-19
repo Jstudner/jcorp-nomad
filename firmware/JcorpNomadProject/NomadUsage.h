@@ -17,7 +17,7 @@
 #include <ArduinoJson.h>
 #include <esp_heap_caps.h>
 
-bool queueConfigWrite(const String &path, const String &content);
+bool queueConfigWrite(const String &path, const String &content, bool createOnly);
 int getConnectedUserCount();
 
 static const char *USAGE_PATH = "/config/usage.json";
@@ -34,6 +34,20 @@ struct UsageCounts {
 static UsageCounts g_useNow = {};        // since this start
 static UsageCounts g_useBefore = {};     // all time, as saved before this start
 static uint32_t g_useBoots = 0;
+// How every start so far began, kept with the totals: a unit that restarts on its own shows
+// here even after it has been unplugged (the support file's own reason is this start's only).
+enum { USE_RST_CRASH = 0, USE_RST_WATCHDOG, USE_RST_BROWNOUT, USE_RST_POWER, USE_RST_RESTART, USE_RST_KINDS };
+static uint32_t g_useResets[USE_RST_KINDS] = {0};
+static int usageResetKind() {
+  if (g_prevRunHung) return USE_RST_WATCHDOG;      // restarted by the loop/UI heartbeat (NomadSupport.h)
+  switch (esp_reset_reason()) {
+    case ESP_RST_PANIC: return USE_RST_CRASH;
+    case ESP_RST_INT_WDT: case ESP_RST_TASK_WDT: case ESP_RST_WDT: return USE_RST_WATCHDOG;
+    case ESP_RST_BROWNOUT: return USE_RST_BROWNOUT;
+    case ESP_RST_POWERON: return USE_RST_POWER;
+    default: return USE_RST_RESTART;
+  }
+}
 static UsageTop *g_useTop = nullptr;     // all time, in PSRAM
 static volatile bool g_useDirty = false;
 static uint32_t g_useSampleMs = 0, g_useSavedMs = 0;
@@ -82,6 +96,8 @@ static String usageJson(bool forFile) {
   if (forFile) {
     // the file holds the all-time totals, this start included
     d["boots"] = g_useBoots;
+    JsonArray rs = d["resets"].to<JsonArray>();
+    for (int i = 0; i < USE_RST_KINDS; i++) rs.add(g_useResets[i]);
     d["peak"] = max(before.peak, now.peak);
     d["plays"] = before.plays + now.plays;
     d["bytes"] = before.staticBytes + sent;
@@ -124,6 +140,8 @@ static void nomadUsageLoad() {
     JsonDocument d;
     if (!deserializeJson(d, f)) {
       g_useBoots = d["boots"] | 0;
+      JsonArray rs = d["resets"];
+      for (int i = 0; i < USE_RST_KINDS && i < (int)rs.size(); i++) g_useResets[i] = rs[i] | 0;
       g_useBefore.peak = d["peak"] | 0;
       g_useBefore.plays = d["plays"] | 0;
       g_useBefore.staticBytes = d["bytes"] | (uint64_t)0;
@@ -138,6 +156,7 @@ static void nomadUsageLoad() {
     f.close();
   }
   g_useBoots++;
+  g_useResets[usageResetKind()]++;
   g_useDirty = true;
 }
 
@@ -148,6 +167,13 @@ static void nomadUsageTick() {
     g_useSampleMs = now;
     const uint32_t phones = getConnectedUserCount();
     if (phones > g_useNow.peak) { g_useNow.peak = phones; g_useDirty = true; }
+  }
+  // a start that was not a plain power-on is saved 20 s in: a unit that keeps crashing may
+  // not last the 10 minutes to the first regular save
+  static bool earlySaved = false;
+  if (!earlySaved && now > 20000) {
+    earlySaved = true;
+    if (usageResetKind() != USE_RST_POWER && queueConfigWrite(USAGE_PATH, usageJson(true))) { g_useDirty = false; g_useSavedMs = now; }
   }
   if (g_useDirty && now - g_useSavedMs >= USAGE_SAVE_MS && now > 60000) {
     if (queueConfigWrite(USAGE_PATH, usageJson(true))) { g_useDirty = false; g_useSavedMs = now; }

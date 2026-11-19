@@ -22,7 +22,7 @@
 #ifndef NOMAD_SUPPORT_H
 #define NOMAD_SUPPORT_H
 #include <Arduino.h>
-#include <ESPAsyncWebServer.h>
+#include "src/AsyncWebServer/ESPAsyncWebServer.h"   // carried here, with Nomad's limits (src/AsyncWebServer/README.md)
 #include <ArduinoJson.h>
 #include <esp_system.h>
 #include <esp_chip_info.h>
@@ -33,11 +33,76 @@
 static const uint32_t SAFE_MAGIC = 0x5AFE0DE5;
 static const uint32_t SAFE_AFTER = 3;
 static const uint32_t SAFE_WINDOW_MS = 5UL * 60 * 1000;
-
+// Level 2: five crashes in a row and the start keeps to the basics: hotspot only, no TV
+// support, no archives, no chat history, no storage breakdown, no index work. The hotspot
+// name, its password and the admin password still come from the card, so the owner can get in.
+static const uint32_t SAFE_DEEP_AFTER = 5;
+// Crashes a little more than five minutes apart never reach SAFE_AFTER (the counter clears at
+// five quiet minutes). A second counter clears only after an hour up: four of those is safe mode too.
+static const uint32_t SAFE_SLOW_AFTER = 4;
+static const uint32_t SAFE_SLOW_WINDOW_MS = 60UL * 60 * 1000;
+// Brownouts: two in a row and the next start goes easy on power: radio and backlight down, no
+// index work. A start that stays up five minutes clears it. RTC memory may not survive every
+// brownout; then the count starts again at one.
+static const uint32_t LOW_POWER_AFTER = 2;
 RTC_NOINIT_ATTR static uint32_t g_safeMagic;
 RTC_NOINIT_ATTR static uint32_t g_crashRun;    // crash restarts in a row, each soon after the last start
+RTC_NOINIT_ATTR static uint32_t g_crashSlow;   // crash restarts with no start between them that lasted an hour
+RTC_NOINIT_ATTR static uint32_t g_brownRun;    // brownout restarts in a row
 
 static uint32_t g_crashRunAtBoot = 0;          // what the counter said when this start began
+// The run before this one, for the support file: how long it lasted and how low internal
+// memory got. Kept in RTC memory, which a crash, a watchdog or a restart leaves alone (a
+// power cut does not), and refreshed every few seconds from loop().
+RTC_NOINIT_ATTR static uint32_t g_runMagic;
+RTC_NOINIT_ATTR static uint32_t g_runUpS;
+RTC_NOINIT_ATTR static uint32_t g_runMemMin;
+// 1 while an upload chunk is being written. On a full FAT32 card that write can search the
+// whole table and outlast the network task's watchdog, and the page resends the chunk after
+// each restart. A watchdog restart with this set is taken as a full card (g_prevRunDiedWriting).
+RTC_NOINIT_ATTR static uint32_t g_runGrowWrite;
+static bool g_prevRunDiedWriting = false;
+// The main loop and the UI task each stamp a time. Only the network task is on the core's
+// watchdog, and a hung loop() silently stops the button, card recovery, restarts asked for by
+// the admin page and the freeing of finished tasks while the web pages stay up. A timer looks
+// every 5 s, and after NOMAD_HEART_MS without a stamp from either it restarts the board,
+// leaving which one behind in RTC memory.
+static const uint32_t NOMAD_HEART_MS = 90000;
+RTC_NOINIT_ATTR static uint32_t g_runHung;      // 1 loop, 2 the UI task
+// Where it hung, for the next start's support file and admin log: the step loop() was on, and
+// the tasks holding the app's card lock and the card driver's own lock when the heartbeat gave up.
+RTC_NOINIT_ATTR static uint32_t g_runLoopAt;
+RTC_NOINIT_ATTR static char g_runHeldBy[2][16];
+static uint32_t g_prevLoopAt = 0;
+static char g_prevHeldBy[2][16] = { "", "" };
+static const char *const kLoopSteps[] = { "", "firmware", "safe mode", "usage", "bench", "flash mode", "button",
+  "power", "wifi", "screen", "scan", "card", "streams", "dlna", "tasks", "chat", "menu", "idle" };
+#define LOOP_AT(n) (g_runLoopAt = (n))
+static volatile uint32_t g_beatLoop = 0, g_beatUi = 0;
+static volatile bool g_beatUiOn = false;
+static void nomadHeartCheck(void *) {
+  const uint32_t now = millis();
+  const int which = (now - g_beatLoop > NOMAD_HEART_MS) ? 1 : (g_beatUiOn && now - g_beatUi > NOMAD_HEART_MS) ? 2 : 0;
+  if (!which) return;
+  g_runHung = which;
+  extern SemaphoreHandle_t sdMutex;
+  TaskHandle_t held[2] = { sdMutex ? xSemaphoreGetMutexHolder(sdMutex) : nullptr, SD_MMC.lockHolder() };
+  for (int i = 0; i < 2; i++) strlcpy(g_runHeldBy[i], held[i] ? pcTaskGetName(held[i]) : "-", sizeof(g_runHeldBy[i]));
+  esp_rom_printf("[HEART] %s stopped for %u s, restarting\n", which == 1 ? "loop" : "UiTask", (unsigned)(NOMAD_HEART_MS / 1000));
+  esp_restart();
+}
+// end of setup(): from here loop() runs
+static void nomadHeartStart(bool uiTaskUp) {
+  g_beatLoop = g_beatUi = millis();
+  g_beatUiOn = uiTaskUp;
+  esp_timer_create_args_t a = {};
+  a.callback = nomadHeartCheck;
+  a.name = "heart";
+  esp_timer_handle_t t = nullptr;
+  if (esp_timer_create(&a, &t) == ESP_OK) esp_timer_start_periodic(t, 5000000ULL);
+}
+static bool g_prevRunKnown = false;
+static uint32_t g_prevRunUpS = 0, g_prevRunMemMin = 0;
 static bool g_safeCleared = false;
 static volatile uint32_t g_supportRestartAt = 0;   // loop() restarts after the reply has gone
 static volatile uint32_t g_supportCrashAt = 0;     // bench: loop() crashes on purpose
@@ -74,14 +139,41 @@ static bool resetIsCrash(esp_reset_reason_t rr) {
 // read the stored crash while nothing else is using flash
 static void nomadSafeBoot() {
   const esp_reset_reason_t rr = esp_reset_reason();
-  if (g_safeMagic != SAFE_MAGIC || rr == ESP_RST_POWERON || rr == ESP_RST_BROWNOUT) {
+  if (g_runMagic == SAFE_MAGIC && g_runUpS > 0 && rr != ESP_RST_POWERON && rr != ESP_RST_BROWNOUT) {
+    g_prevRunKnown = true; g_prevRunUpS = g_runUpS; g_prevRunMemMin = g_runMemMin;
+  }
+  g_prevRunDiedWriting = g_runMagic == SAFE_MAGIC && g_runGrowWrite == 1 &&
+                         (rr == ESP_RST_TASK_WDT || rr == ESP_RST_INT_WDT || rr == ESP_RST_WDT);
+  g_prevRunHung = (g_runMagic == SAFE_MAGIC && rr == ESP_RST_SW && (g_runHung == 1 || g_runHung == 2)) ? (uint8_t)g_runHung : 0;
+  if (g_prevRunHung) {
+    g_prevLoopAt = g_runLoopAt < sizeof(kLoopSteps) / sizeof(kLoopSteps[0]) ? g_runLoopAt : 0;
+    for (int i = 0; i < 2; i++) {
+      g_runHeldBy[i][15] = 0;
+      bool ok = true;
+      for (const char *c = g_runHeldBy[i]; *c; ++c) ok &= (*c >= 0x20 && *c < 0x7f);
+      strlcpy(g_prevHeldBy[i], ok ? g_runHeldBy[i] : "?", sizeof(g_prevHeldBy[i]));
+    }
+  }
+  g_runLoopAt = 0;
+  g_runMagic = SAFE_MAGIC; g_runUpS = 0; g_runMemMin = 0; g_runGrowWrite = 0; g_runHung = 0;
+  const bool fresh = g_safeMagic != SAFE_MAGIC;
+  if (fresh || rr == ESP_RST_POWERON || rr == ESP_RST_BROWNOUT) {
     g_safeMagic = SAFE_MAGIC;
     g_crashRun = 0;
+    g_crashSlow = 0;
   }
-  if (resetIsCrash(rr)) g_crashRun++;
+  // counters newer than the magic can hold an older build's RTC words: no real run reaches
+  // these, so anything past them is left over, not counted
+  if (g_crashSlow > 1000) g_crashSlow = 0;
+  if (g_brownRun > 1000) g_brownRun = 0;
+  if (rr == ESP_RST_BROWNOUT) g_brownRun = fresh ? 1 : g_brownRun + 1;
+  else if (fresh || rr == ESP_RST_POWERON) g_brownRun = 0;
+  if (resetIsCrash(rr) || g_prevRunHung) { g_crashRun++; g_crashSlow++; }   // a hang restart counts toward safe mode like a crash
   else g_crashRun = 0;
   g_crashRunAtBoot = g_crashRun;
-  g_safeMode = g_crashRun >= SAFE_AFTER;
+  g_safeMode = g_crashRun >= SAFE_AFTER || g_crashSlow >= SAFE_SLOW_AFTER;
+  g_safeDeep = g_crashRun >= SAFE_DEEP_AFTER;
+  g_lowPower = g_brownRun >= LOW_POWER_AFTER;
 
 #if CONFIG_IDF_TARGET_ARCH_XTENSA
   esp_core_dump_summary_t *s = (esp_core_dump_summary_t *)malloc(sizeof(esp_core_dump_summary_t));
@@ -101,13 +193,20 @@ static void nomadSafeBoot() {
 #endif
 
   if (g_safeMode) {
-    Serial.printf("[SAFE] %u crash restarts in a row: starting in safe mode (no boot index check, no DLNA)\n",
-                  (unsigned)g_crashRun);
+    Serial.printf("[SAFE] %u crash restarts in a row (%u within the hour): starting in safe mode%s\n",
+                  (unsigned)g_crashRun, (unsigned)g_crashSlow,
+                  g_safeDeep ? ", basics only (hotspot, pages, admin)" : " (no boot index check, no DLNA)");
   }
+  if (g_lowPower) Serial.printf("[POWER] %u power dips in a row: radio and backlight down, no index work this start\n", (unsigned)g_brownRun);
 }
 
 // once the server is up, so the admin's log has it
 static void nomadSafeLog() {
+  if (g_prevRunHung)
+    webLogf("warning", "Restarted: %s stopped for 90 s%s%s (card lock: %s, card driver: %s)",
+            g_prevRunHung == 1 ? "the main loop" : "the screen task",
+            g_prevRunHung == 1 ? " at " : "", g_prevRunHung == 1 ? kLoopSteps[g_prevLoopAt] : "",
+            g_prevHeldBy[0], g_prevHeldBy[1]);
   if (!g_safeMode) return;
   if (g_crash.stored)
     webLogf("error", "Safe mode: crashed %u times in a row, last in %s at 0x%08x. Indexing and TV support are off until a normal start.",
@@ -120,8 +219,21 @@ static void nomadSafeLog() {
 // loop(): five quiet minutes and the crashes so far stop counting, and restarts asked for by the page
 static void nomadSafeTick() {
   const uint32_t now = millis();
-  if (!g_safeCleared && now > SAFE_WINDOW_MS) { g_crashRun = 0; g_safeCleared = true; }
-  if (g_supportRestartAt && (int32_t)(now - g_supportRestartAt) >= 0) { g_supportRestartAt = 0; ESP.restart(); }
+  static uint32_t runNoted = 0;
+  if (now - runNoted >= 5000) {
+    runNoted = now;
+    g_runUpS = now / 1000;
+    g_runMemMin = heap_caps_get_minimum_free_size(MALLOC_CAP_INTERNAL);
+  }
+  if (!g_safeCleared && now > SAFE_WINDOW_MS) { g_crashRun = 0; g_brownRun = 0; g_safeCleared = true; }
+  static bool slowCleared = false;
+  if (!slowCleared && now > SAFE_SLOW_WINDOW_MS) { g_crashSlow = 0; slowCleared = true; }
+  if (g_supportRestartAt && (int32_t)(now - g_supportRestartAt) >= 0) {
+    g_supportRestartAt = 0;
+    statusBeforeRestart(SI_REFRESH, "Restarting");
+    nomadClockSave();
+    nomadFirmwareBeforeRestart(); nomadQuietCard(); ESP.restart();
+  }
   if (g_supportCrashAt && (int32_t)(now - g_supportCrashAt) >= 0) { volatile uint32_t *p = nullptr; *p = 0xDEAD; }
 }
 
@@ -169,6 +281,27 @@ static String supportJson() {
   start["crashed"] = resetIsCrash(rr);
   start["inARow"] = g_crashRunAtBoot;
   start["safe"] = g_safeMode;
+  start["safeLevel"] = g_safeDeep ? 2 : (g_safeMode ? 1 : 0);
+  start["crashesWithinHour"] = g_crashSlow;
+  start["powerDipsInARow"] = g_brownRun;
+  start["lowPower"] = g_lowPower;
+  if (g_prevRunKnown) {
+    JsonObject prev = d["previous"].to<JsonObject>();
+    prev["up"] = g_prevRunUpS;            // seconds the run before this one lasted
+    prev["memMin"] = g_prevRunMemMin;     // lowest free internal memory it saw
+    if (g_prevRunHung) {
+      prev["hung"] = g_prevRunHung == 1 ? "loop" : "ui";   // it was restarted by the heartbeat
+      if (g_prevRunHung == 1) prev["at"] = kLoopSteps[g_prevLoopAt];
+      prev["cardLock"] = g_prevHeldBy[0];
+      prev["driverLock"] = g_prevHeldBy[1];
+    }
+  }
+  JsonObject resets = d["resets"].to<JsonObject>();   // every start so far, by how it began
+  resets["crash"] = g_useResets[USE_RST_CRASH];
+  resets["watchdog"] = g_useResets[USE_RST_WATCHDOG];
+  resets["brownout"] = g_useResets[USE_RST_BROWNOUT];
+  resets["power"] = g_useResets[USE_RST_POWER];
+  resets["restart"] = g_useResets[USE_RST_RESTART];
 
   JsonObject net = d["net"].to<JsonObject>();
   net["mode"] = g_staMode ? "wifi" : "hotspot";
@@ -204,6 +337,7 @@ static void nomadSupportRegister(AsyncWebServer &server) {
   server.on("/api/support/normal", HTTP_POST, [](AsyncWebServerRequest *r) {
     if (!checkAdminAuth(r)) { r->send(401, "application/json", "{\"error\":\"Unauthorized\"}"); return; }
     g_crashRun = 0;
+    g_crashSlow = 0;
     webLog("Starting normally, at the admin's request", "info");
     g_supportRestartAt = millis() + 800;
     r->send(200, "application/json", "{\"ok\":true}");

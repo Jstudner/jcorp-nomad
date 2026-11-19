@@ -143,7 +143,7 @@ const ThemeManager = {
     const r = await this.writeCard(next);
     if (!r.ok) return { success: false, message: r.msg };
     this.applyThemeColors(this.colorsOf(next));
-    return { success: true, message: 'Saved. Every device picks it up on its next page load.' };
+    return { success: true, message: 'Saved for every device.' };
   },
 
   saveThemeToStorage(colors) {
@@ -192,6 +192,8 @@ const ThemeManager = {
   applyThemeColors(colors) {
     let styleEl = document.getElementById('custom-theme-style');
     if (!colors) { if (styleEl) styleEl.remove(); return; }
+    // the primary colour mixed toward black, worked out here: color-mix() in a stylesheet needs iOS 16.2
+    function shade(hex, pct){ const m = /^#?([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i.exec(String(hex||'').trim()); if (!m) return 'color-mix(in srgb, ' + hex + ' ' + pct + '%, #000)'; const h = (v) => ('0' + Math.round(parseInt(v, 16) * pct / 100).toString(16)).slice(-2); return '#' + h(m[1]) + h(m[2]) + h(m[3]); }
     function toRgb(hex){ const m = /^#?([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i.exec(String(hex||'').trim()); return m ? parseInt(m[1],16)+', '+parseInt(m[2],16)+', '+parseInt(m[3],16) : ''; }
     if (!styleEl) {
       styleEl = document.createElement('style');
@@ -203,7 +205,7 @@ const ThemeManager = {
         --primary: ${colors.primary} !important;
         --primary-rgb: ${toRgb(colors.primary)} !important;
         --primary-dark: ${colors.primaryDark} !important;
-        --primary-600: color-mix(in srgb, ${colors.primary} 88%, #000) !important;
+        --primary-600: ${shade(colors.primary, 88)} !important;
         --bg: ${colors.bgLight} !important;
         --card: ${colors.cardLight} !important;
         --card-bg: ${colors.cardLight} !important;
@@ -218,8 +220,8 @@ const ThemeManager = {
         --muted: ${colors.mutedDark} !important;
         --primary: ${colors.primaryDarkTheme} !important;
         --primary-rgb: ${toRgb(colors.primaryDarkTheme)} !important;
-        --primary-dark: color-mix(in srgb, ${colors.primaryDarkTheme} 80%, #000) !important;
-        --primary-600: color-mix(in srgb, ${colors.primaryDarkTheme} 88%, #000) !important;
+        --primary-dark: ${shade(colors.primaryDarkTheme, 80)} !important;
+        --primary-600: ${shade(colors.primaryDarkTheme, 88)} !important;
       }
     `;
   },

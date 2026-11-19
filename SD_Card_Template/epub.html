@@ -5,6 +5,7 @@
     <link rel="stylesheet" href="/master.css">
     <script src="/theme-boot.js?v=5"></script>
     <meta charset="utf-8" />
+<script>/* nomad-load-guard: reload, twice at most, when one of Nomad's own scripts or stylesheets fails to load */(function(){var k='nomadLoadGuard:'+location.pathname;window.addEventListener('error',function(e){var t=e.target;if(!t||!t.tagName)return;var s=t.tagName==='SCRIPT',c=t.tagName==='LINK'&&/stylesheet/i.test(t.rel||'');if(!s&&!c)return;var u=t.src||t.href||'';if(u.indexOf(location.origin+'/')!==0)return;var n=0;try{n=+sessionStorage.getItem(k)||0;}catch(x){return;}if(n>=2)return;try{sessionStorage.setItem(k,String(n+1));}catch(x){return;}setTimeout(function(){location.reload();},1500*(n+1));},true);window.addEventListener('load',function(){setTimeout(function(){try{sessionStorage.removeItem(k);}catch(x){}},15000);});})();</script>
     <meta name="viewport" content="width=device-width,initial-scale=1" />
     <title>Nomad • EPUB Reader</title>
 <script src="/nomad-icons.js?v=1"></script>
@@ -135,7 +136,7 @@
 
         .loading-overlay {
             position: absolute;
-            inset: 0;
+            top:0;right:0;bottom:0;left:0;inset:0;
             display: flex;
             flex-direction: column;
             justify-content: center;
@@ -287,7 +288,7 @@
         .reader-btn.on { background: #fff; color: var(--primary); }
     </style>
     <script src="theme-manager.js?v=5"></script>
-    <script src="/nomad-utils.js?v=49"></script>
+    <script src="/nomad-utils.js?v=51"></script>
     <script src="/assets/nomad-marks.js?v=1"></script>
     <script src="/assets/nomad-readaloud.js?v=1"></script>
 </head>
@@ -298,7 +299,7 @@
             <div class="reader-title" id="readerTitle">Loading…</div>
             <div class="reader-controls">
                 <button class="reader-btn" id="tocBtn" title="Contents" aria-label="Contents"><span data-icon="list"></span><span class="lbl">Contents</span></button>
-                <button class="reader-btn" id="marksBtn" title="Bookmarks and notes" aria-label="Bookmarks and notes"><span data-icon="pin"></span></button>
+                <button class="reader-btn" id="marksBtn" title="Bookmarks" aria-label="Bookmarks"><span data-icon="pin"></span></button>
                 <button class="reader-btn" id="speakBtn" title="Read aloud" aria-label="Read aloud"><span data-icon="volume"></span></button>
                 <button class="reader-btn" id="viewModeBtn" title="Turn pages or scroll">Pages</button>
                 <button class="reader-btn" id="fontSizeDown" title="Smaller text" aria-label="Smaller text">A&#8722;</button>
@@ -386,8 +387,8 @@
             rendition: () => rendition,
             lang: () => { try { return epubBook.packaging.metadata.language || ''; } catch (e) { return ''; } },
         });
-        let epubFontSize = parseInt(localStorage.getItem('nomad_epub_font_pct') || '100');
-        let epubFlow = localStorage.getItem('nomad_epub_flow') || 'paginated';
+        let epubFontSize = parseInt(NomadPrefs.raw('nomad_epub_font_pct') || '100');
+        let epubFlow = NomadPrefs.raw('nomad_epub_flow') || 'paginated';
 
         viewModeBtn.textContent = epubFlow === 'paginated' ? 'Pages' : 'Scroll';
 
@@ -400,7 +401,7 @@
         function saveProgress(path, cfi, percent) {
             try {
                 const key = getResumeKey(path);
-                localStorage.setItem(key, JSON.stringify({ cfi, percent, time: Date.now() }));
+                NomadPrefs.setRaw(key, JSON.stringify({ cfi, percent, time: Date.now() }));
             } catch (e) {
                 console.warn('Failed to save progress', e);
             }
@@ -409,7 +410,7 @@
         function loadProgress(path) {
             try {
                 const key = getResumeKey(path);
-                const data = localStorage.getItem(key);
+                const data = NomadPrefs.raw(key);
                 return data ? JSON.parse(data) : null;
             } catch (e) {
                 return null;
@@ -688,7 +689,7 @@
                             }
                         });
                     } else {
-                        tocContent.innerHTML = '<p style="padding:12px;color:var(--muted)">This book has no contents list.</p>';
+                        tocContent.innerHTML = '<p style="padding:12px;color:var(--muted)">No contents list</p>';
                     }
                 }).catch(navErr => {
                     console.error('EPUB: Navigation load failed', navErr);
@@ -719,12 +720,12 @@
             const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
 
             // Save the new flow preference
-            localStorage.setItem('nomad_epub_flow', newFlow);
+            NomadPrefs.setRaw('nomad_epub_flow', newFlow);
             epubFlow = newFlow;
 
             // Update button text
             viewModeBtn.textContent = newFlow === 'paginated' ? 'Pages' : 'Scroll';
-            viewModeBtn.title = newFlow === 'paginated' ? 'Turning pages (tap for scrolling)' : 'Scrolling (tap for turning pages)';
+            viewModeBtn.title = 'Turn pages or scroll';
 
             // Save current location before switching
             if (rendition && rendition.currentLocation()) {
@@ -756,13 +757,13 @@
         fontUpBtn.addEventListener('click', () => {
             epubFontSize = Math.min(200, epubFontSize + 10);
             if (rendition) rendition.themes.fontSize(`${epubFontSize}%`);
-            localStorage.setItem('nomad_epub_font_pct', epubFontSize);
+            NomadPrefs.setRaw('nomad_epub_font_pct', epubFontSize);
         });
 
         fontDownBtn.addEventListener('click', () => {
             epubFontSize = Math.max(80, epubFontSize - 10);
             if (rendition) rendition.themes.fontSize(`${epubFontSize}%`);
-            localStorage.setItem('nomad_epub_font_pct', epubFontSize);
+            NomadPrefs.setRaw('nomad_epub_font_pct', epubFontSize);
         });
 
         // epub.js measures the box once, so it misses the viewport changing when a phone's

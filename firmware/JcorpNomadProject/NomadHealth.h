@@ -16,7 +16,7 @@
 #ifndef NOMAD_HEALTH_H
 #define NOMAD_HEALTH_H
 #include <Arduino.h>
-#include <ESPAsyncWebServer.h>
+#include "src/AsyncWebServer/ESPAsyncWebServer.h"   // carried here, with Nomad's limits (src/AsyncWebServer/README.md)
 #include <esp_heap_caps.h>
 #include "NomadSD.h"
 

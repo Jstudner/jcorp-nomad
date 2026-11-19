@@ -1,6 +1,6 @@
-// NomadChat.h - the chat page's messages, kept by the Nomad.
+// NomadChat.h - the chat page's messages, kept by Nomad.
 //
-// The Nomad numbers each message as it arrives and keeps the last CHAT_KEEP in PSRAM, so
+// Nomad numbers each message as it arrives and keeps the last CHAT_KEEP in PSRAM, so
 // the order doesn't depend on phone clocks (often wrong offline):
 //   GET  /api/chat?after=N   {"epoch":E,"seq":S,"msgs":[{"s","t","n","x","c","m"}...]}
 //                            everything after N (at most CHAT_PAGE), from memory: no card
@@ -15,7 +15,7 @@
 #pragma once
 #include <Arduino.h>
 #include <ArduinoJson.h>
-#include <ESPAsyncWebServer.h>
+#include "src/AsyncWebServer/ESPAsyncWebServer.h"   // carried here, with Nomad's limits (src/AsyncWebServer/README.md)
 #include <esp_heap_caps.h>
 #include <esp_random.h>
 #include <algorithm>
@@ -360,7 +360,17 @@ void nomadChatRegister(AsyncWebServer &server) {
     const String text = chatClean(param("x"), CHAT_TEXT_MAX);
     const String cid = chatId(param("c")), mid = chatId(param("m"));
     if (!text.length() || !cid.length() || !mid.length()) { chatSend(request, 400, "{\"error\":\"Empty message\"}"); return; }
-    const uint64_t ts = strtoull(param("t").c_str(), nullptr, 10);
+    uint64_t ts = strtoull(param("t").c_str(), nullptr, 10);
+    // the sender's time is a sample for Nomad's clock (NomadClock.h). Once phones have set
+    // that clock, a message more than 2 minutes off it gets Nomad's time instead.
+    {
+      const uint32_t ip = request->client() ? (uint32_t)request->client()->remoteIP() : 0;
+      if (ts && nomadClockFromPhone(ip, (int64_t)ts)) nomadClockSave();
+      if (g_clockQ >= CLOCK_PHONE) {
+        const int64_t now = nomadNowMs();
+        if (!ts || llabs((int64_t)ts - now) > CLOCK_AGREE_MS) ts = (uint64_t)now;
+      }
+    }
     uint32_t seq = 0;
     {
       ChatLockGuard lk;

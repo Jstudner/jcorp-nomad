@@ -5,8 +5,9 @@
     <link rel="stylesheet" href="/master.css">
     <script src="/theme-boot.js?v=5"></script>
 <script src="/nomad-icons.js?v=1"></script>
-    <script src="/nomad-utils.js?v=49"></script>
+    <script src="/nomad-utils.js?v=51"></script>
     <meta charset="utf-8" />
+<script>/* nomad-load-guard: reload, twice at most, when one of Nomad's own scripts or stylesheets fails to load */(function(){var k='nomadLoadGuard:'+location.pathname;window.addEventListener('error',function(e){var t=e.target;if(!t||!t.tagName)return;var s=t.tagName==='SCRIPT',c=t.tagName==='LINK'&&/stylesheet/i.test(t.rel||'');if(!s&&!c)return;var u=t.src||t.href||'';if(u.indexOf(location.origin+'/')!==0)return;var n=0;try{n=+sessionStorage.getItem(k)||0;}catch(x){return;}if(n>=2)return;try{sessionStorage.setItem(k,String(n+1));}catch(x){return;}setTimeout(function(){location.reload();},1500*(n+1));},true);window.addEventListener('load',function(){setTimeout(function(){try{sessionStorage.removeItem(k);}catch(x){}},15000);});})();</script>
     <meta name="viewport" content="width=device-width,initial-scale=1" />
     <title>Nomad • Books</title>
     <!-- Books page supports epub, audiobook, and PDF formats. Comics (CBZ/CBR/folder) open in comics.html. -->
@@ -257,7 +258,7 @@
 
         .overlay-title {
             position: absolute;
-            inset: 0;
+            top:0;right:0;bottom:0;left:0;inset:0;
             display: flex;
             align-items: center;
             justify-content: center;
@@ -316,7 +317,7 @@
             display: flex; align-items: center; justify-content: center; color: var(--primary);
         }
         .cont-art { position: relative; }
-        .cont-art img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; opacity: 0; }
+        .cont-art img { position: absolute; top:0;right:0;bottom:0;left:0;inset:0; width: 100%; height: 100%; object-fit: cover; opacity: 0; }
         .cont-art.has-img img { opacity: 1; }
         .cont-art.has-img svg { visibility: hidden; }
         .cont-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
@@ -327,7 +328,7 @@
         .modal, .list-modal {
             display: none;
             position: fixed;
-            inset: 0;
+            top:0;right:0;bottom:0;left:0;inset:0;
             background: rgba(0,0,0,0.6);
             justify-content: center;
             align-items: center;
@@ -624,7 +625,7 @@
         <div class="modal-content" onclick="event.stopPropagation()">
             <h2 id="actionTitle">What do you want to do?</h2>
             <div id="actionSub"></div>
-            <button id="viewButton" class="btn" aria-label="Primary action"></button>
+            <button id="viewButton" class="btn"></button>
             <button id="downloadButton" class="btn-muted" aria-label="Download file" data-dl>Download</button>
             <button id="actionCancelBtn" class="btn-muted">Cancel</button>
         </div>
@@ -658,7 +659,7 @@
                     <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5V2l5 4-5 4V7a6 6 0 1 0 6 6h2a8 8 0 1 1-8-8z"/><text x="12" y="16" text-anchor="middle">15</text></svg>
                 </button>
                 <button class="audio-btn pill" id="sleepBtn" title="Sleep timer">Sleep</button>
-                <button class="audio-btn pill marks-pill" id="audioMarksBtn" title="Bookmarks and notes" aria-label="Bookmarks and notes" data-icon="pin"></button>
+                <button class="audio-btn pill marks-pill" id="audioMarksBtn" title="Bookmarks" aria-label="Bookmarks" data-icon="pin"></button>
             </div>
         </div>
         <audio id="audioElement" preload="metadata" crossorigin="anonymous"></audio>
@@ -713,8 +714,8 @@
 
         /* Resume store */
         const RESUME_KEY = 'nomad_resume_store_v1';
-        function readResume() { try { return JSON.parse(localStorage.getItem(RESUME_KEY) || '{}'); } catch (e) { return {}; } }
-        function writeResume(obj) { try { localStorage.setItem(RESUME_KEY, JSON.stringify(obj)); } catch (e) { } }
+        function readResume() { try { return JSON.parse(NomadPrefs.raw(RESUME_KEY) || '{}'); } catch (e) { return {}; } }
+        function writeResume(obj) { try { NomadPrefs.setRaw(RESUME_KEY, JSON.stringify(obj)); } catch (e) { } }
         function fileKey(path, sz, mt) { return `${normalizePath(path)}|${sz || 0}|${mt || 0}`; }
         function findResume(movie) {
             const store = readResume();
@@ -859,7 +860,7 @@
         /* State */
         let library = [];
         let filtered = [];
-        let currentSize = localStorage.getItem('nomadBooksSize') || 'medium';
+        let currentSize = NomadPrefs.raw('nomadBooksSize') || 'medium';
         let currentItem = null;
         const ANIM_KEY = 'nomadBooksAnimated_v1';
 
@@ -981,7 +982,7 @@
             currentSize = size;
             viewButtons.forEach(btn => btn.classList.toggle('active', btn.dataset.size === size));
             gridEl.className = `media-grid ${size}`;
-            localStorage.setItem('nomadBooksSize', size);
+            NomadPrefs.setRaw('nomadBooksSize', size);
         }
         setViewSize(currentSize);
         viewButtons.forEach(btn => btn.addEventListener('click', () => setViewSize(btn.dataset.size)));
@@ -991,7 +992,7 @@
             inProgress = null;
             renderContinue();
             if (filtered.length === 0) {
-                gridEl.innerHTML = '<p style="grid-column:1/-1;text-align:center;color:var(--primary-dark);padding:12px">No books found.</p>';
+                gridEl.innerHTML = '<p style="grid-column:1/-1;text-align:center;color:var(--primary-dark);padding:12px">No books found</p>';
                 return;
             }
 
@@ -1006,7 +1007,7 @@
                 gridEl.className = `media-grid ${currentSize}`;
             }
 
-            const shouldAnimate = !localStorage.getItem(ANIM_KEY);
+            const shouldAnimate = !NomadPrefs.raw(ANIM_KEY);
             let animIdx = 0;
 
             const frag = document.createDocumentFragment();
@@ -1133,7 +1134,7 @@
 
             gridEl.innerHTML = '';
             gridEl.appendChild(frag);
-            if (shouldAnimate) { try { localStorage.setItem(ANIM_KEY, '1'); } catch (e) { } }
+            if (shouldAnimate) { try { NomadPrefs.setRaw(ANIM_KEY, '1'); } catch (e) { } }
         }
 
 
@@ -1321,7 +1322,7 @@
             go: (t) => { try { audioElement.currentTime = +t; audioElement.play().catch(() => {}); } catch (e) {} },
         });
         const speeds = [0.75, 1.0, 1.25, 1.5, 1.75, 2.0];
-        let speed = parseFloat(localStorage.getItem('nomad_audio_speed') || '1') || 1;
+        let speed = parseFloat(NomadPrefs.raw('nomad_audio_speed') || '1') || 1;
         const audioArt = document.getElementById('audioArt');
         audioArt.addEventListener('error', () => { audioArt.hidden = true; });
         const audioSub = document.getElementById('audioSub');
@@ -1434,7 +1435,7 @@
             const i = speeds.indexOf(speed);
             speed = speeds[(i + 1) % speeds.length];
             audioElement.playbackRate = speed;
-            localStorage.setItem('nomad_audio_speed', String(speed));
+            NomadPrefs.setRaw('nomad_audio_speed', String(speed));
             showSpeed();
         });
         showSpeed();

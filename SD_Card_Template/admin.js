@@ -180,11 +180,10 @@ async function followVideoCheck() {
 
 async function triggerVideoCheck() {
   const ok = confirm(
-    "Check every video for files that won't play in some browsers " +
-    'or are slow to start?\n\n' +
-    "Nothing on the card is changed. Videos with issues get a dot in the file browser, " +
-    'and Nomad-Tools can fix most of them.\n\n' +
-    'On a big card this takes about a minute.'
+    'Check every video for playback problems?\n\n' +
+    'Nothing on the card is changed. Videos with issues get a dot in the file browser. ' +
+    'Nomad-Tools can fix most of them.\n\n' +
+    'About a minute on a big card.'
   );
   if (!ok) return;
   const msg = document.getElementById('video-check-msg');
@@ -282,7 +281,7 @@ async function triggerIndexScan() {
         alert(data.error || "Couldn't start the scan.");
         return;
       }
-      if (msg) msg.textContent = `Scan of ${dir} started. Progress is under Logs.`;
+      if (msg) msg.textContent = `Scan of ${dir} started.`;
     } else {
       await generateMediaJson();
     }
@@ -482,23 +481,14 @@ async function adminFetch(url, opts = {}) {
 }
 
 // Settings management
-async function loadSettings() {
-  console.log("loadSettings() fired");
+// until the real settings arrive, a save would write the markup defaults over them
+let settingsLoaded = false;
+async function loadSettings(attempt = 0) {
   try {
     // authed: the firmware only reveals the wifi password to the admin
     const res = await adminFetch('/settings', { cache: 'no-store' });
+    if (!res.ok) throw new Error('HTTP ' + res.status);
     const s = await res.json();
-    console.log("settings from backend:", s);
-
-    // Update UI elements
-    if (s.hasOwnProperty('adminPassword')) {
-      const serverPw = s.adminPassword;
-      if (serverPw === null || serverPw === '' || serverPw === 'null') {
-        console.log('Admin password is disabled on server');
-      } else {
-        console.log('Admin password is set on server');
-      }
-    }
 
     // RGB settings
     if (s.rgbMode !== undefined) {
@@ -534,6 +524,9 @@ async function loadSettings() {
     if (s.flipScreen !== undefined) {
       document.getElementById('flip-screen').checked = !!s.flipScreen;
     }
+    // QR code on the main screen, on unless the firmware says otherwise
+    const qrEl = document.getElementById('screen-qr');
+    if (qrEl) qrEl.checked = (s.screenQr !== undefined) ? !!s.screenQr : true;
 
     // TV support (DLNA), default on when the firmware doesn't report it
     const dlnaEl = document.getElementById('dlna-enabled');
@@ -543,6 +536,8 @@ async function loadSettings() {
     const dnsEl = document.getElementById('wifi-dns-catchall');
     if (dnsEl) dnsEl.checked = !!s.dnsCatchAll;
 
+    settingsLoaded = true;
+
     // Check authentication
     if (typeof requireAdminAuth === 'function') {
       await requireAdminAuth(s);
@@ -550,10 +545,17 @@ async function loadSettings() {
 
   } catch (e) {
     console.error('Failed to load settings:', e);
+    // a busy Nomad answers 503 now and then: ask again, a little later each time
+    if (!settingsLoaded && attempt < 6) setTimeout(() => loadSettings(attempt + 1), 1500 * (attempt + 1));
   }
 }
 
 async function saveSettings() {
+  if (!settingsLoaded) {
+    alert("Settings haven't loaded. Try again.");
+    loadSettings();
+    return;
+  }
   try {
     // hotspot name and password are only sent from updateWiFiSettings. sending them here
     // blanks the password if the page loaded before signing in
@@ -563,6 +565,7 @@ async function saveSettings() {
       brightness: parseInt(document.getElementById('brightness').value),
       autoGenerateMedia: document.getElementById('auto-generate').checked,
       flipScreen: document.getElementById('flip-screen').checked,
+      screenQr: document.getElementById('screen-qr') ? document.getElementById('screen-qr').checked : true,
       dlnaEnabled: document.getElementById('dlna-enabled') ? document.getElementById('dlna-enabled').checked : true
     };
 
@@ -574,13 +577,13 @@ async function saveSettings() {
       })
     });
 
-    if (res.ok) {
-      console.log('Settings saved successfully');
-    } else {
+    if (!res.ok) {
       console.error('Failed to save settings');
+      alert("Couldn't save. Try again.");
     }
   } catch (e) {
     console.error('Error saving settings:', e);
+    alert("Couldn't save. Try again.");
   }
 }
 
@@ -736,7 +739,7 @@ async function updateWiFiSettings() {
   try {
     const res = await adminFetch('/settings', { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
       body: new URLSearchParams({ body: JSON.stringify(body) }) });
-    say(res.ok ? 'Saved. Nomad uses it from its next restart.' : `Nomad refused (HTTP ${res.status}).`);
+    say(res.ok ? 'Saved. Takes effect after a restart.' : `Nomad refused (HTTP ${res.status}).`);
   } catch (e) { say("Couldn't reach Nomad."); }
 }
 
@@ -788,7 +791,7 @@ let isAutoGenerate = false;
 /* The log: Nomad's entries (/console-logs, the last 50) merged with this page's notes.
    Lines are set as text, never HTML: messages carry guest-chosen file names. Nomad stamps
    entries with its uptime, so they show as "5 min ago". */
-let serverLog = [], serverNow = 0, serverAt = 0;   // entries, the Nomad's uptime when fetched, and our clock then
+let serverLog = [], serverNow = 0, serverAt = 0;   // entries, Nomad's uptime when fetched, and our clock then
 let consoleLines = [];                              // this page's notes: { msg, type, at }
 const maxConsoleLines = 30;
 
@@ -831,7 +834,7 @@ function renderLog(force) {
     row.appendChild(document.createTextNode(l.msg));
     frag.appendChild(row);
   }
-  if (!shown.length) { const row = document.createElement('div'); row.className = 'ln'; row.textContent = 'Nothing to show.'; frag.appendChild(row); }
+  if (!shown.length) { const row = document.createElement('div'); row.className = 'ln'; row.textContent = 'Nothing to show'; frag.appendChild(row); }
   box.replaceChildren(frag);
   if (follow) box.scrollTop = box.scrollHeight;
 }
@@ -1080,13 +1083,11 @@ async function wifiConnect() {
   }
 
   const ok = confirm(
-    `Nomad restarts and joins "${ssid}".\n\n` +
-    `Its hotspot is off in WiFi Mode. Connect this device to "${ssid}" ` +
-    `and open http://nomad.local. Nomad's screen shows the exact address.\n\n` +
+    `Restart Nomad and join "${ssid}"?\n\n` +
+    `The hotspot turns off. If "${ssid}" can't be reached, Nomad goes back to hotspot mode.\n\n` +
     (persist
-      ? 'Auto-reconnect is on: Nomad rejoins on every boot. To get the hotspot back, hold the side button while it boots, or use this popup.\n\n'
-      : 'Auto-reconnect is off: unplug and replug Nomad to get the hotspot back.\n\n') +
-    'If the network can\'t be reached, Nomad goes back to hotspot mode.\n\nContinue?'
+      ? 'To get the hotspot back, hold the side button while Nomad boots.'
+      : 'To get the hotspot back, unplug and replug Nomad.')
   );
   if (!ok) return;
 
@@ -1103,7 +1104,7 @@ async function wifiConnect() {
     const data = await res.json().catch(() => ({}));
     if (res.ok) {
       addConsoleLog(`WiFi Mode: restarting to join "${ssid}"`, 'info');
-      alert(`Nomad is restarting and joining "${ssid}".\n\nSwitch this device to that network, then open http://nomad.local or the address on Nomad's screen.`);
+      alert(`Nomad is restarting. Connect this device to "${ssid}", then open http://nomad.local or the address on Nomad's screen.`);
       closeWifiModal();
     } else {
       alert("Couldn't switch WiFi Mode: " + (data.error || ('HTTP ' + res.status)));
@@ -1189,12 +1190,11 @@ async function requireAdminAuth(passedSettings) {
   // Check if password is disabled
   if (!settings || !settings.hasOwnProperty('adminPassword') ||
       settings.adminPassword === null || settings.adminPassword === '' || settings.adminPassword === 'null') {
-    console.debug('requireAdminAuth: admin password explicitly disabled on server, skipping auth.');
     overlay.classList.add('hidden');
     return;
   }
 
-  // a saved sign-in: ask the Nomad whether it still stands (a restart ends a sign-in that
+  // a saved sign-in: ask Nomad whether it still stands (a restart ends a sign-in that
   // wasn't kept, a password change ends them all)
   if (adminToken) {
     try {
@@ -1355,7 +1355,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   const shutdownBtn = document.getElementById('btn-shutdown');
   if (shutdownBtn) {
     shutdownBtn.addEventListener('click', async () => {
-      const ok = confirm('Shut down Nomad?\n\nThe card is unmounted first, then Nomad goes into deep sleep.');
+      const ok = confirm('Shut down Nomad?');
       if (!ok) return;
 
       try {
@@ -1465,7 +1465,16 @@ document.addEventListener('DOMContentLoaded', async () => {
   if (flipToggle) {
     flipToggle.addEventListener('change', () => {
       saveSettings();
-      addConsoleLog(`Screen flipped ${flipToggle.checked ? '180° (upside-down mount)' : 'back to normal'}`, 'info');
+      addConsoleLog(`Screen flipped ${flipToggle.checked ? '180°' : 'back to normal'}`, 'info');
+    });
+  }
+
+  // QR code on the main screen: firmware redraws the screen on save
+  const qrToggle = document.getElementById('screen-qr');
+  if (qrToggle) {
+    qrToggle.addEventListener('change', () => {
+      saveSettings();
+      addConsoleLog(`QR code on the screen ${qrToggle.checked ? 'on' : 'off'}`, 'info');
     });
   }
 
@@ -1477,8 +1486,8 @@ document.addEventListener('DOMContentLoaded', async () => {
       saveSettings();
       const msg = document.getElementById('dlna-msg');
       if (msg) msg.textContent = dlnaToggle.checked
-        ? 'On. TVs on this WiFi list "Nomad" as a media server within a minute or two.'
-        : 'Off. TVs may keep a stale entry until they refresh their source list.';
+        ? 'On. TVs list Nomad within a minute or two.'
+        : 'Off. TVs may still list Nomad until they refresh.';
       addConsoleLog(`TV support (DLNA) ${dlnaToggle.checked ? 'enabled' : 'disabled'}`, 'info');
     });
   }
@@ -1537,9 +1546,10 @@ document.addEventListener('DOMContentLoaded', async () => {
   }
 
   // Set up periodic updates
-  setInterval(fetchAdminBar, 30000); // Every 30 seconds
-  setInterval(updateTemp, 6000); // Every 6 seconds
-  setInterval(fetchSD, 60000); // Every minute
+  // skipped while the page is hidden
+  setInterval(() => { if (!document.hidden) fetchAdminBar(); }, 30000);
+  setInterval(() => { if (!document.hidden) updateTemp(); }, 6000);
+  setInterval(() => { if (!document.hidden) fetchSD(); }, 60000);
 
   // adaptive poll: every 2s while indexing so the bar looks live, 10s when idle.
   // self-reschedules instead of setInterval so it reacts to the last poll
@@ -1664,7 +1674,7 @@ function renderPerms() {
     ul.addEventListener('change', savePerms);
   }
 }
-// with a column's master off, its page boxes say so (greyed) but keep their own setting
+// with a column's master off, its page boxes grey out but keep their own setting
 function paintPermMasters() {
   const dlOn = document.getElementById('ui-downloads').checked, ulOn = document.getElementById('ui-uploads').checked;
   document.querySelectorAll('#ui-pages input[data-kind="dl"]').forEach(i => { i.disabled = !dlOn; });
@@ -1701,7 +1711,7 @@ async function saveUiConfig(msgId) {
     const res = await adminFetch('/api/ui-config', { method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
       body: new URLSearchParams({ body: payload }) });
-    if (msg) msg.textContent = res.ok ? 'Saved. Pages pick it up when they next load.' : 'Not saved (HTTP ' + res.status + ').';
+    if (msg) msg.textContent = res.ok ? 'Saved.' : 'Not saved (HTTP ' + res.status + ').';
   } catch (e) {
     if (msg) msg.textContent = "Couldn't save: " + e.message;
   }
@@ -1725,7 +1735,7 @@ async function clearCommunityDir(dir, label, confirmed = false) {
       }
     }
   } catch (e) {}
-  if (msg) msg.textContent = `${label} cleared (${n} file${n === 1 ? '' : 's'} removed).`;
+  if (msg) msg.textContent = `Cleared the ${label} (${n} file${n === 1 ? '' : 's'}).`;
 }
 // Nomad keeps chat in memory too (NomadChat.h), so deleting the files alone isn't enough:
 // its own clear empties both. Older firmware has only the files.
@@ -1739,7 +1749,7 @@ async function clearChatHistory() {
   } catch (e) {}
   return clearCommunityDir('/.chat', 'chat history', true);
 }
-const clearWhiteboard  = () => clearCommunityDir('/.whiteboard', 'live whiteboard');
+const clearWhiteboard  = () => clearCommunityDir('/.whiteboard', 'whiteboard');
 
 loadUiConfig();
 
@@ -1834,6 +1844,18 @@ const NomadUpdate = {
   manifest: null,
   manifestUrl: '',
   pending: [],
+  at: 0,          // the file a stopped run carries on from: the ones before it are staged
+
+  // a 503 or a dropped request is asked again with backoff; any other answer is returned as is
+  async retry(send, tries = 8) {
+    let r = null;
+    for (let i = 0; i < tries; i++) {
+      try { r = await send(); } catch (e) { r = null; }
+      if (r && r.status !== 503) return r;
+      await new Promise(res => setTimeout(res, Math.min(5000, 400 * 2 ** i)));
+    }
+    return r || { ok: false, status: 0, json: async () => ({}) };
+  },
 
   async init() {
     const $ = id => document.getElementById(id);
@@ -1899,13 +1921,18 @@ const NomadUpdate = {
   },
 
   async localHashes(paths) {
-    const r = await adminFetch('/api/update/hash', { method: 'POST', headers: { 'Content-Type': 'text/plain' },
-                                                     body: paths.join('\n') });
+    const r = await this.retry(() => adminFetch('/api/update/hash', { method: 'POST',
+      headers: { 'Content-Type': 'text/plain' }, body: paths.join('\n') }));
     if (r.status === 401) { this.say('Sign in to check for updates'); return null; }
     if (!r.ok) { this.say("Couldn't check files (" + r.status + ')'); return null; }
     for (let i = 0; i < 600; i++) {
       await new Promise(res => setTimeout(res, 500));
-      const j = await (await fetch('/api/update/hash', { cache: 'no-store' })).json();
+      let j;
+      try {   // a busy or dropped poll is just a poll missed
+        const p = await fetch('/api/update/hash', { cache: 'no-store' });
+        if (!p.ok) continue;
+        j = await p.json();
+      } catch (e) { continue; }
       if (j.state === 'done') return j.files;
       if (j.state === 'error') break;
       if (j.total) this.say(`Checking files… ${j.done} of ${j.total}`);
@@ -1941,6 +1968,7 @@ const NomadUpdate = {
     btn.hidden = false;
     btn.disabled = false;
     btn.textContent = `Update ${this.pending.length} file${this.pending.length === 1 ? '' : 's'}`;
+    this.at = 0;
     btn.onclick = () => this.run();
   },
 
@@ -1957,23 +1985,28 @@ const NomadUpdate = {
     progress.hidden = false;
     const files = this.pending;
     const total = files.reduce((n, f) => n + f.size, 0);
-    let done = 0;
-    for (let i = 0; i < files.length; i++) {
+    // a stopped run carries on where it stopped: the files before that are already staged
+    let done = files.slice(0, this.at).reduce((n, f) => n + f.size, 0);
+    bar.style.width = Math.round(done * 100 / total) + '%';
+    for (let i = this.at; i < files.length; i++) {
       const f = files[i];
       this.say(`Updating ${i + 1} of ${files.length} · ${f.path.replace(/^\//, '')}`);
       let ok = false;
-      try {
-        const r = await fetch(this.fileUrl(f.path), { cache: 'no-store' });
-        const blob = r.ok ? await r.blob() : null;
-        if (blob && blob.size === f.size) {
+      for (let attempt = 0; attempt < 3 && !ok; attempt++) {
+        if (attempt) await new Promise(res => setTimeout(res, 1500 * attempt));
+        try {
+          const r = await fetch(this.fileUrl(f.path), { cache: 'no-store' });
+          const blob = r.ok ? await r.blob() : null;
+          if (!blob || blob.size !== f.size) continue;   // a short download: fetch it again
           const q = `path=${encodeURIComponent(f.path)}&size=${f.size}&sha256=${f.sha256}`;
-          const s = await adminFetch('/api/update/stage?' + q, { method: 'POST',
-            headers: { 'Content-Type': 'application/octet-stream' }, body: blob });
+          const s = await this.retry(() => adminFetch('/api/update/stage?' + q, { method: 'POST',
+            headers: { 'Content-Type': 'application/octet-stream' }, body: blob }));
           ok = s.ok;
-        }
-      } catch (e) { ok = false; }
+        } catch (e) { ok = false; }
+      }
       if (!ok) {
-        await adminFetch('/api/update/abort', { method: 'POST' }).catch(() => {});
+        // nothing is replaced until the commit, so the staged files can wait for the retry
+        this.at = i;
         progress.hidden = true;
         this.say(`Update stopped at ${f.path.replace(/^\//, '')} · nothing was changed`);
         btn.disabled = false;
@@ -1983,10 +2016,22 @@ const NomadUpdate = {
       done += f.size;
       bar.style.width = Math.round(done * 100 / total) + '%';
     }
-    const c = await adminFetch('/api/update/commit', { method: 'POST' });
+    const c = await this.retry(() => adminFetch('/api/update/commit', { method: 'POST' }));
     if (!c.ok) {
+      // some files went in, some didn't: checking again finds what still differs
       progress.hidden = true;
       this.say("Some files couldn't be replaced · see Logs");
+      btn.disabled = false;
+      btn.textContent = 'Check again';
+      btn.onclick = async () => {
+        btn.disabled = true;
+        this.say('Checking files…');
+        const local = await this.localHashes(this.manifest.files.map(x => x.path));
+        if (!local) { btn.disabled = false; return; }
+        this.pending = this.manifest.files.filter(x => !local[x.path] || local[x.path][1] !== x.sha256)
+                                          .map(x => Object.assign({ isNew: !local[x.path] }, x));
+        this.render();
+      };
       return;
     }
     // Scripts and styles are cached for 10 minutes and a reload does not revalidate them,
@@ -2023,7 +2068,7 @@ const Activity = {
     const rows = (d.rows || []).sort((a, b) => (b.live - a.live) || (a.ago - b.ago));
     const playing = rows.filter(r => r.live).length;
     document.getElementById('act-count').textContent = playing ? `${playing} going` : '';
-    if (!rows.length) { list.innerHTML = '<div class="adm-tiles-note">Nothing playing right now.</div>'; return; }
+    if (!rows.length) { list.innerHTML = '<div class="adm-tiles-note">Nothing playing</div>'; return; }
     list.innerHTML = rows.map(r => {
       const parts = r.path.split('/').filter(Boolean);
       const title = (parts.pop() || '').replace(/\.[^.]+$/, '');
@@ -2137,12 +2182,12 @@ document.addEventListener('DOMContentLoaded', () => {
 });
 
 /* Backup: settings to a file and back */
-const BACKUP_SETTINGS = ['wifiSSID', 'wifiPassword', 'rgbMode', 'rgbColor', 'brightness', 'autoGenerateMedia', 'flipScreen', 'dlnaEnabled', 'dnsCatchAll'];
+const BACKUP_SETTINGS = ['wifiSSID', 'wifiPassword', 'rgbMode', 'rgbColor', 'brightness', 'autoGenerateMedia', 'flipScreen', 'screenQr', 'dlnaEnabled', 'dnsCatchAll'];
 async function backupDownload() {
   const msg = document.getElementById('bk-msg');
   try {
     const s = await (await adminFetch('/settings', { cache: 'no-store' })).json();
-    if (s.wifiPassword === '__set__') { msg.textContent = 'Sign in first, so the hotspot password can go in the backup.'; return; }
+    if (s.wifiPassword === '__set__') { msg.textContent = 'Sign in first.'; return; }
     const ui = await (await fetch('/api/ui-config?_=' + Date.now(), { cache: 'no-store' })).json();
     const theme = await ThemeManager.fetchCard();
     const settings = {};
@@ -2153,7 +2198,7 @@ async function backupDownload() {
     a.download = 'nomad-settings-' + new Date().toISOString().slice(0, 10) + '.json';
     document.body.appendChild(a); a.click(); a.remove();
     setTimeout(() => URL.revokeObjectURL(a.href), 5000);
-    msg.textContent = 'Saved. It has the hotspot password in it, so keep it somewhere private.';
+    msg.textContent = 'Saved. It has the hotspot password in it: keep it private.';
   } catch (e) { msg.textContent = "Couldn't make the backup: " + e.message; }
 }
 async function backupRestore(f) {
@@ -2258,7 +2303,7 @@ const Support = {
     a.download = `nomad-support-${(support && support.version) || 'x'}-${new Date().toISOString().slice(0, 10)}.json`;
     document.body.appendChild(a); a.click(); a.remove();
     setTimeout(() => URL.revokeObjectURL(a.href), 5000);
-    if (msg) msg.textContent = 'Saved. Passwords are taken out. The log names files and networks, so send it only to someone you trust.';
+    if (msg) msg.textContent = 'Saved. The log names files and networks: send it only to someone you trust.';
   },
   async forget() {
     if (!confirm('Forget the crash Nomad kept? Save a support file first if someone may need it.')) return;
@@ -2297,12 +2342,17 @@ const Firmware = {
   async load() {
     try {
       const r = await adminFetch('/api/firmware', { cache: 'no-store' });
-      if (!r.ok || !/json/.test(r.headers.get('content-type') || '')) {
+      const json = /json/.test(r.headers.get('content-type') || '');
+      // only a 404 (or the portal page in its place) means no update route. A 503 or an
+      // expired sign-in (401) keeps what is shown until the next poll
+      if (r.status === 404 || (r.ok && !json)) {
         this.el('fw-now').textContent = "This firmware can't update itself yet. Update it once over USB from nomadflash.";
         this.el('fw-actions').hidden = true;
         return null;
       }
+      if (!r.ok) return null;
       this.data = await r.json();
+      this.el('fw-actions').hidden = false;
       this.render(this.data);
       return this.data;
     } catch (e) { return null; }
@@ -2312,7 +2362,7 @@ const Firmware = {
     const last = this.el('fw-last');
     last.textContent = d.proving ? 'Checking this firmware works after the update. Give it a minute.'
       : d.last && d.last.result === 'ok' ? `Updated to ${d.last.version}.`
-      : d.last && d.last.result === 'back' ? `Tried ${d.last.version}, but ${d.last.why || 'it didn\'t start'}, so Nomad went back to ${d.version}.`
+      : d.last && d.last.result === 'back' ? `Tried ${d.last.version}, but ${d.last.why || 'it didn\'t start'}. Nomad went back to ${d.version}.`
       : '';
     const pull = this.el('fw-pull'), pick = this.el('fw-pick');
     const busy = ['receiving', 'pulling', 'checking'].includes(d.state);
@@ -2320,7 +2370,7 @@ const Firmware = {
     pull.disabled = pull.disabled || !d.canPull;
     pull.title = d.canPull ? '' : 'Needs WiFi Mode, on a network with internet';
     const msg = this.el('fw-msg');
-    if (!d.signed) msg.textContent = "This build has no update key, so it can only be updated over USB.";
+    if (!d.signed) msg.textContent = "This build can only be updated over USB.";
     else if (!d.spare) msg.textContent = "Nomad has no spare firmware slot. Update it once over USB from nomadflash.";
     else if (d.state === 'failed') msg.textContent = d.error || 'The update stopped.';
     else if (d.state === 'idle' && d.error) msg.textContent = d.error;
@@ -2422,8 +2472,8 @@ const WifiQR = {
     const text = this.which === 'wifi' ? NomadQR.wifi(this.ssid, this.pass) : page;
     NomadQR.draw(document.getElementById('qr-canvas'), text, { ecl: 'M', scale: 10, margin: 2 });
     document.getElementById('qr-title').textContent = this.which === 'wifi' ? 'Join the WiFi' : 'Open the pages';
-    document.querySelector('.qr-cap').textContent = this.which === 'wifi' ? "Point a phone's camera at this to join."
-      : `For phones already on the WiFi: opens ${page}`;
+    document.querySelector('.qr-cap').textContent = this.which === 'wifi' ? ''
+      : `For phones already on the WiFi: ${page}`;
     document.getElementById('qr-show-wifi').className = 'btn ' + (this.which === 'wifi' ? 'btn-primary' : 'btn-secondary');
     document.getElementById('qr-show-page').className = 'btn ' + (this.which === 'page' ? 'btn-primary' : 'btn-secondary');
   },
@@ -2431,12 +2481,12 @@ const WifiQR = {
     const msg = document.getElementById('wifi-msg');
     try {
       const s = await (await adminFetch('/settings', { cache: 'no-store' })).json();
-      if (s.wifiPassword === '__set__') { msg.textContent = 'Sign in first, so the code can carry the password.'; return; }
+      if (s.wifiPassword === '__set__') { msg.textContent = 'Sign in first.'; return; }
       this.ssid = s.wifiSSID || ''; this.pass = s.wifiPassword || '';
       await this.load();
     } catch (e) { msg.textContent = "Couldn't make the code: " + e.message; return; }
     document.getElementById('qr-ssid').textContent = this.ssid;
-    document.getElementById('qr-pass').textContent = this.pass || 'none (open network)';
+    document.getElementById('qr-pass').textContent = this.pass || 'None';
     this.which = 'wifi';
     this.draw();
     document.getElementById('qr-pop').hidden = false;
@@ -2500,7 +2550,7 @@ document.addEventListener('DOMContentLoaded', () => {
   if (!document.getElementById('use-card')) return;
   document.querySelectorAll('.use-when .btn').forEach((b) => b.addEventListener('click', () => { Usage.view = b.dataset.v; Usage.draw(); }));
   document.getElementById('use-reset').addEventListener('click', async () => {
-    if (!confirm('Start counting from zero? Every total and the most played list are cleared.')) return;
+    if (!confirm('Reset counts? Every total and the most played list are cleared.')) return;
     await adminFetch('/api/usage/reset', { method: 'POST' });
     Usage.load();
   });

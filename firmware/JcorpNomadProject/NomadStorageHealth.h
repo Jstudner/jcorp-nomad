@@ -12,7 +12,7 @@
 #ifndef NOMAD_STORAGE_HEALTH_H
 #define NOMAD_STORAGE_HEALTH_H
 #include <Arduino.h>
-#include <ESPAsyncWebServer.h>
+#include "src/AsyncWebServer/ESPAsyncWebServer.h"   // carried here, with Nomad's limits (src/AsyncWebServer/README.md)
 #include <ArduinoJson.h>
 #include <esp_heap_caps.h>
 #include <esp_random.h>
@@ -102,6 +102,15 @@ static void nomadStorageHealthRegister(AsyncWebServer &server) {
     boot["mbRead"] = (uint32_t)(st.sectorsRead / 2048);
     boot["mbWritten"] = (uint32_t)(st.sectorsWritten / 2048);
     boot["lastErrorAgo"] = st.lastErrorMs ? (long)((millis() - st.lastErrorMs) / 1000) : -1L;
+    // every failed attempt by kind, and the calls a second try saved
+    JsonObject kinds = boot.createNestedObject("errors");
+    kinds["noMem"] = st.errNoMem;
+    kinds["crc"] = st.errCrc;
+    kinds["timeout"] = st.errTimeout;
+    kinds["other"] = st.errOther;
+    kinds["last"] = st.lastErr;
+    boot["readRetried"] = st.readRetried;
+    boot["writeRetried"] = st.writeRetried;
     const StorageCheck &c = g_sdCheck;
     JsonObject chk = doc.createNestedObject("check");
     chk["state"] = c.running ? "running" : c.ran ? "done" : "never";

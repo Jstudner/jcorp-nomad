@@ -1,7 +1,7 @@
-// NomadZimServe.h - the archive reader's pages, served by the Nomad itself:
+// NomadZimServe.h - the archive reader's pages, served by Nomad itself:
 //
 //   GET /zimview/<n>/<namespace>/<path>     one entry of archive <n>, as the page asked for it
-//   GET /api/zimserve                        {"v":1,...}: archive.html's "can this Nomad do it"
+//   GET /api/zimserve                        {"v":1,...}: archive.html's "can Nomad do it"
 //
 // <n> is the archive's idx in /Archive/.nomad-zim/manifest.json, the same address the
 // service worker (zim-sw.js) answers, so archive.html opens the same URL either way. Where
@@ -221,7 +221,9 @@ static std::vector<std::string> partsOf(int idx) {
 // on the unzip task, which owns the unpacked clusters that may point into it
 static void closeArcNow(Arc *arc) {
   if (g_clusters) g_clusters->forget(&arc->a);
-  if (sdMutex) xSemaphoreTake(sdMutex, pdMS_TO_TICKS(3000));
+  // closing has to happen, so wait as long as it takes: giving back a lock this task
+  // doesn't hold would free it under whoever does
+  if (sdMutex) xSemaphoreTake(sdMutex, portMAX_DELAY);
   for (auto *f : arc->files) { f->close(); delete f; }
   if (sdMutex) xSemaphoreGive(sdMutex);
   delete arc;
@@ -254,14 +256,16 @@ static Arc *getArc(int idx) {
   Arc *arc = new Arc();
   arc->idx = idx; arc->gen = g_gen; arc->used = ++g_tick;
   bool ok = true;
-  if (sdMutex) xSemaphoreTake(sdMutex, pdMS_TO_TICKS(3000));
+  const bool locked = !sdMutex || xSemaphoreTake(sdMutex, pdMS_TO_TICKS(3000)) == pdTRUE;
+  if (!locked) ok = false;   // the card is busy: this request is answered "busy" and asked again
   for (auto &p : paths) {
+    if (!ok) break;
     NomadFile64 *f = new NomadFile64();
     if (!f->open(p.c_str())) { delete f; ok = false; break; }
     arc->files.push_back(f);
     arc->a.parts.push_back({f, f->size()});
   }
-  if (sdMutex) xSemaphoreGive(sdMutex);
+  if (locked && sdMutex) xSemaphoreGive(sdMutex);
   if (!ok || arc->a.open() != nzim::OK) { closeArc(arc); return nullptr; }   // nothing unpacked from it yet
   g_open.push_back(arc);
   return arc;
@@ -298,8 +302,8 @@ static String typeOf(const std::string &mime) {
   return t;
 }
 
-// an archive page runs its own scripts at the Nomad's address (as in Kiwix's reader). They
-// may only talk to the archive itself, not the Nomad's admin, upload or delete calls
+// an archive page runs its own scripts at Nomad's address (as in Kiwix's reader). They
+// may only talk to the archive itself, not Nomad's admin, upload or delete calls
 static void pageHeaders(AsyncWebServerResponse *r, const String &host, bool isPage) {
   if (isPage) {
     String o = "http://" + host;
@@ -395,12 +399,25 @@ static AsyncWebServerResponse *build(AsyncWebServerRequest *req, const JobP &j) 
       size_t len = size ? (size_t)(end - start + 1) : 0;
       uint64_t from = j->ans.rawOff + start;
       JobP keep = j;
-      r = req->beginResponse(typeOf(j->ans.mime), len, [keep, from, len](uint8_t *buf, size_t maxLen, size_t index) -> size_t {
+      auto stalledSince = std::make_shared<uint32_t>(0);
+      r = req->beginResponse(typeOf(j->ans.mime), len, [keep, from, len, req, stalledSince](uint8_t *buf, size_t maxLen, size_t index) -> size_t {
         if (index >= len) return 0;
+        // room for the headers on the first piece: after a "try again" there the web library
+        // writes headers plus a full socket of body, and what doesn't fit is lost from the reply
+#if NOMAD_BENCH
+        if (!g_benchNoFillGuard)
+#endif
+        if (index == 0 && maxLen > 4096) maxLen -= 2048;
         size_t n = len - index < maxLen ? len - index : maxLen;
-        // never 0 before the end: with a Content-Length the server doesn't end the response
-        // on a 0, it asks again for ever and the phone waits (see the media filler's note)
-        return partsRead(keep->arc, from + index, buf, n, 50) == 1 ? n : RESPONSE_TRY_AGAIN;
+        // A read that gives nothing is asked again (the card busy), until that has gone on
+        // too long to be a busy card: then the connection is closed (nomadFillStalled).
+#if NOMAD_BENCH
+        const bool got = !g_benchBadRead && partsRead(keep->arc, from + index, buf, n, 50) == 1;
+#else
+        const bool got = partsRead(keep->arc, from + index, buf, n, 50) == 1;
+#endif
+        if (got) { *stalledSince = 0; return n; }
+        return nomadFillStalled(*stalledSince, req, "an archive page") ? 0 : RESPONSE_TRY_AGAIN;
       });
       if (partial) {
         r->setCode(206);
@@ -610,6 +627,8 @@ static void unzipTask(void *) {
     if (jp->use_count() > 1) requeued = unpack(*jp);
     if (!requeued) (*jp)->done();
     delete jp;
+    // core 0's idle task is on the task watchdog: let it run between clusters
+    vTaskDelay(1);
   }
 }
 

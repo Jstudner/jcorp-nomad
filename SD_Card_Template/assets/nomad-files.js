@@ -340,7 +340,7 @@
       const files = Array.from(picker.files || []);
       picker.value = '';
       if (!files.length) return;
-      if (typeof NomadUpload === 'undefined') { say('The uploader did not load.'); return; }   // a top-level const, not on window
+      if (typeof NomadUpload === 'undefined') { say('The uploader did not load. Reload the page.'); return; }   // a top-level const, not on window
       const added = await NomadUpload.run(files, path);
       if (added) changed(`Uploaded ${added} file${added === 1 ? '' : 's'}.`);
     });

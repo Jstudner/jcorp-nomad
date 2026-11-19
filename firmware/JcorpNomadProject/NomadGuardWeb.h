@@ -10,7 +10,7 @@
 // exception: their chunks reach the handler as they arrive, before any middleware, so
 // upload handlers call nomadUploadAllowed() on their first chunk.
 
-#include <ESPAsyncWebServer.h>
+#include "src/AsyncWebServer/ESPAsyncWebServer.h"   // carried here, with Nomad's limits (src/AsyncWebServer/README.md)
 #include "NomadGuard.h"
 
 struct NomadGuardHooks {
@@ -145,30 +145,59 @@ static inline bool nomadUploadAllowed(AsyncWebServerRequest *request, const Stri
 
 // ---------------------------------------------------------------------------------
 // Admin login throttle. /auth/login takes the password hash, so guesses cost the
-// attacker one request each. After five wrong answers in a row the device stops
-// listening for 30 s, doubling to a five-minute ceiling, and a right answer resets it.
-// One counter for the whole device: a guest can make the admin wait, but cannot guess.
-static uint8_t g_nomadLoginFailures = 0;
-static uint32_t g_nomadLoginLockedUntil = 0;
+// attacker one request each. After five wrong answers in a row that phone waits 30 s,
+// doubling to a five-minute ceiling, and a right answer resets it.
+// Counted per phone (its address on the hotspot), so a guest guessing wrong can't lock the
+// owner out. A cap across all addresses (20 wrong in a minute, then a minute's wait for
+// everyone) stops a guesser who keeps changing address.
+struct NomadLoginSlot { uint32_t ip; uint8_t fails; uint32_t lockedUntil; uint32_t lastMs; };
+static NomadLoginSlot g_nomadLoginSlots[8] = {};
+static uint32_t g_nomadLoginBurstAt = 0, g_nomadLoginAllLockedUntil = 0;
+static uint8_t g_nomadLoginBurst = 0;
 
-// Milliseconds left on the lockout, 0 if a guess may be checked now.
-static inline uint32_t nomadLoginWaitMs() {
-  const uint32_t now = millis();
-  if (g_nomadLoginLockedUntil == 0) return 0;
-  const int32_t left = (int32_t)(g_nomadLoginLockedUntil - now);
-  if (left <= 0) { g_nomadLoginLockedUntil = 0; return 0; }
+static inline uint32_t nomadLoginLeft(uint32_t &until) {
+  if (until == 0) return 0;
+  const int32_t left = (int32_t)(until - millis());
+  if (left <= 0) { until = 0; return 0; }
   return (uint32_t)left;
 }
-
-static inline void nomadLoginResult(bool ok) {
-  if (ok) { g_nomadLoginFailures = 0; g_nomadLoginLockedUntil = 0; return; }
-  if (g_nomadLoginFailures < 255) g_nomadLoginFailures++;
-  if (g_nomadLoginFailures >= 5) {
-    uint32_t ms = 30000UL << (g_nomadLoginFailures - 5 > 4 ? 4 : g_nomadLoginFailures - 5);
-    if (ms > 300000UL) ms = 300000UL;
-    g_nomadLoginLockedUntil = millis() + ms;
-    if (g_nomadLoginLockedUntil == 0) g_nomadLoginLockedUntil = 1;
+static inline NomadLoginSlot *nomadLoginSlot(uint32_t ip, bool make) {
+  NomadLoginSlot *pick = nullptr;
+  for (auto &x : g_nomadLoginSlots) {
+    if (x.fails && x.ip == ip) return &x;
+    // for an address not seen yet: a free row, else the row untouched longest
+    if (!pick || (pick->fails && (!x.fails || (int32_t)(x.lastMs - pick->lastMs) < 0))) pick = &x;
   }
+  if (!make) return nullptr;
+  *pick = NomadLoginSlot{ ip, 0, 0, millis() };
+  return pick;
+}
+
+// Milliseconds this address has left to wait, 0 if a guess may be checked now.
+static inline uint32_t nomadLoginWaitMs(uint32_t ip) {
+  const uint32_t all = nomadLoginLeft(g_nomadLoginAllLockedUntil);
+  NomadLoginSlot *x = nomadLoginSlot(ip, false);
+  const uint32_t own = x ? nomadLoginLeft(x->lockedUntil) : 0;
+  return own > all ? own : all;
+}
+
+static inline void nomadLoginResult(uint32_t ip, bool ok) {
+  const uint32_t now = millis();
+  if (ok) {
+    NomadLoginSlot *x = nomadLoginSlot(ip, false);
+    if (x) *x = NomadLoginSlot{};
+    return;
+  }
+  NomadLoginSlot *x = nomadLoginSlot(ip, true);
+  x->lastMs = now;
+  if (x->fails < 255) x->fails++;
+  if (x->fails >= 5) {
+    uint32_t ms = 30000UL << (x->fails - 5 > 4 ? 4 : x->fails - 5);
+    if (ms > 300000UL) ms = 300000UL;
+    x->lockedUntil = (now + ms) | 1;
+  }
+  if (now - g_nomadLoginBurstAt > 60000UL) { g_nomadLoginBurstAt = now; g_nomadLoginBurst = 0; }
+  if (++g_nomadLoginBurst >= 20) { g_nomadLoginAllLockedUntil = (now + 60000UL) | 1; g_nomadLoginBurst = 0; }
 }
 
 // ---------------------------------------------------------------------------------

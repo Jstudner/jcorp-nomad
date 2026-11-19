@@ -19,7 +19,7 @@
 #ifndef NOMAD_ACTIVITY_H
 #define NOMAD_ACTIVITY_H
 #include <Arduino.h>
-#include <ESPAsyncWebServer.h>
+#include "src/AsyncWebServer/ESPAsyncWebServer.h"   // carried here, with Nomad's limits (src/AsyncWebServer/README.md)
 #include <ArduinoJson.h>
 #include <memory>
 

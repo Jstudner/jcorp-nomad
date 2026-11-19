@@ -2,6 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
+<script>/* nomad-load-guard: reload, twice at most, when one of Nomad's own scripts or stylesheets fails to load */(function(){var k='nomadLoadGuard:'+location.pathname;window.addEventListener('error',function(e){var t=e.target;if(!t||!t.tagName)return;var s=t.tagName==='SCRIPT',c=t.tagName==='LINK'&&/stylesheet/i.test(t.rel||'');if(!s&&!c)return;var u=t.src||t.href||'';if(u.indexOf(location.origin+'/')!==0)return;var n=0;try{n=+sessionStorage.getItem(k)||0;}catch(x){return;}if(n>=2)return;try{sessionStorage.setItem(k,String(n+1));}catch(x){return;}setTimeout(function(){location.reload();},1500*(n+1));},true);window.addEventListener('load',function(){setTimeout(function(){try{sessionStorage.removeItem(k);}catch(x){}},15000);});})();</script>
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>Nomad • Watch together</title>
 <link rel="icon" href="/favicon.ico">
@@ -9,7 +10,7 @@
 <link rel="stylesheet" href="/assets/plyr.css">
 <script src="/theme-boot.js?v=5"></script>
 <script src="/nomad-icons.js?v=1"></script>
-<script src="/nomad-utils.js?v=49"></script>
+<script src="/nomad-utils.js?v=51"></script>
 <script src="/assets/plyr.min.js"></script>
 <script src="/theme-manager.js?v=5"></script>
 <style>
@@ -59,7 +60,7 @@
   .wt-empty b { display: block; color: #fff; font-size: 1.05rem; margin-bottom: 6px; }
   .wt-banner { position: absolute; left: 50%; top: 12px; transform: translateX(-50%); z-index: 20; padding: 8px 14px; border-radius: 999px;
     background: rgba(0,0,0,.72); color: #fff; font-weight: 700; font-size: .85rem; pointer-events: none; white-space: nowrap; }
-  .wt-sound { position: absolute; inset: 0; z-index: 25; display: grid; place-items: center; background: rgba(0,0,0,.35); border: 0; cursor: pointer; }
+  .wt-sound { position: absolute; top:0;right:0;bottom:0;left:0;inset:0; z-index: 25; display: grid; place-items: center; background: rgba(0,0,0,.35); border: 0; cursor: pointer; }
   .wt-sound span { display: inline-flex; gap: 8px; align-items: center; padding: 12px 20px; border-radius: 999px; background: var(--primary); color: #fff; font-weight: 800; font-size: 1rem; }
   .wt-sound svg { width: 20px; height: 20px; }
   .wt-status { display: flex; gap: 12px; flex-wrap: wrap; font-size: .82rem; color: var(--muted); }
@@ -75,7 +76,7 @@
   .wt-pick.mine { border-color: var(--primary); }
   .wt-pick.win { border-color: #16a34a; box-shadow: 0 0 0 3px color-mix(in srgb, #16a34a 30%, transparent); }
   .wt-pick .poster { aspect-ratio: 2 / 3; background: color-mix(in srgb, var(--muted) 18%, transparent); position: relative; }
-  .wt-pick .poster img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+  .wt-pick .poster img { position: absolute; top:0;right:0;bottom:0;left:0;inset:0; width: 100%; height: 100%; object-fit: cover; }
   .wt-pick .votes { position: absolute; top: 6px; right: 6px; min-width: 26px; height: 26px; border-radius: 13px; background: var(--primary); color: #fff;
     font-weight: 900; display: grid; place-items: center; font-size: .85rem; padding: 0 6px; box-sizing: border-box; }
   .wt-pick .meta { padding: 7px 8px 9px; }
@@ -86,7 +87,7 @@
   @keyframes wt-flash { 50% { opacity: .55; } }
 
   /* the picker: covers, search, Movies or Shows */
-  .wt-sheet { position: fixed; inset: 0; z-index: 9000; background: rgba(0,0,0,.5); display: flex; align-items: flex-end; justify-content: center; }
+  .wt-sheet { position: fixed; top:0;right:0;bottom:0;left:0;inset:0; z-index: 9000; background: rgba(0,0,0,.5); display: flex; align-items: flex-end; justify-content: center; }
   @media (min-width: 760px) { .wt-sheet { align-items: center; } }
   .wt-panel { background: var(--bg); width: 100%; max-width: 980px; height: 92dvh; border-radius: 18px 18px 0 0; display: flex; flex-direction: column; overflow: hidden;
     box-shadow: 0 -10px 40px rgba(0,0,0,.3); }
@@ -102,7 +103,7 @@
   .wt-grid { flex: 1; overflow: auto; padding: 12px; display: grid; grid-template-columns: repeat(auto-fill, minmax(100px, 1fr)); gap: 10px; align-content: start; -webkit-overflow-scrolling: touch; }
   .wt-tile { border: 0; padding: 0; background: none; text-align: left; cursor: pointer; color: var(--text); font: inherit; }
   .wt-tile .poster { aspect-ratio: 2 / 3; border-radius: 10px; overflow: hidden; position: relative; background: color-mix(in srgb, var(--muted) 18%, transparent); display: grid; place-items: center; }
-  .wt-tile .poster img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; opacity: 0; transition: opacity .3s; }
+  .wt-tile .poster img { position: absolute; top:0;right:0;bottom:0;left:0;inset:0; width: 100%; height: 100%; object-fit: cover; opacity: 0; transition: opacity .3s; }
   .wt-tile .poster img.loaded { opacity: 1; }
   .wt-tile .poster .fb { padding: 8px; text-align: center; font-weight: 800; font-size: .8rem; color: var(--muted); }
   .wt-tile b { display: block; margin-top: 6px; font-size: .82rem; line-height: 1.25; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
@@ -143,7 +144,7 @@
       <div class="wt-card wt-big">
         <div class="ico" data-icon="play"></div>
         <h2>Host</h2>
-        <div class="wt-row"><button class="wt-btn primary" id="hostBtn">Host a party</button></div>
+        <div class="wt-row"><button class="wt-btn primary" id="hostBtn">Start</button></div>
       </div>
       <div class="wt-card wt-big">
         <div class="ico" data-icon="users"></div>
@@ -161,9 +162,9 @@
   <section id="room" hidden>
     <div class="wt-card">
       <div class="wt-top">
-        <div class="wt-code" id="codeChip" title="Copy the join link">----</div>
+        <div class="wt-code" id="codeChip" title="Copy join link">----</div>
         <div class="grow">
-          <p class="wt-title" id="roomTitle">Nothing picked yet</p>
+          <p class="wt-title" id="roomTitle"></p>
           <div class="wt-muted" id="joinHint"></div>
         </div>
         <div class="wt-row" id="hostTools" hidden>
@@ -180,7 +181,7 @@
       <div class="wt-empty" id="emptyStage"><div><b id="emptyTitle">Nothing picked yet</b><span id="emptyText"></span></div></div>
       <video id="vid" playsinline preload="metadata" hidden></video>
       <div class="wt-banner" id="banner" hidden></div>
-      <button class="wt-sound" id="soundBtn" hidden><span data-icon-label="volume">Tap for sound</span></button>
+      <button class="wt-sound" id="soundBtn" hidden><span data-icon-label="volume">Unmute</span></button>
     </div>
     <div class="wt-status" id="status"></div>
 
@@ -352,7 +353,13 @@ function pickSomething(heading) {
       back.onclick();
       grid.innerHTML = '<div class="wt-note">Loading…</div>';
       try { items = which === 'movies' ? await Library.loadMovies() : await Library.loadShows(); }
-      catch (e) { items = []; grid.innerHTML = `<div class="wt-note">${e.message === 'INDEX_BUILDING' ? 'Library is still indexing. Try again in a minute.' : "Couldn't load the library."}</div>`; return; }
+      catch (e) {
+        items = [];
+        grid.innerHTML = `<div class="wt-note">${e.message === 'INDEX_BUILDING' ? 'Indexing the library…' : "Couldn't load the library. Trying again…"}</div>`;
+        NomadRetry.later('library', () => { if (tab === which) load(which); });
+        return;
+      }
+      NomadRetry.done('library');
       draw();
     }
     function showEpisodes(show) {
@@ -515,12 +522,16 @@ async function enterRoom() {
   poll(true);
 }
 
+let syncing = false;   // one beat at a time: slow answers would pile up
 async function sync(event) {
   if (!isHost() || !loadedPath || catchingUp || retryAt || leaving) return;
+  if (syncing && !event) return;
+  syncing = true;
   // playing only while the picture is moving: paused, or waiting for data, holds everyone
   const playing = !vid.paused && vid.readyState >= 3;
   try { await api('sync', { code: me.code, token: me.token, playing, position: vid.currentTime, event: !!event }); }
   catch (e) { if (e.status === 404) gone('The party has ended.'); }
+  finally { syncing = false; }
 }
 
 async function poll(force) {
@@ -544,13 +555,18 @@ async function poll(force) {
     if (d.ended) { gone(isHost() ? 'You ended the party.' : 'The host ended the party.'); return; }
     if (!isHost()) follow(d); else catchUp();
     banner(st || d);   // the short answer has no item: the merged state does
+    pollFail = 0;
   } catch (e) {
+    pollFail++;
     showBanner("Can't reach Nomad. Trying again…");
   } finally {
     polling = false;
   }
-  pollT = setTimeout(poll, isHost() ? 2000 : 1000);
+  // not answering: twice as long each time, up to 10 s, back to normal on an answer
+  const normal = isHost() ? 2000 : 1000;
+  pollT = setTimeout(poll, pollFail ? Math.min(10000, normal * 2 ** pollFail) : normal);
 }
+let pollFail = 0;
 
 function gone(msg) {
   clearTimeout(pollT); clearInterval(beatT);
@@ -567,7 +583,7 @@ function render(d) {
   $('people').innerHTML = (d.members || []).map((m) =>
     `<span class="wt-person${m.ready ? ' ready' : ''}${m.me ? ' me' : ''}"><span class="dot"></span>${esc(m.name)}${m.host ? ' <span class="host">host</span>' : ''}</span>`).join('');
   const item = d.item;
-  $('roomTitle').textContent = item ? item.title : 'Nothing picked yet';
+  $('roomTitle').textContent = item ? item.title : '';
   // what plays
   if (item && item.path !== loadedPath) {
     loadedPath = item.path; ready = false; loadTries = 0; retryAt = null;
@@ -686,7 +702,7 @@ function renderVote(d) {
   $('picks').innerHTML = picks.length ? picks.map((p) => `<button class="wt-pick${can ? ' can' : ''}${p.mine ? ' mine' : ''}${v.winner && v.winner.path === p.path ? ' win' : ''}"
       ${can ? `data-choice="${p.choice}"` : ''}><div class="poster">${p.cover ? `<img alt="" src="${esc(media(p.cover))}">` : ''}<span class="votes">${p.votes}</span></div>
       <div class="meta"><b>${esc(p.title)}</b><span>${esc((p.who || []).join(', '))}</span></div></button>`).join('')
-    : '<div class="wt-muted">No picks yet.</div>';
+    : '<div class="wt-muted">No picks yet</div>';
   // the result, once: a short shuffle for a random draw, then the winner
   const rev = $('reveal');
   if (v.phase === 'done' && v.winner) {

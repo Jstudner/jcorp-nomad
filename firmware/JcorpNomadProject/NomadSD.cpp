@@ -48,11 +48,46 @@ struct FsLockGuard {
   }
 };
 
+#ifndef NOMAD_BENCH
+#define NOMAD_BENCH 0
+#endif
+#if NOMAD_BENCH
+// Bench fault injection (/bench/fault?sdfail=N): every Nth one-sector read reports failure.
+volatile uint32_t g_benchSdFailEvery = 0;
+// sddirect=1: one-sector reads go straight into the caller's buffer with no second try, to
+// compare against the scratch buffer below.
+volatile uint32_t g_benchSdDirect = 0;
+// cardgone=S: for S seconds every read and write fails and a mount finds no card, as if the
+// card had been pulled.
+volatile uint32_t g_benchCardGoneUntil = 0;
+static bool benchCardGone() { return g_benchCardGoneUntil && (int32_t)(millis() - g_benchCardGoneUntil) < 0; }
+static uint32_t s_benchSdSingles = 0;
+// full=1: every write that would grow a file is refused, as a full card does. full=2: the
+// same until a file with clusters is removed, as on a card with nothing else to spare.
+// full=3: as 1, and the first such write takes 8 s first.
+volatile uint32_t g_benchVolFull = 0;
+#endif
+
 static sdmmc_card_t s_card;
 static bool s_cardInited = false;
 // written only under s_lock (every sector access holds it), read as a copy
 static NomadSDStats s_stats = {};
+// where a one-sector read lands before it is known to be good (see readSectors). In .bss, so
+// internal and DMA-capable; used only under s_lock.
+static uint8_t s_scratch[512] __attribute__((aligned(16)));
+// One task at a time can ask "did a card read or write of mine fail since I started?" (the
+// index build: a failed directory read looks exactly like the end of the folder).
+static bool s_cardAnswered = false;   // the last begin() got as far as talking to a card
+static volatile TaskHandle_t s_watchTask = nullptr;
+static volatile uint32_t s_watchErrors = 0;
 static bool s_mounted = false;
+// A full card. Stock SdFat keeps no free-cluster count, so on a full volume every write that
+// needs a cluster searches the whole FAT (or exFAT bitmap) under the lock: seconds on a big
+// card, tens of seconds on FAT32. Set by the first write the file system refuses with no card
+// error behind it; until a file with data is removed, growing writes are refused here.
+static volatile bool s_volFull = false;
+static uint32_t s_fullRefused = 0;
+static inline uint32_t cardErrorsSoFar() { return s_stats.readErrors + s_stats.writeErrors; }
 static bool s_mode1bit = true;
 static int8_t s_pin_clk = -1, s_pin_cmd = -1, s_pin_d0 = -1, s_pin_d1 = -1, s_pin_d2 = -1, s_pin_d3 = -1;
 
@@ -69,13 +104,42 @@ public:
   bool readSectors(uint32_t sector, uint8_t *dst, size_t ns) override {
     if (!s_cardInited) return false;
     const int64_t t0 = esp_timer_get_time();
-    const bool ok = sdmmc_read_sectors(&s_card, dst, sector, ns) == ESP_OK;
+    // One-sector reads are SdFat's cache (FAT, bitmap, directory), read straight into its
+    // only buffer. A read that fails after bytes have moved would leave the wrong sector there
+    // under the old number, and the next write would put it on the card. So a single sector
+    // lands in our own buffer and is copied over only when the read is good.
+    bool viaScratch = ns == 1;
+    bool retry = true;
+#if NOMAD_BENCH
+    if (g_benchSdDirect) viaScratch = retry = false;
+#endif
+    uint8_t *into = viaScratch ? s_scratch : dst;
+    esp_err_t e = ESP_OK;
+    for (int attempt = 0;; attempt++) {
+#if NOMAD_BENCH
+      if (benchCardGone()) e = ESP_ERR_TIMEOUT; else
+#endif
+      e = sdmmc_read_sectors(&s_card, into, sector, ns);
+#if NOMAD_BENCH
+      // the transfer has already filled the buffer, as a read that fails its CRC does
+      if (e == ESP_OK && ns == 1 && g_benchSdFailEvery && (++s_benchSdSingles % g_benchSdFailEvery) == 0) e = ESP_ERR_INVALID_CRC;
+#endif
+      if (e == ESP_OK) { if (attempt) s_stats.readRetried++; break; }
+      noteError(e);
+      if (!retry || attempt >= triesAfter(e)) break;
+      vTaskDelay(pdMS_TO_TICKS(2));
+    }
+    const bool ok = e == ESP_OK;
+    if (ok && viaScratch) memcpy(dst, s_scratch, sizeof(s_scratch));
     const uint32_t us = (uint32_t)(esp_timer_get_time() - t0);
     s_stats.reads++;
     s_stats.sectorsRead += ns;
     if (us > s_stats.maxReadUs) s_stats.maxReadUs = us;
     if (us > NOMAD_SD_SLOW_MS * 1000) s_stats.slowReads++;
-    if (!ok) { s_stats.readErrors++; s_stats.lastErrorMs = millis(); }
+    if (!ok) {
+      s_stats.readErrors++; s_stats.lastErrorMs = millis();
+      if (s_watchTask && xTaskGetCurrentTaskHandle() == s_watchTask) s_watchErrors++;
+    }
     return ok;
   }
   bool writeSector(uint32_t sector, const uint8_t *src) override {
@@ -83,12 +147,44 @@ public:
   }
   bool writeSectors(uint32_t sector, const uint8_t *src, size_t ns) override {
     if (!s_cardInited) return false;
-    const bool ok = sdmmc_write_sectors(&s_card, src, sector, ns) == ESP_OK;
+    esp_err_t e = ESP_OK;
+    for (int attempt = 0;; attempt++) {
+#if NOMAD_BENCH
+      if (benchCardGone()) e = ESP_ERR_TIMEOUT; else
+#endif
+      e = sdmmc_write_sectors(&s_card, src, sector, ns);   // writing the same sectors again is harmless
+      if (e == ESP_OK) { if (attempt) s_stats.writeRetried++; break; }
+      noteError(e);
+      if (attempt >= triesAfter(e)) break;
+      vTaskDelay(pdMS_TO_TICKS(2));
+    }
+    const bool ok = e == ESP_OK;
     s_stats.writes++;
     s_stats.sectorsWritten += ns;
-    if (!ok) { s_stats.writeErrors++; s_stats.lastErrorMs = millis(); }
+    if (!ok) {
+      s_stats.writeErrors++; s_stats.lastErrorMs = millis();
+      if (s_watchTask && xTaskGetCurrentTaskHandle() == s_watchTask) s_watchErrors++;
+    }
     return ok;
   }
+
+private:
+  // every failed attempt, by kind: "no memory for the transfer" is the board being busy, a
+  // CRC or a timeout is the card or its contacts
+  static void noteError(esp_err_t e) {
+    s_stats.lastErr = (int)e;
+    if (e == ESP_ERR_NO_MEM) s_stats.errNoMem++;
+    else if (e == ESP_ERR_INVALID_CRC) s_stats.errCrc++;
+    else if (e == ESP_ERR_TIMEOUT) s_stats.errTimeout++;
+    else s_stats.errOther++;
+  }
+  // how many more tries a failure is worth. A card that has gone answers every try with a
+  // timeout, and this runs on the network task, so those get one more and no longer.
+  static int triesAfter(esp_err_t e) {
+    return (e == ESP_ERR_NO_MEM || e == ESP_ERR_INVALID_CRC) ? 2 : 1;
+  }
+
+public:
   uint32_t sectorCount() override {
     return s_cardInited ? (uint32_t)s_card.csd.capacity : 0;
   }
@@ -217,7 +313,7 @@ static time_t fatToUnixTime(uint16_t d, uint16_t t) {
 // clock
 
 // SdFat stamps new files through this callback, without one they all share a constant
-// date. The Nomad has no RTC, so this uses the same fixed epoch plus uptime as the
+// date. Nomad has no RTC, so this uses the same fixed epoch plus uptime as the
 // OPDS timestamps. Not wall time, but files written later in a session sort after
 // earlier ones.
 static const time_t NOMAD_REFERENCE_EPOCH = 1752321600;  // 2025-07-12T12:00:00Z
@@ -314,11 +410,18 @@ size_t NomadFile64::readAt(uint64_t pos, uint8_t *buf, size_t len) {
   return n < 0 ? 0 : (size_t)n;
 }
 
+static void noteSpaceFreed() {
+  s_volFull = false;
+#if NOMAD_BENCH
+  if (g_benchVolFull == 2) g_benchVolFull = 0;
+#endif
+}
+
 // FileImpl
 
 class NomadFileImpl : public FileImpl {
 public:
-  NomadFileImpl(FsFile f, const String &fullPath) : _f(std::move(f)), _path(fullPath) {
+  NomadFileImpl(FsFile f, const String &fullPath, bool append = false) : _f(std::move(f)), _path(fullPath), _append(append) {
     int idx = _path.lastIndexOf('/');
     _name = (idx >= 0 && idx + 1 < (int)_path.length()) ? _path.substring(idx + 1) : _path;
   }
@@ -330,8 +433,22 @@ public:
   size_t write(const uint8_t *buf, size_t size) override {
     FsLockGuard lk;
     if (!_f.isOpen()) return 0;
+    const bool grows = _append || _f.curPosition() + size > _f.fileSize();   // an append lands at the end wherever the position is
+#if NOMAD_BENCH
+    // full=3: the first growing write takes 8 s, as a full FAT32 card's search for a free
+    // cluster can, then the card reads as full
+    if (g_benchVolFull == 3 && grows && !s_volFull) delay(8000);
+    if (g_benchVolFull && grows) s_volFull = true;
+#endif
+    if (s_volFull && grows) { s_fullRefused++; return 0; }
+    if (_f.getWriteError()) return 0;       // this handle failed before; the flag stays up, so nothing below could be told apart
+    // FAT32 holds no file of 4 GB or more: that refusal is not a full card
+    const bool tooBig = s_vol.fatType() != FAT_TYPE_EXFAT && (_append ? _f.fileSize() : _f.curPosition()) + size > 0xFFFFFFFFULL;
+    const uint32_t errs = cardErrorsSoFar();
     size_t n = _f.write(buf, size);
-    return _f.getWriteError() ? 0 : n;
+    if (!_f.getWriteError()) return n;
+    if (grows && !tooBig && _f.isWritable() && cardErrorsSoFar() == errs) s_volFull = true;
+    return 0;
   }
 
   size_t read(uint8_t *buf, size_t size) override {
@@ -450,6 +567,7 @@ private:
   mutable FsFile _f;
   String _path;
   String _name;
+  bool _append = false;
 };
 
 // FSImpl
@@ -469,9 +587,16 @@ public:
         if (!s_vol.exists(parent.c_str())) s_vol.mkdir(parent.c_str(), true);
       }
     }
+    // opening to overwrite gives the old contents' clusters back
+    bool frees = false;
+    if (s_volFull && (of & O_TRUNC)) {
+      FsFile was;
+      if (was.open(&s_vol, p.c_str(), O_RDONLY)) { frees = !was.isDir() && was.dataLength() > 0; was.close(); }
+    }
     FsFile f = s_vol.open(p.c_str(), of);
     if (!f.isOpen()) return FileImplPtr();
-    return std::make_shared<NomadFileImpl>(std::move(f), p);
+    if (frees) noteSpaceFreed();
+    return std::make_shared<NomadFileImpl>(std::move(f), p, (of & O_APPEND) != 0);
   }
 
   bool exists(const char *path) override {
@@ -491,7 +616,15 @@ public:
   bool remove(const char *path) override {
     FsLockGuard lk;
     if (!s_mounted) return false;
-    return s_vol.remove(normalizePath(path).c_str());
+    // what FsVolume::remove does, with the allocation read on the way: only a file that
+    // held clusters gives any back (dataLength, not fileSize: clusters set aside on exFAT
+    // have a length of 0)
+    FsFile f;
+    if (!f.open(&s_vol, normalizePath(path).c_str(), O_WRONLY)) return false;
+    const bool held = f.dataLength() > 0;
+    if (!f.remove()) { f.close(); return false; }
+    if (held) noteSpaceFreed();
+    return true;
   }
 
   bool mkdir(const char *path) override {
@@ -504,13 +637,16 @@ public:
       f.close();
       return isdir;  // match VFS: mkdir on an existing dir succeeds
     }
+    if (s_volFull) { s_fullRefused++; return false; }   // a new folder needs a cluster
     return s_vol.mkdir(p.c_str(), true);
   }
 
   bool rmdir(const char *path) override {
     FsLockGuard lk;
     if (!s_mounted) return false;
-    return s_vol.rmdir(normalizePath(path).c_str());
+    if (!s_vol.rmdir(normalizePath(path).c_str())) return false;
+    noteSpaceFreed();
+    return true;
   }
 };
 
@@ -561,7 +697,12 @@ bool NomadSDFS::begin(const char *mountpoint, bool mode1bit, bool format_if_moun
   if (!s_lock) s_lock = xSemaphoreCreateRecursiveMutex();
   FsLockGuard lk;
   if (s_mounted) return true;
+  s_cardAnswered = false;
+#if NOMAD_BENCH
+  if (benchCardGone()) return false;
+#endif
   if (!cardInit(mode1bit, sdmmc_frequency)) return false;
+  s_cardAnswered = true;      // a card is there: whatever fails from here is what is on it
   FsDateTime::setCallback(nomadDateTimeCallback);
   // partition 1 (normal SD layout), then superfloppy (filesystem at sector 0)
   if (!s_vol.begin(&s_dev, true, 1) && !s_vol.begin(&s_dev, true, 0)) {
@@ -569,6 +710,7 @@ bool NomadSDFS::begin(const char *mountpoint, bool mode1bit, bool format_if_moun
     return false;
   }
   s_mounted = true;
+  s_volFull = false;
   _impl->mountpoint(mountpoint);
   log_i("NomadSD: mounted %s volume", fsTypeName());
   return true;
@@ -668,6 +810,69 @@ uint64_t NomadSDFS::usedBytes() {
   return ((uint64_t)s_vol.clusterCount() - (uint64_t)freeClusters) * clusterBytes;
 }
 
+// Used space counted in slices: 8 sectors at a time into a 4 KB DMA buffer, the card lock
+// (and `lock`, the app's own card lock, when given) held only for each slice. SdFat's own
+// count reads a sector at a time and holds the lock throughout (about 1,900 sectors on a
+// 1 TB card). False when the volume is neither exFAT nor FAT32, there is no memory for the
+// buffer, or the card stayed busy; the caller keeps its last figure.
+bool NomadSDFS::exFatUsedSliced(uint64_t &usedOut, SemaphoreHandle_t lock) {
+  uint32_t clusters, heap, spc, fatStart;
+  uint8_t type;
+  {
+    FsLockGuard lk;
+    if (!s_mounted) return false;
+    type = s_vol.fatType();
+    if (type != FAT_TYPE_EXFAT && type != 32) return false;
+    clusters = s_vol.clusterCount();
+    heap = s_vol.dataStartSector();
+    fatStart = s_vol.fatStartSector();
+    spc = s_vol.sectorsPerCluster();
+  }
+  const uint32_t SLICE = 8;
+  uint8_t *buf = (uint8_t *)heap_caps_malloc(SLICE * 512, MALLOC_CAP_DMA | MALLOC_CAP_INTERNAL);
+  if (!buf) return false;
+  // exFAT: one bit a cluster in the allocation bitmap at the start of the cluster heap (as
+  // SdFat assumes). FAT32: four bytes a cluster in the first FAT, entries 0 and 1 reserved; a
+  // cluster is in use when its entry (low 28 bits) is not zero. SdFat never updates FSInfo's
+  // free count, so that figure reads too high after uploads.
+  const bool fat32 = type == 32;
+  const uint32_t first = fat32 ? fatStart : heap;
+  const uint32_t bytes = fat32 ? (clusters + 2) * 4 : (clusters + 7) / 8;
+  const uint32_t sectors = (bytes + 511) / 512;
+  uint64_t usedClusters = 0;
+  uint32_t seen = 0;   // clusters counted so far (FAT32: entries, from entry 0)
+  bool ok = true;
+  for (uint32_t at = 0; at < sectors && ok; at += SLICE) {
+    const uint32_t n = (sectors - at) < SLICE ? (sectors - at) : SLICE;
+    if (lock && xSemaphoreTake(lock, pdMS_TO_TICKS(1000)) != pdTRUE) { ok = false; break; }
+    {
+      FsLockGuard lk;
+      ok = s_mounted && s_dev.readSectors(first + at, buf, n);
+    }
+    if (lock) xSemaphoreGive(lock);
+    if (fat32) {
+      const uint32_t *e = (const uint32_t *)buf;
+      for (uint32_t i = 0; ok && i < n * 128 && seen < clusters + 2; i++, seen++)
+        if (seen >= 2 && (e[i] & 0x0FFFFFFF) != 0) usedClusters++;
+    } else {
+      for (uint32_t i = 0; ok && i < n * 512 && seen < clusters; i++) {
+        const uint8_t b = buf[i];
+        const uint32_t bits = (clusters - seen) < 8 ? (clusters - seen) : 8;
+        const uint8_t mask = bits == 8 ? 0xFF : (uint8_t)((1u << bits) - 1);
+        usedClusters += __builtin_popcount(b & mask);
+        seen += bits;
+      }
+    }
+    vTaskDelay(1);
+  }
+  heap_caps_free(buf);
+  if (!ok) return false;
+  usedOut = usedClusters * (uint64_t)spc * 512ULL;
+  return true;
+}
+
+TaskHandle_t NomadSDFS::lockHolder() { return s_lock ? xSemaphoreGetMutexHolder(s_lock) : nullptr; }
+
 int NomadSDFS::sectorSize() {
   FsLockGuard lk;
   if (!s_cardInited) return 0;
@@ -720,6 +925,29 @@ NomadSDFS NomadSD;
 
 // storage health
 
+bool nomadSDCardAnswered() { return s_cardAnswered; }
+bool nomadSDFull() { return s_volFull; }
+uint32_t nomadSDFullRefused() { return s_fullRefused; }
+
+// Clusters set aside under a name, with nothing written to them. False when the file is
+// there already, or the card has no run of free clusters that long.
+bool NomadSDFS::reserve(const char *path, uint32_t bytes) {
+  FsLockGuard lk;
+  if (!s_mounted || s_volFull) return false;
+  const String p = normalizePath(path);
+  if (s_vol.exists(p.c_str())) return false;
+  FsFile f = s_vol.open(p.c_str(), O_RDWR | O_CREAT | O_EXCL);
+  if (!f.isOpen()) return false;
+  const bool ok = f.preAllocate(bytes);
+  f.close();
+  if (!ok) s_vol.remove(p.c_str());
+  return ok;
+}
+
+void nomadSDWatchBegin() { s_watchErrors = 0; s_watchTask = xTaskGetCurrentTaskHandle(); }
+uint32_t nomadSDWatchEnd() { s_watchTask = nullptr; return s_watchErrors; }
+
+void nomadSDStatsPeek(NomadSDStats &out) { out = s_stats; }   // no lock: counters only, for a route that must not wait
 void nomadSDStats(NomadSDStats &out) {
   FsLockGuard lk;
   out = s_stats;

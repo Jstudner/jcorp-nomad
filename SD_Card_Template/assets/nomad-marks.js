@@ -20,7 +20,8 @@
   function save(store) {
     try { localStorage.setItem(STORE, JSON.stringify(store)); return true; } catch (e) { return false; }
   }
-  const list = (key) => (all()[key] || []).slice().sort((a, b) => (a.order ?? a.time) - (b.order ?? b.time));
+  const at = (m) => (m.order != null ? m.order : m.time);
+  const list = (key) => (all()[key] || []).slice().sort((a, b) => at(a) - at(b));
   function add(key, mark) {
     const store = all();
     const m = Object.assign({ id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6), time: Date.now() }, mark);
@@ -61,6 +62,7 @@
   .nm-btn.primary{background:var(--primary,#007bff);border-color:var(--primary,#007bff);color:#fff}
   .nm-btn.ic{width:38px;padding:0}
   .nm-btn svg{width:17px;height:17px}
+  .nm-add:empty{display:none}
   .nm-add{display:grid;gap:8px;margin-bottom:14px;padding-bottom:14px;border-bottom:1px solid var(--card-border,rgba(0,0,0,.12))}
   .nm-here{font-size:.82rem;color:var(--muted,#666)}
   .nm-note{width:100%;box-sizing:border-box;min-height:64px;resize:vertical;padding:9px 11px;border-radius:10px;border:1px solid var(--card-border,rgba(0,0,0,.15));
@@ -92,11 +94,11 @@
     const veil = document.createElement('div');
     veil.className = 'nm-veil';
     veil.innerHTML = `<div class="nm-sheet" role="dialog" aria-modal="true">
-      <div class="nm-head"><h3>Bookmarks · ${esc(o.title ? o.title() : '')}</h3>
+      <div class="nm-head"><h3>Bookmarks</h3>
         <button class="nm-btn ic" data-a="close" aria-label="Close">${icon('x')}</button></div>
       <div class="nm-add"></div>
       <div class="nm-list"></div>
-      <div class="nm-foot"><span>Kept on this phone only</span><button data-a="export">Save all as a file</button></div>
+      <div class="nm-foot"><button data-a="export">Export all</button></div>
     </div>`;
     document.body.appendChild(veil);
     const sheet = veil.firstElementChild, q = (s) => sheet.querySelector(s);
@@ -107,10 +109,10 @@
 
     const here = o.here ? o.here() : null;
     q('.nm-add').innerHTML = here
-      ? `<div class="nm-here">Here: ${esc(here.label)}</div>
+      ? `<div class="nm-here">${esc(here.label)}</div>
          <textarea class="nm-note" maxlength="1000" placeholder="Note (optional)"></textarea>
-         <button class="nm-btn primary" data-a="add">${icon('plus')}Bookmark this spot</button>`
-      : `<div class="nm-here">Nothing open yet</div>`;
+         <button class="nm-btn primary" data-a="add">${icon('plus')}Add bookmark</button>`
+      : '';
 
     function draw() {
       const marks = list(key);
@@ -118,7 +120,7 @@
           <button class="go" data-a="go"><b>${esc(m.label)}</b>${m.note ? `<span>${esc(m.note)}</span>` : ''}<small>${esc(when(m.time))}</small></button>
           <button class="nm-btn ic" data-a="edit" aria-label="Edit note">${icon('pencil')}</button>
           <button class="nm-btn ic" data-a="del" aria-label="Delete">${icon('x')}</button></div>`).join('')
-        : '<div class="nm-empty">No bookmarks yet.</div>';
+        : '<div class="nm-empty">No bookmarks</div>';
     }
     draw();
 
@@ -145,7 +147,7 @@
           if (n !== null) { update(key, id, { note: n.trim().slice(0, 1000) }); draw(); }
           break;
         }
-        case 'del': if (m && confirm('Delete the bookmark at ' + m.label + '?')) { remove(key, id); draw(); o.onChange && o.onChange(); } break;
+        case 'del': if (m && confirm('Delete bookmark at ' + m.label + '?')) { remove(key, id); draw(); o.onChange && o.onChange(); } break;
       }
     });
   }

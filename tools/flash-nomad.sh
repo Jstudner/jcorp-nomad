@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Build and flash the Nomad S3 firmware, with no physical replug.
+# Build and flash Nomad S3 firmware, with no physical replug.
 #
 #   ./tools/flash-nomad.sh [--usbc] <sketch-dir> [build-dir] [port]
 #
@@ -50,7 +50,9 @@ ESPTOOL="$HOME/.arduino15/packages/esp32/tools/esptool_py/5.1.0/esptool"
 echo "==> port $PORT"
 
 echo "==> compile ($([ "$USBC" = 1 ] && echo 'USB-C / 1.47B, backlight GPIO 46' || echo 'USB-A / 1.47, backlight GPIO 48'))"
-"$CLI" compile --fqbn "$FQBN" --build-path "$BUILD" \
+# NOMAD_LIBS=dir: use the libraries in dir ahead of the installed ones
+LIBARG=(); [ -n "${NOMAD_LIBS:-}" ] && LIBARG=(--libraries "$NOMAD_LIBS")
+"$CLI" compile "${LIBARG[@]}" --fqbn "$FQBN" --build-path "$BUILD" \
   --build-property "compiler.cpp.extra_flags=-DLV_CONF_INCLUDE_SIMPLE -I$SKETCH$USBC_FLAG" \
   --build-property "compiler.c.extra_flags=-DLV_CONF_INCLUDE_SIMPLE -I$SKETCH$USBC_FLAG" \
   "$SKETCH"

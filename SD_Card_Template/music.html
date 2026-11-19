@@ -3,13 +3,14 @@
 <html lang="en">
 <head>
 <meta charset="utf-8" />
+<script>/* nomad-load-guard: reload, twice at most, when one of Nomad's own scripts or stylesheets fails to load */(function(){var k='nomadLoadGuard:'+location.pathname;window.addEventListener('error',function(e){var t=e.target;if(!t||!t.tagName)return;var s=t.tagName==='SCRIPT',c=t.tagName==='LINK'&&/stylesheet/i.test(t.rel||'');if(!s&&!c)return;var u=t.src||t.href||'';if(u.indexOf(location.origin+'/')!==0)return;var n=0;try{n=+sessionStorage.getItem(k)||0;}catch(x){return;}if(n>=2)return;try{sessionStorage.setItem(k,String(n+1));}catch(x){return;}setTimeout(function(){location.reload();},1500*(n+1));},true);window.addEventListener('load',function(){setTimeout(function(){try{sessionStorage.removeItem(k);}catch(x){}},15000);});})();</script>
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
 <title>Nomad • Music</title>
 <link rel="stylesheet" href="master.css">
 <script src="/theme-boot.js?v=5"></script>
 <script src="/nomad-icons.js?v=1"></script>
 <script src="theme-manager.js?v=5"></script>
-<script src="/nomad-utils.js?v=49"></script>
+<script src="/nomad-utils.js?v=51"></script>
 <style>
   /* dvh, not vh: 100vh on a phone includes the strip under the address bar, which hides the
      player's controls */
@@ -68,7 +69,7 @@
   .bar-sleep[hidden]{display:none;}
 
   /* Now playing sheet. No cover art on purpose: the music stays a loose folder system. */
-  .np-sheet{position:fixed;inset:0;z-index:200;background:var(--bg);display:flex;flex-direction:column;
+  .np-sheet{position:fixed;top:0;right:0;bottom:0;left:0;inset:0;z-index:200;background:var(--bg);display:flex;flex-direction:column;
     transform:translateY(100%);transition:transform .26s ease;padding-top:env(safe-area-inset-top);padding-bottom:env(safe-area-inset-bottom);}
   .np-sheet.open{transform:none;}
   .np-sheet[hidden]{display:none;}
@@ -255,7 +256,7 @@
     </div>
     <div class="np-panel" id="npSoundPanel" hidden>
       <div class="snd-row" id="sndXfRow"><span>Crossfade<small id="xfLabel">Off</small></span><input type="range" id="xfRange" min="0" max="8" step="1" value="0" aria-label="Crossfade seconds"></div>
-      <div class="snd-row" id="sndNightRow"><span>Night mode<small>Quiet parts up, loud parts down</small></span><button class="np-pill" id="nightBtn" aria-pressed="false">Off</button></div>
+      <div class="snd-row" id="sndNightRow"><span title="Quiet parts up, loud parts down">Night mode</span><button class="np-pill" id="nightBtn" aria-pressed="false">Off</button></div>
       <div id="sndEq">
         <div class="snd-row" style="margin-bottom:8px"><span>Equalizer</span></div>
         <div class="snd-presets" id="eqPresets"></div>
@@ -388,8 +389,8 @@ function restoreState(){
 
     queue = ((lists && lists.queue) || []).map(trackFromPath);
     currentPlaylist = ((lists && lists.playlist) || []).map(trackFromPath);
-    // ?? and not ||: a saved 0 is the first track, not "none"
-    queueIndex = Math.min(Math.max(st.queueIndex ?? 0, 0), Math.max(queue.length - 1, 0));
+    // a saved 0 is the first track, not "none" (no ?? here: older phones fail to parse the whole script)
+    queueIndex = Math.min(Math.max(st.queueIndex != null ? st.queueIndex : 0, 0), Math.max(queue.length - 1, 0));
     currentIndex = Number.isInteger(st.currentIndex) ? st.currentIndex : -1;
     playbackMode = ['playlist', 'queue', 'single'].includes(st.playbackMode) ? st.playbackMode : 'playlist';
     loopMode = ['none', 'all', 'single'].includes(st.loopMode) ? st.loopMode : 'none';
@@ -455,9 +456,16 @@ let _failCurrent = null;
 const _MIN_LOAD_GAP = 300;
 let _failedInARow = 0;
 const _MAX_RETRIES = 2;
+// a song that fails after it had been playing picks up where it was, with a fresh set of
+// tries. Capped per song, and only while it gets further each time: a spot on the card that
+// always fails can't loop
+let _attemptPlayed = false, _resumes = 0, _resumeTrack = null, _resumeBest = 0;
+let _lastProgressAt = 0;
+let _nextFromEnded = false;   // set by 'ended': the next song starts there, not from a timer
 
-function playTrack(track, _retryCount){
+function playTrack(track, _retryCount, _resumeAt){
   _retryCount = _retryCount || 0;
+  _resumeAt = _resumeAt || 0;
   if(!track || !track.path){
     console.warn('[Music] Invalid track:', track);
     return;
@@ -501,9 +509,11 @@ function playTrack(track, _retryCount){
   const elapsed = now - _lastLoadTime;
   const delay = _retryCount > 0 ? 2000 * _retryCount : Math.max(200, _MIN_LOAD_GAP - elapsed);
 
-  _playDebounce = setTimeout(() => {
+  const start = () => {
     if(gen !== _playGeneration) return;
     _lastLoadTime = Date.now();
+    _attemptPlayed = false;
+    _lastProgressAt = Date.now();
     const url = mediaUrl(track.path);
 
     // retry or give up. shared by the play() rejection and the audio error event, and
@@ -513,12 +523,27 @@ function playTrack(track, _retryCount){
       if(gen !== _playGeneration || handled) return;
       handled = true;
       console.warn('[Music] ' + why, track.path);
+      // where it had got to: a song that was playing carries on from there
+      const at = Math.max(+audio.currentTime || 0, _resumeAt);
+      if(_resumeTrack !== track.path){ _resumeTrack = track.path; _resumes = 0; _resumeBest = 0; }
+      const further = at > _resumeBest + 1;
+      if(_attemptPlayed && at > 1 && (_resumes < 5 || further)){
+        _resumes++;
+        if(further) _resumeBest = at;
+        _retrying = true;
+        playerTitle.textContent = (track.name || 'Unknown') + ' (retrying...)';
+        _retryTimer = setTimeout(() => {
+          if(gen !== _playGeneration) return;
+          playTrack(track, 1, at);
+        }, 2000);
+        return;
+      }
       if(_retryCount < _MAX_RETRIES){
         _retrying = true;
         playerTitle.textContent = (track.name || 'Unknown') + ' (retrying...)';
         _retryTimer = setTimeout(() => {
           if(gen !== _playGeneration) return;
-          playTrack(track, _retryCount + 1);
+          playTrack(track, _retryCount + 1, at);
         }, 2000 * (_retryCount + 1));
         return;
       }
@@ -542,6 +567,12 @@ function playTrack(track, _retryCount){
 
     // no HEAD first: it would double every play into two requests and two SD reads
     audio.src = url;
+    if(_resumeAt > 1){
+      const deck = audio, want = _resumeAt;
+      deck.addEventListener('loadedmetadata', () => {
+        if(gen === _playGeneration && deck === audio && (!deck.duration || want < deck.duration - 1)){ try { deck.currentTime = want; } catch(e){} }
+      }, { once: true });
+    }
     audio.load();
     audio.play().catch(e => {
       // a phone that hasn't been tapped yet may refuse to start sound: that isn't the file's fault
@@ -551,7 +582,10 @@ function playTrack(track, _retryCount){
     updateMediaSession();
     broadcastPlaybackUpdate();
     saveState();
-  }, delay);
+  };
+  // straight from 'ended': a locked phone may hold back a timer, and the next song with it
+  if(_nextFromEnded && _retryCount === 0) start();
+  else _playDebounce = setTimeout(start, delay);
   if(_retryCount === 0) onTrackChange();
 }
 
@@ -859,9 +893,18 @@ onDeck('pause', () => {
 onDeck('ended', () => {
   // the sleep timer set to the end of this song
   if(SLEEP_STEPS[sleepStep] === 'end'){ setSleep(0); playerTitle.textContent = currentTrack ? currentTrack.name : 'Stopped'; showToast('Sleep timer: stopped'); saveState(); return; }
-  handleNext(false);
+  _nextFromEnded = true;
+  try { handleNext(false); } finally { _nextFromEnded = false; }
 });
-onDeck('playing', () => { _failedInARow = 0; });
+onDeck('playing', () => { _failedInARow = 0; _attemptPlayed = true; _lastProgressAt = Date.now(); });
+onDeck('progress', () => { _lastProgressAt = Date.now(); });
+// wants to play, has run dry, and nothing has arrived for 20 s: a reply that hung. Handed to
+// the same retry as an error, which carries on from where it was.
+setInterval(() => {
+  if(!_failCurrent || !currentTrack || audio.paused || audio.ended) return;
+  if(audio.readyState >= 3){ _lastProgressAt = Date.now(); return; }
+  if(Date.now() - _lastProgressAt > 20000){ _lastProgressAt = Date.now(); _failCurrent('Stalled'); }
+}, 5000);
 // where in the song, every few seconds while playing and when the page goes away, so
 // coming back carries on from there
 let _lastPosSave = 0;
@@ -1453,7 +1496,7 @@ document.addEventListener('keydown', (e) => {
   const presetName = () => Object.keys(EQ_PRESETS).find(k => EQ_PRESETS[k].every((v, i) => v === sound.eq[i])) || '';
   const show = () => {
     xf.value = sound.crossfade;
-    xfLabel.textContent = sound.crossfade ? `${sound.crossfade} s between songs` : 'Off';
+    xfLabel.textContent = sound.crossfade ? `${sound.crossfade} s` : 'Off';
     night.textContent = sound.night ? 'On' : 'Off';
     night.classList.toggle('on', sound.night);
     night.setAttribute('aria-pressed', String(sound.night));

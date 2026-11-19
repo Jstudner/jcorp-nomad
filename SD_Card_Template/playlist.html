@@ -3,12 +3,13 @@
 <html lang="en">
 <head>
 <meta charset="utf-8" />
+<script>/* nomad-load-guard: reload, twice at most, when one of Nomad's own scripts or stylesheets fails to load */(function(){var k='nomadLoadGuard:'+location.pathname;window.addEventListener('error',function(e){var t=e.target;if(!t||!t.tagName)return;var s=t.tagName==='SCRIPT',c=t.tagName==='LINK'&&/stylesheet/i.test(t.rel||'');if(!s&&!c)return;var u=t.src||t.href||'';if(u.indexOf(location.origin+'/')!==0)return;var n=0;try{n=+sessionStorage.getItem(k)||0;}catch(x){return;}if(n>=2)return;try{sessionStorage.setItem(k,String(n+1));}catch(x){return;}setTimeout(function(){location.reload();},1500*(n+1));},true);window.addEventListener('load',function(){setTimeout(function(){try{sessionStorage.removeItem(k);}catch(x){}},15000);});})();</script>
 <meta name="viewport" content="width=device-width,initial-scale=1" />
 <title>Playlists</title>
 <link rel="stylesheet" href="master.css">
 <script src="/theme-boot.js?v=5"></script>
 <script src="/nomad-icons.js?v=1"></script>
-<script src="/nomad-utils.js?v=49"></script>
+<script src="/nomad-utils.js?v=51"></script>
 <script src="theme-manager.js?v=5"></script>
 <style>
 body{margin:0;padding:0;background:var(--bg);font-family:Inter,Arial,sans-serif;}
@@ -221,7 +222,6 @@ async function scanLibrary(){
     }
   }
   
-  console.log('[Playlists] scan complete. playlists:', topPlaylists.length);
   render();
 }
 
@@ -276,7 +276,7 @@ function folderActions(name, getTracks){
 function render(){
   playlistsEl.innerHTML = '';
   if(!topPlaylists.length){
-    playlistsEl.innerHTML = '<p style="padding:10px;color:var(--muted)">No playlists found.</p>';
+    playlistsEl.innerHTML = '<p style="padding:10px;color:var(--muted)">No playlists</p>';
     playlistCountEl.textContent = '0 playlists';
     return;
   }
@@ -515,7 +515,7 @@ function renderPlaylistBody(topPath, bodyEl){
   if(bodyEl.children.length === 0){
     const p = document.createElement('p');
     p.style.cssText = 'padding:10px;color:var(--muted)';
-    p.textContent = 'No songs here.';
+    p.textContent = 'No songs';
     bodyEl.appendChild(p);
   }
 }

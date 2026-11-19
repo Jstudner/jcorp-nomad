@@ -1,4 +1,4 @@
-// NomadFirmware.h - firmware updates without a cable: uploaded as a file from the admin page,
+// NomadFirmware.h - firmware updates without a PC: uploaded as a file from the admin page,
 // or fetched from nomadflash in WiFi Mode.
 //
 // The file is a .nomadfw: the app image as arduino-cli builds it, then a 512-byte trailer
@@ -9,7 +9,7 @@
 //
 // What keeps a bad update from bricking it:
 //   - only the slot that isn't running gets written, so a failure before the switch
-//     leaves the Nomad as it was
+//     leaves Nomad as it was
 //   - it won't switch unless the image checks out (IDF image check, SHA-256, signature,
 //     this board, newer unless asked otherwise)
 //   - after the restart the new firmware has to pass a self-test (card, network, web server,
@@ -25,7 +25,7 @@
 #ifndef NOMAD_FIRMWARE_H
 #define NOMAD_FIRMWARE_H
 #include <Arduino.h>
-#include <ESPAsyncWebServer.h>
+#include "src/AsyncWebServer/ESPAsyncWebServer.h"   // carried here, with Nomad's limits (src/AsyncWebServer/README.md)
 #include <ArduinoJson.h>
 #include <Preferences.h>
 #include <HTTPClient.h>
@@ -69,7 +69,7 @@
 #ifndef NOMAD_FW_BENCH_FAIL
 #define NOMAD_FW_BENCH_FAIL 0
 #endif
-// where the Nomad looks in WiFi Mode: <base><channel>/firmware.json, file urls relative to <base>
+// where Nomad looks in WiFi Mode: <base><channel>/firmware.json, file urls relative to <base>
 #ifndef NOMAD_FW_BASE
 #define NOMAD_FW_BASE NOMAD_UPDATE_BASE
 #endif
@@ -264,7 +264,7 @@ static bool fwStartWriter() {
 }
 
 // Fetching in WiFi Mode. Media is paused during it: TLS needs ~40 KB of the internal memory
-// streaming uses, and the Nomad restarts after anyway. The server certificate isn't checked
+// streaming uses, and Nomad restarts after anyway. The server certificate isn't checked
 // (no CA bundle to carry around). The file is trusted on its signature, so a tampered or
 // old file still gets refused.
 static String g_fwPullUrl;
@@ -396,20 +396,36 @@ static void nomadFirmwareBoot() {
 #endif
 }
 
+static bool fwChecksPass(bool &sd, bool &net, bool &heap) {
+  sd = SD_MMC.cardType() != CARD_NONE;
+  net = !(NOMAD_FW_BENCH_FAIL == 3) &&   // bench: fail the check
+      (g_staMode ? WiFi.status() == WL_CONNECTED : WiFi.softAPIP() != IPAddress(0, 0, 0, 0));
+  heap = heap_caps_get_free_size(MALLOC_CAP_INTERNAL) > 40 * 1024;
+  return sd && net && g_fwServerUp && heap;
+}
+static void fwKeep(const char *how) {
+  g_fwProving = false;
+  if (g_fwDeadline) esp_timer_stop(g_fwDeadline);
+  esp_ota_mark_app_valid_cancel_rollback();
+  Preferences p;
+  if (p.begin("nomadfw", false)) { p.putString("last", "ok|" NOMAD_FW_VERSION "|"); p.remove("pend"); p.remove("why"); p.end(); }
+  webLogf("success", "Firmware " NOMAD_FW_VERSION " %s", how);
+}
+
+// Right before a restart someone asked for (Restart, USB mode, shutdown, a WiFi Mode
+// change). The boot loader takes a new image that restarts while still proving itself for
+// one that failed and rolls back, so keep it now if its checks pass.
+static void nomadFirmwareBeforeRestart() {
+  bool sd, net, heap;
+  if (g_fwProving && fwChecksPass(sd, net, heap)) fwKeep("was kept before a restart");
+}
+
 // from loop(): once it has been up long enough with everything working, keep it
 static void nomadFirmwareTick() {
   if (!g_fwProving || millis() < FW_PROVE_MS) return;
-  const bool sd = SD_MMC.cardType() != CARD_NONE;
-  const bool net = !(NOMAD_FW_BENCH_FAIL == 3) &&   // bench: fail the check
-      (g_staMode ? WiFi.status() == WL_CONNECTED : WiFi.softAPIP() != IPAddress(0, 0, 0, 0));
-  const bool heap = heap_caps_get_free_size(MALLOC_CAP_INTERNAL) > 40 * 1024;
-  if (sd && net && g_fwServerUp && heap) {
-    g_fwProving = false;
-    if (g_fwDeadline) esp_timer_stop(g_fwDeadline);
-    esp_ota_mark_app_valid_cancel_rollback();
-    Preferences p;
-    if (p.begin("nomadfw", false)) { p.putString("last", "ok|" NOMAD_FW_VERSION "|"); p.remove("pend"); p.remove("why"); p.end(); }
-    webLogf("success", "Firmware " NOMAD_FW_VERSION " started fine and is kept");
+  bool sd, net, heap;
+  if (fwChecksPass(sd, net, heap)) {
+    fwKeep("started fine and is kept");
   } else if (millis() > FW_DEADLINE_MS - 5000) {
     g_fwProving = false;
     String why = !sd ? "it couldn't read the SD card" : !net ? "its WiFi didn't come up" : !g_fwServerUp ? "its web server didn't start" : "it ran short of memory";

@@ -12,7 +12,7 @@
 importScripts('/assets/nomad-zim.js', '/assets/xzwasm.min.js', '/assets/fzstd.min.js');
 // a page asks for its stylesheet, scripts and images all at once. three reads at a time
 // (the firmware gives each reader its own file handle) is a lot faster than one. more
-// than about four at once and the Nomad starts turning reads away
+// than about four at once and Nomad starts turning reads away
 NomadZim.sharedQueue.concurrency = 3;
 // the online demo has no /media, its server hands out the archive files with ranges itself
 if (new URL(self.location.href).searchParams.has('direct')) NomadZim.NomadArchiveIndex.VIA = '';
@@ -38,7 +38,7 @@ self.addEventListener('install', () => self.skipWaiting());
 self.addEventListener('activate', (e) => e.waitUntil(self.clients.claim()));
 
 // firmware that answers /zimview/ itself (NomadZimServe) is faster than this worker:
-// unpacking on the Nomad beats pulling every compressed cluster over WiFi. A phone that
+// unpacking on Nomad beats pulling every compressed cluster over WiFi. A phone that
 // registered the worker before keeps it, so it steps aside there. Asked once per start
 let nomadServesP = null;
 function nomadServes() {
@@ -136,8 +136,8 @@ function withFrameScript(data) {
 }
 
 // smaller files come out of the archive whole, a range of one is cut from the bytes in hand.
-// An archive page runs its own scripts at the Nomad's address (as in Kiwix's reader).
-// They may only talk to the archive itself: not the Nomad's admin, upload or delete calls.
+// An archive page runs its own scripts at Nomad's address (as in Kiwix's reader).
+// They may only talk to the archive itself: not Nomad's admin, upload or delete calls.
 function pagePolicy() {
   const o = self.location.origin;
   return "connect-src " + o + "/zimview/ blob: data:; form-action " + o + "/zimview/; base-uri " + o + "/zimview/";

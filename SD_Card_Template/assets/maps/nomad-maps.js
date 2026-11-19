@@ -774,7 +774,7 @@ async function openNearby(atPlace) {
 function openWaypoints() {
   const at = whereFrom(), list = waypointsFor('');
   if (!list.length) {
-    openSheet(head('Your waypoints') + '<div class="pnote">No waypoints yet. Tap a spot on the map and press <b>Save</b>.</div>', { ctx: 'list' });
+    openSheet(head('Your waypoints') + '<div class="pnote">No waypoints yet</div>', { ctx: 'list' });
     return;
   }
   const dir = (x) => COMPASS8[Math.round(bearingOf([at.lat, at.lon], [x.lat, x.lon]) / 45) % 8];
@@ -907,7 +907,7 @@ function download(name, blob) {
 }
 // the map as drawn (the route line included), from inside a frame so the canvas still holds it
 function saveMapImage() {
-  map.once('render', () => map.getCanvas().toBlob((b) => (b ? download(`map-${stamp()}.png`, b) : toast('Could not save the map image.')), 'image/png'));
+  map.once('render', () => map.getCanvas().toBlob((b) => (b ? download(`map-${stamp()}.png`, b) : toast("Couldn't save the map image.")), 'image/png'));
   map.triggerRepaint();
 }
 // the turn list as plain text, each turn with its position in the format chosen in Layers
@@ -925,7 +925,7 @@ function openReach(p, mins) {
   openSheet(head('How far can I get', 'from ' + esc(p.name)) + `
     <div class="row scroll"><div class="seg"><button data-rm="drive" class="${plan.mode === 'drive' ? 'on' : ''}" aria-label="Drive">${icon('car', 18)}</button><button data-rm="walk" class="${plan.mode === 'walk' ? 'on' : ''}" aria-label="Walk">${icon('walk', 18)}</button></div>
       <div class="seg">${[15, 30, 60].map((m) => `<button data-min="${m}" class="${m === mins ? 'on' : ''}">${m} min</button>`).join('')}</div></div>
-    <div class="pnote" id="reachOut">Pick a time. Green is close, red is near the limit.</div>`, { ctx: 'reach' });
+    <div class="pnote" id="reachOut">Green is close, red is near the limit.</div>`, { ctx: 'reach' });
   document.querySelectorAll('[data-rm]').forEach((b) => b.onclick = () => { plan.mode = prefs.mode = b.dataset.rm; savePrefs(); openReach(p, mins); if (mins) runReach(p, mins); });
   document.querySelectorAll('[data-min]').forEach((b) => b.onclick = () => { openReach(p, +b.dataset.min); runReach(p, +b.dataset.min); });
 }
@@ -1232,7 +1232,7 @@ function offRoadNote(res) {
   const parts = [];
   if (a > far) parts.push(`starts on the nearest big road, ${fmtDist(a)} from the start`);
   if (b > far) parts.push(`ends on the nearest big road, ${fmtDist(b)} from the destination`);
-  return parts.length ? `<div class="pnote">No street map on this card there, so the route ${parts.join(' and ')}.</div>` : '';
+  return parts.length ? `<div class="pnote">No street map on this card there. The route ${parts.join(' and ')}.</div>` : '';
 }
 function routeSummary(r) {
   const via = r.res.legs.filter((l) => l.name).sort((a, b) => b.dist - a.dist)[0];
@@ -1260,7 +1260,7 @@ async function computeRoute(fromOverride) {
   const tick = setInterval(() => {
     const el = $('rp'); if (!el) return;
     const long = performance.now() - t0 > 6000 ? ' · a long trip can take a minute' : '';
-    el.textContent = `Finding a route… read ${(R.stats.bytes / 1048576).toFixed(1)} MB of roads${long}`;
+    el.textContent = `Finding a route… ${(R.stats.bytes / 1048576).toFixed(1)} MB${long}`;
   }, 250);
   try {
     if (R.nodeCount() > 150000) R.trim();          // the last trip's roads: room for this one

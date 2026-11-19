@@ -71,11 +71,12 @@ async function releaseWakeLock(){
 const NomadList = {
   async _fetch503(url, tries = 3) {
     for (let i = 0; i < tries; i++) {
-      const res = await fetch(url, { cache: 'no-store' });
-      if (res.status !== 503) return res;          // a busy card 503s right after boot
+      let res = null;
+      try { res = await NomadNet.fetch(url, { cache: 'no-store' }, 20000); } catch (e) {}
+      if (res && res.status !== 503) return res;   // a busy card 503s right after boot
       await new Promise(r => setTimeout(r, 700 * (i + 1)));
     }
-    return fetch(url, { cache: 'no-store' });
+    return NomadNet.fetch(url, { cache: 'no-store' }, 20000);
   },
 
   /* encode a card path for a URL, per segment: encodeURI leaves # and ? alone,
@@ -112,19 +113,61 @@ const NomadList = {
     return out.length ? out : null;
   },
 
-  /* -> { entries, truncated, source }. entries is always an array, [] for an empty
-     or unreadable folder, so a caller can render its empty state either way. */
+  /* -> { entries, truncated, source, failed }. entries is always an array, [] for an empty
+     or unreadable folder, so a caller can render its empty state either way; failed is
+     true when nothing could be read at all (worth asking again, not an empty folder). */
   async dir(path) {
-    let lf = null;
-    try { lf = await this._viaListFiles(path); } catch (e) {}
-    if (lf && !lf.truncated) return { entries: lf.entries, truncated: false, source: 'listfiles' };
+    let lf = null, lfFailed = false;
+    try { lf = await this._viaListFiles(path); } catch (e) { lfFailed = true; }
+    if (lf && !lf.truncated) return { entries: lf.entries, truncated: false, source: 'listfiles', failed: false };
 
     let idx = null;
     try { idx = await this._viaIndex(path); } catch (e) {}
-    if (idx) return { entries: idx, truncated: false, source: 'index' };
+    if (idx) return { entries: idx, truncated: false, source: 'index', failed: false };
 
-    if (lf) return { entries: lf.entries, truncated: lf.truncated, source: 'listfiles' };
-    return { entries: [], truncated: false, source: 'none' };
+    if (lf) return { entries: lf.entries, truncated: lf.truncated, source: 'listfiles', failed: false };
+    return { entries: [], truncated: false, source: 'none', failed: lfFailed || lf === null };
+  }
+};
+
+/* fetch with a time limit: a request Nomad never answers (it restarted, the phone walked
+   out of range) rejects instead of leaving the page waiting for good. */
+const NomadNet = {
+  fetch(url, opts, ms){
+    if (typeof AbortController === 'undefined') return fetch(url, opts);
+    const ctl = new AbortController();
+    const t = setTimeout(() => ctl.abort(), ms || 20000);
+    return fetch(url, Object.assign({}, opts, { signal: ctl.signal })).finally(() => clearTimeout(t));
+  }
+};
+
+/* A page whose library didn't load tries again by itself: after 5 s, then twice as long
+   each time up to a minute, at once when the phone comes back online or the page is
+   shown again. NomadRetry.later(key, fn) after a failure, NomadRetry.done(key) once it
+   worked. Nothing runs while the page is hidden. */
+const NomadRetry = {
+  _jobs: new Map(),
+  later(key, fn){
+    let j = this._jobs.get(key);
+    if (!j) { j = { fn, wait: 5000, t: 0 }; this._jobs.set(key, j); }
+    j.fn = fn;
+    clearTimeout(j.t);
+    j.t = setTimeout(() => { if (!document.hidden) { try { j.fn(); } catch (e) {} } }, j.wait);
+    j.wait = Math.min(60000, j.wait * 2);
+    this._hook();
+  },
+  done(key){
+    const j = this._jobs.get(key);
+    if (j) { clearTimeout(j.t); this._jobs.delete(key); }
+  },
+  _hook(){
+    if (this._hooked) return;
+    this._hooked = true;
+    const now = () => {
+      for (const j of this._jobs.values()) { clearTimeout(j.t); j.wait = 5000; try { j.fn(); } catch (e) {} }
+    };
+    window.addEventListener('online', now);
+    document.addEventListener('visibilitychange', () => { if (!document.hidden) now(); });
   }
 };
 
@@ -145,11 +188,18 @@ const NomadIndex = {
     const shared = this._shared();
     if (shared.has(url)) return shared.get(url);
     const job = (async () => {
-      let res = await fetch(url, { cache: 'no-cache' });
-      for (let i = 0; i < 3 && res.status === 503; i++) {
-        await new Promise(r => setTimeout(r, 800 * (i + 1)));
-        res = await fetch(url, { cache: 'no-cache' });
+      // a busy card (503, any 5xx), a dropped connection or a request that never answers
+      // (20 s) is asked again, three times, waiting longer each time
+      let res = null, err = null;
+      for (let i = 0; i < 4; i++) {
+        if (i) await new Promise(r => setTimeout(r, 800 * 2 ** (i - 1)));
+        try {
+          res = await NomadNet.fetch(url, { cache: 'no-cache' }, 20000);
+          err = null;
+          if (res.status < 500) break;
+        } catch (e) { err = e; res = null; }
       }
+      if (!res) throw err || new Error('index fetch failed');
       if (res.status === 202) throw new Error('INDEX_BUILDING');
       if (!res.ok) throw new Error('index fetch failed ' + res.status);
       return res.text();
@@ -335,7 +385,11 @@ const NomadPrefs = {
   set(key, value){
     try { localStorage.setItem(key, JSON.stringify(value)); return true; } catch(e){ return false; }
   },
-  remove(key){ try { localStorage.removeItem(key); } catch(e){} }
+  remove(key){ try { localStorage.removeItem(key); } catch(e){} },
+  // the stored string as is: null when absent or storage is blocked, never a throw (a bare
+  // call stops the whole page where site data is blocked)
+  raw(key){ try { return localStorage.getItem(key); } catch(e){ return null; } },
+  setRaw(key, value){ try { localStorage.setItem(key, value); return true; } catch(e){ return false; } }
 };
 
 /* Progress for every kind of thing (films, episodes, audiobooks, EPUBs, PDFs, comics), so the
@@ -594,6 +648,93 @@ const NomadPlyr = {
   }
 };
 
+/* A film that stops arriving is asked for again at the place it had reached.
+
+   NomadStream.keep(media, { retryHost }) watches one <video> or <audio>. Nomad turns a
+   request away when its eight streams are taken, memory is short or the card is busy, and
+   the browser shows that as an error or a stall. On an error, or 20 s of wanting to play
+   with nothing arriving, the same address is loaded again with the place and play state
+   put back: after 1, 2, 4 then every 8 s, about two minutes in all (long enough for a
+   restart). Then a Retry button goes in retryHost. Coming back online or to the page tries
+   at once. A source the page sets or clears itself resets the count. */
+const NomadStream = {
+  keep(media, opts){
+    opts = opts || {};
+    const MAX_TRIES = 17;
+    let tries = 0, timer = null, ours = false, gaveUp = false, btn = null;
+    let pos = 0, play = false, wantPlay = false, lastTime = 0, lastMove = Date.now();
+    const has = () => !!media.getAttribute('src');
+    const showRetry = (on) => {
+      if (!opts.retryHost) return;
+      if (!btn) {
+        if (!on) return;
+        btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = opts.retryClass || 'close-btn';
+        btn.textContent = 'Retry';
+        btn.addEventListener('click', () => { tries = 0; gaveUp = false; showRetry(false); again(true); });
+        opts.retryHost.insertBefore(btn, opts.retryHost.firstChild);
+      }
+      btn.style.display = on ? '' : 'none';
+    };
+    const reload = () => {
+      timer = null;
+      if (!has()) return;
+      ours = true;
+      media.src = media.getAttribute('src');   // the same address: the browser asks Nomad again
+      media.load();
+    };
+    const again = (now) => {
+      if (!has() || timer) return;
+      if (tries >= MAX_TRIES) { gaveUp = true; showRetry(true); return; }
+      if (!tries) {
+        // where it had got to, taken once: later tries start from an empty player
+        pos = media.currentTime > 0 ? media.currentTime : lastTime;
+        play = wantPlay;
+      }
+      tries++;
+      timer = setTimeout(reload, now ? 0 : Math.min(8000, 500 * Math.pow(2, tries)));
+    };
+    media.addEventListener('play', () => { wantPlay = true; });
+    media.addEventListener('pause', () => { if (!ours && !timer && !media.error) wantPlay = false; });
+    media.addEventListener('timeupdate', () => {
+      if (media.readyState < 2 || !(media.currentTime > 0)) return;
+      if (media.currentTime !== lastTime) lastMove = Date.now();
+      lastTime = media.currentTime;
+    });
+    media.addEventListener('progress', () => { lastMove = Date.now(); });
+    media.addEventListener('error', () => { if (has()) again(false); });
+    media.addEventListener('loadedmetadata', () => {
+      if (!ours) return;                       // the page's own load: it sets the place itself
+      ours = false;
+      if (pos > 0.5) { try { media.currentTime = pos; } catch (e) {} }
+      if (play) { const p = media.play(); if (p && p.catch) p.catch(() => {}); }
+    });
+    media.addEventListener('playing', () => { tries = 0; gaveUp = false; lastMove = Date.now(); showRetry(false); });
+    media.addEventListener('emptied', () => {
+      if (ours) return;
+      // the page changed or cleared the source
+      if (timer) { clearTimeout(timer); timer = null; }
+      tries = 0; gaveUp = false; lastTime = 0; wantPlay = false; lastMove = Date.now();
+      showRetry(false);
+    });
+    // wants to play, has run dry, and nothing has arrived for 20 s: a reply that hung
+    setInterval(() => {
+      if (!has() || timer || gaveUp || !wantPlay || media.paused || media.ended) return;
+      if (media.readyState >= 3) { lastMove = Date.now(); return; }
+      if (Date.now() - lastMove > 20000) { lastMove = Date.now(); again(true); }
+    }, 5000);
+    const wake = () => {
+      if (!has() || !(media.error || gaveUp)) return;
+      if (timer) { clearTimeout(timer); timer = null; }
+      tries = 0; gaveUp = false; showRetry(false);
+      again(true);
+    };
+    window.addEventListener('online', wake);
+    document.addEventListener('visibilitychange', () => { if (!document.hidden) wake(); });
+  }
+};
+
 /* Projector correction: flip (rear projection, ceiling mount) and keystone, as a CSS
    transform in the browser only.
 
@@ -816,10 +957,15 @@ const NomadImages = {
       const src = img.dataset.src;
       if (!src || !img.isConnected) { delete img.dataset.queued; continue; }
       this._active++;
-      const free = () => { this._active = Math.max(0, this._active - 1); this._pump(); };
+      // a cover that neither loads nor fails (a stalled reply) would hold its slot for good:
+      // after 15 s it is let go and retried like a failure
+      let freed = false, timer = 0;
+      const free = () => { if (freed) return; freed = true; clearTimeout(timer); this._active = Math.max(0, this._active - 1); this._pump(); };
       const onLoad = () => { img.removeEventListener('error', onError); free(); };
       const onError = () => {
+        if (freed) return;
         img.removeEventListener('load', onLoad);
+        img.removeEventListener('error', onError);
         free();
         const tries = +(img.dataset.tries || 0);
         if (tries >= this.RETRIES || !img.isConnected) return;
@@ -832,6 +978,7 @@ const NomadImages = {
       };
       img.addEventListener('load', onLoad, { once: true });
       img.addEventListener('error', onError, { once: true });
+      timer = setTimeout(() => { if (!img.complete) { img.removeAttribute('src'); onError(); } }, 15000);
       delete img.dataset.src;
       delete img.dataset.queued;
       img.src = src;
@@ -983,6 +1130,7 @@ const NomadUpload = {
           name = this._numbered(file.name, ++n);                 // a different one by that name
           continue;
         }
+        if (st.max > 0 && file.size > st.max) throw this._fail('Too big for this card. The limit is 4 GB.', 'file');
         if (st.part > 0 && st.part <= file.size) offset = st.part;
         if (st.free >= 0 && file.size - offset > st.free) {
           throw this._fail('The card is full. It has ' + this._size(st.free) + ' free.', 'file');
@@ -1006,6 +1154,7 @@ const NomadUpload = {
         if (r.status === 409 && j.error === 'offset') { offset = j.have || 0; continue; }
         if (r.status === 409 && /exist/i.test(j.error || '')) { name = this._numbered(file.name, ++n); renamed = true; continue; }
         if (r.status === 507) throw this._fail('The card is full.', 'file');
+        if (r.status === 413) throw this._fail('Too big for this card. The limit is 4 GB.', 'file');
         if (r.status === 401) throw this._fail('That folder needs the admin password.', 'all');
         if (r.status === 403) throw this._fail(j.error || 'Uploads are turned off on Nomad.', 'all');
         if (r.status === 400) throw this._fail('Nomad refused this file name.', 'file');
@@ -1123,4 +1272,5 @@ const NomadUpload = {
     }
   }
 };
+
 

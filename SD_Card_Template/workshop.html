@@ -3,6 +3,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
+<script>/* nomad-load-guard: reload, twice at most, when one of Nomad's own scripts or stylesheets fails to load */(function(){var k='nomadLoadGuard:'+location.pathname;window.addEventListener('error',function(e){var t=e.target;if(!t||!t.tagName)return;var s=t.tagName==='SCRIPT',c=t.tagName==='LINK'&&/stylesheet/i.test(t.rel||'');if(!s&&!c)return;var u=t.src||t.href||'';if(u.indexOf(location.origin+'/')!==0)return;var n=0;try{n=+sessionStorage.getItem(k)||0;}catch(x){return;}if(n>=2)return;try{sessionStorage.setItem(k,String(n+1));}catch(x){return;}setTimeout(function(){location.reload();},1500*(n+1));},true);window.addEventListener('load',function(){setTimeout(function(){try{sessionStorage.removeItem(k);}catch(x){}},15000);});})();</script>
   <meta name="viewport" content="width=device-width,initial-scale=1.0">
   <meta name="description" content="Jcorp Nomad Media Server - Workshop">
   <title>Nomad • Workshop</title>
@@ -10,7 +11,7 @@
   <link rel="stylesheet" href="/master.css">
   <script src="/theme-boot.js?v=5"></script>
   <script src="/theme-manager.js?v=5"></script>
-  <script src="/nomad-utils.js?v=49"></script>
+  <script src="/nomad-utils.js?v=51"></script>
   <script src="/assets/nomad-model.js"></script>
   <style>
     body { display: flex; flex-direction: column; min-height: 100vh; }
@@ -47,11 +48,11 @@
       background: var(--thumb-bg, var(--card)); width: 100%; aspect-ratio: 1/1;
       border-radius: var(--radius); overflow: hidden; box-shadow: var(--shadow);
     }
-    .media-thumb { width: 100%; height: 100%; object-fit: cover; position: absolute; inset: 0; z-index: 2; opacity: 0; transition: opacity .35s ease; }
+    .media-thumb { width: 100%; height: 100%; object-fit: cover; position: absolute; top:0;right:0;bottom:0;left:0;inset:0; z-index: 2; opacity: 0; transition: opacity .35s ease; }
     /* no sidecar image: show the file type. rendering previews would mean parsing every
        model just to draw the library */
     .thumb-fallback {
-      position: absolute; inset: 0; display: flex; flex-direction: column; gap: .3rem;
+      position: absolute; top:0;right:0;bottom:0;left:0;inset:0; display: flex; flex-direction: column; gap: .3rem;
       align-items: center; justify-content: center; z-index: 1; padding: 8px; text-align: center;
     }
     .thumb-fallback .ext {
@@ -74,10 +75,10 @@
     }
     .stage canvas { display: block; width: 100%; height: 100%; }
     /* the supplied photo shares the stage with the 3D view. contain, so the whole part shows */
-    .stage img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain;
+    .stage img { position: absolute; top:0;right:0;bottom:0;left:0;inset:0; width: 100%; height: 100%; object-fit: contain;
       background: #14161a; z-index: 2; }
     .stage-msg {
-      position: absolute; inset: 0; display: none; flex-direction: column; gap: .6rem;
+      position: absolute; top:0;right:0;bottom:0;left:0;inset:0; display: none; flex-direction: column; gap: .6rem;
       align-items: center; justify-content: center; color: #d8dbe0; text-align: center;
       padding: 1.5rem; font-size: .95rem; line-height: 1.6; background: #14161a; z-index: 3;
     }
@@ -163,7 +164,7 @@
 
     .empty { text-align: center; color: var(--muted); padding: 2.5rem 1rem; line-height: 1.7; }
     .empty code { background: var(--card); padding: .12rem .4rem; border-radius: 4px; }
-    /* an incomplete listing has to say so, or a missing model reads as a lost file */
+    /* an incomplete listing gets a notice, or a missing model reads as a lost file */
     .notice {
       margin: 0 0 .8rem; padding: .55rem .8rem; border-radius: var(--radius);
       font-size: .85rem; line-height: 1.5;
@@ -184,8 +185,8 @@
 
   <div class="toolbar">
     <input id="searchInput" type="search" placeholder="Search" aria-label="Search models">
-    <select id="catSelect" aria-label="Filter by folder"><option value="">All Folders</option></select>
-    <select id="typeSelect" aria-label="Filter by file type"><option value="">All Types</option></select>
+    <select id="catSelect" aria-label="Filter by folder"><option value="">All folders</option></select>
+    <select id="typeSelect" aria-label="Filter by file type"><option value="">All types</option></select>
     <select id="sortSelect" aria-label="Sort models">
       <option value="nameAsc">A → Z</option>
       <option value="nameDesc">Z → A</option>
@@ -218,9 +219,9 @@
         <button id="photoNext" class="photo-nav next" style="display:none;" aria-label="Next photo">›</button>
         <span id="photoCount" class="photo-count" style="display:none;"></span>
         <div class="stage-tools">
-          <button id="photoToggle" style="display:none;" title="Switch between the 3D preview and the supplied photo">Photo</button>
+          <button id="photoToggle" style="display:none;">Photo</button>
           <div class="swatches" id="swatches"></div>
-          <button id="resetView" title="Back to the starting angle">Reset</button>
+          <button id="resetView" title="Reset view">Reset</button>
         </div>
         <div class="stage-hint" id="stageHint">Drag to turn · scroll or pinch to zoom · shift-drag to pan</div>
         <button id="load3dBtn" style="display:none;">Load 3D preview</button>
@@ -235,7 +236,7 @@
       <div class="panel">
         <h3>Print check</h3>
         <div class="printer-row">
-          <span>My build volume:</span>
+          <span>Build volume</span>
           <input id="bvX" type="number" min="1" step="1" aria-label="Build volume X"> ×
           <input id="bvY" type="number" min="1" step="1" aria-label="Build volume Y"> ×
           <input id="bvZ" type="number" min="1" step="1" aria-label="Build volume Z">
@@ -245,7 +246,7 @@
       </div>
 
       <div class="panel" id="partsPanel" style="display:none;">
-        <h3>Files in this model</h3>
+        <h3>Files</h3>
         <div class="parts" id="mParts"></div>
       </div>
 
@@ -336,7 +337,7 @@ let filtered = [];
 let current  = null;
 let viewer   = null;
 let debounce = null;
-let currentSize = localStorage.getItem('nomadWorkshopSize') || 'medium';
+let currentSize = NomadPrefs.raw('nomadWorkshopSize') || 'medium';
 let meshLoadedFor = null;   // path of the model the parsed mesh belongs to
 let currentMesh   = null;   // its measurements, kept apart from the viewer so a
                             // browser that cannot draw still gets the print check
@@ -386,12 +387,12 @@ async function listWorkshop() {
   while (queue.length) {
     const d = queue.shift();
     if (++dirs > MAX_WALK_DIRS) {
-      libraryWarning = 'Showing what is in the first ' + MAX_WALK_DIRS + ' folders. Run Admin → Library Index so the rest show up.';
+      libraryWarning = 'Showing the first ' + MAX_WALK_DIRS + ' folders. Run Admin → Library index for the rest.';
       break;
     }
     const r = await NomadList.dir(d.path);
-    if (r.truncated && !libraryWarning) libraryWarning = '"' + (relDir(d.path) || 'Workshop') +
-      '" holds more files than Nomad can list in one go. Run Admin → Library Index so the rest show up.';
+    if (r.truncated && !libraryWarning) libraryWarning = 'Not every file in "' + (relDir(d.path) || 'Workshop') +
+      '" is listed. Run Admin → Library index.';
     for (const e of r.entries) {
       if (e.name.startsWith('.')) continue;
       const path = normalizePath(e.path);
@@ -521,13 +522,13 @@ function findModel(path) {
 function buildFilters() {
   const cats = [...new Set(models.map(m => m.category).filter(Boolean))].sort((a, b) => a.localeCompare(b));
   const keepCat = catSelect.value;
-  catSelect.innerHTML = '<option value="">All Folders</option>' +
+  catSelect.innerHTML = '<option value="">All folders</option>' +
     cats.map(c => `<option value="${escapeHtml(c)}">${escapeHtml(c)}</option>`).join('');
   if (cats.includes(keepCat)) catSelect.value = keepCat;
 
   const types = [...new Set(models.flatMap(m => m.exts))].sort();
   const keepType = typeSelect.value;
-  typeSelect.innerHTML = '<option value="">All Types</option>' +
+  typeSelect.innerHTML = '<option value="">All types</option>' +
     types.map(t => `<option value="${escapeHtml(t)}">.${escapeHtml(t)}</option>`).join('');
   if (types.includes(keepType)) typeSelect.value = keepType;
 }
@@ -538,7 +539,7 @@ function setViewSize(size) {
   currentSize = size;
   grid.className = `media-grid ${size}`;
   sizeSelect.value = size;
-  localStorage.setItem('nomadWorkshopSize', size);
+  NomadPrefs.setRaw('nomadWorkshopSize', size);
 }
 setViewSize(currentSize);
 sizeSelect.addEventListener('change', () => setViewSize(sizeSelect.value));
@@ -572,14 +573,14 @@ function renderGrid() {
 
   if (!models.length) {
     grid.innerHTML = '<div class="empty" style="grid-column:1/-1;">' +
-      '<strong>No models on this card yet.</strong><br>' +
-      'Drop <code>.stl</code>, <code>.3mf</code> or <code>.obj</code> files into <code>/Workshop</code>' +
+      '<strong>No models</strong><br>' +
+      'Add <code>.stl</code>, <code>.3mf</code> or <code>.obj</code> files to <code>/Workshop</code>' +
       '.' +
       '</div>';
     return;
   }
   if (!filtered.length) {
-    grid.innerHTML = '<p class="empty" style="grid-column:1/-1;">No models match that.</p>';
+    grid.innerHTML = '<p class="empty" style="grid-column:1/-1;">No matches</p>';
     return;
   }
 
@@ -659,7 +660,7 @@ async function openModel(m, partIdx = 0) {
     loadBtn.style.display = 'none';
     // a supplied photo is the preview for a format that can't be drawn
     if (m.cover) { showPhoto(true); hideStageMsg(); }
-    else showStageMsg('No preview for .' + m.ext + ' files. The file is still here and can be downloaded.', false);
+    else showStageMsg('No preview for .' + m.ext + ' files.', false);
     updateFit(null);
     return;
   }
@@ -673,7 +674,7 @@ async function openModel(m, partIdx = 0) {
     showPhoto(true);
     hideStageMsg();
   } else {
-    showStageMsg('The 3D preview loads on demand.', false);
+    showStageMsg('', false);
   }
 }
 
@@ -711,7 +712,7 @@ async function startPreview(m) {
   try {
     if (!viewer) {
       viewer = new NomadModel.Viewer(document.getElementById('canvas'));
-      const saved = COLORS[+localStorage.getItem('nomadWorkshopColor') || 0];
+      const saved = COLORS[+NomadPrefs.raw('nomadWorkshopColor') || 0];
       if (saved) viewer.setColor(saved[1]);
     }
     viewer.setMesh(mesh);
@@ -930,7 +931,7 @@ function renderMarkdown(src) {
    fitting, rotating a part 90 degrees on the plate is free. */
 function getBuildVolume() {
   try {
-    const v = JSON.parse(localStorage.getItem(BV_KEY));
+    const v = JSON.parse(NomadPrefs.raw(BV_KEY));
     if (v && v.x > 0 && v.y > 0 && v.z > 0) return v;
   } catch (e) {}
   return { x: 220, y: 220, z: 250 };
@@ -980,7 +981,7 @@ for (const id of ['bvX', 'bvY', 'bvZ']) {
       y: +document.getElementById('bvY').value || 220,
       z: +document.getElementById('bvZ').value || 250
     };
-    localStorage.setItem(BV_KEY, JSON.stringify(v));
+    NomadPrefs.setRaw(BV_KEY, JSON.stringify(v));
     // only the mesh of the model on screen: the viewer can still hold the last one
     updateFit(current && meshLoadedFor === current.path ? currentMesh : null);
   });
@@ -989,7 +990,7 @@ for (const id of ['bvX', 'bvY', 'bvZ']) {
 // colour swatches: preview the model in a few filament colours
 (function buildSwatches() {
   const wrap = document.getElementById('swatches');
-  const saved = +localStorage.getItem('nomadWorkshopColor') || 0;
+  const saved = +NomadPrefs.raw('nomadWorkshopColor') || 0;
   COLORS.forEach(([css, rgb], i) => {
     const el = document.createElement('i');
     el.style.background = css;
@@ -998,7 +999,7 @@ for (const id of ['bvX', 'bvY', 'bvZ']) {
     el.onclick = () => {
       wrap.querySelectorAll('i').forEach(n => n.classList.remove('on'));
       el.classList.add('on');
-      localStorage.setItem('nomadWorkshopColor', i);
+      NomadPrefs.setRaw('nomadWorkshopColor', i);
       if (viewer) viewer.setColor(rgb);
     };
     wrap.appendChild(el);

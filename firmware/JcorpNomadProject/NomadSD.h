@@ -101,6 +101,14 @@ public:
   // "exFAT" / "FAT32" / "FAT16" / "none", for boot logging
   const char *fsTypeName();
   bool isExFat();
+  // set clusters aside under a name (see NomadSD.cpp); the caller holds the card lock
+  bool reserve(const char *path, uint32_t bytes);
+  // used space counted in slices with `lock` let go between them (the caller does not hold it):
+  // exFAT from its bitmap, FAT32 from its table (SdFat never updates the FSInfo free figure).
+  // False when it could not finish.
+  bool exFatUsedSliced(uint64_t &usedOut, SemaphoreHandle_t lock);
+  // the task inside the card driver now (its lock), or null: for the hang record
+  TaskHandle_t lockHolder();
 };
 
 extern NomadSDFS NomadSD;
@@ -113,9 +121,26 @@ struct NomadSDStats {
   uint32_t maxReadUs;      // the slowest read call
   uint64_t sectorsRead, sectorsWritten;
   uint32_t lastErrorMs;    // millis() of the last failed read or write, 0 for none
+  // readErrors / writeErrors count calls that failed for good. These count every failed
+  // attempt by kind, and the calls a second try saved.
+  uint32_t errNoMem, errCrc, errTimeout, errOther;
+  uint32_t readRetried, writeRetried;
+  int lastErr;             // the last esp_err_t seen, 0 for none
 };
 static const uint32_t NOMAD_SD_SLOW_MS = 250;
 void nomadSDStats(NomadSDStats &out);
+void nomadSDStatsPeek(NomadSDStats &out);   // the same without taking the card driver's lock
+// After a mount that failed: true when a card answered and it was its contents that could
+// not be read (not exFAT or FAT32, or damaged), false when no card answered at all.
+bool nomadSDCardAnswered();
+// The file system refused a write for want of space and nothing has been removed since.
+// While true, writes that would grow a file fail at once (see NomadSD.cpp).
+bool nomadSDFull();
+uint32_t nomadSDFullRefused();
+// Card reads or writes that failed for good on the calling task between the two calls. One
+// watcher at a time (the index build, which holds its own lock).
+void nomadSDWatchBegin();
+uint32_t nomadSDWatchEnd();
 
 // the card's own registers: who made it, when, and how the bus is running
 struct NomadSDCardInfo {
