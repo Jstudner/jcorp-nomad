@@ -1,7 +1,7 @@
 # <div align="center">Jcorp Nomad</div>
 
 <div align="center">
-  <img src="NomadCoverMK4v2.png" alt="Jcorp Nomad Offline Media Server" width="800">
+  <img src="NomadCoverMk5.jpg" alt="Jcorp Nomad Offline Media Server" width="800">
 </div>
 
 <p align="center"><b>A portable, offline media server powered by the ESP32-S3 in a thumbdrive form factor.</b><br>
@@ -9,7 +9,7 @@ Stream movies, music, books, and shows anywhere - no internet required.</p>
 
 <p align="center">
   <img src="https://img.shields.io/badge/branch-experimental-orange.svg" alt="Branch: Experimental" />
-  <img src="https://img.shields.io/badge/license-CC--BY--NC--SA%204.0-blue.svg" alt="License: CC BY-NC-SA 4.0" />
+  <img src="https://img.shields.io/badge/license-GPL--3.0-blue.svg" alt="License: GPL-3.0" />
   <img src="https://img.shields.io/badge/platform-ESP32--S3-orange" alt="Platform: ESP32-S3" />
   <img src="https://img.shields.io/badge/status-rough-red" alt="Status: Rough" />
 </p>
@@ -23,7 +23,8 @@ Stream movies, music, books, and shows anywhere - no internet required.</p>
 
 > **Experimental Branch** - This is where new stuff lands before it goes to main. Everything on main is here too, this just adds on top of it.
 >
-> This update is 4.8, and it's a big one (The usual). While a lot of it is under the hood (several people streaming at once holds up a lot better now), there's also a lot of new stuff on the pages, Watch Together, a rebuilt admin panel, firmware updates without a PC, offline archives served by Nomad itself (which means every format works), and rebuilt maps. The full list is below.
+> Mk5 (firmware 5.0) is the newest update here. It's coming so soon after 4.8 as I wasnt sure when to fully publish these changes. This is the "toybox" update of sorts, mainly adding a bunch of old code and ideas that didnt make sense to implement until now. In addition it also includes many enhancements and optimizations to the existing performance. 
+>
 >
 > Fair warning, this branch gets less testing than main. If something breaks, tell me, that is what this branch is for.
 >
@@ -58,51 +59,34 @@ If you just want to support the project, donations are always appreciated:
 
 ---
 
-## What's New in 4.8
+## What's New in Mk5
 
-- **Several people at once:** Four films play smooth at the same time in my testing now, and pages don't come back half loaded when Nomad is busy, they just take a second longer. Uploads pick up where they left off if the connection drops, and big downloads actually finish. This testing is done in a college dorm, so better results can be had camping / in the wild with less network traffic. 
-- **Archives served by Nomad:** Wikipedia and the other ZIM archives are served by Nomad itself now, so they work on every phone without any setup on the phone side.
-- **Maps rebuilt:** Vector map packs, turn by turn with voice and rerouting, search for addresses and coordinates, Nearby for things like hospitals, water and gas, and it follows your theme. Phones too old for the full map get a basic one instead.
-- **Admin panel redone:** Split into sections, a sign in where the password never gets sent over the air (and more than one device can stay signed in), switches per page for what people can see, download or upload, Activity to see and stop what's playing, card health, and a WiFi QR code.
-- **Firmware updates without a PC:** From a file or straight from the flasher site. Only signed builds are accepted, and if a new build doesn't start right it goes back to the old one on its own.
-- **Watch Together:** One person hosts, everyone else joins with a code, and you can vote on what to watch.
-- **Movies & Shows:** Simpler resume, progress on every episode, Up next, seek previews, and subtitles that stay on through episode changes.
-- **Music:** Now playing, no gap between songs, a sleep timer and sound settings.
-- **Books:** Progress and Continue on everything, audiobooks that run on through a book in parts, read aloud for e-books, and bookmarks and notes. PDFs and comics open a lot quicker too.
-- **Gallery & Files:** A proper photo viewer with folders and thumbnails, and Files can open docs, slides and sheets.
-- **Games:** Gzipped ROMs start in about half the time, and there's a Toolkit with some everyday tools.
-- **Translate:** A conversation mode for going back and forth.
-- **Chat:** Kept by Nomad now, so messages don't get lost or show up out of order.
-- **Safe mode and a support file:** If it crashes a few times in a row it starts in safe mode, and the admin panel can save a support file you can send me when troubleshooting.
+Mk5 is mostly a stability pass. I went through the whole thing looking for ways it falls over in real use (power pulled mid save, a busy card, a phone walking off mid film) and fixed what I could find. On top of that I have added full screen updates for all the status's that used to be text.
 
-### Streaming holds up under load
+<p align="center">
+  <img src="NomadMk5Scan.gif" alt="Nomad's screen scanning the card, then indexing" width="280">
+  &nbsp;&nbsp;
+  <img src="NomadMk5Update.gif" alt="Nomad's screen updating its firmware" width="280">
+</p>
 
-When too many people connect at once, Nomad now says it's busy instead of stalling.
+- **Fancy Screens:** Starting up, indexing, card scans, USB mode, card problems, updates and shutting down each get a full screen page now instead of text in the corner. Indexing shows what it's on and a live count, and a card scan draws a ring of what's on the card by type. The main page keeps its layout with cleaner text and icons. This does add a bit of load during tasks, but I deemed it manageable. 
+- **QR code to join:** The main screen can show a QR code in place of the Jcorp logo. Scan it and your phone joins the hotspot, no typing. In WiFi Mode it opens Nomad's address instead. Turn it on or off in the admin panel under Screen.
+- **Card full:** The storage bar turns red and says Card full as well as disabling uploads. Uploads also stop a little before the card fills, so settings can still save.
 
-- When several devices pull at once, Nomad now reserves a slot before it starts the work. Before, it checked free memory at the start of a request but didn't use it until much later, so a burst of requests could all pass the check together. Six at once could take free memory from 70 KB down to 20 KB, below the limit that was supposed to prevent that.
-- If it is actually full you get a "busy, try again" instead of a stall, and the players handle that fine.
-- A stuck stream gives its slot back after a while, so a phone that walks out of range doesn't keep it locked up. 
-- **Hotspot goes from 8 devices to 10.** 8 was inherited from the Mk4 and was never actually measured, the radio driver allows 10 so I am using all the slots now. 
+- **Unplugging is safer:** Killing power in the middle of a settings save could reset your hotspot name and password back to the defaults. Settings get swapped in safely now, and put back on the next start if a save got cut off. Restart, shutdown and USB mode also finish saving before they run.
+- **Card problems:** If the card gets pulled or stops answering, the screen shows that and Nomad restarts on its own once the card is back to reset. A card it can't read now provides a reason instead of just "No SD card". Card reads also get a second try unlike before. 
+- **Indexes can't come out half built:** A card hiccup during a scan could publish an index with most of your library missing. Now it keeps the old index and tries again, and a reindex from the admin panel always rebuilds.
+- **Players recover on their own:** If Nomad is busy or restarts mid film, Movies and Shows pick back up where you were instead of sitting on a black screen. Closing a player also frees its slot right away for someone else.
+- **Archive pictures don't come back broken:** Under load, pictures in archives sometimes arrived a few hundred bytes short. That was a bug in the web library, fixed by updating it.
+- **Big deletes don't freeze everyone:** Deleting a season or a big folder used to stall every phone until it finished, and could crash Nomad. It runs in the background now.
+- **OPDS is fast:** The book feed for e-reader apps went from about 9 seconds to half a second. (no surprises I set it up wrong originally)
+- **Older phones:** The pages work on older iPhones again, a few newer bits of code were leaving them blank.
+- **MORE RAM!:** About 5 KB freed up from the screen driver, which goes straight to streaming. (we take what we can get)
+- **Library Change:** Async TCP moved up a version (see Software Requirements); the firmware won't compile against the old one. ESP Async WebServer now comes with the firmware, so there's one library fewer to install.
+- **Chat times:** Chat takes the time from active users, so one phone with the wrong clock doesn't throw everyone's messages out of order.
+- **FAT32 free space is right:** Nomad no longer trusts the estimate, and does its own count (many people had an issue with the usage reporting wrong over time.)
 
-### Direct file links actually stream
-
-If something asked for `/Movies/film.mp4` directly instead of going through the site, it got the whole file with no seeking, and it didn't count towards the limits above. DLNA players, VLC and other outside apps ask for files that way, so they skipped all of it. Those go through the proper handler now.
-
-### Mobile fixes
-
-- General cleanup of controls and new vector icons to make everything a bit more clean looking and fit on small screens
-- Updated resume section to fit better on mobile and handle more items without breaking.
-
-### Smaller things
-
-- `.avif` and `.bmp` images serve correctly now instead of downloading
-- Paths with doubled slashes fold properly, which is what made `/Archive` and `//Archive` behave differently
-- The `/config` folder is properly off limits no matter how the path is spelled
-- The health readout reports the memory the card actually needs, not just free heap
-- A game no longer gets stuck while it's thinking, the search index updates properly, and 248 lines of dead code that got leftover in the last push are gone
-- **`tools/flash-nomad.sh`** - compiles, flashes and waits for the hotspot to come back. **No more unplugging the board after a flash.** It resets through the watchdog instead of the serial line, since the S3's USB port can't really do that. `--usbc` builds for the 1.47B board.
-
----
+I also got to test away from the dorm this time. With less traffic around, Nomad carried about 8 to 9 Mbit/s in total, which is 4 films at full quality, 6 if they're around 1.4 Mbit/s each, or 8 at the 480p preset. Which matches the original goals / older versions (I was getting worried about it for awhile)
 
 ## Features
 
@@ -137,29 +121,34 @@ If something asked for `/Movies/film.mp4` directly instead of going through the 
 
 Nomad is built specifically for the **Waveshare ESP32-S3 Dev Board (1.47" LCD version)**. Due to the number of low-level tricks used to squeeze this much functionality out of the hardware, it is difficult to get Nomad running on other boards.
 
-There are a few community forks that target other ESP32 boards, but your mileage will vary. I'm also actively working on a **Nomad Lite** version with wider board compatibility, focused on basic streaming without all the advanced features. There's also an [ESP32-P4 branch](https://github.com/Jstudner/jcorp-nomad/tree/esp32-p4) for two of Waveshare's P4 boards, see What's Next.
+If you want to run Nomad on a different board, start with **[Nomad Lite](https://github.com/Jstudner/jcorp-nomad-lite)**. It's the bare-bones version of Nomad for almost any ESP32 with a microSD card or SD module, focused on streaming the basic media types, and it reads the same card as a full Nomad. New boards get added there, see [Adapting it to your board](https://github.com/Jstudner/jcorp-nomad-lite#adapting-it-to-your-board).
+
+There's also an [ESP32-P4 branch](https://github.com/Jstudner/jcorp-nomad/tree/esp32-p4) for two of Waveshare's P4 boards.
 
 ---
 
 ## Hardware Requirements
 
-- **Waveshare ESP32-S3 Dev Board (1.47" LCD version)** - [Amazon Link](https://amzn.to/4ktB6oT)
+- **Waveshare ESP32-S3 Dev Board (USB A Version)** - [Amazon Link](https://amzn.to/4ktB6oT)
 
-- **or the ESP32-S3-LCD-1.47B** - the USB-C board. Same chip, same everything, the LCD backlight just moves from GPIO 48 to GPIO 46. If you build it yourself, set `BOARD_USB_C` to 1 in `Display_ST7789.h`. If you flash from the browser, pick the USB-C build. Get it wrong and it boots functional, just no screen output. - [Amazon Link](https://link.amazon/B03vYZlXB)
+  **OR**
+- **the ESP32-S3-LCD-1.47B (USB C Version)**  [Amazon Link](https://link.amazon/B03vYZlXB)
 
-- **microSD card, exFAT or FAT32 (16-128GB recommended, up to 2TB)**
+  Drawings and a 3D model of both boards are on [Waveshare's wiki](https://www.waveshare.com/wiki/ESP32-S3-LCD-1.47).
+
+- **microSD card, (16-128GB recommended, up to 2TB)**
   [Amazon Link](https://amzn.to/44tM1c4)
 
-- **SD-Card Extender (optional, 3DP case compatible)**
+- **SD-Card Extender (optional, Ideal for the 3DP case)**
   [Amazon Link](https://amzn.to/45IWIJz)
 
-- **A USB port to plug it into** (a computer, a power bank or a USB wall plug)
+- **A USB port to plug it into** (a computer or similar to flash it from)
 - **Optional:** 3D-printed enclosure (STL files included)
 
 ### Case
 
 <p align="center">
-  <img src="NomadMk4Explode.png" alt="Nomad Mk4 exploded case view" width="700">
+  <img src="NomadMk5Explode.jpg" alt="Nomad Mk5 exploded case view" width="700">
 </p>
 
 The case slides together **front-to-back**, so there's no direct pressure on the screen, which was a common cause of cracked screens on the old top-to-bottom case. The buttons stay exposed on the outside, so you can still flash firmware or hit the boot button without taking it apart.
@@ -168,7 +157,7 @@ The case slides together **front-to-back**, so there's no direct pressure on the
 
 ## Flash It From Your Browser
 
-If you would rather skip Arduino IDE entirely, **[nomadflash.jcorptech.net](https://nomadflash.jcorptech.net)** does the setup from a browser tab. The firmware is already compiled, so there is nothing to install and no SdFat version to line up. This system will lag a bit behind on the latest version, but makes setup much easier for most casual users. 
+If you would rather skip Arduino IDE entirely, **[nomadflash.jcorptech.net](https://nomadflash.jcorptech.net)** does the setup from a browser tab. The firmware is already compiled, so there is nothing to install and no library versions to line up. This system will lag a bit behind on the latest version, but makes setup much easier for most users. 
 
 It covers three things:
 
@@ -176,16 +165,16 @@ It covers three things:
 - **Set up the SD card.** Copies the web interface onto the card and creates every media folder Nomad uses, including Games, Maps, Cookbook and Workshop. There is an optional test set of placeholder content if you want to see every page working before you load your own media.
 - **Update an existing card.** Replaces only the interface files and leaves your media alone. (still WIP)
 
-Both the main and experimental builds are there, and each is offered for both boards:
+Both the main and experimental builds are included, and each is offered for both boards:
 
 - **USB-A** for the ESP32-S3-LCD-1.47
 - **USB-C** for the ESP32-S3-LCD-1.47B
 
-Pick the one matching the connector on your board. The two differ only in which pin drives the LCD backlight, so flashing the wrong one boots fine but leaves the screen dark.
+Pick the one matching the connector on your board. The two differ only in which pin drives the LCD backlight, so flashing the wrong one boots fine but leaves the screen non-functional.
 
-Formatting is the one step it cannot do, because a web page has no access to drives or partitions. You usually do not need it, since exFAT, FAT32 and FAT16 cards all mount as they come. If a card does need formatting, the site prints the exact command for Windows, macOS or Linux.
+Formatting is the one step it cannot do, because a web page has no access to drives or partitions. You usually do not need it, since exFAT, FAT32 and FAT16 cards all mount as they come. If a card does need formatting, the site prints the exact command for Windows, macOS or Linux. I recommend a clean format just to get a good baseline and clear out any files from the manufacturer. 
 
-**Requires Chrome, Edge or Opera on a desktop.** It uses Web Serial and the File System Access API, which Firefox and Safari do not implement, and neither one works on iOS or Android.
+**Requires Chrome, Edge or Opera on a desktop.** It uses Web Serial and the File System Access API, which Firefox and Safari do not implement, neither will work on iOS or Android unfortunately.
 
 ---
 
@@ -194,13 +183,12 @@ Formatting is the one step it cannot do, because a web page has no access to dri
 - Arduino IDE, with the **esp32 board package 3.3.3**
 - Arduino libraries, exact versions. These are what the shipped build compiles against, and mismatches here are the single most common build failure:
   - `ArduinoJson` by Benoit Blanchon **7.3.0**
-  - `Async TCP` by ESP32Async **3.4.7**
-  - `ESP Async WebServer` by ESP32Async **3.7.1**
+  - `Async TCP` by ESP32Async **3.6.0**
   - `LVGL` by kisvegabor **8.3.10**
   - `SdFat` by Bill Greiman **2.3.0** - this one is required for exFAT, it is not optional
-- SquareLine Studio (optional, for UI editing)
+- ESP Async WebServer 3.12.1 is now included in the firmware (`firmware/JcorpNomadProject/src/AsyncWebServer`), adding a limit on how much one request can ask for. Its a small patch to fix some bugs I had in testing. 
 
-If you would rather not line any of that up, use the browser flasher above.
+If you would rather not deal with the library alignment and scary software, use the browser flasher above its very cool. 
 
 ---
 
@@ -316,7 +304,7 @@ If you would rather not line any of that up, use the browser flasher above.
 - **Subtitles:** `.srt, .vtt, .ass, .ssa, .sub` - drop them next to the video with the same name. `Movie.srt` or `Movie.en.srt` both attach, language suffixes become selectable tracks, and `.srt` is converted to WebVTT on the fly because browsers render nothing for raw SRT.
 - **Books:** `.pdf, .epub, .cbz, .cbr` 
 - **Images:** `.jpg, .jpeg, .png, .webp, .gif, .bmp, .avif` 
-- **Archives:** `.zim` (offline Wikipedia and other ZIM-format wikis), needs special processing, you cant just drop a .zim in sadly. Prep them with [Nomad Tools](https://github.com/Jstudner/Nomad-Tools) first (still rough, but handles most common ZIMs)
+- **Archives:** `.zim` (offline Wikipedia and other ZIM-format wikis), needs special processing, you cant just drop a .zim in sadly. Prep them with [Nomad Tools](https://github.com/Jstudner/Nomad-Tools) first.
 - **Games:** ROMs for the systems EmulatorJS supports (GB, GBC, GBA, NES, SNES, Genesis, and others), `.wad` files for DOOM, plus `.html` files for built-in games
 - **Maps:** map packs from Nomad Tools, dropped into `/Maps`
 - **Recipes:** `.md`, `.cook`, or `.json` files in `/Cookbook`
@@ -327,56 +315,15 @@ If you would rather not line any of that up, use the browser flasher above.
 
 ## Nomad Tools
 
-Some content needs a one-time prep step on your computer before Nomad can use it, ZIM archives need a search index built, maps need downloading, translation packs need fetching. [Nomad Tools](https://github.com/Jstudner/Nomad-Tools) is a simple menu that does all of it. Windows and Linux (macOS untested).
+Some content needs a one-time prep step on your computer before Nomad can use it: ZIM archives, maps and translation packs. [Nomad Tools](https://github.com/Jstudner/Nomad-Tools) does that, along with adding media, checking a card, fixing videos and rebuilding the index, all from one simple menu on Windows or Linux.
 
-Basic usage:
-
-1. Download Nomad Tools and put your Nomad card in the computer.
-2. **Windows:** double-click `START-Windows.bat`. **Linux:** run `./start-linux.sh`.
-3. Pick your card from the list (or type its path), then pick a job from the menu.
-
-What the menu covers:
-
-- **Add media** and **Check the card** - copies your stuff onto the card, or checks a card you filled yourself.
-- **Add ZIM archives** and **Speed up archives** - Wikipedia, Gutenberg and so on with their search index, and reworked so they load faster.
-- **Pictures** - Gallery previews, covers for books that don't have one, and smaller covers.
-- **Fix videos** - finds videos that won't play, play without sound or are slow to start, and fixes them.
-- **Subtitles** - pulls text subtitles out of your videos, and can make seek previews.
-- **Speed up games** - compresses ROMs so each one starts in about half the time.
-- **Rebuild the media index** - after you've added or removed files from the PC.
-- **Map packs** - ready made maps by area with turn by turn directions and place search, or build them yourself from the newest OpenStreetMap data.
-- **Translation languages** - offline translation packs, always both directions of a pair. (I recomend just grabbing all as its less than 4GB)
-- **Format a card** - exFAT, Linux only.
-
-A good order for a fresh card: media and ZIMs first, then Pictures, rebuild the index last. Maps and languages can be added any time.
-
----
-
-## Known Rough Edges
-
-Since this is the experimental branch, here's what I already know isn't great:
-
-- **Maps are new.** They were rebuilt for 4.8 and have only been tested on a handful of packs. Long routes take a few seconds to work out on the device.
-- **WiFi Mode and DLNA have seen few routers and few TVs.** They work (tested with VLC on a Fire Stick, desktop VLC, and phones), but there are a lot of both out there and I have tried a handful. If your TV can't find Nomad, tell me what TV it is and I will see what I can do.
-- **Some video containers list but won't play.** `.mkv`, `.avi` and `.mov` get served without a content type, so it comes down to what your browser will sniff and decode. Nothing is broken on Nomad's side.
-- **Set an admin password before using WiFi Mode.** On the hotspot only people you gave the password to can reach the admin panel. On your home network, everything on that network can. I dont hard gate this, but worth noting. 
-- **Free space on FAT32 cards can read slightly wrong.** SdFat doesn't update the counter FAT32 keeps for it, so the number drifts by however much Nomad itself writes. It fixes itself the next time you plug the card into a PC, and it doesn't affect your files at all. exFAT cards aren't affected.
-- **The first game on each system takes a moment.** Its emulator core loads off the card the first time, after that it's cached.
-- The newer features have had a fraction of the testing the core has. If something breaks, tell me. Issues and PRs are both welcome.
+A copy comes on every Nomad card as `Nomad-Card-Tools.zip`, so you always have one with you. Grab the latest from the repo when you can.
 
 ---
 
 ## What's Next
 
-**Nomad Lite** - A stripped-down version of Nomad with wider board compatibility, focused on core streaming features. In active development now that Mk4 is out.
-
-**Gallion** - A larger-scale sibling to Nomad, built on more capable hardware. Gallion is designed to handle everything that couldn't fit on Nomad's current platform > ROM emulation, 4k video, and expanded media compatibility across the board. The current version is [here](https://github.com/Jstudner/Gallion).
-
-**ESP32-P4** - I have said for a long time that I don't want to switch hardware, as doing so would leave yall with a useless board. The S3 is Nomad and it stays supported. That said, I have been co-developing a P4 version alongside it, because the P4 brings two things the S3 can't: a radio module that is already FCC certified, which matters a lot for anything I sell, and considerably faster WiFi. 
-
-It has its own branch now, [esp32-p4](https://github.com/Jstudner/jcorp-nomad/tree/esp32-p4), on two boards. The **WIFI6** board is a stick, only a bit larger than your current Nomad. The **NANO** is noticeably bigger than either, but it adds an ethernet port with POE module support, and a USB port so storage can be expanded or replaced rather than living entirely on the SD card.
-
-None of this is a replacement announcement. It's its own branch, the S3 keeps getting the same updates, just better speed and a few more features on the p4 branch. 
+**Gallion** - A long overdue update, I have been putting some time into this. Gallion is still a ways off as accounts are scary and I hate them. One of the main features of Gallion over Voyager is that it is a full media system comparable to jellyfin. its meant to serve as a community hub and be always active. As a result the testing is evil and horrible, its way more complex than Nomad and a lot less fun to work on. Not sure when it will be published, but I am hoping to get everything at least kinda working so I can publish it soon. 
 
 ---
 
@@ -398,7 +345,7 @@ The ESP32-S3 provides enough performance to handle these requirements efficientl
 
 ## License
 
-[CC BY-NC-SA 4.0](https://creativecommons.org/licenses/by-nc-sa/4.0/) - free to remix and share for non-commercial use with attribution.
+[GPL-3.0](LICENSE). Build it, change it, sell it, as long as you share the source with whoever gets it and give your version its own name. The Jcorp and Nomad names and logos aren't covered. See [LICENSING.md](LICENSING.md) for what's what.
 
 ---
 
