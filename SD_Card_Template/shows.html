@@ -11,7 +11,7 @@
 <script src="/theme-boot.js?v=5"></script>
 <script src="/nomad-icons.js?v=1"></script>
 <script src="/assets/nomad-marks.js?v=1"></script>
-<script src="/nomad-utils.js?v=51"></script>
+<script src="/nomad-utils.js?v=52"></script>
 <script>document.addEventListener('DOMContentLoaded', () => NomadPlyr.ready());</script>
 <script src="/assets/plyr.min.js"></script>
 <script src="/theme-manager.js?v=5"></script>
@@ -198,7 +198,7 @@
       <div id="actionSub"></div>
       <button id="resumeEpButton" style="display:none">Resume</button>
       <button id="playButton">Play</button>
-      <button id="togetherButton" class="secondary">Watch together</button>
+      <button id="togetherButton" class="secondary" data-watch>Watch together</button>
       <button id="downloadButton" class="cancel" data-dl>Download</button>
       <button id="actionCloseBtn" class="cancel">Cancel</button>
     </div>
@@ -212,7 +212,7 @@
       </div>
       <div class="video-actions">
         <button id="videoCloseBtn">Close</button>
-        <button id="videoMarksBtn" class="marks-b">Bookmarks</button>
+        <button id="videoMarksBtn" class="marks-b" data-marks>Bookmarks</button>
         <button id="videoNextBtn">Next</button>
       </div>
     </div>
@@ -1575,6 +1575,7 @@ sortSelect.addEventListener('change', () => applySort(sortSelect.value));
 
 /* admin toggle: hide the download action when downloads are disabled */
 NomadUI.applyDownloadPolicy('downloadButton');
+NomadUI.applyFeaturePolicy();
 </script>
 
 </body>

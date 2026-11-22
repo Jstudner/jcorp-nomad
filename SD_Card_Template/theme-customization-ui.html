@@ -565,7 +565,7 @@
       themes = await ThemeManager.loadThemes();
       if (!themes.length) {
         showStatus("Couldn't load the presets. Only the default is shown.", 'error');
-        themes = [{ id: DEFAULT_ID, name: 'Default Blue', description: 'Default theme', colors: { primary: '#007bff', primaryDark: '#0056b3', bgLight: '#f4f4f9', cardLight: '#ffffff', textLight: '#333333', mutedLight: '#6b7280', bgDark: '#071226', cardDark: '#071722', textDark: '#eaf6ff', mutedDark: '#93a9c6', primaryDarkTheme: '#4aa3ff' } }];
+        themes = [{ id: DEFAULT_ID, name: 'Default Blue', description: '', colors: { primary: '#007bff', primaryDark: '#0056b3', bgLight: '#f4f4f9', cardLight: '#ffffff', textLight: '#333333', mutedLight: '#6b7280', bgDark: '#071226', cardDark: '#071722', textDark: '#eaf6ff', mutedDark: '#93a9c6', primaryDarkTheme: '#4aa3ff' } }];
       }
       renderThemes();
       setupColorInputs();

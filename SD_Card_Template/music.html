@@ -10,7 +10,7 @@
 <script src="/theme-boot.js?v=5"></script>
 <script src="/nomad-icons.js?v=1"></script>
 <script src="theme-manager.js?v=5"></script>
-<script src="/nomad-utils.js?v=51"></script>
+<script src="/nomad-utils.js?v=52"></script>
 <style>
   /* dvh, not vh: 100vh on a phone includes the strip under the address bar, which hides the
      player's controls */
@@ -94,6 +94,7 @@
   .np-controls .control-btn.play{width:64px;height:64px;}
   .np-controls .control-btn:not(.play){width:46px;height:46px;}
   .np-controls .control-btn.edge{width:40px;height:40px;}
+  .np-controls .control-btn.secondary.on{background:var(--primary);color:#fff;border-color:var(--primary);}
   .np-pills{display:flex;gap:10px;justify-content:center;flex-wrap:wrap;}
   .np-pill{height:36px;padding:0 14px;border-radius:18px;border:1px solid var(--black-alpha-10);background:var(--card);color:var(--text);
     font:inherit;font-size:.86rem;font-weight:700;display:inline-flex;align-items:center;gap:6px;cursor:pointer;}
@@ -248,11 +249,10 @@
       <button class="control-btn secondary" id="npPrev" aria-label="Previous" data-icon="skip-back" data-icon-size="24"></button>
       <button class="control-btn play" id="npPlay" aria-label="Play"></button>
       <button class="control-btn secondary" id="npNextBtn" aria-label="Next" data-icon="skip-forward" data-icon-size="24"></button>
-      <button class="control-btn secondary edge" id="npSoundBtn" aria-label="Sound settings" title="Sound" data-icon="volume" data-icon-size="20"></button>
+      <button class="control-btn secondary edge" id="npSoundBtn" aria-label="Sound settings" aria-expanded="false" title="Sound" data-icon="volume" data-icon-size="20"></button>
     </div>
     <div class="np-pills">
       <button class="np-pill" id="npSleep" title="Sleep timer"><span data-icon="timer" data-icon-size="16"></span><span id="npSleepLabel">Sleep</span></button>
-      <button class="np-pill" id="npSound" aria-expanded="false"><span data-icon="volume" data-icon-size="16"></span>Sound</button>
     </div>
     <div class="np-panel" id="npSoundPanel" hidden>
       <div class="snd-row" id="sndXfRow"><span>Crossfade<small id="xfLabel">Off</small></span><input type="range" id="xfRange" min="0" max="8" step="1" value="0" aria-label="Crossfade seconds"></div>
@@ -531,7 +531,7 @@ function playTrack(track, _retryCount, _resumeAt){
         _resumes++;
         if(further) _resumeBest = at;
         _retrying = true;
-        playerTitle.textContent = (track.name || 'Unknown') + ' (retrying...)';
+        playerTitle.textContent = (track.name || 'Unknown') + ' (retrying…)';
         _retryTimer = setTimeout(() => {
           if(gen !== _playGeneration) return;
           playTrack(track, 1, at);
@@ -540,7 +540,7 @@ function playTrack(track, _retryCount, _resumeAt){
       }
       if(_retryCount < _MAX_RETRIES){
         _retrying = true;
-        playerTitle.textContent = (track.name || 'Unknown') + ' (retrying...)';
+        playerTitle.textContent = (track.name || 'Unknown') + ' (retrying…)';
         _retryTimer = setTimeout(() => {
           if(gen !== _playGeneration) return;
           playTrack(track, _retryCount + 1, at);
@@ -1347,7 +1347,7 @@ const npTitle = document.getElementById('npTitle'), npSub = document.getElementB
 const npCur = document.getElementById('npCur'), npDur = document.getElementById('npDur'), npSeek = document.getElementById('npSeek');
 const npPlay = document.getElementById('npPlay'), npLoop = document.getElementById('npLoop');
 const npSleep = document.getElementById('npSleep'), npSleepLabel = document.getElementById('npSleepLabel');
-const npSound = document.getElementById('npSound'), npSoundPanel = document.getElementById('npSoundPanel');
+const npSound = document.getElementById('npSoundBtn'), npSoundPanel = document.getElementById('npSoundPanel');
 const npNextList = document.getElementById('npNextList'), barSleep = document.getElementById('barSleep');
 const nowOpen = document.getElementById('nowOpen');
 npPlay.innerHTML = SVG_PLAY;
@@ -1439,7 +1439,6 @@ const toggleSoundPanel = () => {
   if(!npSoundPanel.hidden) npSoundPanel.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
 };
 npSound.addEventListener('click', toggleSoundPanel);
-document.getElementById('npSoundBtn').addEventListener('click', toggleSoundPanel);
 npSeek.addEventListener('input', () => { _seeking = true; if(isFinite(audio.duration)) npCur.textContent = fmtTime(npSeek.value / 1000 * audio.duration); });
 npSeek.addEventListener('change', () => {
   if(isFinite(audio.duration)) audio.currentTime = npSeek.value / 1000 * audio.duration;

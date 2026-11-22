@@ -9,9 +9,9 @@
   <link rel="stylesheet" href="/master.css">
   <script src="/theme-boot.js?v=5"></script>
   <script src="/nomad-icons.js?v=1"></script>
-  <script src="/nomad-utils.js?v=51"></script>
+  <script src="/nomad-utils.js?v=52"></script>
   <script src="/theme-manager.js?v=5"></script>
-  <script src="/assets/nomad-docs.js?v=1"></script>
+  <script src="/assets/nomad-docs.js?v=3"></script>
   <style>
     /* Full-screen document, presentation or spreadsheet. assets/nomad-docs.js renders it;
        this page fetches the file and adds the controls. */
@@ -158,7 +158,7 @@
       if (!window.NomadDocs) { fail("The reader didn't load", 'Reload the page to try again.'); return; }
       try {
         const got = await fetchFile();
-        if (got.tooBig) { fail('Too big to open here', `It is ${(got.total / 1048576).toFixed(0)} MB and the limit is ${NomadDocs.MAX_BYTES / 1048576} MB. Download it instead.`); return; }
+        if (got.tooBig) { fail('Too big to open here', `It's ${(got.total / 1048576).toFixed(0)} MB, the limit is ${NomadDocs.MAX_BYTES / 1048576} MB.`); return; }
         $('loadText').textContent = 'Opening…';
         $('loadBar').style.width = '100%';
         await new Promise((ok) => requestAnimationFrame(() => ok()));

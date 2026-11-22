@@ -70,3 +70,5 @@ Bundled inside the files above, under their own licences: core-js (MIT) and loca
 | `Books/MobyDick.epub` | Herman Melville, [Project Gutenberg](https://www.gutenberg.org/ebooks/2701) #2701 | Public domain text; Project Gutenberg's licence for its name |
 | `Books/TheIliad.pdf` | Homer, Simcox translation (1865), [Internet Archive](https://archive.org/details/homersiliad00home) | Public domain |
 | The Bach Aria recordings in `Music/` | [Musopen](https://musopen.org) | Public domain |
+| `Games/Toolkit.png` photo | Jonas Bergsten, [Wikimedia Commons](https://commons.wikimedia.org/wiki/File:Swiss_army_knife_open_20050612_(cropped).jpg) | Public domain |
+| `Games/Watch Together.png` photo | Sven Scheuermeier ([Unsplash](https://unsplash.com/@sveninho)), [Wikimedia Commons](https://commons.wikimedia.org/wiki/File:Vintage_television_(Unsplash).jpg) | CC0 |

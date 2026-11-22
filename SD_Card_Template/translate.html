@@ -364,7 +364,7 @@ function showProgress(done, total, label) {
   $('track').style.width = pct + '%';
   $('figDone').textContent = fmtMB(done) + ' of ' + fmtMB(total);
   $('figLeft').textContent = o_eta(done, total);
-  if (label) $('stepText').textContent = label;
+  $('stepText').textContent = label || '';
 }
 
 /* Estimate from the rate so far. Stays quiet until there's enough data for the
@@ -521,7 +521,7 @@ async function refreshPairStatus() {
 
   if (!ab && !ba) {
     setup('none', {
-      title: "That language pair isn't on this card",
+      title: 'Not on this card',
       lead: 'Pick a different pair, or add the pack with Nomad-Tools.',
       bad: true
     });
@@ -547,8 +547,8 @@ async function refreshPairStatus() {
 
   if (fullyCached) {
     setup('offer', {
-      title: 'Ready when you are',
-      lead: 'The ' + langs + ' packs are saved on this phone.',
+      title: langs,
+      lead: 'Saved on this phone.',
       button: 'Open language packs',
       onClick: () => ensurePipelines(true)
     });
@@ -570,8 +570,7 @@ async function refreshPairStatus() {
     title: 'Set up ' + langs,
     lead: 'Saves about ' + fmtMB(total) + ' to this phone.'
         + oneWayNote,
-    notice: 'Takes a few minutes. Keep this page open while it loads. You can stop '
-          + 'and come back later.',
+    notice: 'Takes a few minutes. Keep this page open, or stop and come back later.',
     button: 'Load language packs',
     onClick: () => ensurePipelines(true)
   });
@@ -606,11 +605,11 @@ async function ensurePipelines(userAsked) {
       title: 'Loading ' + langs,
       notice: 'Keep this page open until it reaches 100 percent.'
     });
-    showProgress(0, total || 1, 'Starting');
+    showProgress(0, total || 1);
 
     await NomadXlate.preload(files, (path, done, tot) => {
       if (!rateT0 && done > 0) { rateT0 = performance.now(); rateB0 = done; }
-      showProgress(done, tot, 'Now loading ' + path.split('/').pop());
+      showProgress(done, tot);
     }, total);
 
     const dl = (performance.now() - t0) / 1000;
@@ -1006,9 +1005,15 @@ tgtSel.addEventListener('change', () => {
   try {
     manifest = await loadManifest();
   } catch (err) {
-    setup('none', {
+    // only a missing manifest means no packs; anything else is Nomad not answering
+    const missing = /HTTP 404/.test(String(err && err.message));
+    setup('none', missing ? {
       title: 'No languages on this card',
       lead: 'Add language packs with Nomad-Tools.',
+      bad: true
+    } : {
+      title: "Couldn't reach Nomad",
+      lead: 'Reload the page.',
       bad: true
     });
     srcSel.disabled = tgtSel.disabled = true;

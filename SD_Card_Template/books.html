@@ -5,7 +5,7 @@
     <link rel="stylesheet" href="/master.css">
     <script src="/theme-boot.js?v=5"></script>
 <script src="/nomad-icons.js?v=1"></script>
-    <script src="/nomad-utils.js?v=51"></script>
+    <script src="/nomad-utils.js?v=52"></script>
     <meta charset="utf-8" />
 <script>/* nomad-load-guard: reload, twice at most, when one of Nomad's own scripts or stylesheets fails to load */(function(){var k='nomadLoadGuard:'+location.pathname;window.addEventListener('error',function(e){var t=e.target;if(!t||!t.tagName)return;var s=t.tagName==='SCRIPT',c=t.tagName==='LINK'&&/stylesheet/i.test(t.rel||'');if(!s&&!c)return;var u=t.src||t.href||'';if(u.indexOf(location.origin+'/')!==0)return;var n=0;try{n=+sessionStorage.getItem(k)||0;}catch(x){return;}if(n>=2)return;try{sessionStorage.setItem(k,String(n+1));}catch(x){return;}setTimeout(function(){location.reload();},1500*(n+1));},true);window.addEventListener('load',function(){setTimeout(function(){try{sessionStorage.removeItem(k);}catch(x){}},15000);});})();</script>
     <meta name="viewport" content="width=device-width,initial-scale=1" />
@@ -640,7 +640,7 @@
                     <div class="audio-title" id="audioTitle">Audiobook</div>
                     <div class="audio-sub" id="audioSub"></div>
                 </div>
-                <button class="audio-close-btn" id="closeAudio" title="Close the player" aria-label="Close the player" data-icon="x"></button>
+                <button class="audio-close-btn" id="closeAudio" title="Close" aria-label="Close" data-icon="x"></button>
             </div>
             <div class="audio-progress-section">
                 <input type="range" id="audioSeek" min="0" max="1000" step="1" value="0" aria-label="Position in this book">

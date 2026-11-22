@@ -9,7 +9,7 @@
 <link rel="stylesheet" href="master.css">
 <script src="/theme-boot.js?v=5"></script>
 <script src="/nomad-icons.js?v=1"></script>
-<script src="/nomad-utils.js?v=51"></script>
+<script src="/nomad-utils.js?v=52"></script>
 <script src="theme-manager.js?v=5"></script>
 <style>
 body{margin:0;padding:0;background:var(--bg);font-family:Inter,Arial,sans-serif;}
@@ -188,7 +188,7 @@ function render(){
     if(canReorder && queue.length > 1){
       const grip = document.createElement('div');
       grip.className = 'queue-grip';
-      grip.title = 'Drag to move';
+      grip.title = 'Move';
       grip.innerHTML = '<svg width="10" height="16" viewBox="0 0 10 16" fill="currentColor" aria-hidden="true"><circle cx="2" cy="2" r="1.6"/><circle cx="8" cy="2" r="1.6"/><circle cx="2" cy="8" r="1.6"/><circle cx="8" cy="8" r="1.6"/><circle cx="2" cy="14" r="1.6"/><circle cx="8" cy="14" r="1.6"/></svg>';
       grip.addEventListener('click', (e) => e.stopPropagation());
       grip.addEventListener('pointerdown', (e) => startDrag(e, item, idx));

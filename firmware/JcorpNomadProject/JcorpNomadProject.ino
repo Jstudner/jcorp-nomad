@@ -2299,7 +2299,7 @@ bool queueConfigWrite(const String &path, const String &content, bool createOnly
   return true;
 }
 
-// UI config (menu pages, downloads, uploads, motd).
+// UI config (menu pages, downloads, uploads, motd, Watch Together and video bookmarks).
 // Held and served from RAM, saved to /.system-ui.json through the config writer, and
 // only changed through the admin POST /api/ui-config. Pages can still read the file.
 const char *UI_CONFIG_PATH = "/.system-ui.json";
@@ -7516,6 +7516,9 @@ server.on("/api/ui-config", HTTP_POST, [](AsyncWebServerRequest *request){
   }
   out["downloadsDisabled"] = in["downloadsDisabled"] | false;
   out["uploadsDisabled"] = in["uploadsDisabled"] | false;
+  // Movies and Shows: hide Watch Together and the player's bookmarks
+  out["watchOff"] = in["watchOff"] | false;
+  out["marksOff"] = in["marksOff"] | false;
   // per page, only names the firmware knows
   for (const char *list : { "dlOff", "ulOff" }) {
     JsonArray a = out[list].to<JsonArray>();

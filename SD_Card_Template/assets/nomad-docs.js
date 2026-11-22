@@ -838,7 +838,7 @@
     const wrap = h('div');
     wrap.append(h('div', { class: 'nd-sheet' }, t));
     if (sheet.cut || sheet.maxR + 1 > MAX_ROWS || sheet.maxC + 1 > MAX_COLS)
-      wrap.append(h('div', { class: 'nd-note', text: `First ${nR.toLocaleString()} rows and ${nC} columns only. Download the file for the rest.` }));
+      wrap.append(h('div', { class: 'nd-note', text: `First ${nR.toLocaleString()} rows and ${nC} columns only.` }));
     return wrap;
   }
   function sheetBook(host, sheets) {
@@ -1161,8 +1161,7 @@
   function legacy(host, name) {
     const to = { doc: '.docx', xls: '.xlsx', ppt: '.pptx', pps: '.pptx' }[ext(name)];
     return message(host, "This older format can't be opened here", [
-      `${ext(name).toUpperCase()} files need Office or LibreOffice.`,
-      `Open it there and save it as ${to}, then copy the new file to the card.`,
+      `Save it as ${to} in Office or LibreOffice, then copy that file to the card.`,
     ]);
   }
 
@@ -1171,7 +1170,7 @@
   async function render(host, { name, buffer }) {
     css();
     const k = kind(name);
-    if (buffer.byteLength > MAX_BYTES) return message(host, 'Too big to open here', [`The limit is ${MAX_BYTES / 1048576} MB. Download it instead.`]);
+    if (buffer.byteLength > MAX_BYTES) return message(host, 'Too big to open here', [`The limit is ${MAX_BYTES / 1048576} MB.`]);
     switch (k) {
       case 'docx': return docx(host, buffer);
       case 'odt': return odt(host, buffer);
@@ -1185,7 +1184,7 @@
       case 'rtf': return rtf(host, buffer);
       case 'google': return google(host, buffer, name);
       case 'legacy': return legacy(host, name);
-      default: return message(host, "This file can't be opened here", ['Download it to open it on your device.']);
+      default: return message(host, "This file can't be opened here", []);
     }
   }
   window.addEventListener('pagehide', () => { urls.forEach((u) => URL.revokeObjectURL(u)); urls.length = 0; });

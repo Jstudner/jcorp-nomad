@@ -265,7 +265,7 @@
      aren't followed, those objects still draw at their own origin. */
   async function parse3MF(buf) {
     if (!global.unzipit) await loadScriptOnce('/assets/unzipit.min.js');
-    if (!global.unzipit) throw new Error('3MF support needs /assets/unzipit.min.js on the card');
+    if (!global.unzipit) throw new Error("the 3MF reader didn't load");
 
     const { entries } = await global.unzipit.unzip(buf);
     const names = Object.keys(entries);
@@ -357,7 +357,7 @@
     // the caller passes a ready URL (workshop uses /media?file=<encoded>). don't
     // re-encode it, the escapes turn into %25 and every load 404s
     const res = await fetch(url, { cache: 'no-store' });
-    if (!res.ok) throw new Error('could not read the file (HTTP ' + res.status + ')');
+    if (!res.ok) throw new Error('HTTP ' + res.status);
 
     const total = +res.headers.get('Content-Length') || 0;
     if (!res.body || !total || !res.body.getReader) return await res.arrayBuffer();

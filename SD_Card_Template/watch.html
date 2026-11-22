@@ -10,7 +10,7 @@
 <link rel="stylesheet" href="/assets/plyr.css">
 <script src="/theme-boot.js?v=5"></script>
 <script src="/nomad-icons.js?v=1"></script>
-<script src="/nomad-utils.js?v=51"></script>
+<script src="/nomad-utils.js?v=52"></script>
 <script src="/assets/plyr.min.js"></script>
 <script src="/theme-manager.js?v=5"></script>
 <style>
@@ -339,7 +339,7 @@ function pickSomething(heading) {
       const s = find.value.trim().toLowerCase();
       const shown = items.map((it, i) => [it, i]).filter(([it]) => !s || it.title.toLowerCase().includes(s) ||
         (it.episodes && it.episodes.some((e) => e.title.toLowerCase().includes(s))));
-      if (!items.length) { grid.innerHTML = `<div class="wt-note">${tab === 'movies' ? 'No films yet' : 'No shows yet'}</div>`; return; }
+      if (!items.length) { grid.innerHTML = `<div class="wt-note">${tab === 'movies' ? 'No movies yet' : 'No shows yet'}</div>`; return; }
       if (!shown.length) { grid.innerHTML = '<div class="wt-note">No matches</div>'; return; }
       grid.innerHTML = shown.map(([it, i]) => tile(it, i)).join('');
       grid.querySelectorAll('.wt-tile').forEach((b) => {

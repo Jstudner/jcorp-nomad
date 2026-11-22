@@ -11,7 +11,7 @@
   <link rel="stylesheet" href="/master.css">
   <script src="/theme-boot.js?v=5"></script>
   <script src="/theme-manager.js?v=5"></script>
-  <script src="/nomad-utils.js?v=51"></script>
+  <script src="/nomad-utils.js?v=52"></script>
   <style>
     body {
       display: flex;
@@ -315,6 +315,8 @@
             };
           })
           .sort((a, b) => a.pin - b.pin || a.name.localeCompare(b.name));
+        // Watch Together turned off in admin: no card for it either
+        if ((await NomadUI.config()).watchOff) builtins = builtins.filter(b => b.name.toLowerCase() !== 'watch together');
 
         games = files
           .filter(f => !IMG_RE.test(f.n) && !HTML_RE.test(f.n) && deriveCore(f.p))
@@ -546,7 +548,7 @@
       loader.src = '/EmulatorJS/data/loader.js';
       loader.onerror = () => {
         emuWrap.innerHTML = '<p style="color:#fff;text-align:center;padding-top:2rem;">' +
-          'Emulator not found on the card (/EmulatorJS/data/loader.js).</p>';
+          'The emulator is missing from the card. Copy the card files onto it again.</p>';
       };
       document.body.appendChild(loader);
     }

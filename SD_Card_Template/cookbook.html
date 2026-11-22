@@ -12,7 +12,7 @@
   <script src="/theme-boot.js?v=5"></script>
 <script src="/nomad-icons.js?v=1"></script>
   <script src="/theme-manager.js?v=5"></script>
-  <script src="/nomad-utils.js?v=51"></script>
+  <script src="/nomad-utils.js?v=52"></script>
   <style>
     body { display: flex; flex-direction: column; min-height: 100vh; }
 
@@ -867,8 +867,7 @@ function renderGrid() {
   if (!recipes.length) {
     grid.innerHTML = '<div class="empty" style="grid-column:1/-1;">' +
       '<strong>No recipes</strong><br>' +
-      (writesAllowed ? 'Tap <strong>New recipe</strong>, or add ' : 'Add ') +
-      '<code>.md</code>, <code>.cook</code> or <code>.json</code> recipe files to <code>/Cookbook</code>' +
+      'Add <code>.md</code>, <code>.cook</code> or <code>.json</code> files to <code>/Cookbook</code>' +
       '.' +
       '</div>';
     return;
@@ -1435,8 +1434,8 @@ async function saveRecipe() {
     if (!saved) {
       // written, but not showing up yet. show a notice, or a good save looks like it did nothing
       msg.className = 'ok';
-      msg.textContent = 'Saved to ' + path + '. Not in the library yet: ' +
-        'reload in a moment, or run Admin → Library index if it stays missing.';
+      msg.textContent = 'Saved to ' + path + '. Not listed yet. ' +
+        'Reload in a moment, or run Admin → Library index.';
       return;
     }
     closeEditor();

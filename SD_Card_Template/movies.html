@@ -12,7 +12,7 @@
 <script src="/theme-boot.js?v=5"></script>
 <script src="/nomad-icons.js?v=1"></script>
 <script src="/assets/nomad-marks.js?v=1"></script>
-<script src="/nomad-utils.js?v=51"></script>
+<script src="/nomad-utils.js?v=52"></script>
 <script>document.addEventListener('DOMContentLoaded', () => NomadPlyr.ready());</script>
 <script src="/assets/plyr.min.js"></script>
 <script src="/theme-manager.js?v=5"></script>
@@ -210,12 +210,12 @@
 
   <div id="modal" class="modal" onclick="if(event.target===this) closeModal();">
     <div class="modal-content" onclick="event.stopPropagation()">
-      <h2 id="modalTitle">What would you like to do?</h2>
+      <h2 id="modalTitle"></h2>
       <div id="modalSub"></div>
 
       <button id="resumeButton" style="display:none">Resume</button>
       <button id="playButton">Play</button>
-      <button id="togetherButton" class="secondary">Watch together</button>
+      <button id="togetherButton" class="secondary" data-watch>Watch together</button>
       <button id="downloadButton" class="cancel" data-dl>Download</button>
       <button onclick="closeModal()" class="cancel">Cancel</button>
     </div>
@@ -228,7 +228,7 @@
         <video id="videoPlayer" controls playsinline aria-label="Video player"></video>
       </div>
       <div class="video-btns">
-        <button id="videoMarksBtn" class="close-btn marks-b" data-icon="pin"> Bookmarks</button>
+        <button id="videoMarksBtn" class="close-btn marks-b" data-icon="pin" data-marks> Bookmarks</button>
         <button id="videoCloseBtn" class="close-btn" onclick="closeVideo()" aria-label="Close video" data-icon="x"> Close</button>
       </div>
     </div>
@@ -640,8 +640,9 @@ const videoTitle = document.getElementById('videoTitle');
 function showMovieOptions(movie){
   currentMovie = movie;
   const s = filmState(movie), place = hasPlace(s);
-  modalSub.textContent = [movie.name || movie.rawName || movie.path || '',
-    s && s.done ? 'Watched' : place && s.dur > 0 ? NomadProgress.timeLeft(s.dur - s.pos) : ''].filter(Boolean).join(' · ');
+  // the film's name is the heading (as Shows and Books do), its state the line under it
+  document.getElementById('modalTitle').textContent = movie.name || movie.rawName || movie.path || '';
+  modalSub.textContent = s && s.done ? 'Watched' : place && s.dur > 0 ? NomadProgress.timeLeft(s.dur - s.pos) : '';
   // a saved place: Resume is the main action and Start over the second. Only Start over forgets it
   resumeButton.style.display = place ? 'block' : 'none';
   if(place) resumeButton.textContent = `Resume from ${formatTime(s.pos)}`;
@@ -1025,6 +1026,7 @@ window.addEventListener('hashchange', ()=> handleHashNavigation(getHashParam()))
 
 /* admin toggle: hide the download action when downloads are disabled */
 NomadUI.applyDownloadPolicy('downloadButton');
+NomadUI.applyFeaturePolicy();
 </script>
 </body>
 </html>

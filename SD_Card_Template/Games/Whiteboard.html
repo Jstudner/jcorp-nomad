@@ -43,8 +43,8 @@
   <main>
     <div class="toolbar">
       <div class="tb-group">
-        <button class="mode-btn active" id="modePrivate" onclick="setMode('private')">My Board</button>
-        <button class="mode-btn" id="modeLive" onclick="setMode('live')">Live Board</button>
+        <button class="mode-btn active" id="modePrivate" onclick="setMode('private')">My board</button>
+        <button class="mode-btn" id="modeLive" onclick="setMode('live')">Live board</button>
       </div>
       <div class="tb-sep"></div>
       <div class="tb-group">
@@ -67,7 +67,7 @@
         <button class="tool-btn" id="loadBtn" onclick="document.getElementById('imageUpload').click()">Load</button>
         <input type="file" id="imageUpload" accept="image/*" style="display:none" onchange="loadImageFile(this)">
       </div>
-      <div class="live-info" id="liveInfo">Private board, saved on this device.</div>
+      <div class="live-info" id="liveInfo">Saved on this device</div>
     </div>
 
     <div id="wrap"><canvas id="cv" width="1600" height="1200"></canvas></div>
@@ -317,7 +317,7 @@ function persist(){
     try {
       localStorage.setItem('nomad_wb_private', JSON.stringify(myStrokes.private));
     } catch(e){
-      liveInfo.textContent = 'Private board too large to autosave (Save it as a PNG).';
+      liveInfo.textContent = 'Too big to autosave. Save it as a PNG.';
     }
   } else {
     scheduleSave();
@@ -435,11 +435,11 @@ async function pollLive(){
 
 function setLiveInfo(count){
   if (mode !== 'live'){
-    liveInfo.textContent = 'Private board, saved on this device.';
+    liveInfo.textContent = 'Saved on this device';
   } else if (layerFull){
     /* message already set */
   } else {
-    liveInfo.textContent = `Live board, shared with everyone` +
+    liveInfo.textContent = `Shared with everyone` +
       (count ? ` · ${count} drawing` : '');
   }
 }

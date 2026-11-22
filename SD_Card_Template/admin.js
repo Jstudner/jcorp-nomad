@@ -181,9 +181,7 @@ async function followVideoCheck() {
 async function triggerVideoCheck() {
   const ok = confirm(
     'Check every video for playback problems?\n\n' +
-    'Nothing on the card is changed. Videos with issues get a dot in the file browser. ' +
-    'Nomad-Tools can fix most of them.\n\n' +
-    'About a minute on a big card.'
+    'Takes about a minute on a big card. Nothing gets changed.'
   );
   if (!ok) return;
   const msg = document.getElementById('video-check-msg');
@@ -274,7 +272,7 @@ async function triggerIndexScan() {
         alert('Choose a folder first');
         return;
       }
-      if (msg) msg.textContent = `Starting scan of ${dir}...`;
+      if (msg) msg.textContent = `Starting scan of ${dir}…`;
       const res = await adminFetch(`/api/reindex?path=${encodeURIComponent(dir)}`, { method: 'POST' });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
@@ -681,7 +679,7 @@ async function updateAdminPassword() {
     if (j.token) setAdminToken(j.token, keep);
     document.getElementById('new-password').value = '';
     document.getElementById('confirm-password').value = '';
-    say('Password set. Other devices will need to sign in again.');
+    say('Password set. Other devices need to sign in again.');
     loadSettings();
     refreshSessionInfo();
   } catch (e) {
@@ -701,14 +699,14 @@ async function refreshSessionInfo() {
     const j = await r.json();
     const chip = document.getElementById('account-btn');
     if (j.mode === 'none') {
-      el.textContent = 'No password: anyone on Nomad\'s WiFi can change these settings.';
+      el.textContent = 'No password set. Anyone on the WiFi can change these settings.';
       if (outBtns) outBtns.hidden = true;
       if (chip) chip.hidden = true;
       return;
     }
     if (chip) { chip.hidden = false; chip.textContent = tokenKept() ? 'Signed in (kept)' : 'Signed in'; }
-    el.textContent = `Password on. Signed in on ${j.signedIn} device${j.signedIn === 1 ? '' : 's'}` +
-      (j.kept ? ` (${j.kept} kept signed in)` : '') + `. This device: ${tokenKept() ? 'kept signed in' : 'until this tab closes'}.`;
+    el.textContent = `Signed in on ${j.signedIn} device${j.signedIn === 1 ? '' : 's'}. ` +
+      (tokenKept() ? 'This one stays signed in.' : 'This one until you close the tab.');
     if (outBtns) outBtns.hidden = false;
   } catch (e) { el.textContent = ''; }
 }
@@ -733,7 +731,7 @@ async function updateWiFiSettings() {
   if (!ssid || ssid.length > 32) { say('The network name needs 1 to 32 characters.'); return; }
   if (wifiPassword && (wifiPassword.length < 8 || wifiPassword.length > 63)) { say('A WiFi password needs 8 to 63 characters.'); return; }
   const open = !wifiPassword;
-  if (open && !confirm('Leave the WiFi password empty? Anyone nearby will be able to join Nomad\'s network.')) return;
+  if (open && !confirm('Leave the password empty? Anyone nearby can join Nomad\'s WiFi.')) return;
   const body = { wifiSSID: ssid };
   if (open) { body.wifiPassword = ''; body.wifiOpen = true; } else body.wifiPassword = wifiPassword;
   try {
@@ -847,7 +845,7 @@ function copyLog() {
   let ok = false;
   try { ok = document.execCommand('copy'); } catch (e) {}
   ta.remove();
-  addConsoleLog(ok ? 'Log copied.' : 'Copying is blocked here: long-press the log to select it.', ok ? 'success' : 'warning');
+  addConsoleLog(ok ? 'Log copied.' : "Can't copy here. Long-press the log to select it.", ok ? 'success' : 'warning');
 }
 // the icon-only buttons (data-icon) get their icon
 document.addEventListener('DOMContentLoaded', () => {
@@ -912,7 +910,7 @@ async function refreshConsole() {
 
   } catch (e) {
     const timestamp = new Date().toLocaleTimeString();
-    addConsoleLog(`[${timestamp}] Failed to fetch system status: ${e.message}`, 'error');
+    addConsoleLog(`[${timestamp}] Couldn't get the status: ${e.message}`, 'error');
   }
 }
 
@@ -947,9 +945,10 @@ async function fetchAdminBar() {
     if (data.wifiMode === 'sta') {
       if (passLabel) passLabel.textContent = 'Address';
       passBadge.textContent = data.ip || '—';
+      passBadge.parentElement.hidden = false;
     } else {
-      if (passLabel) passLabel.textContent = 'Password';
-      passBadge.textContent = (data.wifiPassword && data.wifiPassword !== '__set__') ? data.wifiPassword : '••••••';
+      // on the hotspot the password field below already shows it
+      passBadge.parentElement.hidden = true;
     }
 
     document.getElementById('bar-users').textContent =
@@ -981,7 +980,7 @@ async function openWifiModal() {
   try {
     const res = await adminFetch('/api/wifi-mode', { cache: 'no-store' });
     if (res.status === 404) {
-      wifiSetStatus('This firmware has no WiFi Mode. Update the firmware first.', 'warn');
+      wifiSetStatus('This firmware has no WiFi Mode. Update it first.', 'warn');
       document.getElementById('wifi-connect-btn').disabled = true;
       document.getElementById('wifi-disable-btn').disabled = true;
       return;
@@ -997,20 +996,20 @@ async function openWifiModal() {
     if (!ssidEl.value && s.staSSID) ssidEl.value = s.staSSID;
     document.getElementById('wifi-sta-persist').checked = !!s.staPersist;
     const passEl = document.getElementById('wifi-sta-pass');
-    passEl.placeholder = wifiStoredPasswordSet ? '(saved, leave empty to keep it)' : 'Leave empty for open networks';
+    passEl.placeholder = wifiStoredPasswordSet ? 'Saved, leave empty to keep it' : 'Leave empty for open networks';
 
     if (s.mode === 'sta') {
       wifiSetStatus(`Connected to "${s.staSSID}", ${s.ip}/${s.cidr || '?'}${typeof s.rssi === 'number' ? ` (${s.rssi} dBm)` : ''}`, 'online');
     } else if (s.staArmed) {
-      wifiSetStatus(`Hotspot mode, will try to join "${s.staSSID}" on the next restart`, 'warn');
+      wifiSetStatus(`Hotspot mode, joins "${s.staSSID}" on the next restart`, 'warn');
     } else if (s.lastError) {
-      wifiSetStatus(`Hotspot mode, the last attempt to join failed: ${s.lastError}`, 'warn');
+      wifiSetStatus(`Hotspot mode, last join failed: ${s.lastError}`, 'warn');
     } else {
       wifiSetStatus(`Hotspot mode ("${s.hotspotSSID}"), ${s.ip}`, '');
     }
   } catch (e) {
     console.error('WiFi mode status failed:', e);
-    wifiSetStatus("Couldn't read the WiFi status from Nomad.", 'warn');
+    wifiSetStatus("Couldn't get the WiFi status.", 'warn');
   }
 }
 
@@ -1066,7 +1065,7 @@ async function wifiPollScan() {
 async function wifiStartScan() {
   const scanBtn = document.getElementById('wifi-scan-btn');
   scanBtn.disabled = true;
-  scanBtn.textContent = 'Scanning… (playback may pause a moment)';
+  scanBtn.textContent = 'Scanning…';
   wifiPollScan();
 }
 
@@ -1077,14 +1076,14 @@ async function wifiConnect() {
 
   if (!ssid) { alert('Enter or pick a network name first.'); return; }
   if (pass && (pass.length < 8 || pass.length > 63)) {
-    alert('WiFi passwords are 8-63 characters. Leave the field empty for an open network' +
-          (wifiStoredPasswordSet ? ' or to keep the saved password.' : '.'));
+    alert('WiFi passwords are 8 to 63 characters. Leave it empty for an open network' +
+          (wifiStoredPasswordSet ? ' or to keep the saved one.' : '.'));
     return;
   }
 
   const ok = confirm(
     `Restart Nomad and join "${ssid}"?\n\n` +
-    `The hotspot turns off. If "${ssid}" can't be reached, Nomad goes back to hotspot mode.\n\n` +
+    `The hotspot turns off. If Nomad can't reach "${ssid}", it goes back to the hotspot.\n\n` +
     (persist
       ? 'To get the hotspot back, hold the side button while Nomad boots.'
       : 'To get the hotspot back, unplug and replug Nomad.')
@@ -1116,7 +1115,7 @@ async function wifiConnect() {
 }
 
 async function wifiDisable() {
-  const ok = confirm('Return Nomad to hotspot mode?\n\nIf it is on your home network, it restarts with the hotspot on.');
+  const ok = confirm('Restart Nomad in hotspot mode?');
   if (!ok) return;
   try {
     const res = await adminFetch('/api/wifi-mode', {
@@ -1279,7 +1278,7 @@ function attachAuthHandlers() {
 // Initialize everything when DOM is ready
 document.addEventListener('DOMContentLoaded', async () => {
   // Initialize console
-  addConsoleLog('Admin panel initialized', 'info');
+  addConsoleLog('Admin opened', 'info');
   attachAuthHandlers();
   
   // Load settings and authenticate
@@ -1347,7 +1346,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         alert('Nomad is restarting. Reconnect in a moment.');
       } catch {
         addConsoleLog('Nomad disconnected, restarting', 'warning');
-        alert('Nomad disconnected to restart. Reconnect in a moment.');
+        alert('Nomad is restarting. Reconnect in a moment.');
       }
     });
   }
@@ -1361,15 +1360,15 @@ document.addEventListener('DOMContentLoaded', async () => {
       try {
         const res = await adminFetch('/shutdown', { method: 'POST' });
         if (res.ok) {
-          addConsoleLog('Safe shutdown initiated', 'info');
-          alert('Shutting down. Nomad powers off in a moment.');
+          addConsoleLog('Shutting down', 'info');
+          alert('Nomad is shutting down.');
         } else {
           addConsoleLog('Shutdown command failed', 'error');
           alert("Nomad didn't shut down. Try again.");
         }
       } catch (err) {
         addConsoleLog('Nomad disconnected, shutting down', 'warning');
-        alert('Nomad disconnected. It is probably shutting down.');
+        alert("Nomad disconnected. It's probably shutting down.");
       }
     });
   }
@@ -1397,7 +1396,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   const flashBtn = document.getElementById('btn-flashmode');
   if (flashBtn) {
     flashBtn.addEventListener('click', async () => {
-      const ok = confirm('Restart Nomad in flash mode for a firmware update?');
+      const ok = confirm('Restart Nomad in flash mode?');
       if (!ok) return;
       try {
         await adminFetch('/flash-mode', { method: 'POST' });
@@ -1437,7 +1436,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       });
       addConsoleLog('Captive DNS: ' + (dnsCatchEl.checked ? 'catch-all (legacy)' : 'targeted'), 'info');
     } catch (e) {
-      addConsoleLog('Failed to save DNS mode', 'error');
+      addConsoleLog("Couldn't save DNS mode", 'error');
     }
   });
 
@@ -1486,8 +1485,8 @@ document.addEventListener('DOMContentLoaded', async () => {
       saveSettings();
       const msg = document.getElementById('dlna-msg');
       if (msg) msg.textContent = dlnaToggle.checked
-        ? 'On. TVs list Nomad within a minute or two.'
-        : 'Off. TVs may still list Nomad until they refresh.';
+        ? 'TVs list Nomad within a minute or two.'
+        : 'TVs may still list Nomad until they refresh.';
       addConsoleLog(`TV support (DLNA) ${dlnaToggle.checked ? 'enabled' : 'disabled'}`, 'info');
     });
   }
@@ -1496,7 +1495,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   const disablePasswordBtn = document.getElementById('btn-disable-password');
   if (disablePasswordBtn) {
     disablePasswordBtn.addEventListener('click', async () => {
-      if (!confirm('Turn the admin password off? Anyone on Nomad\'s WiFi will be able to change its settings.')) return;
+      if (!confirm('Remove the admin password? Anyone on the WiFi will be able to change settings.')) return;
       try {
         let res = await postPassword({ disable: true });
         if (res.status === 404) {
@@ -1518,7 +1517,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   if (lcdToggleBtn) {
     let lcdOff = false;
     try { lcdOff = localStorage.getItem('lcd_off') === '1'; } catch (e) {}
-    const label = () => { lcdToggleBtn.textContent = lcdOff ? 'Turn on' : 'Turn off'; };
+    const label = () => { lcdToggleBtn.textContent = lcdOff ? 'Screen on' : 'Screen off'; };
     label();
     lcdToggleBtn.addEventListener('click', async () => {
       const brightnessElement = document.getElementById('brightness');
@@ -1589,7 +1588,7 @@ function showSection(sec) {
   if (sec === 'logs') renderLog(true);
   // what is playing: asked for only while it is on screen
   if (sec === 'activity') Activity.start(); else Activity.stop();
-  if (sec === 'overview' && typeof Usage !== 'undefined' && Usage.data) Usage.load();   // fresh counts each look
+  if (sec === 'activity' && typeof Usage !== 'undefined' && Usage.data) Usage.load();   // fresh counts each look
   if (typeof Support !== 'undefined' && (sec === 'device' || !Support.loaded)) Support.load();   // after a sign-in too
   // the file browser, built into the page the first time Files opens
   if (sec === 'files' && window.NomadFiles && !showSection._files) {
@@ -1627,7 +1626,7 @@ const UI_PAGES = [
   ['chat',    'Chat'],    ['translate','Translate'],
   ['cookbook','Cookbook'], ['workshop', 'Workshop'],
 ];
-let uiCfg = { hiddenPages: [], downloadsDisabled: false, uploadsDisabled: false, dlOff: [], ulOff: [], motd: '' };
+let uiCfg = { hiddenPages: [], downloadsDisabled: false, uploadsDisabled: false, dlOff: [], ulOff: [], motd: '', watchOff: false, marksOff: false };
 // which pages have downloads and uploads to turn off
 const DL_PAGES = ['movies', 'shows', 'music', 'books', 'files', 'archive', 'workshop'];
 const UL_PAGES = ['gallery', 'files', 'cookbook'];
@@ -1649,6 +1648,16 @@ async function loadUiConfig() {
   ['hiddenPages', 'dlOff', 'ulOff'].forEach(k => { if (!Array.isArray(uiCfg[k])) uiCfg[k] = []; });
   renderPerms();
   document.getElementById('ui-motd').value = uiCfg.motd || '';
+  // Watch Together and video bookmarks: the switch shows it's on
+  [['ui-watch', 'watchOff'], ['ui-marks', 'marksOff']].forEach(([id, key]) => {
+    const t = document.getElementById(id);
+    if (!t) return;
+    t.checked = !uiCfg[key];
+    if (!t._wired) {
+      t._wired = true;
+      t.addEventListener('change', () => { uiCfg[key] = !t.checked; saveUiConfig('ui-community-msg'); });
+    }
+  });
 }
 
 // one row a page: show it, its downloads, its uploads (a box only where the page has them)
@@ -1706,7 +1715,8 @@ async function saveUiConfig(msgId) {
   const msg = document.getElementById(msgId);
   const payload = JSON.stringify({ v: 1, hiddenPages: uiCfg.hiddenPages,
     downloadsDisabled: !!uiCfg.downloadsDisabled, uploadsDisabled: !!uiCfg.uploadsDisabled,
-    dlOff: uiCfg.dlOff || [], ulOff: uiCfg.ulOff || [], motd: uiCfg.motd || '' });
+    dlOff: uiCfg.dlOff || [], ulOff: uiCfg.ulOff || [], motd: uiCfg.motd || '',
+    watchOff: !!uiCfg.watchOff, marksOff: !!uiCfg.marksOff });
   try {
     const res = await adminFetch('/api/ui-config', { method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
@@ -1720,7 +1730,7 @@ async function saveUiConfig(msgId) {
 /* delete every file in a community dotfolder (chat / whiteboard state) */
 async function clearCommunityDir(dir, label, confirmed = false) {
   const msg = document.getElementById('ui-community-msg');
-  if (!confirmed && !confirm(`Clear the ${label} for everyone? This cannot be undone.`)) return;
+  if (!confirmed && !confirm(`Clear the ${label} for everyone? This can't be undone.`)) return;
   let n = 0;
   try {
     const res = await fetch(`/listfiles?dir=${encodeURIComponent(dir)}&_=${Date.now()}`, { cache: 'no-store' });
@@ -1728,7 +1738,7 @@ async function clearCommunityDir(dir, label, confirmed = false) {
       const arr = JSON.parse(await res.text());
       for (const f of (Array.isArray(arr) ? arr : [])) {
         if (f.isDir) continue;
-        const ok = await fetch('/delete', { method: 'POST',
+        const ok = await adminFetch('/delete', { method: 'POST',
           headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
           body: new URLSearchParams({ filename: `${dir}/${f.name}` }) });
         if (ok.ok) n++;
@@ -1741,7 +1751,7 @@ async function clearCommunityDir(dir, label, confirmed = false) {
 // its own clear empties both. Older firmware has only the files.
 async function clearChatHistory() {
   const msg = document.getElementById('ui-community-msg');
-  if (!confirm('Clear the chat history for everyone? This cannot be undone.')) return;
+  if (!confirm("Clear the chat history for everyone? This can't be undone.")) return;
   try {
     const r = await adminFetch('/api/chat/clear', { method: 'POST' });
     if (r.ok) { if (msg) msg.textContent = 'Chat history cleared.'; return; }
@@ -1826,9 +1836,9 @@ async function computeLibraryStats() {
 
     wrap.innerHTML = stats.length ? stats.map(([label, v]) => `
       <div class="adm-tile"><b>${v.toLocaleString()}</b><span>${label}</span></div>`).join('')
-      : '<div class="adm-tiles-note">No library index yet. Run a scan from Library.</div>';
+      : '<div class="adm-tiles-note">No index yet</div>';
   } catch (e) {
-    wrap.innerHTML = '<div class="adm-tiles-note">No library counts yet. Run a scan from Library.</div>';
+    wrap.innerHTML = '<div class="adm-tiles-note">No index yet</div>';
   }
 }
 // delayed start so the admin page's initial settings/status fetches finish first
@@ -2138,9 +2148,10 @@ const CardHealth = {
     const badge = document.getElementById('hl-badge');
     const [cls, word, line] = failed ? ['bad', 'Problems', `${failed} read${failed === 1 ? '' : 's'} or write${failed === 1 ? '' : 's'} failed. Copy anything you can't replace off the card, it may be wearing out.`]
       : slow > 5 ? ['warn', 'Slow', 'Some reads were slow. Fine for one film, a few at once may stutter.']
-      : ['good', 'Good', c.state === 'done' ? 'No failed reads, and the last check came back clean.' : 'No failed reads since Nomad started.'];
+      : ['good', 'Good', c.state === 'done' ? 'Last check came back clean.' : ''];
     badge.className = 'adm-badge ' + cls; badge.textContent = word; badge.hidden = false;
-    document.getElementById('hl-summary').textContent = line;
+    const sumEl = document.getElementById('hl-summary');
+    sumEl.textContent = line; sumEl.hidden = !line;
     const gb = (n) => (n / 1e9).toFixed(n >= 1e11 ? 0 : 1) + ' GB';
     const facts = [];
     if (card.bytes) {
@@ -2198,7 +2209,7 @@ async function backupDownload() {
     a.download = 'nomad-settings-' + new Date().toISOString().slice(0, 10) + '.json';
     document.body.appendChild(a); a.click(); a.remove();
     setTimeout(() => URL.revokeObjectURL(a.href), 5000);
-    msg.textContent = 'Saved. It has the hotspot password in it: keep it private.';
+    msg.textContent = 'Saved. Keep it private, it has the hotspot password in it.';
   } catch (e) { msg.textContent = "Couldn't make the backup: " + e.message; }
 }
 async function backupRestore(f) {
@@ -2207,7 +2218,7 @@ async function backupRestore(f) {
   try { b = JSON.parse(await f.text()); } catch (e) { msg.textContent = "That file isn't a Nomad backup."; return; }
   if (!b || b.nomadBackup !== 1 || typeof b.settings !== 'object') { msg.textContent = "That file isn't a Nomad backup."; return; }
   const when = b.saved ? new Date(b.saved).toLocaleString() : 'an unknown date';
-  if (!confirm(`Restore the settings saved ${when}? This replaces the hotspot, pages, theme, screen and lights settings on Nomad.`)) return;
+  if (!confirm(`Restore the settings from ${when}? This replaces the hotspot, pages, theme, screen and lights settings.`)) return;
   const done = [], failed = [];
   const post = (url, body) => adminFetch(url, { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
     body: new URLSearchParams({ body: JSON.stringify(body) }) });
@@ -2248,7 +2259,7 @@ const Support = {
     } catch (e) {}
   },
   crashText(c) {
-    if (!c) return 'None kept';
+    if (!c) return 'None';
     return `In ${c.task || 'a task'}, ${c.thisStart ? 'ended the last run' : 'from an earlier run'}` + (c.sameBuild ? '' : ' (older firmware)');
   },
   render() {
@@ -2262,8 +2273,8 @@ const Support = {
     if (banner) {
       banner.hidden = !(d.start && d.start.safe);
       const why = document.getElementById('safe-why');
-      if (why && d.start) why.textContent = `It crashed ${d.start.inARow} times in a row` +
-        (d.crash && d.crash.task ? `, last in ${d.crash.task}` : '') + '. Indexing and TV support are off until it starts normally.';
+      if (why && d.start) why.textContent = `After ${d.start.inARow} crashes in a row` +
+        (d.crash && d.crash.task ? ` (last in ${d.crash.task})` : '') + '. Indexing and TV support are off.';
     }
   },
   async get(url) {
@@ -2303,10 +2314,10 @@ const Support = {
     a.download = `nomad-support-${(support && support.version) || 'x'}-${new Date().toISOString().slice(0, 10)}.json`;
     document.body.appendChild(a); a.click(); a.remove();
     setTimeout(() => URL.revokeObjectURL(a.href), 5000);
-    if (msg) msg.textContent = 'Saved. The log names files and networks: send it only to someone you trust.';
+    if (msg) msg.textContent = 'Saved. It lists your file and network names, only send it to someone you trust.';
   },
   async forget() {
-    if (!confirm('Forget the crash Nomad kept? Save a support file first if someone may need it.')) return;
+    if (!confirm('Forget the crash? Save a support file first if someone may need it.')) return;
     const r = await adminFetch('/api/support/forget-crash', { method: 'POST' });
     document.getElementById('sup-msg').textContent = r.ok ? 'Forgotten.' : "Couldn't forget it.";
     this.load();
@@ -2360,7 +2371,7 @@ const Firmware = {
   render(d) {
     this.el('fw-now').textContent = `Running ${d.version} for ${d.board}, ${d.channel} channel.`;
     const last = this.el('fw-last');
-    last.textContent = d.proving ? 'Checking this firmware works after the update. Give it a minute.'
+    last.textContent = d.proving ? 'Checking the update works. Give it a minute.'
       : d.last && d.last.result === 'ok' ? `Updated to ${d.last.version}.`
       : d.last && d.last.result === 'back' ? `Tried ${d.last.version}, but ${d.last.why || 'it didn\'t start'}. Nomad went back to ${d.version}.`
       : '';
@@ -2368,7 +2379,7 @@ const Firmware = {
     const busy = ['receiving', 'pulling', 'checking'].includes(d.state);
     pull.disabled = pick.disabled = busy || !d.signed || !d.spare || d.proving;
     pull.disabled = pull.disabled || !d.canPull;
-    pull.title = d.canPull ? '' : 'Needs WiFi Mode, on a network with internet';
+    pull.title = d.canPull ? '' : 'Needs WiFi Mode on a network with internet';
     const msg = this.el('fw-msg');
     if (!d.signed) msg.textContent = "This build can only be updated over USB.";
     else if (!d.spare) msg.textContent = "Nomad has no spare firmware slot. Update it once over USB from nomadflash.";
@@ -2396,7 +2407,7 @@ const Firmware = {
     }
   },
   async pull() {
-    if (!confirm('Check nomadflash for newer firmware? Films pause while it downloads, a minute or two. Nothing changes until you restart into it.')) return;
+    if (!confirm('Check nomadflash for new firmware? Films pause for a minute or two while it downloads. Nothing changes until you restart into it.')) return;
     const older = this.el('fw-older').checked ? '?older=1' : '';
     const r = await adminFetch('/api/firmware/pull' + older, { method: 'POST' });
     if (!r.ok) { const j = await r.json().catch(() => ({})); this.el('fw-msg').textContent = j.error || 'HTTP ' + r.status; return; }
@@ -2405,7 +2416,7 @@ const Firmware = {
   },
   async upload(file) {
     const msg = this.el('fw-msg');
-    if (!/\.nomadfw$/i.test(file.name)) { msg.textContent = 'Pick a .nomadfw file from nomadflash (the .bin files are for USB flashing).'; return; }
+    if (!/\.nomadfw$/i.test(file.name)) { msg.textContent = 'Pick a .nomadfw file, the .bin ones are for USB.'; return; }
     const older = this.el('fw-older').checked ? '&older=1' : '';
     let r = await adminFetch(`/api/firmware/begin?size=${file.size}${older}`, { method: 'POST' });
     let j = await r.json().catch(() => ({}));
@@ -2431,7 +2442,7 @@ const Firmware = {
   async apply() {
     const d = this.data || {};
     if (!d.ready) return;
-    if (!confirm(`Restart into ${d.ready.version}? Everything playing stops and Nomad is gone for about a minute. If the new firmware doesn't start properly it goes back to ${d.version} by itself.`)) return;
+    if (!confirm(`Restart into ${d.ready.version}? Everything playing stops for about a minute. If it doesn't start right, Nomad goes back to ${d.version} on its own.`)) return;
     const r = await adminFetch('/api/firmware/apply', { method: 'POST' });
     if (!r.ok) { const j = await r.json().catch(() => ({})); this.el('fw-msg').textContent = j.error || 'HTTP ' + r.status; return; }
     this.el('fw-ready').hidden = true;
@@ -2511,7 +2522,7 @@ document.addEventListener('DOMContentLoaded', () => {
   });
 });
 
-/* What got used (GET /api/usage, NomadUsage.h): counters since this start or all time. */
+/* Activity (GET /api/usage, NomadUsage.h): counters since this start or all time. */
 const Usage = {
   data: null, view: 'now',
   NAMES: { movies: 'Movies', shows: 'Shows', music: 'Music', books: 'Books', gallery: 'Gallery', files: 'Files', games: 'Games',
@@ -2532,8 +2543,8 @@ const Usage = {
     const d = this.data; if (!d) return;
     const v = this.view === 'all' ? d.all : d.now;
     document.querySelectorAll('.use-when .btn').forEach((b) => { b.className = 'btn ' + (b.dataset.v === this.view ? 'btn-primary' : 'btn-secondary'); });
-    const tiles = [[v.peak, 'busiest'], [v.plays.toLocaleString(), v.plays === 1 ? 'play' : 'plays'], [this.size(v.bytes), 'sent']];
-    if (this.view === 'now') tiles.push([d.now.phones, 'on now']);
+    const tiles = [[v.peak, 'most at once'], [v.plays.toLocaleString(), v.plays === 1 ? 'play' : 'plays'], [this.size(v.bytes), 'sent']];
+    if (this.view === 'now') tiles.push([d.now.phones, 'online']);
     else tiles.push([d.all.boots, d.all.boots === 1 ? 'start' : 'starts']);
     document.getElementById('use-tiles').innerHTML = tiles.map(([n, l]) => `<div class="adm-tile"><b>${Activity.esc(n)}</b><span>${Activity.esc(l)}</span></div>`).join('');
     // most played and pages opened are all-time counts
@@ -2550,7 +2561,7 @@ document.addEventListener('DOMContentLoaded', () => {
   if (!document.getElementById('use-card')) return;
   document.querySelectorAll('.use-when .btn').forEach((b) => b.addEventListener('click', () => { Usage.view = b.dataset.v; Usage.draw(); }));
   document.getElementById('use-reset').addEventListener('click', async () => {
-    if (!confirm('Reset counts? Every total and the most played list are cleared.')) return;
+    if (!confirm('Reset every count and the most played list?')) return;
     await adminFetch('/api/usage/reset', { method: 'POST' });
     Usage.load();
   });

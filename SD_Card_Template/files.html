@@ -11,7 +11,7 @@
   <link rel="icon" href="favicon.ico" type="image/x-icon" />
   <link rel="stylesheet" href="/master.css" />
   <script src="/theme-boot.js?v=5"></script>
-  <script src="/nomad-utils.js?v=51"></script>
+  <script src="/nomad-utils.js?v=52"></script>
   <script src="/theme-manager.js?v=5"></script>
   <style>
     /* Functional CSS: Full-height layout and sticky positioning */
@@ -467,7 +467,7 @@
       fileListEl.className = 'file-list ' + view;
       Thumbs.reset();
       if (shown.length === 0) {
-        fileListEl.innerHTML = `<li class="msg">${searching() ? 'No files match your search.' : (files.length || folders.size ? 'This folder is empty.' : 'No files yet')}</li>`;
+        fileListEl.innerHTML = `<li class="msg">${searching() ? 'No matches' : (files.length || folders.size ? 'This folder is empty' : 'No files yet')}</li>`;
         return;
       }
       const part = shown.slice(0, limit);
@@ -763,7 +763,7 @@
         if (!filesDownloadable) v.setAttribute('controlsList', 'nodownload');
         fvBody.appendChild(v);
         loadWithRetry(v, fileUrl(f.path), () => {
-          fvBody.innerHTML = '<div class="fv-card"><b>This video does not play in this browser.</b><small>' + (filesDownloadable ? 'Download it to play it in another app.' : '') + '</small></div>';
+          fvBody.innerHTML = '<div class="fv-card"><b>This video doesn\'t play in this browser</b></div>';
         });
       } else {
         // sound plays on a card, everything else is a details sheet

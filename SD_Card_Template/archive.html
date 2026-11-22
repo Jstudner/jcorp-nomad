@@ -10,7 +10,7 @@
 <script src="/theme-boot.js?v=5"></script>
 <script src="/theme-manager.js?v=5"></script>
 <script src="/nomad-icons.js?v=1"></script>
-<script src="/nomad-utils.js?v=51"></script>
+<script src="/nomad-utils.js?v=52"></script>
 <script src="/assets/xzwasm.min.js?v=2"></script>
 <script src="/assets/fzstd.min.js?v=2"></script>
 <script src="/assets/nomad-zim.js?v=8"></script>
@@ -905,7 +905,7 @@ async function openZimDoc(hit, content){
           '<div class="media-msg" style="color:var(--muted)">Showing the first '+pages+' of '+pdf.numPages+' pages. Use Download for the whole file.</div>');
       }
     } catch(e){
-      body.innerHTML = '<div class="media-msg" style="color:var(--red)">Could not render this PDF ('+escapeHtml(e.message||String(e))+'). Use Download to save it.</div>';
+      body.innerHTML = '<div class="media-msg" style="color:var(--red)">Couldn\'t open this PDF ('+escapeHtml(e.message||String(e))+').</div>';
     }
     return;
   }
@@ -953,7 +953,7 @@ async function openZimDoc(hit, content){
     }
     return;
   }
-  body.innerHTML = '<div class="media-msg" style="color:var(--muted)">No viewer for '+escapeHtml(mime||'this file')+'. Use Download to save it.</div>';
+  body.innerHTML = '<div class="media-msg" style="color:var(--muted)">No viewer for '+escapeHtml(mime||'this file')+'</div>';
 }
 
 /* zimit video archives: videos/<slug>.json describes the video, play it on a native

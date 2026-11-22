@@ -354,7 +354,7 @@ function drawTimers() {
         <div class="tm-quick">${[[60, '1 min'], [180, '3 min'], [300, '5 min'], [600, '10 min'], [900, '15 min'], [1800, '30 min']]
           .map(([v, l]) => `<button data-a="quick" data-v="${v}">${l}</button>`).join('')}</div>`}
       <div class="tk-row">${t.ring
-        ? '<button class="tk-btn primary grow" data-a="stop">Stop the alarm</button>'
+        ? '<button class="tk-btn primary grow" data-a="stop">Stop alarm</button>'
         : `<button class="tk-btn primary grow" data-a="go">${running ? 'Pause' : (t.left < t.total && t.left > 0 ? 'Resume' : 'Start')}</button>
            <button class="tk-btn grow" data-a="reset">Reset</button>`}</div>
     </div>`;
@@ -468,7 +468,7 @@ $('pcHow').onchange = () => Store.set('pcHow', +$('pcHow').value);
 function drawCards() {
   $('pcLeft').textContent = deck.length ? `${deck.length} left in the deck` : 'The deck is empty';
   $('pcHand').innerHTML = hand.length ? hand.map((c) => `<div class="pc${c.red ? ' red' : ''}"><span class="r">${c.r}${c.s}</span><span class="s">${c.s}</span><span class="r b">${c.r}${c.s}</span></div>`).join('')
-    : '<p class="tk-muted" style="align-self:center">No cards drawn.</p>';
+    : '<p class="tk-muted" style="align-self:center">No cards drawn</p>';
   $('pcDraw').disabled = !deck.length;
   Store.set('deck', deck); Store.set('hand', hand);
 }
@@ -614,7 +614,7 @@ function press(k) {
   expr += k; drawCalc();
 }
 $('clKeys').addEventListener('click', (e) => { const b = e.target.closest('[data-k]'); if (b) press(b.dataset.k); });
-$('clVal').title = 'Tap to delete the last character';
+$('clVal').title = 'Backspace';
 $('clVal').addEventListener('click', () => press('⌫'));
 document.addEventListener('keydown', (e) => {
   if (document.querySelector('[data-tool="calc"]').hidden || e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;

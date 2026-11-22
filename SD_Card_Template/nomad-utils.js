@@ -369,6 +369,25 @@ const NomadUI = {
   },
   // kept: pages already call this name
   async hideDownloads(...els){ return this.applyDownloadPolicy(...els); },
+  /* Watch Together and the video player's bookmarks can be turned off in admin (watchOff,
+     marksOff). Anything marked data-watch or data-marks hides with them. */
+  async applyFeaturePolicy(){
+    const cfg = await this.config();
+    const paint = () => {
+      if (!document.body) return;
+      document.body.classList.toggle('nomad-no-watch', !!cfg.watchOff);
+      document.body.classList.toggle('nomad-no-marks', !!cfg.marksOff);
+      if (!document.getElementById('nomad-feat-style')) {
+        const st = document.createElement('style');
+        st.id = 'nomad-feat-style';
+        st.textContent = 'body.nomad-no-watch [data-watch],body.nomad-no-marks [data-marks]{display:none !important}';
+        document.head.appendChild(st);
+      }
+    };
+    if (document.body) paint();
+    else document.addEventListener('DOMContentLoaded', paint);
+    return cfg;
+  },
   // for code that builds a link and needs to know before rendering
   async downloadsOff(key){ return !this.canDownload(await this.config(), key); },
   async uploadsOff(key){ return !this.canUpload(await this.config(), key); }

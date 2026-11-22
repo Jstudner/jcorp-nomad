@@ -167,7 +167,7 @@
       const files = entries.filter((e) => !e.dir), total = files.reduce((s, e) => s + e.size, 0);
       say(`${entries.length - files.length} folder${entries.length - files.length === 1 ? '' : 's'}, ${files.length} file${files.length === 1 ? '' : 's'}` +
           (files.length ? ` (${size(total)})` : '') + (q ? ` · ${shown.length} match` : '') + (truncated ? ' · showing the first part' : ''));
-      if (!shown.length) { list.innerHTML = `<div class="nf-empty">${q ? 'Nothing here matches.' : 'This folder is empty.'}</div>`; return; }
+      if (!shown.length) { list.innerHTML = `<div class="nf-empty">${q ? 'No matches' : 'This folder is empty'}</div>`; return; }
       list.innerHTML = shown.map((e) => {
         const full = join(path, e.name);
         let icon = 'folder';
@@ -265,12 +265,12 @@
     async function rename(e) {
       const to = await ask(`Rename ${e.dir ? 'folder' : 'file'}`, e.name, 'Rename');
       if (!to || to === e.name) return;
-      if (/[\/\\]/.test(to)) { say('A name cannot hold / or \\.'); return; }
+      if (/[\/\\]/.test(to)) { say("Names can't contain / or \\."); return; }
       const r = await post('/rename', { oldname: join(path, e.name), newname: join(path, to) });
       if (r.ok) changed(`Renamed to ${to}.`); else say(`Not renamed: ${why(r)}`);
     }
     async function remove(e) {
-      const ok = await confirmIt(`Delete ${e.name}?`, e.dir ? 'The folder and everything inside it is deleted from the card. This cannot be undone.' : 'It is deleted from the card. This cannot be undone.', 'Delete');
+      const ok = await confirmIt(`Delete ${e.name}?`, e.dir ? "Everything in this folder goes too. This can't be undone." : "This can't be undone.", 'Delete');
       if (!ok) return;
       say('Deleting…');
       const r = await post('/delete', { filename: join(path, e.name) });
@@ -280,9 +280,9 @@
     async function mkdir() {
       const name = await ask('New folder', '', 'Create');
       if (!name) return;
-      if (/[\/\\]/.test(name)) { say('A name cannot hold / or \\.'); return; }
+      if (/[\/\\]/.test(name)) { say("Names can't contain / or \\."); return; }
       const r = await post('/mkdir', { dirname: join(path, name) });
-      if (r.ok) changed(`Made ${name}.`); else say(`Not made: ${why(r)}`);
+      if (r.ok) changed(`Created ${name}.`); else say(`Not created: ${why(r)}`);
     }
     async function edit(full) {
       let text = '';
@@ -299,7 +299,7 @@
       ta.value = text;
       ta.focus();
       ed.querySelector('[data-a=close]').onclick = async () => {
-        if (ta.value !== text && !(await confirmIt('Close without saving?', 'Your changes are lost.', 'Close'))) return;
+        if (ta.value !== text && !(await confirmIt('Close without saving?', 'Your changes will be lost.', 'Close'))) return;
         ed.remove();
       };
       ed.querySelector('[data-a=save]').onclick = async () => {

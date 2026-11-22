@@ -747,11 +747,11 @@
 
   /* the sections */
   .container{padding:var(--adm-gap);}
-  .grid.adm-sections{gap:var(--adm-gap);margin:0;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));align-items:start;}
+  .grid.adm-sections{display:block;columns:2 420px;column-gap:var(--adm-gap);margin:0;}
   .adm-sections > [data-sec]{display:none;}
   .adm-sections > *{min-width:0;}   /* a wide row inside must not widen the page */
-  .adm-sections > [data-sec].shown{display:block;}
-  .adm-wide{grid-column:1 / -1;}
+  .adm-sections > [data-sec].shown{display:block;break-inside:avoid;margin:0 0 var(--adm-gap);}
+  .adm-wide{column-span:all;}
   .adm-sections .card{border-radius:var(--adm-r);padding:16px;box-shadow:0 1px 3px rgba(0,0,0,.06);transform:none !important;}
   .adm-sections .card:hover{box-shadow:0 1px 3px rgba(0,0,0,.06);}
   .adm-sections .card h2{color:var(--text);font-size:1rem;font-weight:800;margin:0 0 10px;letter-spacing:.01em;}
@@ -941,7 +941,7 @@
   .auth-back{display:block;text-align:center;margin-top:12px;font-size:.85rem;color:var(--muted);}
   @media (max-width:600px){
     .container{padding:10px;}
-    .grid.adm-sections{grid-template-columns:1fr;}
+    .grid.adm-sections{columns:1;}
     .adm-glance.shown{grid-template-columns:repeat(2,minmax(0,1fr));}
     .adm-sections .btn{font-size:.85rem;}
     .adm-sections .card > .btn, .adm-power .btn{width:100%;}
@@ -974,7 +974,7 @@
         <input type="text" id="wifi-sta-ssid" class="form-control" autocomplete="off" placeholder="Your home WiFi">
       </div>
 
-      <button id="wifi-scan-btn" class="btn btn-secondary" style="width: 100%;">Scan for networks</button>
+      <button id="wifi-scan-btn" class="btn btn-secondary" style="width: 100%;" title="Playback may pause a moment">Scan for networks</button>
       <div id="wifi-scan-list" class="wifi-scan-list hidden"></div>
 
       <div class="form-group" style="margin-top: 1rem;">
@@ -996,7 +996,7 @@
 
       <div class="wifi-actions">
         <button id="wifi-connect-btn" class="btn btn-primary">Connect</button>
-        <button id="wifi-disable-btn" class="btn btn-warning">Return to hotspot mode</button>
+        <button id="wifi-disable-btn" class="btn btn-warning">Back to hotspot</button>
         <button id="wifi-close-btn" class="btn btn-secondary">Close</button>
       </div>
     </div>
@@ -1069,30 +1069,12 @@
         <div id="hl-summary" class="adm-sub">Asking the card&hellip;</div>
         <dl id="hl-facts" class="adm-facts"></dl>
         <div class="adm-btn-row">
-          <button id="hl-check" class="btn btn-secondary">Check the card</button>
+          <button id="hl-check" class="btn btn-secondary" title="About 10 seconds, safe during playback">Check the card</button>
         </div>
         <div id="hl-msg" class="adm-msg"></div>
-        <details class="adm-why"><summary>How this works</summary><p>Nomad counts every card read and write
-          and flags failed or slow ones. Check the card reads a few hundred spots, takes about 10 s and is safe
-          while people are watching. Failed reads usually mean the card is wearing out.</p></details>
       </div>
 
-      <div class="card" data-sec="overview" id="use-card">
-        <div class="adm-h2row"><h2>What got used</h2>
-          <div class="adm-seg use-when" role="group" aria-label="Which totals">
-            <button class="btn btn-primary" data-v="now">Since start</button>
-            <button class="btn btn-secondary" data-v="all">All time</button>
-          </div></div>
-        <div class="adm-tiles" id="use-tiles"><div class="adm-tiles-note">Counting&hellip;</div></div>
-        <div id="use-top" class="use-list"></div>
-        <div id="use-pages" class="use-bars"></div>
-        <details class="adm-why"><summary>How this works</summary><p>Counted on Nomad only.
-          A play is a phone starting a film, episode, song or download. Busiest is the most phones on at once.
-          Since start resets when Nomad restarts.
-          <button type="button" class="use-reset" id="use-reset">Reset counts</button></p></details>
-      </div>
-
-      <div class="card" data-sec="overview">
+      <div class="card" data-sec="library">
         <h2>Library</h2>
         <div id="lib-stats" class="adm-tiles"><div class="adm-tiles-note">Counting&hellip;</div></div>
         <!-- Breakdown by folder (populated by the most recent full system scan) -->
@@ -1109,9 +1091,18 @@
         <div class="adm-h2row"><h2>Playing now</h2><span id="act-count" class="adm-sub" style="margin:0"></span></div>
         <div id="act-list" class="act-list"><div class="adm-tiles-note">Looking&hellip;</div></div>
         <div id="act-msg" class="adm-msg"></div>
-        <details class="adm-why"><summary>How this works</summary><p>Progress is how much of the file has been
-          sent. It runs ahead of what's on screen. Stop blocks that device from that file for 30 minutes. Allow
-          again lifts it early.</p></details>
+      </div>
+
+      <div class="card" data-sec="activity" id="use-card">
+        <div class="adm-h2row"><h2>Activity</h2>
+          <div class="adm-seg use-when" role="group" aria-label="Which totals">
+            <button class="btn btn-primary" data-v="now" title="Resets when Nomad restarts">Since restart</button>
+            <button class="btn btn-secondary" data-v="all">All time</button>
+          </div></div>
+        <div class="adm-tiles" id="use-tiles"><div class="adm-tiles-note">Counting&hellip;</div></div>
+        <div id="use-top" class="use-list"></div>
+        <div id="use-pages" class="use-bars"></div>
+        <div class="adm-btn-row adm-row-top"><button type="button" class="btn btn-secondary" id="use-reset">Reset counts</button></div>
       </div>
 
       <div class="card" data-sec="library">
@@ -1127,7 +1118,7 @@
           <label class="form-label" for="index-scan-dir">Folder</label>
           <select id="index-scan-dir" class="form-control"></select>
         </div>
-        <label class="adm-check adm-check-row"><input type="checkbox" id="index-scan-with-sd"> Then scan the card</label>
+        <label class="adm-check adm-check-row"><input type="checkbox" id="index-scan-with-sd"> Also scan the card</label>
         <button onclick="triggerIndexScan()" class="btn btn-primary">Start scan</button>
         <div id="index-progress-wrap" class="adm-progress" style="display: none;">
           <div id="index-progress-text">Indexing&hellip;</div>
@@ -1138,12 +1129,9 @@
           <span>Check for new files on boot</span>
           <label class="toggle-switch"><input type="checkbox" id="auto-generate"><span class="slider"></span></label>
         </div>
-        <details class="adm-why"><summary>How this works</summary><p>Search, menu counts and library pages read
-          the index, not the card. Scan after copying files on with a computer. Uploads made here are indexed on
-          their own.</p></details>
       </div>
 
-      <div class="card adm-wide" data-sec="pages">
+      <div class="card" data-sec="pages">
         <h2>Pages</h2>
         <table class="perm-table">
           <thead>
@@ -1157,25 +1145,30 @@
           <tbody id="ui-pages"></tbody>
         </table>
         <div id="ui-pages-msg" class="adm-msg"></div>
-        <details class="adm-why"><summary>How this works</summary><p>Untick Show to take a page off the menu.
-          Untick Download or Upload and Nomad refuses them on that page, not just the buttons. A signed-in admin
-          still gets through. With no admin password set, they apply to you too.</p></details>
       </div>
 
       <div class="card" data-sec="pages">
         <h2>Community &amp; sharing</h2>
         <div class="form-group">
-          <label class="form-label" for="ui-motd">Message of the day (shown on the menu)</label>
+          <label class="form-label" for="ui-motd">Menu message</label>
           <div class="adm-inline">
-            <input type="text" id="ui-motd" class="form-control" maxlength="120" placeholder="Empty for none">
+            <input type="text" id="ui-motd" class="form-control" maxlength="120" placeholder="None">
             <button onclick="saveMotd()" class="btn btn-primary">Save</button>
           </div>
         </div>
         <div class="adm-row">
-          <span>TV support (DLNA)<small>Smart TVs and players (Roku, VLC, Kodi) can browse Nomad.</small></span>
+          <span title="Smart TVs, Roku, VLC, Kodi">TV support (DLNA)</span>
           <label class="toggle-switch"><input type="checkbox" id="dlna-enabled"><span class="slider"></span></label>
         </div>
         <div id="dlna-msg" class="adm-msg"></div>
+        <div class="adm-row">
+          <span title="Movies, Shows and the Games page">Watch Together</span>
+          <label class="toggle-switch"><input type="checkbox" id="ui-watch" checked><span class="slider"></span></label>
+        </div>
+        <div class="adm-row">
+          <span title="In the Movies and Shows player">Video bookmarks</span>
+          <label class="toggle-switch"><input type="checkbox" id="ui-marks" checked><span class="slider"></span></label>
+        </div>
         <div class="adm-btn-row">
           <button onclick="clearChatHistory()" class="btn btn-secondary">Clear chat</button>
           <button onclick="clearWhiteboard()" class="btn btn-secondary">Clear whiteboard</button>
@@ -1192,8 +1185,8 @@
           <input type="text" id="ssid" class="form-control" maxlength="32">
         </div>
         <div class="form-group">
-          <label class="form-label" for="wifi-password">Password (8 to 63 characters, empty for an open network)</label>
-          <input type="text" id="wifi-password" class="form-control" maxlength="63" autocomplete="off">
+          <label class="form-label" for="wifi-password">Password</label>
+          <input type="text" id="wifi-password" class="form-control" maxlength="63" autocomplete="off" title="8 to 63 characters, or empty for an open network">
         </div>
         <div class="adm-btn-row">
           <button onclick="updateWiFiSettings()" class="btn btn-primary">Save hotspot</button>
@@ -1203,9 +1196,7 @@
       </div>
       <div class="card" data-sec="network">
         <h2>WiFi Mode</h2>
-        <button id="btn-wifimode" class="btn btn-primary">Set up WiFi Mode&hellip;</button>
-        <details class="adm-why"><summary>How this works</summary><p>Nomad joins your home WiFi instead of
-          running its hotspot. Needed for updates.</p></details>
+        <button id="btn-wifimode" class="btn btn-primary" title="Needed for updates from nomadflash">Join a WiFi network&hellip;</button>
       </div>
 
       <div class="card" data-sec="device">
@@ -1213,11 +1204,9 @@
         <div class="adm-power">
           <button id="btn-restart" class="btn btn-secondary">Restart</button>
           <button id="btn-shutdown" class="btn btn-danger">Shut down</button>
-          <button id="btn-usbmode" class="btn btn-secondary">USB mode</button>
-          <button id="btn-flashmode" class="btn btn-secondary">Flash mode</button>
+          <button id="btn-usbmode" class="btn btn-secondary" title="Shows the card to the computer Nomad is plugged into">USB mode</button>
+          <button id="btn-flashmode" class="btn btn-secondary" title="For new firmware over USB">Flash mode</button>
         </div>
-        <details class="adm-why"><summary>How this works</summary><p>USB mode shows the card to the computer Nomad
-          is plugged into, like the BOOT button. Flash mode readies Nomad for new firmware.</p></details>
       </div>
       <div class="card" data-sec="device">
         <h2>Admin password</h2>
@@ -1236,19 +1225,19 @@
         </div>
         <div class="adm-btn-row">
           <button onclick="updateAdminPassword()" class="btn btn-primary">Set password</button>
-          <button id="btn-disable-password" class="btn btn-secondary">Turn off</button>
+          <button id="btn-disable-password" class="btn btn-secondary">Remove password</button>
         </div>
         <div id="password-msg" class="adm-msg"></div>
       </div>
-      <div class="card adm-risky" data-sec="device" id="fw-card">
-        <div class="adm-h2row"><h2>Firmware</h2><span class="adm-badge warn">Risky</span></div>
+      <div class="card" data-sec="device" id="fw-card">
+        <h2>Firmware</h2>
         <div id="fw-now" class="adm-sub">Asking Nomad&hellip;</div>
         <p class="adm-risk">Keep Nomad plugged in while it updates.</p>
         <div id="fw-last" class="adm-msg"></div>
         <div id="fw-actions">
           <div class="adm-btn-row">
-            <button id="fw-pull" class="btn btn-secondary">Check nomadflash</button>
-            <button id="fw-pick" class="btn btn-secondary">Upload a file&hellip;</button>
+            <button id="fw-pull" class="btn btn-secondary" title="Needs WiFi Mode on a network with internet">Check nomadflash</button>
+            <button id="fw-pick" class="btn btn-secondary" title=".nomadfw from nomadflash, works offline">Upload a file&hellip;</button>
           </div>
           <input type="file" id="fw-file" accept=".nomadfw" hidden>
           <label class="adm-check"><input type="checkbox" id="fw-older"> Allow older versions</label>
@@ -1265,36 +1254,24 @@
           </div>
         </div>
         <div id="fw-msg" class="adm-msg"></div>
-        <details class="adm-why"><summary>How this works</summary><p>Check nomadflash downloads the newest
-          firmware for this board and needs WiFi Mode on a network with internet. Upload a file takes a .nomadfw
-          saved from nomadflash and works offline. Firmware not signed by nomadflash or not made for this board is
-          refused. After the restart, if the card, WiFi or pages fail within a minute, Nomad switches back. USB
-          flashing from nomadflash always works.</p></details>
       </div>
       <div class="card" data-sec="device">
         <h2>Backup</h2>
         <div class="adm-btn-row">
-          <button id="bk-save" class="btn btn-secondary">Download backup</button>
+          <button id="bk-save" class="btn btn-secondary" title="Leaves out the admin password and home WiFi">Download backup</button>
           <button id="bk-load" class="btn btn-secondary">Restore&hellip;</button>
         </div>
         <input type="file" id="bk-file" accept=".json,application/json" hidden>
         <div id="bk-msg" class="adm-msg"></div>
-        <details class="adm-why"><summary>How this works</summary><p>Saves the hotspot name and password, pages,
-          theme, screen, lights and TV support to one file. The admin password and home WiFi aren't in it.</p></details>
       </div>
       <div class="card" data-sec="device" id="sup-card">
         <h2>Support file</h2>
         <div class="adm-kv"><span class="label">Last crash</span><span class="value" id="sup-crash">--</span></div>
         <div class="adm-btn-row">
-          <button id="sup-save" class="btn btn-secondary">Save support file</button>
+          <button id="sup-save" class="btn btn-secondary" title="For bug reports, passwords left out">Save support file</button>
           <button id="sup-forget" class="btn btn-secondary" hidden>Forget the crash</button>
         </div>
         <div id="sup-msg" class="adm-msg"></div>
-        <details class="adm-why"><summary>How this works</summary><p>One file with the firmware and board,
-          memory, the log, card health, the last crash and the settings, passwords removed. Send it with a bug
-          report. Nothing leaves Nomad unless you send it.</p><p>After three crashes in a row, each within a few
-          minutes of starting, Nomad starts in safe mode with indexing and TV support off. Start normally, or
-          unplugging it, goes back to a normal start.</p></details>
       </div>
       <div class="card" data-sec="device">
         <div class="adm-h2row"><h2>Screen</h2><b id="brightness-percent" class="adm-big">--%</b></div>
@@ -1375,9 +1352,9 @@
   </div>
 
   <!-- version query busts the firmware's max-age file caching (bump when admin.js changes) -->
-  <script src="/nomad-utils.js?v=51"></script>
-  <script src="/assets/nomad-files.js?v=3"></script>
-  <script src="admin.js?v=55"></script>
+  <script src="/nomad-utils.js?v=52"></script>
+  <script src="/assets/nomad-files.js?v=4"></script>
+  <script src="admin.js?v=58"></script>
 </body>
 </html>
 
