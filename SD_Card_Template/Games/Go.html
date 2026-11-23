@@ -7,8 +7,8 @@
 <title>Nomad • Go</title>
 <link rel="icon" href="/favicon.ico" type="image/x-icon">
 <link rel="stylesheet" href="/master.css">
-<script src="/theme-boot.js"></script>
-<script src="/theme-manager.js"></script>
+<script src="/theme-boot.js?v=5"></script>
+<script src="/theme-manager.js?v=5"></script>
 <script src="/assets/tenuki.min.js"></script>
 <script src="/assets/mp-client.js"></script>
 <style>
@@ -55,7 +55,7 @@
           <option value="9">9 × 9 board</option>
           <option value="13">13 × 13 board</option>
         </select>
-        <button class="btn" onclick="createRoom()">Create Room (play Black)</button>
+        <button class="btn" onclick="createRoom()">Create room as Black</button>
       </div>
       <p class="center" style="color:var(--muted)">or join a friend as White</p>
       <div class="row" style="justify-content:center">
@@ -73,7 +73,7 @@
       <div class="row" style="justify-content:center;margin-top:14px">
         <button class="btn secondary" onclick="doPass()">Pass</button>
         <button class="btn hidden" id="againBtn" onclick="playAgain()">Play again</button>
-        <button class="btn secondary" onclick="location.reload()">Leave / New Room</button>
+        <button class="btn secondary" onclick="location.reload()">Leave</button>
       </div>
     </div>
   </main>
@@ -82,7 +82,7 @@
 if (typeof tenuki === 'undefined') {
   document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('lobbyMsg').textContent =
-      'Go engine failed to load (/assets/tenuki.min.js). Re-copy the assets folder to the card.';
+      'The Go engine is missing. Copy the assets folder onto the card again.';
   });
   throw new Error('tenuki missing');
 }
@@ -154,15 +154,15 @@ function updateStatus(){
     `Captures  Black: ${st.whiteStonesCaptured || 0} · White: ${st.blackStonesCaptured || 0}`;
   const me = myColor() === 'black' ? 'Black' : 'White';
   if (!MP.room.joined){
-    statusEl.textContent = `Share the code and wait for White to join… (you are ${me})`;
+    statusEl.textContent = 'Waiting for White to join…';
   } else if (game.isOver()){
     const sc = game.score();
     const w = sc.black > sc.white ? 'Black' : sc.white > sc.black ? 'White' : 'Nobody';
     statusEl.textContent = `Game over. Black ${sc.black} : White ${sc.white}` +
-      (w === 'Nobody' ? ' (draw)' : `. ${w} wins${w === me ? ' (you!)' : ''}`);
+      (w === 'Nobody' ? ' (draw)' : `. ${w === me ? 'You win' : w + ' wins'}`);
     statusEl.classList.add('hot');
   } else if (moveStr.length >= MAX_MOVES_CHARS){
-    statusEl.textContent = 'Move limit reached. Both players should pass to score the game.';
+    statusEl.textContent = 'Move limit reached. Both pass to score the game.';
   } else if (myTurn()){
     statusEl.textContent = `Your move (${me})`;
     statusEl.classList.add('hot');
@@ -213,8 +213,8 @@ function onInfo(j){
   updateStatus();
 }
 
-/* Rematch in the same room, same board size. Black is always seat 0 and Go
-   rules have Black move first, so the reset pins seat 0 as first mover. */
+/* Rematch in the same room and board size. Black is seat 0 and moves first,
+   so the reset pins seat 0. */
 async function playAgain(){
   try {
     await MP.reset(JSON.stringify({ s: size, m: '' }), 0);
@@ -239,8 +239,7 @@ async function createRoom(){
   size = Number(document.getElementById('sizeSel').value) || 9;
   try {
     await MP.create('go');
-    // seed the room state with the board size so the joiner adopts it before any move
-    // (their first poll delivers it; until then they default to 9x9 harmlessly)
+    // seed the room with the board size, so the joiner's first poll picks it up
     enterGame();
   }
   catch(e){ document.getElementById('lobbyMsg').textContent = e.message; }

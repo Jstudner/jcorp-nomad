@@ -1,373 +1,302 @@
 <!DOCTYPE html>
-<!-- Version 4 -->
+<!-- Version 14 -->
 <html lang="en">
 <head>
 <meta charset="utf-8"/>
-<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<script>/* nomad-load-guard: reload, twice at most, when one of Nomad's own scripts or stylesheets fails to load */(function(){var k='nomadLoadGuard:'+location.pathname;window.addEventListener('error',function(e){var t=e.target;if(!t||!t.tagName)return;var s=t.tagName==='SCRIPT',c=t.tagName==='LINK'&&/stylesheet/i.test(t.rel||'');if(!s&&!c)return;var u=t.src||t.href||'';if(u.indexOf(location.origin+'/')!==0)return;var n=0;try{n=+sessionStorage.getItem(k)||0;}catch(x){return;}if(n>=2)return;try{sessionStorage.setItem(k,String(n+1));}catch(x){return;}setTimeout(function(){location.reload();},1500*(n+1));},true);window.addEventListener('load',function(){setTimeout(function(){try{sessionStorage.removeItem(k);}catch(x){}},15000);});})();</script>
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,interactive-widget=resizes-content"/>
 <meta name="description" content="Jcorp Nomad Media Server – Offline Maps">
 <title>Nomad • Maps</title>
 <link rel="icon" href="favicon.ico" type="image/x-icon">
 <link rel="stylesheet" href="/master.css">
-<link rel="stylesheet" href="/assets/leaflet/leaflet.css">
-<script src="/theme-boot.js"></script>
-<script src="/theme-manager.js"></script>
-<script src="/assets/leaflet/leaflet.js"></script>
+<link rel="stylesheet" href="/assets/maps/maplibre-gl.css">
+<script src="/theme-boot.js?v=5"></script>
+<script src="/theme-manager.js?v=5"></script>
+<script>
+  /* MapLibre needs WebGL2 and module scripts. Phones without them get the basic map. */
+  (function () {
+    var ok = false;
+    try {
+      var gl = document.createElement('canvas').getContext('webgl2');
+      ok = !!gl && 'noModule' in document.createElement('script');
+      var lose = gl && gl.getExtension('WEBGL_lose_context'); if (lose) lose.loseContext();   // only a test: give it back
+    } catch (e) {}
+    if (!ok) location.replace('/maps-basic.html' + location.hash);
+  })();
+</script>
+<script src="/assets/maps/pmtiles.js"></script>
+<script src="/assets/maps/basemaps.js"></script>
+<script src="/assets/maps/nomad-route.js"></script>
+<script src="/assets/maps/nomad-overzoom.js"></script>
+<script src="/assets/maps/nomad-coords.js"></script>
+<script src="/nomad-icons.js"></script>
+<script src="/nomad-utils.js?v=52"></script>
 <style>
-  html,body{height:100%}
-  body{display:flex;flex-direction:column}
-  .mapbar{display:flex;gap:10px;align-items:center;padding:8px 12px;background:var(--card);
-    border-bottom:1px solid var(--line);flex-wrap:wrap}
-  .mapbar select{background:var(--bg);color:var(--text);border:1px solid var(--line);
-    border-radius:8px;padding:7px 10px;max-width:60vw}
-  .mapbar .info{color:var(--muted);font-size:.82rem}
-  #map{flex:1;min-height:300px;background:#d7d3cb}
-  .locate-btn{background:#fff;border:2px solid rgba(0,0,0,.25);border-radius:4px;
-    width:34px;height:34px;cursor:pointer;line-height:1;color:#333;
-    display:flex;align-items:center;justify-content:center}
-  #empty{flex:1;display:none;flex-direction:column;align-items:center;justify-content:center;
-    gap:12px;color:var(--muted);padding:24px;text-align:center}
-  #empty code{background:var(--card);border:1px solid var(--line);border-radius:8px;
-    padding:8px 12px;display:block;font-size:.78rem;max-width:92vw;overflow-x:auto;white-space:pre;text-align:left}
-  /* GPS help modal */
-  /* must clear Leaflet's stacking (panes ~400, controls ~1000) */
-  .gps-modal{display:none;position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:5000;
-    align-items:center;justify-content:center;padding:16px}
+  /* The map is the page, everything else floats on it. */
+  html,body{height:100%;margin:0;overflow:hidden}
+  body{background:var(--bg)}
+  #wrap{position:fixed;top:0;right:0;bottom:0;left:0;inset:0}
+  #map{position:absolute;top:0;right:0;bottom:0;left:0;inset:0;background:var(--bg)}
+  .maplibregl-ctrl-group{background:var(--card)!important;box-shadow:var(--shadow-medium)!important}
+  body.dark .maplibregl-ctrl-group button .maplibregl-ctrl-icon{filter:invert(1)}
+  .maplibregl-ctrl-group button+button{border-top-color:var(--card-border)!important}
+  .maplibregl-ctrl-attrib{font-size:10px}
+  .maplibregl-ctrl-attrib.maplibregl-compact{background:var(--card)!important;color:var(--muted)}
+  .maplibregl-ctrl-attrib a{color:var(--muted)!important}
+  body.dark .maplibregl-ctrl-attrib-button{filter:invert(1)}
+  .maplibregl-ctrl-scale{background:var(--card)!important;color:var(--text)!important;border-color:var(--text)!important;opacity:.85}
+  .maplibregl-ctrl-top-right{top:calc(var(--top-h,64px) + 4px)}
+  .maplibregl-ctrl-bottom-left,.maplibregl-ctrl-bottom-right{bottom:var(--sheet-h,0px)}
+  @media (max-width:600px){ .maplibregl-ctrl-group button.maplibregl-ctrl-zoom-in,.maplibregl-ctrl-group button.maplibregl-ctrl-zoom-out{display:none} }
+
+  .ib{background:none;border:none;color:var(--text);width:40px;height:40px;border-radius:50%;display:flex;
+    align-items:center;justify-content:center;cursor:pointer;flex:0 0 auto;padding:0;text-decoration:none}
+  .ib:hover{background:var(--primary-alpha-10)}
+  .ib.on{color:var(--primary)}
+  .ib[hidden]{display:none}
+
+  /* top: search, chips, or the directions card */
+  .top{position:absolute;left:0;right:0;top:0;z-index:20;padding:max(8px,env(safe-area-inset-top)) 10px 0;
+    display:flex;flex-direction:column;gap:8px;pointer-events:none}
+  .top>*{pointer-events:auto}
+  .bar,.dirs{background:var(--card);color:var(--text);border-radius:var(--radius-large);box-shadow:var(--shadow-medium);border:1px solid var(--card-border);
+    display:flex;align-items:center;gap:2px;padding:2px 4px;max-width:560px;width:100%;box-sizing:border-box}
+  .bar input{flex:1;min-width:0;border:none;background:none;color:var(--text);font-size:1rem;padding:10px 4px;outline:none}
+  .chips{display:flex;gap:8px;overflow-x:auto;scrollbar-width:none;max-width:560px;padding-bottom:2px}
+  .chips::-webkit-scrollbar{display:none}
+  .chips button{flex:0 0 auto;display:inline-flex;align-items:center;gap:6px;border:1px solid var(--card-border);border-radius:var(--radius);
+    background:var(--card);color:var(--text);box-shadow:var(--shadow-small);padding:7px 12px;font-size:.86rem;cursor:pointer;font-weight:var(--font-weight-semibold)}
+  .chips button [data-icon],.chips button svg{color:var(--primary)}
+  .dirs{align-items:center;padding:6px 4px}
+  .dirs .fields{flex:1;min-width:0;display:flex;flex-direction:column;gap:6px}
+  .dirs .field{display:flex;align-items:center;gap:8px}
+  .dirs input{flex:1;min-width:0;background:var(--bg);color:var(--text);border:1px solid var(--card-border);border-radius:var(--radius-medium);
+    padding:8px 10px;font-size:.95rem;outline:none}
+  .dirs input:focus{border-color:var(--primary)}
+  .dot{width:10px;height:10px;border-radius:50%;flex:0 0 auto;border:2px solid var(--card);box-shadow:0 0 0 1px var(--card-border)}
+  .dot.a{background:var(--success)}.dot.b{background:var(--danger)}
+  body.planning .bar,body.planning .chips{display:none}
+  body:not(.planning) .dirs{display:none}
+  body.navigating .top{display:none}
+  .results{background:var(--card);border-radius:var(--radius-large);box-shadow:var(--shadow-large);border:1px solid var(--card-border);max-height:min(56vh,420px);
+    overflow-y:auto;display:none;max-width:560px}
+  .results.open{display:block}
+  .results button{display:flex;gap:10px;align-items:center;width:100%;text-align:left;border:none;background:none;color:var(--text);
+    padding:10px 14px;cursor:pointer;border-bottom:1px solid var(--card-border);font-size:.95rem}
+  .results button:last-child{border-bottom:none}
+  .results button:hover,.results button.sel{background:var(--primary-alpha-10)}
+  .results .ic{color:var(--primary);flex:0 0 auto;display:flex}
+  .results .tx{flex:1;min-width:0}
+  .results .tx span{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .results small{color:var(--muted);font-size:.78rem}
+  .results .none{padding:12px 14px;color:var(--muted);font-size:.9rem;line-height:1.4}
+  .results h4{margin:0;padding:8px 14px 4px;font-size:.72rem;text-transform:uppercase;letter-spacing:.05em;color:var(--muted)}
+  .qcats{display:flex;flex-wrap:wrap;gap:6px;padding:4px 12px 10px}
+  .results .qcats button{display:inline-flex;align-items:center;gap:5px;width:auto;border:1px solid var(--card-border);border-radius:var(--radius);
+    background:var(--bg);color:var(--text);padding:6px 10px;font-size:.84rem;cursor:pointer}
+  .results .qcats button:last-child{border-bottom:1px solid var(--card-border)}
+  .qcats button svg{color:var(--primary)}
+  .pickhint{background:var(--card);color:var(--text);border-radius:var(--radius-large);box-shadow:var(--shadow-medium);border:1px solid var(--primary);padding:8px 8px 8px 14px;
+    display:flex;align-items:center;gap:10px;font-size:.92rem;max-width:560px}
+  .pickhint span{flex:1}
+  .pickhint[hidden]{display:none}
+
+  .fab{position:absolute;right:12px;z-index:5;width:46px;height:46px;border-radius:50%;border:1px solid var(--card-border);
+    background:var(--card);color:var(--primary);box-shadow:var(--shadow-medium);display:flex;align-items:center;
+    justify-content:center;cursor:pointer;bottom:calc(var(--sheet-h,0px) + 40px)}
+  .fab.on{background:var(--primary);color:var(--on-primary,var(--header-text));border-color:var(--primary)}
+
+  /* bottom sheet: a header that always shows, the rest under it (tap or drag the handle) */
+  .sheet{position:absolute;left:0;right:0;bottom:0;z-index:10;background:var(--card);color:var(--text);
+    border-radius:var(--radius-xl) var(--radius-xl) 0 0;box-shadow:var(--shadow-large);border:1px solid var(--card-border);border-bottom:none;max-height:min(60%,560px);display:none;
+    flex-direction:column;padding-bottom:env(safe-area-inset-bottom);max-width:640px;margin:0 auto}
+  .sheet.open{display:flex}
+  .grip{flex:0 0 auto;height:18px;display:flex;align-items:center;justify-content:center;cursor:pointer;touch-action:none}
+  .grip::before{content:'';width:36px;height:4px;border-radius:2px;background:var(--card-border)}
+  .sheet .body{padding:0 14px 12px;overflow-y:auto;overscroll-behavior:contain}
+  .sheet.min .more{display:none}
+  .sh{display:flex;align-items:flex-start;gap:8px}
+  .sh .t{flex:1;min-width:0}
+  .sh .x{margin:-6px -6px 0 0;width:36px;height:36px}
+  .sheet h2{margin:0;font-size:1.12rem;line-height:1.3;overflow-wrap:anywhere}
+  .sheet .sub{color:var(--muted);font-size:.84rem;margin-top:2px}
+  .row{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px;align-items:center}
+  .row.scroll{flex-wrap:nowrap;overflow-x:auto;scrollbar-width:none;margin-right:-14px;padding-right:14px}
+  .row.scroll::-webkit-scrollbar{display:none}
+  .btn{border:1px solid var(--card-border);background:var(--bg);color:var(--text);border-radius:var(--radius-medium);padding:8px 14px;
+    cursor:pointer;font-size:.9rem;display:inline-flex;align-items:center;gap:6px;flex:0 0 auto;white-space:nowrap;
+    font-weight:var(--font-weight-semibold);text-decoration:none}
+  .btn [data-icon],.btn svg{color:var(--primary)}
+  .btn.primary{background:var(--primary);border-color:var(--primary);color:var(--on-primary,var(--header-text))}
+  .btn.primary [data-icon],.btn.primary svg,.btn.danger svg{color:inherit}
+  .btn.danger{background:var(--danger);border-color:var(--danger);color:var(--color-white)}
+  .btn:disabled{opacity:.5;cursor:default}
+  .seg{display:inline-flex;border:1px solid var(--card-border);border-radius:var(--radius-medium);overflow:hidden;flex:0 0 auto}
+  .seg button{border:none;background:var(--bg);color:var(--text);padding:7px 12px;cursor:pointer;font-size:.86rem;
+    display:inline-flex;align-items:center;gap:5px;white-space:nowrap}
+  .seg button+button{border-left:1px solid var(--card-border)}
+  .seg button.on{background:var(--primary);color:var(--on-primary,var(--header-text))}
+  .summary{display:flex;align-items:center;gap:10px;margin-top:10px}
+  .summary .t{flex:1;min-width:0;font-size:.92rem;color:var(--muted)}
+  .summary .t b{font-size:1.3rem;color:var(--primary);font-weight:var(--font-weight-bold);margin-right:4px}
+  .steps{list-style:none;margin:8px 0 0;padding:0}
+  .steps li{display:flex;gap:10px;padding:8px 0;border-top:1px solid var(--card-border);font-size:.92rem;cursor:pointer}
+  .steps .ic{width:24px;flex:0 0 auto;display:flex;justify-content:center;color:var(--primary)}
+  .steps .d{margin-left:auto;color:var(--muted);white-space:nowrap;font-size:.85rem}
+  .pnote{color:var(--muted);font-size:.85rem;margin-top:8px;line-height:1.4}
+  .pnote a,.sheet a.lnk{color:var(--primary)}
+  .err{display:flex;gap:8px;align-items:flex-start;margin-top:10px;padding:10px 12px;border-radius:var(--radius);
+    background:var(--bg);background:color-mix(in srgb,var(--danger) 9%,var(--card));border:1px solid color-mix(in srgb,var(--danger) 35%,transparent);
+    color:var(--text);font-size:.9rem;line-height:1.4}
+  .err .ic{color:var(--danger);flex:0 0 auto;display:flex;margin-top:1px}
+  .err .btn{margin-top:8px}
+  .list h3{margin:12px 0 2px;font-size:.74rem;text-transform:uppercase;letter-spacing:.05em;color:var(--muted)}
+  .list button.it{display:flex;width:100%;gap:8px;align-items:baseline;text-align:left;border:none;background:none;color:var(--text);
+    padding:9px 0;border-top:1px solid var(--card-border);cursor:pointer;font-size:.92rem}
+  .list button.it span:first-child{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .list button.it small{color:var(--muted);white-space:nowrap}
+  .rename{display:flex;gap:6px}
+  .rename input{flex:1;min-width:0;background:var(--bg);color:var(--text);border:1px solid var(--primary);border-radius:var(--radius-medium);padding:7px 10px;font-size:1rem}
+
+  /* navigation: the next turn big at the top, the trip in one line at the bottom */
+  .banner{position:absolute;left:8px;right:8px;top:max(8px,env(safe-area-inset-top));z-index:12;background:var(--primary);color:var(--on-primary,var(--header-text));
+    border-radius:var(--radius-xl);box-shadow:var(--shadow-large);padding:12px 14px;display:none;align-items:center;gap:14px;max-width:560px}
+  .banner.open{display:flex}
+  .banner .ic{flex:0 0 auto}
+  .banner .dist{font-size:1.9rem;font-weight:700;line-height:1.05}
+  .banner .what{font-size:1.15rem;font-weight:600;line-height:1.25;margin-top:2px}
+  .banner .then{font-size:.85rem;opacity:.85;margin-top:4px}
+  .navbar{display:flex;align-items:center;gap:6px}
+  .navbar .eta{flex:1;min-width:0;cursor:pointer}
+  .navbar .eta b{display:block;font-size:1.45rem;color:var(--primary);line-height:1.1}
+  .navbar .eta span{color:var(--muted);font-size:.9rem}
+  .navbar .btn{padding:8px 12px}
+  .navbar .btn.step{width:44px;height:40px;padding:0;justify-content:center}
+  .navbar .eta b.small{font-size:1.15rem;white-space:nowrap}
+
+  /* settings panel */
+  .panel{position:absolute;right:10px;top:calc(var(--top-h,64px) + 4px);z-index:25;width:min(310px,calc(100% - 20px));
+    max-height:calc(100% - var(--top-h,64px) - 20px);overflow-y:auto;background:var(--card);color:var(--text);border-radius:var(--radius-xl);
+    box-shadow:var(--shadow-large);border:1px solid var(--card-border);padding:12px 14px;display:none;box-sizing:border-box}
+  .panel.open{display:block}
+  .panel h3{margin:12px 0 6px;font-size:.74rem;text-transform:uppercase;letter-spacing:.05em;color:var(--muted)}
+  .panel h3:first-child{margin-top:0}
+  .panel select{width:100%;background:var(--bg);color:var(--text);border:1px solid var(--card-border);border-radius:var(--radius-medium);padding:7px 8px;font-size:.92rem}
+  .swatches{display:grid;grid-template-columns:repeat(3,1fr);gap:6px}
+  .swatches button{border:1px solid var(--card-border);border-radius:var(--radius-medium);background:var(--bg);color:var(--text);padding:7px 4px;cursor:pointer;font-size:.82rem}
+  .swatches button.on{border-color:var(--primary);box-shadow:0 0 0 2px var(--primary-alpha-30)}
+  .toggle{display:flex;align-items:center;justify-content:space-between;padding:5px 0;font-size:.92rem}
+  .toggle input{width:18px;height:18px;accent-color:var(--primary)}
+  .areas{font-size:.85rem}
+  .areas div{display:flex;justify-content:space-between;gap:8px;padding:4px 0;border-top:1px solid var(--card-border)}
+  .areas span:last-child{color:var(--muted);white-space:nowrap}
+  .panel .foot{margin-top:10px;font-size:.8rem;color:var(--muted)}
+
+  .toast{position:absolute;left:50%;bottom:calc(var(--sheet-h,0px) + 98px);transform:translateX(-50%);z-index:30;
+    background:var(--card);color:var(--text);border:1px solid var(--card-border);border-radius:var(--radius-large);
+    padding:10px 16px;font-size:.88rem;max-width:min(88vw,480px);text-align:center;box-shadow:var(--shadow-large);opacity:0;pointer-events:none;transition:opacity .2s;box-sizing:border-box}
+  .toast.show{opacity:1}
+  #empty{position:absolute;top:0;right:0;bottom:0;left:0;inset:0;display:none;flex-direction:column;align-items:center;justify-content:center;gap:10px;
+    padding:24px;text-align:center;color:var(--muted);background:var(--bg);z-index:40;line-height:1.45}
+  #empty b{color:var(--text);font-size:1.05rem}
+
+  .pin{width:16px;height:16px;border-radius:50%;border:2.5px solid #fff;box-shadow:0 1px 5px rgba(0,0,0,.5);cursor:pointer;background:var(--danger)}
+  .pin.wp{width:14px;height:14px;background:var(--warning)}
+  .pin.start{background:var(--success)}
+  /* you: a dot, or with a heading, an arrow that turns with the map (rotationAlignment map) */
+  .me{width:22px;height:22px;position:relative;color:var(--primary)}
+  .me .dotc{position:absolute;inset:2px;border-radius:50%;background:var(--primary);border:3px solid #fff;box-sizing:border-box;
+    box-shadow:0 0 0 6px var(--primary-alpha-30),0 1px 4px rgba(0,0,0,.4)}
+  .me .arrow{position:absolute;left:-7px;top:-7px;width:36px;height:36px;display:none;filter:drop-shadow(0 1px 3px rgba(0,0,0,.55))}
+  .me.heading .arrow{display:block}
+  .me.heading .dotc{display:none}
+  body.navigating .maplibregl-ctrl-top-right{top:calc(var(--banner-h,110px) + 8px)}
+
+  .gps-modal{display:none;position:fixed;top:0;right:0;bottom:0;left:0;inset:0;background:rgba(0,0,0,.55);z-index:var(--z-modal,1000);overflow-y:auto;
+    padding:max(12px,env(safe-area-inset-top)) 12px max(12px,env(safe-area-inset-bottom))}
   .gps-modal.open{display:flex}
-  .gps-modal-content{background:var(--card);color:var(--text);border:1px solid var(--line);
-    border-radius:12px;max-width:480px;width:100%;max-height:85vh;overflow-y:auto;padding:18px 20px}
-  .gps-modal-content h2{margin:0 0 .5rem;font-size:1.1rem}
-  .gps-modal-content ol{padding-left:1.2rem;margin:.5rem 0}
-  .gps-modal-content li{margin:.45rem 0;font-size:.92rem;line-height:1.45}
-  .gps-modal-content code{background:var(--bg);border:1px solid var(--line);border-radius:6px;
-    padding:2px 6px;font-size:.85em;word-break:break-all}
-  .gps-modal-content .note{color:var(--muted);font-size:.85rem;margin-top:.6rem}
-  .gps-modal-content button{margin-top:12px;width:100%;background:var(--primary);
-    color:var(--color-white,#fff);border:none;border-radius:8px;padding:10px;cursor:pointer;font-size:.95rem}
+  .gps-modal .content{background:var(--card);color:var(--text);border:1px solid var(--line);border-radius:12px;
+    max-width:480px;width:100%;box-sizing:border-box;margin:auto;padding:16px 16px}
+  .gps-modal h2{margin:0 0 .3rem;font-size:1.1rem}
+  .gps-modal h3{margin:.9rem 0 .2rem;font-size:.95rem}
+  .gps-modal .lead{margin:.3rem 0;font-size:.9rem;color:var(--muted)}
+  .gps-modal .copy{display:flex;gap:6px;align-items:center;margin-top:4px}
+  .gps-modal .copy code{flex:1;min-width:0}
+  .gps-modal .copy .btn{padding:5px 10px;font-size:.82rem;flex:0 0 auto}
+  .gps-modal .wide{width:100%;justify-content:center;margin-top:10px}
+  .gps-modal details{margin-top:.8rem;font-size:.9rem}
+  .gps-modal summary{cursor:pointer;color:var(--primary)}
+  .gps-modal ol{padding-left:1.2rem;margin:.5rem 0}
+  .gps-modal li{margin:.45rem 0;font-size:.92rem;line-height:1.45}
+  .gps-modal code{background:var(--bg);border:1px solid var(--line);border-radius:6px;padding:2px 6px;font-size:.85em;word-break:break-all}
+  .gps-modal .note{color:var(--muted);font-size:.85rem;margin-top:.6rem}
+  @media (prefers-reduced-motion:reduce){ .toast{transition:none} }
 </style>
 </head>
 <body>
-  <header>
-    <h1>Maps</h1>
-    <a class="back-btn" href="/menu">← Back to Menu</a>
-  </header>
-
-  <div class="mapbar">
-    <select id="regionSel" aria-label="Map region"></select>
-    <span class="info" id="regionInfo"></span>
+  <div id="wrap">
+    <div id="map"></div>
+    <div class="top" id="top">
+      <div class="bar">
+        <a class="ib" href="/menu" aria-label="Back to the menu" data-icon="chevron-left"></a>
+        <input id="q" type="text" inputmode="search" enterkeyhint="search" placeholder="Search places, addresses, waypoints" autocomplete="off" aria-label="Search">
+        <button class="ib" id="qClear" aria-label="Clear the search" data-icon="x" hidden></button>
+        <button class="ib" id="layersBtn" aria-label="Map settings" data-icon="layers"></button>
+      </div>
+      <div class="chips" id="chips">
+        <button data-chip="directions"><span data-icon="directions"></span>Directions</button>
+        <button data-chip="nearby"><span data-icon="nearby"></span>Nearby</button>
+        <button data-chip="waypoints"><span data-icon="pin"></span>Waypoints</button>
+        <button data-chip="reach"><span data-icon="timer"></span>How far can I get</button>
+      </div>
+      <div class="dirs">
+        <button class="ib" id="dirBack" aria-label="Close directions" data-icon="chevron-left"></button>
+        <div class="fields">
+          <div class="field"><span class="dot a"></span><input id="pf" placeholder="Choose start" autocomplete="off" enterkeyhint="search" aria-label="Start"></div>
+          <div class="field"><span class="dot b"></span><input id="pt" placeholder="Choose destination" autocomplete="off" enterkeyhint="search" aria-label="Destination"></div>
+        </div>
+        <button class="ib" id="pSwap" aria-label="Swap start and destination" data-icon="swap"></button>
+      </div>
+      <div class="results" id="results"></div>
+      <div class="pickhint" id="pickHint" hidden><span>Tap the map to set the <b id="pickWhich">start</b></span><button class="btn" id="pickCancel">Cancel</button></div>
+    </div>
+    <button class="fab" id="locBtn" aria-label="Show your location" data-icon="locate"></button>
+    <div class="banner" id="banner">
+      <div class="ic" id="bIc"></div>
+      <div style="min-width:0"><div class="dist" id="bDist"></div><div class="what" id="bWhat"></div><div class="then" id="bThen"></div></div>
+    </div>
+    <div class="panel" id="panel"></div>
+    <div class="sheet" id="sheet"><div class="grip" id="grip" aria-label="Show more or less" role="button"></div><div class="body" id="sheetBody"></div></div>
+    <div class="toast" id="toast" role="status"></div>
+    <div id="empty"></div>
   </div>
 
-  <div id="map"></div>
-  <div id="empty">
-    <div><b>No offline maps installed yet.</b></div>
-    <div id="emptyReason" style="color:var(--primary);font-size:.85rem;max-width:92vw"></div>
-    <div>Add a region with the <b>Nomad Card Tools</b> on your computer (Download offline maps). Regions live in <code style="display:inline;padding:1px 5px">/Maps</code> on the SD card.</div>
-  </div>
-
-  <!-- GPS help: geolocation needs a secure (https) origin; Nomad serves plain HTTP.
-       Chrome's insecure-origins flag is the sanctioned per-device workaround.
-       Opened by the locate control when the page is not in a secure context. -->
   <div class="gps-modal" id="gpsModal">
-    <div class="gps-modal-content">
-      <h2>Location on this map</h2>
-      <p style="margin:.3rem 0;font-size:.92rem">Browsers require a secure (HTTPS) connection before sharing your location, and this device serves over standard HTTP. You can always read coordinates by tapping anywhere on the map.</p>
-      <p style="margin:.6rem 0 .2rem;font-size:.92rem"><b>To enable GPS in Chrome</b> (Android or desktop), allow this address once:</p>
-      <ol>
-        <li>Open a new tab and go to <code>chrome://flags/#unsafely-treat-insecure-origin-as-secure</code></li>
-        <li>Enter <code id="gpsOrigin">http://nomad.local</code> in the text field</li>
-        <li>Set the flag to <b>Enabled</b> and choose <b>Relaunch</b></li>
-        <li>Return here and use the locate button again</li>
-      </ol>
-      <p class="note">Safari on iPhone and iPad has no equivalent setting; tap the map to read coordinates instead. This setting only affects your own browser.</p>
-      <button onclick="document.getElementById('gpsModal').classList.remove('open')">Close</button>
+    <div class="content">
+      <h2>Use this phone's location</h2>
+      <div id="gpsChrome" hidden>
+        <h3>Chrome on Android</h3>
+        <p class="lead">Once per phone:</p>
+        <ol>
+          <li>Copy this, paste it into a new Chrome tab and open it:
+            <div class="copy"><code>chrome://flags/#unsafely-treat-insecure-origin-as-secure</code><button class="btn" data-copy="chrome://flags/#unsafely-treat-insecure-origin-as-secure">Copy</button></div></li>
+          <li>In the box, put Nomad's address:
+            <div class="copy"><code id="gpsOrigin">http://192.168.4.1</code><button class="btn" id="gpsOriginCopy">Copy</button></div></li>
+          <li>Set it to <b>Enabled</b>, tap <b>Relaunch</b>, then tap the location button again</li>
+        </ol>
+      </div>
+      <div id="gpsIphone" hidden>
+        <h3>iPhone or iPad</h3>
+        <p class="lead">Location isn't available here.</p>
+      </div>
+      <p class="note">Directions work without it: search for the start or tap the map.</p>
+      <button class="btn wide" onclick="document.getElementById('gpsModal').classList.remove('open')">Close</button>
     </div>
   </div>
 
-<script>
-let map = null, tileLayer = null, regions = [];
-let probeNote = ''; // last /api/maps-list outcome, shown in the empty state for diagnosis
-
-/* Routing is deliberately not offered here.
-
-   A region can ship its own self-contained app (streetzim, and the point-to-point
-   routing builds) which this page used to hand over to. The routing is weak enough
-   that it undersells the rest of the device, so those regions are skipped entirely
-   rather than shown and then disappointing someone. What is left is what a paper map
-   does well: pan, zoom, read a coordinate, drop a pin, find yourself.
-
-   Skipped rather than deleted: drop a routing region on the card and it simply does
-   not appear, and nothing here needs changing to bring it back later. */
-const isRoutingRegion = (m) => m.type === 'streetzim' || !!m.app;
-
-/* Never leave a silently blank page: every failure path ends in showEmpty(reason). */
-function showEmpty(reason){
-  document.getElementById('map').style.display = 'none';
-  document.getElementById('empty').style.display = 'flex';
-  document.querySelector('.mapbar').style.display = 'none';
-  if (reason) document.getElementById('emptyReason').textContent = reason;
-}
-
-if (typeof L === 'undefined') {
-  document.addEventListener('DOMContentLoaded', () =>
-    showEmpty('Leaflet failed to load (/assets/leaflet/leaflet.js). Re-copy the assets folder to the card.'));
-  throw new Error('leaflet missing');
-}
-
-L.Icon.Default.prototype.options.imagePath = '/assets/leaflet/images/';
-
-/* /api/maps-list is a cheap directory scan; it 503s if the SD is busy at boot,
-   so retry a few times (same pattern as menu.html's archive probe). */
-async function fetchRegionList(attempt = 0){
-  try {
-    const res = await fetch('/api/maps-list', { cache: 'no-store' });
-    if (res.ok){
-      let j = null;
-      try { j = JSON.parse(await res.text()); }
-      catch(parseErr){
-        // an HTML page instead of JSON = captive-portal fallback for a route
-        // that doesn't exist -> firmware predates maps support
-        probeNote = 'This Nomad’s firmware has no maps support (/api/maps-list is missing). It needs the Mk4.3+ update. The map data on the card is fine.';
-        return [];
-      }
-      const list = j.regions || j.maps || [];
-      probeNote = list.length ? '' : 'Device answered /api/maps-list but found no regions under /Maps.';
-      return list;
-    }
-    probeNote = '/api/maps-list returned HTTP ' + res.status +
-      (res.status === 404 ? ' (firmware without maps support?)' : '');
-  } catch(e){
-    probeNote = '/api/maps-list unreachable: ' + e.message;
-  }
-  if (attempt < 4){
-    await new Promise(r => setTimeout(r, 4000));
-    return fetchRegionList(attempt + 1);
-  }
-  return [];
-}
-
-async function boot(){
-  document.getElementById('regionInfo').textContent = 'Loading maps…';
-  const list = await fetchRegionList();
-  document.getElementById('regionInfo').textContent = '';
-
-  if (!list.length){
-    showEmpty(probeNote);
-    return;
-  }
-
-  // fetch every region's manifest (tiny file, served straight off the card)
-  let skipped = 0;
-  for (const m of list){
-    try {
-      const r = await fetch(m.manifest, { cache: 'no-store' });
-      const man = await r.json();
-      if (isRoutingRegion(man)){ skipped++; continue; }
-      man.id = man.id || m.id;
-      man._base = '/Maps/' + encodeURIComponent(m.id) + '/';
-      regions.push(man);
-    } catch(e){ console.warn('bad manifest', m, e); }
-  }
-  if (!regions.length){
-    showEmpty(skipped
-      ? skipped + ' region(s) on this card are point-to-point routing builds, which this page does not open. Add a plain tile region.'
-      : 'Region list found, but no manifest.json could be read (' +
-        list.map(m => m.manifest).join(', ') + ').');
-    return;
-  }
-
-  const sel = document.getElementById('regionSel');
-  sel.innerHTML = regions.map((r,i)=>`<option value="${i}">${r.name || r.id}</option>`).join('');
-  sel.onchange = () => openRegion(regions[Number(sel.value)]);
-  sel.style.display = regions.length > 1 ? '' : 'none';   // one region needs no chooser
-  openRegion(regions[0]);
-  document.getElementById('gpsOrigin').textContent = location.origin;
-}
-
-function openRegion(man){
-  document.getElementById('map').style.display = '';
-  if (map) setTimeout(() => map.invalidateSize(), 50);
-  const [w,s,e,n] = man.bounds;
-  const bounds = L.latLngBounds([s,w],[n,e]);
-
-  if (!map){
-    map = L.map('map', { zoomControl: true });
-    L.control.scale({ imperial: true }).addTo(map);
-    addLocateControl();
-    map.on('click', (ev) => showCoordPopup(ev.latlng));
-  }
-  currentRegion = man;
-  loadPins(man.id);
-  if (tileLayer) tileLayer.remove();
-
-  tileLayer = L.tileLayer(man._base + (man.tilePath || 'tiles/{z}/{x}/{y}.jpg'), {
-    minZoom: man.minZoom ?? 6,
-    maxZoom: man.maxZoom ?? 12,
-    bounds,
-    attribution: man.attribution || '',
-    errorTileUrl: '',
-  }).addTo(map);
-
-  map.setMaxBounds(bounds.pad(0.15));
-  map.options.minZoom = man.minZoom ?? 6;
-  map.options.maxZoom = man.maxZoom ?? 12;
-  map.fitBounds(bounds);
-
-  updateInfo();
-}
-
-function updateInfo(){
-  const man = currentRegion;
-  if (!man) return;
-  const n = pinMarkers.length;
-  document.getElementById('regionInfo').textContent =
-    `z${man.minZoom}–${man.maxZoom} · ${(man.sizeBytes/1048576||0).toFixed(0)}MB` +
-    (n ? ` · ${n} pin${n===1?'':'s'}` : '') +
-    (man.attribution ? ` · ${man.attribution}` : '');
-}
-
-/* ---------------- pins ----------------
-   Saved per region in localStorage, not on the card: two people looking at the same
-   Nomad keep their own marks, and nothing here needs write access to the SD. */
-let currentRegion = null, pinMarkers = [];
-const pinKey = (id) => 'nomad:maps:pins:' + (id || 'default');
-
-function readPins(id){
-  try { const v = JSON.parse(localStorage.getItem(pinKey(id)) || '[]'); return Array.isArray(v) ? v : []; }
-  catch(e){ return []; }
-}
-function writePins(id, arr){
-  try { localStorage.setItem(pinKey(id), JSON.stringify(arr)); } catch(e){}
-}
-
-function loadPins(id){
-  pinMarkers.forEach(m => m.remove());
-  pinMarkers = [];
-  readPins(id).forEach(p => addPinMarker(p, false));
-  updateInfo();
-}
-
-function persistPins(){
-  writePins(currentRegion && currentRegion.id,
-    pinMarkers.map(m => ({ lat: m.getLatLng().lat, lng: m.getLatLng().lng, label: m._label || '' })));
-}
-
-function addPinMarker(p, save){
-  const m = L.marker([p.lat, p.lng], { draggable: true }).addTo(map);
-  m._label = p.label || '';
-  m.on('dragend', () => { persistPins(); m.setPopupContent(pinPopup(m)); });
-  m.bindPopup(pinPopup(m));
-  pinMarkers.push(m);
-  if (save){ persistPins(); updateInfo(); }
-  return m;
-}
-
-/* Built as a DOM node rather than an HTML string: the buttons need real handlers,
-   and popup markup is replaced wholesale every time it reopens. */
-function pinPopup(marker){
-  const ll = marker.getLatLng();
-  const box = L.DomUtil.create('div');
-  box.style.cssText = 'min-width:160px;font-size:.9rem';
-  const name = L.DomUtil.create('div', '', box);
-  name.textContent = marker._label || 'Pin';
-  name.style.cssText = 'font-weight:700;margin-bottom:2px';
-  const co = L.DomUtil.create('div', '', box);
-  co.textContent = ll.lat.toFixed(5) + ', ' + ll.lng.toFixed(5);
-  co.style.cssText = 'color:#666;font-size:.82rem;margin-bottom:8px';
-  const row = L.DomUtil.create('div', '', box);
-  row.style.cssText = 'display:flex;gap:6px';
-  const mk = (txt) => {
-    const b = L.DomUtil.create('button', '', row);
-    b.textContent = txt;
-    b.style.cssText = 'flex:1;padding:5px 8px;border:1px solid #bbb;background:#f6f6f6;' +
-      'border-radius:6px;cursor:pointer;font-size:.82rem';
-    return b;
-  };
-  L.DomEvent.on(mk('Rename'), 'click', () => {
-    const v = prompt('Name this pin', marker._label || '');
-    if (v === null) return;
-    marker._label = v.trim().slice(0, 40);
-    persistPins(); marker.setPopupContent(pinPopup(marker)); marker.openPopup();
-  });
-  L.DomEvent.on(mk('Remove'), 'click', () => {
-    marker.remove();
-    pinMarkers = pinMarkers.filter(x => x !== marker);
-    persistPins(); updateInfo();
-  });
-  return box;
-}
-
-/* Tap anywhere: read the coordinate, and offer to keep it. This is the whole
-   interaction model now that there is no routing to drive. */
-function showCoordPopup(latlng){
-  const box = L.DomUtil.create('div');
-  box.style.cssText = 'min-width:150px;font-size:.9rem;text-align:center';
-  const co = L.DomUtil.create('div', '', box);
-  co.textContent = latlng.lat.toFixed(5) + ', ' + latlng.lng.toFixed(5);
-  co.style.cssText = 'margin-bottom:8px';
-  const b = L.DomUtil.create('button', '', box);
-  b.textContent = 'Drop a pin here';
-  b.style.cssText = 'width:100%;padding:6px 10px;border:none;border-radius:6px;' +
-    'background:#2b6cb0;color:#fff;cursor:pointer;font-size:.85rem';
-  const popup = L.popup().setLatLng(latlng).setContent(box).openOn(map);
-  L.DomEvent.on(b, 'click', () => {
-    map.closePopup(popup);
-    addPinMarker({ lat: latlng.lat, lng: latlng.lng, label: '' }, true).openPopup();
-  });
-}
-
-let meMarker = null;
-function addLocateControl(){
-  const Ctl = L.Control.extend({
-    options: { position: 'topleft' },
-    onAdd(){
-      const b = L.DomUtil.create('button', 'locate-btn');
-      // crosshair icon, stroke follows text color (same pattern as music.html's SVG buttons)
-      b.innerHTML = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="7"/><line x1="12" y1="1" x2="12" y2="5"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="1" y1="12" x2="5" y2="12"/><line x1="19" y1="12" x2="23" y2="12"/></svg>';
-      b.title = 'Show my location';
-      L.DomEvent.on(b, 'click', (ev) => { L.DomEvent.stop(ev); locate(); });
-      return b;
-    },
-  });
-  map.addControl(new Ctl());
-}
-
-function locate(){
-  if (!window.isSecureContext || !navigator.geolocation){
-    document.getElementById('gpsModal').classList.add('open');
-    return;
-  }
-  navigator.geolocation.getCurrentPosition(
-    (pos) => {
-      const ll = [pos.coords.latitude, pos.coords.longitude];
-      if (meMarker) meMarker.remove();
-      // a circle, not a pin: "where I am" has to be tellable at a glance from
-      // the pins the user dropped, which use the default marker
-      meMarker = L.circleMarker(ll, {
-        radius: 7, color: '#fff', weight: 2, fillColor: '#1d72d2', fillOpacity: .95
-      }).addTo(map).bindPopup(
-        'You are here<br><span style="color:#666">' +
-        ll[0].toFixed(5) + ', ' + ll[1].toFixed(5) + '</span>').openPopup();
-
-      // Outside this region there is no imagery, so the map would just go blank
-      // and look broken. Say so instead of panning into an empty grey field.
-      if (currentRegion && !L.latLngBounds(
-            [currentRegion.bounds[1], currentRegion.bounds[0]],
-            [currentRegion.bounds[3], currentRegion.bounds[2]]).contains(L.latLng(ll))){
-        meMarker.setPopupContent(
-          'You are outside <b>' + (currentRegion.name || currentRegion.id) + '</b>,' +
-          ' so there are no tiles here.<br><span style="color:#666">' +
-          ll[0].toFixed(5) + ', ' + ll[1].toFixed(5) + '</span>').openPopup();
-        return;
-      }
-      map.setView(ll, Math.min(map.options.maxZoom, 13));
-    },
-    (err) => {
-      alert('Could not get location (' + err.message + ').\nTap the map to read coordinates instead.');
-    },
-    { enableHighAccuracy: true, timeout: 8000 }
-  );
-}
-
-boot();
-</script>
+  <!-- on a P4 this page is in flash and the maps code is on the card. a card without it
+       falls back to the basic map, which needs nothing from assets/maps -->
+  <script type="module" src="/assets/maps/nomad-maps.js?v=20261029"
+          onerror="location.replace('/maps-basic.html' + location.search)"></script>
 </body>
 </html>

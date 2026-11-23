@@ -99,7 +99,7 @@ void ui_Screen1_screen_init(void)
     lv_obj_set_style_text_font(ui_ssidlabel, &ui_font_Font1, LV_PART_MAIN | LV_STATE_DEFAULT);
 
     ui_Image1 = lv_img_create(ui_Screen1);
-    lv_img_set_src(ui_Image1, &ui_img_1472434861);
+    lv_img_set_src(ui_Image1, &nomad_icon_card_35);   // Material Design Icons micro-sd
     lv_obj_set_width(ui_Image1, LV_SIZE_CONTENT);   /// 35
     lv_obj_set_height(ui_Image1, LV_SIZE_CONTENT);    /// 35
     lv_obj_set_x(ui_Image1, 49);
@@ -109,7 +109,7 @@ void ui_Screen1_screen_init(void)
     lv_obj_clear_flag(ui_Image1, LV_OBJ_FLAG_SCROLLABLE);      /// Flags
 
     ui_Image2 = lv_img_create(ui_Screen1);
-    lv_img_set_src(ui_Image2, &ui_img_512784668);
+    lv_img_set_src(ui_Image2, &nomad_icon_wifi_35);   // Material Symbols wifi
     lv_obj_set_width(ui_Image2, LV_SIZE_CONTENT);   /// 35
     lv_obj_set_height(ui_Image2, LV_SIZE_CONTENT);    /// 35
     lv_obj_set_x(ui_Image2, -48);

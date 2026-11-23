@@ -3,13 +3,14 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
+<script>/* nomad-load-guard: reload, twice at most, when one of Nomad's own scripts or stylesheets fails to load */(function(){var k='nomadLoadGuard:'+location.pathname;window.addEventListener('error',function(e){var t=e.target;if(!t||!t.tagName)return;var s=t.tagName==='SCRIPT',c=t.tagName==='LINK'&&/stylesheet/i.test(t.rel||'');if(!s&&!c)return;var u=t.src||t.href||'';if(u.indexOf(location.origin+'/')!==0)return;var n=0;try{n=+sessionStorage.getItem(k)||0;}catch(x){return;}if(n>=2)return;try{sessionStorage.setItem(k,String(n+1));}catch(x){return;}setTimeout(function(){location.reload();},1500*(n+1));},true);window.addEventListener('load',function(){setTimeout(function(){try{sessionStorage.removeItem(k);}catch(x){}},15000);});})();</script>
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="description" content="Jcorp Nomad Media Server - Instructions for Apple Devices">
     <title>Jcorp Nomad - Instructions (Apple)</title>
     <link rel="icon" href="favicon.ico" type="image/x-icon">
     <link rel="stylesheet" href="/master.css">
-    <script src="/theme-boot.js"></script>
-    <script src="/theme-manager.js"></script>
+    <script src="/theme-boot.js?v=5"></script>
+    <script src="/theme-manager.js?v=5"></script>
     <style>
         /* layout only, colors come from master.css tokens so it follows dark/custom themes */
         html, body { height: 100%; }
@@ -48,6 +49,9 @@
         }
         .instructions > p {
             margin: 0 0 18px;
+        }
+        .instructions > p:empty {
+            display: none;
         }
         .instructions ol {
             list-style-position: inside;
@@ -109,40 +113,36 @@
     <header>
         <div class="brand">
             <div class="logo" aria-hidden="false">
-                <img src="/logo.png" alt="Jcorp Nomad logo" onerror="this.style.display='none'">
+                <img src="/Logo.png" alt="Jcorp Nomad logo" onerror="this.style.display='none'">
             </div>
             <div style="min-width:0">
-                <div class="title" aria-label="Application title">Jcorp Nomad</div>
+                <div class="title">Jcorp Nomad</div>
             </div>
         </div>
     </header>
 
     <div class="content">
-        <!-- Instructions Section -->
         <div class="instructions" id="instructions">
-            <h3 id="instructionHeader">Instructions for Connecting (Apple Devices):</h3>
-            <p id="instructionText">Follow the steps below to access the media server:</p>
+            <h3 id="instructionHeader">Connect to Nomad</h3>
+            <p id="instructionText"></p>
             <ol id="instructionList">
-                <li>Copy the link below:</li>
+                <li>Copy this link.</li>
                 <li>
                     <div class="copy-row">
-                        <input type="text" value="nomad.local/menu" id="copyLink" readonly>
-                        <button id="copyLinkButton" type="button" class="btn btn-success">Copy Link</button>
+                        <input type="text" value="192.168.4.1/menu" id="copyLink" readonly>
+                        <button id="copyLinkButton" type="button" class="btn btn-success">Copy link</button>
                     </div>
                 </li>
-                <li>If that address doesn't load, use <strong>192.168.4.1/menu</strong> instead.</li>
-                <li class="step-mobile">Tap the "Cancel" button in the top-right corner of your screen.</li>
-                <li class="step-mobile">Then select "Use Without Internet" to continue accessing the media server.</li>
-                <li class="step-mobile">Paste the link into your browser to continue.</li>
+                <li class="step-mobile">Tap "Cancel" in the top-right corner.</li>
+                <li class="step-mobile">Select "Use Without Internet".</li>
+                <li class="step-mobile">Paste the link into your browser.</li>
                 <li class="step-pc">Open the link in a new browser tab.</li>
-                <li class="step-pc">Or click the "Go to Menu" button below.</li>
             </ol>
-            <p><strong>Important:</strong> Follow these steps before trying to access the media server.</p>
         </div>
 
-        <!-- Direct Access Button (Visible on Larger Screens) -->
+        <!-- shown on wide screens only -->
         <div class="buttons" id="goToMenuButton">
-            <a class="btn btn-primary" href="menu">Go to Menu</a>
+            <a class="btn btn-primary" href="/menu">Go to menu</a>
         </div>
     </div>
 
@@ -159,24 +159,25 @@
             copyLink.setSelectionRange(0, 99999); // iOS Safari needs an explicit range to select
             try {
                 // navigator.clipboard needs HTTPS and we're plain HTTP, so use execCommand
-                document.execCommand('copy');
-                alert('Link copied to clipboard!');
+                // it returns false, without throwing, when the browser refused
+                if (!document.execCommand('copy')) throw new Error('copy refused');
+                alert('Link copied');
             } catch (e) {
-                alert('Could not copy automatically. Please copy the selected text.');
+                alert("Couldn't copy. The link is selected, copy it by hand.");
             }
         });
 
-        // PCs get a "Go to Menu" button + different steps, phones get the captive-portal steps.
+        // PCs get a "Go to menu" button + different steps, phones get the captive-portal steps.
         // just toggles pre-rendered steps, doesnt rebuild markup
         function adjustForDevice() {
             const isPC = window.innerWidth > 600;
             document.body.classList.toggle('is-pc', isPC);
             if (isPC) {
                 instructionHeader.textContent = "You're on a PC!";
-                instructionText.textContent = 'Use the button below to go directly to the menu, or copy and paste the link in a new tab.';
+                instructionText.textContent = '';
             } else {
-                instructionHeader.textContent = 'Instructions for Connecting (Apple Devices):';
-                instructionText.textContent = 'Follow the steps below to access the media server:';
+                instructionHeader.textContent = 'Connect to Nomad';
+                instructionText.textContent = '';
             }
             goToMenuButton.style.display = isPC ? 'flex' : 'none';
         }

@@ -1,8 +1,0 @@
-Item,Part,Qty,Required,Notes,Link
-1,"Waveshare ESP32-S3 Dev Board, 1.47"" LCD version",1,Yes,"Only supported board; Wi-Fi + display + SD slot + USB-A on one PCB",https://amzn.to/4ktB6oT
-2,"microSD card 16-128 GB (up to 2 TB supported), Class 10/U1+",1,Yes,"FAT32 format required; fast card = better performance",https://amzn.to/44tM1c4
-3,"USB power source (port, charger, or power bank)",1,Yes,,
-4,"microSD extender (case-compatible length)",1,No,"Card access from back of case without disassembly; reduces heat exposure",https://amzn.to/45IWIJz
-5,"Thermal pad or paste (small)",1,No,"Between ESP32-S3 chip and shell; air cooling works fine without",
-6,"Printed: Nomad Mk4 case body",1,Yes,"PETG recommended (heat), no supports",
-7,"Printed: Nomad Mk4 front cover",1,Yes,"Slides on front-to-back, snap fit",

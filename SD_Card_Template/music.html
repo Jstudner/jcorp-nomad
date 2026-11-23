@@ -3,119 +3,129 @@
 <html lang="en">
 <head>
 <meta charset="utf-8" />
-<meta name="viewport" content="width=device-width,initial-scale=1" />
+<script>/* nomad-load-guard: reload, twice at most, when one of Nomad's own scripts or stylesheets fails to load */(function(){var k='nomadLoadGuard:'+location.pathname;window.addEventListener('error',function(e){var t=e.target;if(!t||!t.tagName)return;var s=t.tagName==='SCRIPT',c=t.tagName==='LINK'&&/stylesheet/i.test(t.rel||'');if(!s&&!c)return;var u=t.src||t.href||'';if(u.indexOf(location.origin+'/')!==0)return;var n=0;try{n=+sessionStorage.getItem(k)||0;}catch(x){return;}if(n>=2)return;try{sessionStorage.setItem(k,String(n+1));}catch(x){return;}setTimeout(function(){location.reload();},1500*(n+1));},true);window.addEventListener('load',function(){setTimeout(function(){try{sessionStorage.removeItem(k);}catch(x){}},15000);});})();</script>
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
 <title>Nomad • Music</title>
 <link rel="stylesheet" href="master.css">
-<script src="/theme-boot.js"></script>
-<script src="theme-manager.js"></script>
-<script src="/nomad-utils.js"></script>
+<script src="/theme-boot.js?v=5"></script>
+<script src="/nomad-icons.js?v=1"></script>
+<script src="theme-manager.js?v=5"></script>
+<script src="/nomad-utils.js?v=52"></script>
 <style>
-  body{margin:0;padding:0;display:flex;flex-direction:column;height:100vh;background:var(--bg);font-family:Inter,Arial,sans-serif;overflow:hidden;}
-  
-  header{background:var(--primary);color:var(--color-white);padding:14px 18px;display:flex;align-items:center;justify-content:space-between;z-index:60;box-shadow:var(--shadow);flex-shrink:0;}
-  header h1{font-size:1.15rem;margin:0;font-weight:700;}
-  .back-btn{background:var(--white-alpha-12);color:var(--color-white);padding:.45rem .7rem;border-radius:8px;text-decoration:none;font-weight:700;}
+  /* dvh, not vh: 100vh on a phone includes the strip under the address bar, which hides the
+     player's controls */
+  body{margin:0;padding:0;display:flex;flex-direction:column;height:100vh;height:100dvh;background:var(--bg);font-family:Inter,Arial,sans-serif;overflow:hidden;}
 
-  .tabs{display:flex;background:var(--card);border-bottom:2px solid var(--black-alpha-6);padding:0 18px;flex-shrink:0;align-items:center;justify-content:center;gap:8px;}
-  .tab-group{display:flex;gap:0;flex:0 0 auto;}
-  .tab{padding:12px 20px;cursor:pointer;border-bottom:3px solid transparent;font-weight:700;color:var(--muted);transition:all .2s;}
+  body[data-page="music"] header{background:var(--primary);color:var(--color-white);padding:6px 12px;min-height:0;height:auto;
+    display:flex;flex-direction:row;align-items:center;justify-content:flex-start;gap:12px;z-index:60;box-shadow:var(--shadow);flex-shrink:0;}
+  body[data-page="music"] header h1{display:block;font-size:1.05rem;margin:0;font-weight:700;}
+  body[data-page="music"] .back-btn{order:-1;width:auto;background:var(--white-alpha-12);color:var(--color-white);padding:6px 10px;
+    border-radius:8px;text-decoration:none;font-weight:700;font-size:.9rem;white-space:nowrap;}
+
+  .tabs{display:flex;align-items:center;gap:8px;padding:6px 10px;background:var(--card);border-bottom:1px solid var(--black-alpha-6);flex-shrink:0;}
+  .tab-group{display:flex;gap:2px;background:var(--bg);border-radius:10px;padding:3px;min-width:0;}
+  .tab{padding:6px 14px;border-radius:8px;cursor:pointer;font-weight:700;font-size:.9rem;color:var(--muted);white-space:nowrap;
+    transition:background .15s,color .15s;user-select:none;}
   .tab:hover{color:var(--primary);}
-  .tab.active{color:var(--primary);border-bottom-color:var(--primary);}
-
-  .tab-controls{display:flex;gap:8px;position:absolute;right:18px;}
-  .tab-control-btn{padding:8px 12px;background:var(--card);border:1px solid var(--black-alpha-10);border-radius:8px;color:var(--primary);font-weight:700;font-size:0.85rem;cursor:pointer;transition:all .2s;display:flex;align-items:center;gap:6px;}
-  .tab-control-btn:hover{background:var(--primary);color:var(--color-white);transform:translateY(-1px);}
-  .tab-control-btn.active{background:var(--primary);color:var(--color-white);}
+  .tab.active{background:var(--card);color:var(--primary);box-shadow:0 1px 4px var(--black-alpha-10);}
+  .tab-controls{display:flex;gap:6px;margin-left:auto;flex-shrink:0;}
+  .tab-control-btn{height:34px;min-width:34px;padding:0 9px;background:var(--card);border:1px solid var(--black-alpha-10);border-radius:8px;
+    color:var(--primary);font-weight:700;font-size:.82rem;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;gap:4px;
+    white-space:nowrap;transition:background .15s,color .15s;}
+  .tab-control-btn:hover,.tab-control-btn.active{background:var(--primary);color:var(--color-white);}
 
   .iframe-container{flex:1;position:relative;overflow:hidden;min-height:0;}
   .iframe-container iframe{position:absolute;top:0;left:0;width:100%;height:100%;border:none;display:none;}
   .iframe-container iframe.active{display:block;}
 
-  /* FORCE PLAYER BAR VISIBLE ON ALL SCREENS */
-  .player-bar{
-    background:var(--card) !important;
-    border-top:1px solid var(--black-alpha-6) !important;
-    box-shadow:0 -4px 12px var(--black-alpha-8) !important;
-    padding:10px !important;
-    flex-shrink:0 !important;
-    display:block !important;
-    position:relative !important;
-    overflow:visible !important;
-  }
+  /* the player. Title lines cut with an ellipsis so a long title can't push the controls off screen */
+  .player-bar{background:var(--card);border-top:1px solid var(--black-alpha-6);box-shadow:0 -4px 12px var(--black-alpha-8);
+    padding:8px 14px calc(8px + env(safe-area-inset-bottom));flex-shrink:0;}
+  .player-content{max-width:720px;margin:0 auto;display:flex;flex-direction:column;gap:4px;min-width:0;}
+  .now{min-width:0;text-align:center;}
+  .player-title{font-weight:800;color:var(--primary);font-size:.95rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+  .player-sub{color:var(--muted);font-size:.78rem;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-height:1.1em;}
+  .player-controls{display:flex;align-items:center;gap:8px;min-width:0;}
+  .time-display{color:var(--muted);font-size:.78rem;min-width:38px;text-align:center;font-weight:700;font-variant-numeric:tabular-nums;}
+  .progress-bar{flex:1;min-width:0;height:6px;background:var(--black-alpha-10);border-radius:3px;cursor:pointer;position:relative;}
+  .progress-bar::before{content:'';position:absolute;left:0;right:0;top:-10px;bottom:-10px;}   /* a finger-sized target */
+  .progress-fill{width:0;height:100%;background:var(--primary);border-radius:3px;transition:width 0.1s linear;}   /* empty until there is a time (a div is full width by default) */
+  .controls{display:flex;justify-content:center;align-items:center;}
+  .controls-center{display:flex;align-items:center;gap:12px;}
+  .control-btn{width:42px;height:42px;display:inline-flex;align-items:center;justify-content:center;padding:0;border-radius:12px;border:0;
+    background:var(--primary);color:var(--color-white);cursor:pointer;box-shadow:0 4px 12px var(--black-alpha-6);transition:transform .1s;}
+  .control-btn:active{transform:scale(0.94);}
+  .control-btn.secondary{background:var(--card);color:var(--primary);border:1px solid var(--black-alpha-10);box-shadow:none;}
+  .control-btn.play{width:50px;height:50px;border-radius:50%;}
+  .control-btn.edge{width:36px;height:36px;}
 
-  .player-content{
-    max-width:1200px;
-    margin:0 auto;
-    display:flex !important;
-    flex-direction:column !important;
-    gap:8px !important;
-  }
+  /* the line with what is playing opens Now playing */
+  .now{cursor:pointer;border-radius:8px;outline:none;}
+  .now:focus-visible{box-shadow:0 0 0 2px var(--primary);}
+  .player-bar,.np-top,.np-controls,.np-pills{-webkit-user-select:none;user-select:none;}   /* a swipe or a double tap doesn't select text */
+  .now:hover .player-title{text-decoration:underline;text-underline-offset:3px;}
+  .bar-sleep{display:inline-block;margin-left:6px;padding:0 6px;border-radius:6px;background:var(--primary-alpha-8, var(--black-alpha-6));
+    color:var(--primary);font-size:.7rem;font-weight:800;vertical-align:1px;}
+  .bar-sleep[hidden]{display:none;}
 
-  .player-title{font-weight:800;color:var(--primary);text-align:center;font-size:0.95rem;}
+  /* Now playing sheet. No cover art on purpose: the music stays a loose folder system. */
+  .np-sheet{position:fixed;top:0;right:0;bottom:0;left:0;inset:0;z-index:200;background:var(--bg);display:flex;flex-direction:column;
+    transform:translateY(100%);transition:transform .26s ease;padding-top:env(safe-area-inset-top);padding-bottom:env(safe-area-inset-bottom);}
+  .np-sheet.open{transform:none;}
+  .np-sheet[hidden]{display:none;}
+  .np-top{display:flex;align-items:center;gap:10px;padding:8px 12px;touch-action:none;flex-shrink:0;}
+  .np-top .np-where{flex:1;min-width:0;text-align:center;color:var(--muted);font-size:.78rem;font-weight:700;text-transform:uppercase;letter-spacing:.05em;
+    white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+  .np-icon-btn{width:38px;height:38px;border-radius:50%;border:0;background:transparent;color:var(--text);display:grid;place-items:center;cursor:pointer;flex-shrink:0;}
+  .np-icon-btn:hover{background:var(--black-alpha-6);}
+  .np-body{flex:1;min-height:0;overflow:auto;width:100%;max-width:520px;margin:0 auto;padding:4px 20px 24px;box-sizing:border-box;
+    display:flex;flex-direction:column;gap:14px;}
+  .np-art{width:min(58vw,260px);aspect-ratio:1;margin:2px auto 0;border-radius:22px;display:grid;place-items:center;color:var(--color-white);flex-shrink:0;
+    background:linear-gradient(145deg,var(--primary),color-mix(in srgb,var(--primary) 55%,#000));box-shadow:0 14px 34px var(--black-alpha-12);}
+  .np-art svg{width:34%;height:34%;opacity:.9;}
+  @media (max-height:600px){ .np-art{width:min(26vh,130px);border-radius:16px;} }
+  .np-text{text-align:center;min-width:0;}
+  .np-title{font-size:1.25rem;font-weight:800;color:var(--text);line-height:1.25;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;overflow-wrap:anywhere;}
+  .np-sub{margin-top:4px;color:var(--muted);font-weight:600;font-size:.9rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+  .np-scrub{display:flex;align-items:center;gap:10px;}
+  .np-scrub input{flex:1;min-width:0;accent-color:var(--primary);height:24px;margin:0;}
+  .np-scrub span{color:var(--muted);font-size:.78rem;font-weight:700;min-width:40px;text-align:center;font-variant-numeric:tabular-nums;}
+  .np-controls{display:flex;justify-content:center;align-items:center;gap:16px;}
+  .np-controls .control-btn.play{width:64px;height:64px;}
+  .np-controls .control-btn:not(.play){width:46px;height:46px;}
+  .np-controls .control-btn.edge{width:40px;height:40px;}
+  .np-controls .control-btn.secondary.on{background:var(--primary);color:#fff;border-color:var(--primary);}
+  .np-pills{display:flex;gap:10px;justify-content:center;flex-wrap:wrap;}
+  .np-pill{height:36px;padding:0 14px;border-radius:18px;border:1px solid var(--black-alpha-10);background:var(--card);color:var(--text);
+    font:inherit;font-size:.86rem;font-weight:700;display:inline-flex;align-items:center;gap:6px;cursor:pointer;}
+  .np-pill.on{background:var(--primary);color:var(--color-white);border-color:transparent;}
+  .np-panel{background:var(--card);border:1px solid var(--black-alpha-6);border-radius:14px;padding:12px 14px;display:flex;flex-direction:column;gap:12px;}
+  .np-panel[hidden]{display:none;}
+  .snd-row{display:flex;align-items:center;gap:12px;}
+  .snd-row > span{flex:1;min-width:0;font-weight:700;color:var(--text);font-size:.9rem;}
+  .snd-row small{display:block;color:var(--muted);font-weight:600;font-size:.76rem;margin-top:1px;}
+  .snd-row input[type=range]{width:46%;accent-color:var(--primary);}
+  .snd-presets{display:flex;gap:6px;flex-wrap:wrap;}
+  .snd-presets button{height:30px;padding:0 10px;border-radius:15px;border:1px solid var(--black-alpha-10);background:transparent;color:var(--text);
+    font:inherit;font-size:.78rem;font-weight:700;cursor:pointer;}
+  .snd-presets button.on{background:var(--primary);color:var(--color-white);border-color:transparent;}
+  .snd-band{display:grid;grid-template-columns:52px 1fr 44px;align-items:center;gap:8px;font-size:.76rem;font-weight:700;color:var(--muted);}
+  .snd-band input{width:100%;accent-color:var(--primary);}
+  .snd-band b{text-align:right;color:var(--text);font-variant-numeric:tabular-nums;}
+  .snd-off{opacity:.45;pointer-events:none;}
+  .snd-note{margin:0;color:var(--muted);font-size:.8rem;}
+  .np-next h3{margin:4px 0 6px;font-size:.78rem;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);}
+  .np-next ol{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:2px;}
+  .np-next li{display:flex;flex-direction:column;padding:8px 10px;border-radius:10px;cursor:pointer;min-width:0;}
+  .np-next li:hover{background:var(--black-alpha-6);}
+  .np-next li b{font-size:.9rem;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+  .np-next li span{font-size:.76rem;color:var(--muted);font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+  .np-next p{margin:0;color:var(--muted);font-size:.85rem;}
 
-  .player-controls{
-    display:flex !important;
-    align-items:center !important;
-    gap:12px !important;
-    justify-content:center !important;
-  }
-
-  .time-display{color:var(--muted);font-size:0.85rem;min-width:45px;text-align:center;font-weight:700;}
-  .progress-bar{flex:1;max-width:600px;height:6px;background:var(--black-alpha-10);border-radius:3px;cursor:pointer;position:relative;min-width:150px;}
-  .progress-fill{height:100%;background:var(--primary);border-radius:3px;transition:width 0.1s linear;}
-
-  /* FORCE CONTROLS VISIBLE */
-  .controls{
-    display:flex !important;
-    flex-wrap:wrap !important;
-    justify-content:center !important;
-    align-items:center !important;
-    gap:10px !important;
-    padding:10px !important;
-  }
-
-  .controls-left,.controls-center,.controls-right{
-    display:flex !important;
-    gap:8px !important;
-  }
-
-  /* FORCE BUTTONS VISIBLE */
-  .control-btn{
-    width:44px !important;
-    height:44px !important;
-    min-width:44px !important;
-    display:inline-flex !important;
-    align-items:center !important;
-    justify-content:center !important;
-    padding:0 !important;
-    border-radius:12px !important;
-    border:0 !important;
-    background:var(--primary) !important;
-    color:var(--color-white) !important;
-    font-weight:800 !important;
-    cursor:pointer !important;
-    font-size:16px !important;
-    box-shadow:0 6px 18px var(--black-alpha-6) !important;
-  }
-
-  .control-btn:hover{transform:scale(1.05);}
-  .control-btn:active{transform:scale(0.95);}
-
-  .control-btn.secondary{
-    background:var(--card) !important;
-    color:var(--primary) !important;
-    border:1px solid var(--black-alpha-10) !important;
-  }
-
-  .control-btn.play{
-    width:56px !important;
-    height:56px !important;
-    background:var(--primary) !important;
-  }
-
-  .control-btn.edge{
-    width:40px !important;
-    height:40px !important;
+  @media (max-width:420px){
+    .tab{padding:6px 10px;font-size:.86rem;}
+    .tab-control-btn{padding:0 7px;}
+    .controls-center{gap:10px;}
   }
 
   .toast{
@@ -139,77 +149,9 @@
     opacity:1;
   }
 
-  /* MOBILE ADJUSTMENTS */
-  @media (max-width:768px){
-    .tabs{padding:0 8px;justify-content:flex-start;}
-    .tab-group{flex:1 1 auto;}
-    .tab{padding:10px 14px;font-size:0.9rem;}
-    .tab-controls{position:static;margin-left:auto;gap:4px;}
-    .tab-control-btn{padding:6px 10px;font-size:0.85rem;}
-
-    .player-bar{
-      padding:8px !important;
-      max-height:none !important;
-      min-height:180px !important;
-    }
-    .player-content{gap:6px !important;}
-    .controls{padding:8px !important;flex-wrap:wrap !important;}
-  }
-
-  @media (max-width:600px){
-    .tabs{flex-wrap:wrap;justify-content:flex-start;gap:4px;}
-    .tab-group{order:1;flex:0 0 100%;justify-content:flex-start;margin-bottom:4px;}
-    .tab-controls{order:2;flex:0 0 auto;margin-left:auto;gap:4px;}
-    .tab-control-btn{padding:5px 8px;font-size:0.8rem;}
-
-    .player-bar{
-      padding:8px !important;
-      min-height:190px !important;
-    }
-    .player-content{gap:6px !important;}
-    .player-title{font-size:0.9rem;}
-
-    .player-controls{gap:8px !important;}
-    .time-display{font-size:0.8rem;min-width:38px;}
-    .progress-bar{min-width:120px;max-width:300px;}
-
-    .controls{
-      gap:8px !important;
-      padding:8px !important;
-      flex-wrap:wrap !important;
-    }
-
-    .controls-left,.controls-center,.controls-right{
-      gap:6px !important;
-    }
-
-    .control-btn{
-      width:36px !important;
-      height:36px !important;
-      min-width:36px !important;
-      font-size:14px !important;
-      border-radius:10px !important;
-    }
-
-    .control-btn.play{
-      width:44px !important;
-      height:44px !important;
-      font-size:16px !important;
-    }
-
-    .control-btn.edge{
-      width:34px !important;
-      height:34px !important;
-      font-size:13px !important;
-    }
-
-    .tab{padding:8px 10px;font-size:0.85rem;}
-  }
-
-  /* TOAST NOTIFICATION */
   #toast{
     position:fixed;
-    bottom:170px;
+    bottom:150px;
     left:50%;
     transform:translateX(-50%);
     background:var(--primary);
@@ -230,7 +172,7 @@
 
   @media (max-width:600px){
     #toast{
-      bottom:210px;
+      bottom:140px;
       padding:10px 16px;
       font-size:0.85rem;
     }
@@ -241,7 +183,7 @@
 
 <header>
   <h1>Music</h1>
-  <a class="back-btn" href="/menu">← Back to Menu</a>
+  <a class="back-btn" href="/menu" aria-label="Back to Menu">← Menu</a>
 </header>
 
 <div class="tabs">
@@ -258,13 +200,16 @@
 
 <div class="iframe-container">
   <iframe id="songsFrame" class="active" src="songs.html"></iframe>
-  <iframe id="playlistsFrame" src="playlist.html"></iframe>
-  <iframe id="queueFrame" src="queue.html"></iframe>
+  <iframe id="playlistsFrame" data-src="playlist.html"></iframe>
+  <iframe id="queueFrame" data-src="queue.html"></iframe>
 </div>
 
 <div class="player-bar">
   <div class="player-content">
-    <div class="player-title" id="playerTitle">Not playing</div>
+    <div class="now" id="nowOpen" role="button" tabindex="0" aria-label="Open Now playing" title="Now playing">
+      <div class="player-title"><span id="playerTitle">Not playing</span><span class="bar-sleep" id="barSleep" hidden></span></div>
+      <div class="player-sub" id="playerSub"></div>
+    </div>
     <div class="player-controls">
       <div class="time-display" id="currentTime">0:00</div>
       <div class="progress-bar" id="progressBar">
@@ -275,10 +220,10 @@
     <div class="controls">
       <div class="controls-center">
         <button class="control-btn secondary edge loop" id="loopBtn" title="Loop: off" aria-label="Loop"></button>
-        <button class="control-btn secondary prev" id="prevBtn" title="Previous">⏮</button>
+        <button class="control-btn secondary prev" id="prevBtn" title="Previous" aria-label="Previous" data-icon="skip-back" data-icon-size="22"></button>
         <button class="control-btn play" id="playBtn" title="Play" aria-label="Play"></button>
-        <button class="control-btn secondary next" id="nextBtn" title="Next">⏭</button>
-        <button class="control-btn secondary edge download" id="downloadBtn" data-dl title="Download">⬇</button>
+        <button class="control-btn secondary next" id="nextBtn" title="Next" aria-label="Next" data-icon="skip-forward" data-icon-size="22"></button>
+        <button class="control-btn secondary edge download" id="downloadBtn" data-dl title="Download" aria-label="Download" data-icon="download" data-icon-size="20"></button>
       </div>
     </div>
   </div>
@@ -287,17 +232,64 @@
 <div class="toast" id="toast"></div>
 
 <audio id="audio" preload="metadata"></audio>
+<audio id="audio2" preload="none"></audio>   <!-- loads the next song before this one ends -->
+
+<div class="np-sheet" id="npSheet" role="dialog" aria-modal="true" aria-label="Now playing" hidden>
+  <div class="np-top" id="npTop">
+    <button class="np-icon-btn" id="npClose" aria-label="Close Now playing" title="Close" data-icon="chevron-down" data-icon-size="24"></button>
+    <div class="np-where" id="npWhere">Now playing</div>
+    <span style="width:38px;flex-shrink:0"></span>
+  </div>
+  <div class="np-body">
+    <div class="np-art" aria-hidden="true" data-icon="music" data-icon-size="64"></div>
+    <div class="np-text"><div class="np-title" id="npTitle">Not playing</div><div class="np-sub" id="npSub"></div></div>
+    <div class="np-scrub"><span id="npCur">0:00</span><input type="range" id="npSeek" min="0" max="1000" value="0" aria-label="Position"><span id="npDur">0:00</span></div>
+    <div class="np-controls">
+      <button class="control-btn secondary edge" id="npLoop" aria-label="Loop"></button>
+      <button class="control-btn secondary" id="npPrev" aria-label="Previous" data-icon="skip-back" data-icon-size="24"></button>
+      <button class="control-btn play" id="npPlay" aria-label="Play"></button>
+      <button class="control-btn secondary" id="npNextBtn" aria-label="Next" data-icon="skip-forward" data-icon-size="24"></button>
+      <button class="control-btn secondary edge" id="npSoundBtn" aria-label="Sound settings" aria-expanded="false" title="Sound" data-icon="volume" data-icon-size="20"></button>
+    </div>
+    <div class="np-pills">
+      <button class="np-pill" id="npSleep" title="Sleep timer"><span data-icon="timer" data-icon-size="16"></span><span id="npSleepLabel">Sleep</span></button>
+    </div>
+    <div class="np-panel" id="npSoundPanel" hidden>
+      <div class="snd-row" id="sndXfRow"><span>Crossfade<small id="xfLabel">Off</small></span><input type="range" id="xfRange" min="0" max="8" step="1" value="0" aria-label="Crossfade seconds"></div>
+      <div class="snd-row" id="sndNightRow"><span title="Quiet parts up, loud parts down">Night mode</span><button class="np-pill" id="nightBtn" aria-pressed="false">Off</button></div>
+      <div id="sndEq">
+        <div class="snd-row" style="margin-bottom:8px"><span>Equalizer</span></div>
+        <div class="snd-presets" id="eqPresets"></div>
+        <div id="eqBands" style="display:flex;flex-direction:column;gap:6px;margin-top:10px"></div>
+      </div>
+      <p class="snd-note" id="sndNote" hidden>Not available on iPhone and iPad</p>
+    </div>
+    <div class="np-next"><h3>Up next</h3><ol id="npNextList"></ol></div>
+  </div>
+</div>
 
 
 
 <script>
-const audio = document.getElementById('audio');
+// Two players: `audio` plays, the other loads the next song for a gapless start or crossfade;
+// they swap at each song. iPhones stay on one: a locked screen only keeps the playing one going.
+// (iPhone and iPad also skip the sound settings: they'd stop the music when the screen locks.)
+const deckA = document.getElementById('audio'), deckB = document.getElementById('audio2');
+let audio = deckA;
+const IOS = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+const TWO_DECKS = !IOS;
+// events from the player that isn't the current one (fading out, loading ahead) are not ours
+function onDeck(type, fn){
+  for(const d of [deckA, deckB]) d.addEventListener(type, (e) => { if(e.target === audio) fn(e); });
+}
+const mediaUrl = (path) => `/media?file=${encodeURIComponent(path)}`;
 const playBtn = document.getElementById('playBtn');
 const prevBtn = document.getElementById('prevBtn');
 const nextBtn = document.getElementById('nextBtn');
 const loopBtn = document.getElementById('loopBtn');
 const downloadBtn = document.getElementById('downloadBtn');
 const playerTitle = document.getElementById('playerTitle');
+const playerSub = document.getElementById('playerSub');
 const currentTime = document.getElementById('currentTime');
 const totalTime = document.getElementById('totalTime');
 const progressBar = document.getElementById('progressBar');
@@ -312,7 +304,7 @@ const sortLabel = document.getElementById('sortLabel');
 // line icons (stroke=currentColor) so Loop/Shuffle take the theme color, not a fixed emoji
 const SVG_REPEAT ='<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="17 1 21 5 17 9"></polyline><path d="M3 11V9a4 4 0 0 1 4-4h14"></path><polyline points="7 23 3 19 7 15"></polyline><path d="M21 13v2a4 4 0 0 1-4 4H3"></path></svg>';
 const SVG_REPEAT_ONE = '<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="17 1 21 5 17 9"></polyline><path d="M3 11V9a4 4 0 0 1 4-4h14"></path><polyline points="7 23 3 19 7 15"></polyline><path d="M21 13v2a4 4 0 0 1-4 4H3"></path><text x="12" y="15.5" font-size="9" stroke="none" fill="currentColor" text-anchor="middle" font-weight="700">1</text></svg>';
-const SVG_SHUFFLE = '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="16 3 21 3 21 8"></polyline><line x1="4" y1="20" x2="21" y2="3"></line><polyline points="21 16 21 21 16 21"></line><line x1="15" y1="15" x2="21" y2="21"></line><line x1="4" y1="4" x2="9" y2="9"></line></svg>';
+const SVG_SHUFFLE = '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="16 3 21 3 21 8"></polyline><line x1="4" y1="20" x2="21" y2="3"></line><polyline points="21 16 21 21 16 21"></polyline><line x1="15" y1="15" x2="21" y2="21"></line><line x1="4" y1="4" x2="9" y2="9"></line></svg>';
 // solid glyphs (fill=currentColor) so play/pause take the button's theme color, not a fixed emoji
 const SVG_PLAY ='<svg viewBox="0 0 24 24" width="24" height="24" fill="currentColor" stroke="none" aria-hidden="true"><path d="M7 4.5v15a1 1 0 0 0 1.53.85l12-7.5a1 1 0 0 0 0-1.7l-12-7.5A1 1 0 0 0 7 4.5z"></path></svg>';
 const SVG_PAUSE = '<svg viewBox="0 0 24 24" width="24" height="24" fill="currentColor" stroke="none" aria-hidden="true"><rect x="6" y="4" width="4" height="16" rx="1"></rect><rect x="14" y="4" width="4" height="16" rx="1"></rect></svg>';
@@ -343,61 +335,86 @@ function fmtTime(sec){
   return `${m}:${String(s).padStart(2,'0')}`;
 }
 
+// A track rebuilt from its path, for lists kept as paths (what the tabs and the player use)
+function trackFromPath(path){
+  const parts = String(path || '').split('/').filter(Boolean);
+  const file = parts[parts.length - 1] || '';
+  const folders = parts.slice(1, -1);
+  return { path, file,
+    name: file.replace(/\.[^/.]+$/, '').replace(/[_\.]+/g, ' ').replace(/\s+/g, ' ').trim(),
+    display: folders.length > 1 ? `${folders[0]} - ${folders[1]}` : (folders[0] || '') };
+}
+const trackPaths = (list) => (list || []).map(t => t && t.path).filter(Boolean);
+// the Playlists tab sends songs without the folder line under the title: fill it in from the path
+const withDisplay = (t) => (t && t.path && t.display === undefined) ? Object.assign({}, t, { display: trackFromPath(t.path).display }) : t;
+
+// Playing state is saved often. Playlist and queue are saved apart, as paths, only on change:
+// saving whole track objects on every play and pause stalls the phone and can fill localStorage.
+const STATE_KEY = 'nomad_music_state.v2', LISTS_KEY = 'nomad_music_lists.v2';
 function saveState(){
   try {
-    const state = {
-      queue,
-      queueIndex,
-      currentPlaylist,
-      currentIndex,
-      playbackMode,
-      loopMode,
-      currentTrack,
-      isShuffled,
-      unshuffledPlaylist,
-      unshuffledIndex,
+    localStorage.setItem(STATE_KEY, JSON.stringify({
+      currentPath: currentTrack ? currentTrack.path : null,
+      currentIndex, queueIndex, playbackMode, loopMode,
       currentTime: audio.currentTime || 0,
       timestamp: Date.now()
-    };
-    localStorage.setItem('nomad_music_state', JSON.stringify(state));
+    }));
+  } catch(e){ console.warn('[Music] Failed to save state:', e); }
+}
+function saveLists(){
+  try {
+    localStorage.setItem(LISTS_KEY, JSON.stringify({ playlist: trackPaths(currentPlaylist), queue: trackPaths(queue) }));
   } catch(e){
-    console.warn('[Music] Failed to save state:', e);
+    // a very long playlist that won't fit: keep the queue, at least
+    try { localStorage.setItem(LISTS_KEY, JSON.stringify({ playlist: [], queue: trackPaths(queue) })); } catch(e2){}
   }
+  saveState();
 }
 
 function restoreState(){
   try {
-    const saved = localStorage.getItem('nomad_music_state');
-    if(!saved) return false;
-
-    const state = JSON.parse(saved);
-    const age = Date.now() - (state.timestamp || 0);
-    if(age > 86400000) return false;
-
-    queue = state.queue || [];
-    queueIndex = state.queueIndex || 0;
-    currentPlaylist = state.currentPlaylist || [];
-    currentIndex = state.currentIndex || -1;
-    playbackMode = state.playbackMode || 'playlist';
-    loopMode = state.loopMode || 'none';
-    currentTrack = state.currentTrack || null;
-    isShuffled = state.isShuffled || false;
-    unshuffledPlaylist = state.unshuffledPlaylist || [];
-    unshuffledIndex = state.unshuffledIndex || -1;
-
-    updateLoopButtonUI();
-
-    if(currentTrack){
-      playerTitle.textContent = currentTrack.name || 'Unknown';
-      audio.src = `/media?file=${encodeURIComponent(currentTrack.path)}`;
-      if(state.currentTime && state.currentTime > 0){
-        audio.currentTime = state.currentTime;
+    let st = null, lists = null;
+    try { st = JSON.parse(localStorage.getItem(STATE_KEY) || 'null'); lists = JSON.parse(localStorage.getItem(LISTS_KEY) || 'null'); } catch(e){}
+    if(!st){
+      // the old single key held whole track objects: read it once, then it goes
+      const old = JSON.parse(localStorage.getItem('nomad_music_state') || 'null');
+      localStorage.removeItem('nomad_music_state');
+      if(old){
+        st = { currentPath: old.currentTrack && old.currentTrack.path, currentIndex: old.currentIndex, queueIndex: old.queueIndex,
+               playbackMode: old.playbackMode, loopMode: old.loopMode, currentTime: old.currentTime, timestamp: old.timestamp };
+        lists = { playlist: trackPaths(old.currentPlaylist), queue: trackPaths(old.queue) };
       }
     }
+    if(!st || Date.now() - (st.timestamp || 0) > 7 * 86400000) return false;
 
+    queue = ((lists && lists.queue) || []).map(trackFromPath);
+    currentPlaylist = ((lists && lists.playlist) || []).map(trackFromPath);
+    // a saved 0 is the first track, not "none" (no ?? here: older phones fail to parse the whole script)
+    queueIndex = Math.min(Math.max(st.queueIndex != null ? st.queueIndex : 0, 0), Math.max(queue.length - 1, 0));
+    currentIndex = Number.isInteger(st.currentIndex) ? st.currentIndex : -1;
+    playbackMode = ['playlist', 'queue', 'single'].includes(st.playbackMode) ? st.playbackMode : 'playlist';
+    loopMode = ['none', 'all', 'single'].includes(st.loopMode) ? st.loopMode : 'none';
+    currentTrack = st.currentPath ? trackFromPath(st.currentPath) : null;
+    // the index must point at the track: a list that changed shape since is searched
+    const list = playbackMode === 'queue' ? queue : currentPlaylist;
+    const idx = playbackMode === 'queue' ? queueIndex : currentIndex;
+    if(currentTrack && !(list[idx] && list[idx].path === currentTrack.path)){
+      const found = list.findIndex(t => t.path === currentTrack.path);
+      if(playbackMode === 'queue') queueIndex = Math.max(found, 0); else currentIndex = found;
+    }
+
+    updateLoopButtonUI();
+    if(currentTrack){
+      playerTitle.textContent = currentTrack.name || 'Unknown';
+      audio.preload = 'metadata';
+      audio.src = `/media?file=${encodeURIComponent(currentTrack.path)}`;
+      // a position set before the file's length is known is dropped by some browsers
+      const at = +st.currentTime || 0;
+      if(at > 0) audio.addEventListener('loadedmetadata', () => { if(at < audio.duration) audio.currentTime = at; }, { once: true });
+      updateMediaSession();
+    }
     broadcastPlaybackUpdate();
     broadcastQueueUpdate();
-
     return true;
   } catch(e){
     console.warn('[Music] Failed to restore state:', e);
@@ -425,6 +442,7 @@ function updateLoopButtonUI(){
     loopBtn.style.color = 'var(--color-white)';
     loopBtn.innerHTML = SVG_REPEAT_ONE;
   }
+  if(typeof syncSheetLoop === 'function') syncSheetLoop();
 }
 
 
@@ -436,10 +454,18 @@ let _retrying = false;
 // failure handler for the load attempt in flight, read by the audio error event
 let _failCurrent = null;
 const _MIN_LOAD_GAP = 300;
+let _failedInARow = 0;
 const _MAX_RETRIES = 2;
+// a song that fails after it had been playing picks up where it was, with a fresh set of
+// tries. Capped per song, and only while it gets further each time: a spot on the card that
+// always fails can't loop
+let _attemptPlayed = false, _resumes = 0, _resumeTrack = null, _resumeBest = 0;
+let _lastProgressAt = 0;
+let _nextFromEnded = false;   // set by 'ended': the next song starts there, not from a timer
 
-function playTrack(track, _retryCount){
+function playTrack(track, _retryCount, _resumeAt){
   _retryCount = _retryCount || 0;
+  _resumeAt = _resumeAt || 0;
   if(!track || !track.path){
     console.warn('[Music] Invalid track:', track);
     return;
@@ -453,6 +479,14 @@ function playTrack(track, _retryCount){
   const gen = _playGeneration;
 
   clearTimeout(_playDebounce);
+  beforePlay();
+
+  // the next song already loaded in the other player: start it there, no gap
+  if(_retryCount === 0 && takeOver(track, gen)) return;
+  _xfadeNext = false;
+  clearPreload();
+  if(fadingDeck) retireDeck(fadingDeck);
+  deckLevel(audio, 1);
 
   // drop the old handler first so tearing down the previous src cannot be
   // mistaken for this track failing
@@ -464,16 +498,23 @@ function playTrack(track, _retryCount){
   currentTrack = track;
   if(_retryCount === 0){
     playerTitle.textContent = track.name || 'Unknown';
+    // the last song's time and progress don't belong to this one
+    progressFill.style.width = '0%';
+    currentTime.textContent = '0:00';
+    totalTime.textContent = '0:00';
+    updateMediaSession();
   }
 
   const now = Date.now();
   const elapsed = now - _lastLoadTime;
   const delay = _retryCount > 0 ? 2000 * _retryCount : Math.max(200, _MIN_LOAD_GAP - elapsed);
 
-  _playDebounce = setTimeout(() => {
+  const start = () => {
     if(gen !== _playGeneration) return;
     _lastLoadTime = Date.now();
-    const url = `/media?file=${encodeURIComponent(track.path)}`;
+    _attemptPlayed = false;
+    _lastProgressAt = Date.now();
+    const url = mediaUrl(track.path);
 
     // retry or give up. shared by the play() rejection and the audio error event, and
     // only allowed to fire once per load attempt since a failed source triggers both
@@ -482,39 +523,97 @@ function playTrack(track, _retryCount){
       if(gen !== _playGeneration || handled) return;
       handled = true;
       console.warn('[Music] ' + why, track.path);
-      if(_retryCount < _MAX_RETRIES){
+      // where it had got to: a song that was playing carries on from there
+      const at = Math.max(+audio.currentTime || 0, _resumeAt);
+      if(_resumeTrack !== track.path){ _resumeTrack = track.path; _resumes = 0; _resumeBest = 0; }
+      const further = at > _resumeBest + 1;
+      if(_attemptPlayed && at > 1 && (_resumes < 5 || further)){
+        _resumes++;
+        if(further) _resumeBest = at;
         _retrying = true;
-        playerTitle.textContent = (track.name || 'Unknown') + ' (retrying...)';
+        playerTitle.textContent = (track.name || 'Unknown') + ' (retrying…)';
         _retryTimer = setTimeout(() => {
           if(gen !== _playGeneration) return;
-          playTrack(track, _retryCount + 1);
+          playTrack(track, 1, at);
+        }, 2000);
+        return;
+      }
+      if(_retryCount < _MAX_RETRIES){
+        _retrying = true;
+        playerTitle.textContent = (track.name || 'Unknown') + ' (retrying…)';
+        _retryTimer = setTimeout(() => {
+          if(gen !== _playGeneration) return;
+          playTrack(track, _retryCount + 1, at);
         }, 2000 * (_retryCount + 1));
         return;
       }
       _retrying = false;
-      // Everything failed, so spend one HEAD to say whether the file is
-      // missing or the card was just busy.
+      // one HEAD tells a missing file from a busy card
       playerTitle.textContent = 'Error loading track';
       fetch(url, { method: 'HEAD' }).then(r => {
         if(gen !== _playGeneration) return;
         if(r.status === 404) playerTitle.textContent = 'Track not found';
       }).catch(() => {});
+      // one bad file shouldn't end the music: go on to the next, unless several in a row
+      // have failed (the card or the connection is the problem, not the files)
+      if(++_failedInARow < 4){
+        showToast(`Couldn't play "${track.name || 'that song'}". Skipping.`);
+        setTimeout(() => { if(gen === _playGeneration) handleNext(true); }, 1500);
+      } else {
+        showToast("Several songs in a row wouldn't play. Check Nomad is in reach.");
+      }
     };
     _failCurrent = onFail;
 
-    // straight to the audio element. this used to send a HEAD first, which doubled every
-    // play into two requests and two SD reads for no gain
+    // no HEAD first: it would double every play into two requests and two SD reads
     audio.src = url;
+    if(_resumeAt > 1){
+      const deck = audio, want = _resumeAt;
+      deck.addEventListener('loadedmetadata', () => {
+        if(gen === _playGeneration && deck === audio && (!deck.duration || want < deck.duration - 1)){ try { deck.currentTime = want; } catch(e){} }
+      }, { once: true });
+    }
     audio.load();
-    audio.play().catch(e => onFail('Play failed: ' + e));
+    audio.play().catch(e => {
+      // a phone that hasn't been tapped yet may refuse to start sound: that isn't the file's fault
+      if(e && e.name === 'NotAllowedError'){ playerTitle.textContent = (track.name || 'Unknown') + ' (tap play)'; return; }
+      onFail('Play failed: ' + e);
+    });
+    updateMediaSession();
     broadcastPlaybackUpdate();
     saveState();
-  }, delay);
+  };
+  // straight from 'ended': a locked phone may hold back a timer, and the next song with it
+  if(_nextFromEnded && _retryCount === 0) start();
+  else _playDebounce = setTimeout(start, delay);
+  if(_retryCount === 0) onTrackChange();
+}
+
+// the phone's lock screen and notification: title, artist, play/pause, next, previous
+function updateMediaSession(){
+  // the line under the title (artist, album) and the whole title on hover or long-press
+  playerSub.textContent = currentTrack ? (currentTrack.display || '') : '';
+  playerTitle.title = currentTrack ? (currentTrack.name || '') : '';
+  if(!('mediaSession' in navigator) || !currentTrack) return;
+  try {
+    const parts = (currentTrack.display || '').split(' - ');
+    navigator.mediaSession.metadata = new MediaMetadata({ title: currentTrack.name || '', artist: parts[0] || '', album: parts.slice(1).join(' - ') });
+  } catch(e){}
+}
+if('mediaSession' in navigator){
+  const on = (action, fn) => { try { navigator.mediaSession.setActionHandler(action, fn); } catch(e){} };
+  on('play', () => playBtn.click());
+  on('pause', () => audio.pause());
+  on('previoustrack', () => handlePrev());
+  on('nexttrack', () => handleNext(true));
+  on('seekto', (d) => { if(d && isFinite(d.seekTime) && audio.duration){ audio.currentTime = d.seekTime; sendPosition(true); } });
+  on('seekbackward', (d) => { audio.currentTime = Math.max(0, audio.currentTime - ((d && d.seekOffset) || 10)); sendPosition(true); });
+  on('seekforward', (d) => { if(audio.duration) audio.currentTime = Math.min(audio.duration - 1, audio.currentTime + ((d && d.seekOffset) || 10)); sendPosition(true); });
 }
 
 function playAtIndex(index, playlist){
   if(!playlist || index < 0 || index >= playlist.length){
-    console.warn('[Music] Invalid index or playlist:', index, playlist?.length);
+    console.warn('[Music] Invalid index or playlist:', index, playlist && playlist.length);
     return;
   }
   const track = playlist[index];
@@ -525,10 +624,12 @@ function playAtIndex(index, playlist){
   playTrack(track);
 }
 
-function handleNext(){
-  if(loopMode === 'single'){
+// byUser: Next pressed (or a skip). Repeat-one repeats a song that ends, it doesn't trap
+// Next on the same song.
+function handleNext(byUser){
+  if(loopMode === 'single' && byUser !== true){
     audio.currentTime = 0;
-    audio.play();
+    audio.play().catch(() => {});
     return;
   }
 
@@ -593,13 +694,14 @@ function broadcastPlaybackUpdate(){
   };
   
   try {
-    songsFrame.contentWindow?.postMessage(message, '*');
-    playlistsFrame.contentWindow?.postMessage(message, '*');
-    queueFrame.contentWindow?.postMessage(message, '*');
+    if (songsFrame.contentWindow) songsFrame.contentWindow.postMessage(message, location.origin);
+    if (playlistsFrame.contentWindow) playlistsFrame.contentWindow.postMessage(message, location.origin);
+    if (queueFrame.contentWindow) queueFrame.contentWindow.postMessage(message, location.origin);
   } catch(e){}
 }
 
 function broadcastQueueUpdate(){
+  if(typeof syncSheet === 'function') syncSheet(true);
   const message = {
     type: 'QUEUE_UPDATE',
     payload: {
@@ -610,9 +712,9 @@ function broadcastQueueUpdate(){
   };
 
   try {
-    songsFrame.contentWindow?.postMessage(message, '*');
-    playlistsFrame.contentWindow?.postMessage(message, '*');
-    queueFrame.contentWindow?.postMessage(message, '*');
+    if (songsFrame.contentWindow) songsFrame.contentWindow.postMessage(message, location.origin);
+    if (playlistsFrame.contentWindow) playlistsFrame.contentWindow.postMessage(message, location.origin);
+    if (queueFrame.contentWindow) queueFrame.contentWindow.postMessage(message, location.origin);
   } catch(e){}
 }
 
@@ -630,26 +732,35 @@ function showToast(msg){
 }
 
 window.addEventListener('message', (event) => {
-  const { type, payload } = event.data;
+  if(event.origin !== location.origin || !event.data || typeof event.data !== 'object') return;
+  const { type } = event.data;
+  const payload = event.data.payload || {};
+
+  if(type === 'REQUEST_STATE'){            // a tab that has just finished loading its list
+    broadcastQueueUpdate();
+    broadcastPlaybackUpdate();
+    return;
+  }
 
   if(type === 'PLAY_TRACK'){
     playbackMode = 'single';
-    currentPlaylist = [payload];
+    currentPlaylist = [withDisplay(payload)];
     currentIndex = 0;
-    playTrack(payload);
-    saveState();
+    playTrack(currentPlaylist[0]);
+    saveLists();
   }
 
   else if(type === 'PLAY_PLAYLIST'){
     playbackMode = 'playlist';
-    currentPlaylist = payload.tracks || [];
+    currentPlaylist = (payload.tracks || []).map(withDisplay);
     currentIndex = payload.startIndex || 0;
+    if(currentIndex < 0 || currentIndex >= currentPlaylist.length) currentIndex = 0;
     if(currentPlaylist.length > 0){
       playAtIndex(currentIndex, currentPlaylist);
     } else {
       playerTitle.textContent = 'Empty playlist';
     }
-    saveState();
+    saveLists();
   }
 
   else if(type === 'PLAY_QUEUE'){
@@ -667,10 +778,10 @@ window.addEventListener('message', (event) => {
 
   else if(type === 'ADD_TO_QUEUE'){
     if(payload && payload.path){
-      queue.push(payload);
+      queue.push(withDisplay(payload));
       broadcastQueueUpdate();
       showToast('Added to queue');
-      saveState();
+      saveLists();
     }
   }
 
@@ -685,7 +796,7 @@ window.addEventListener('message', (event) => {
         if(queue.length === 0){
           audio.pause();
           playerTitle.textContent = 'Queue is empty';
-          currentTrack = null;
+          currentTrack = null; updateMediaSession();
           queueIndex = 0;
           playbackMode = 'playlist';
         } else {
@@ -699,7 +810,7 @@ window.addEventListener('message', (event) => {
       }
 
       broadcastQueueUpdate();
-      saveState();
+      saveLists();
     }
   }
 
@@ -720,7 +831,7 @@ window.addEventListener('message', (event) => {
       }
 
       broadcastQueueUpdate();
-      saveState();
+      saveLists();
     }
   }
 
@@ -730,7 +841,7 @@ window.addEventListener('message', (event) => {
       queueIndex = payload.queueIndex;
     }
     broadcastQueueUpdate();
-    saveState();
+    saveLists();
   }
 
   else if(type === 'CLEAR_QUEUE'){
@@ -739,11 +850,11 @@ window.addEventListener('message', (event) => {
     if(playbackMode === 'queue'){
       audio.pause();
       playerTitle.textContent = 'Queue cleared';
-      currentTrack = null;
+      currentTrack = null; updateMediaSession();
       playbackMode = 'playlist';
     }
     broadcastQueueUpdate();
-    saveState();
+    saveLists();
   }
 
   else if(type === 'REQUEST_QUEUE_UPDATE'){
@@ -751,7 +862,7 @@ window.addEventListener('message', (event) => {
   }
 });
 
-audio.addEventListener('timeupdate', () => {
+onDeck('timeupdate', () => {
   if(audio.duration){
     currentTime.textContent = fmtTime(audio.currentTime);
     const pct = (audio.currentTime / audio.duration) * 100;
@@ -759,11 +870,11 @@ audio.addEventListener('timeupdate', () => {
   }
 });
 
-audio.addEventListener('loadedmetadata', () => {
+onDeck('loadedmetadata', () => {
   totalTime.textContent = fmtTime(audio.duration);
 });
 
-audio.addEventListener('play', () => {
+onDeck('play', () => {
   playBtn.innerHTML = SVG_PAUSE;
   playBtn.title = 'Pause';
   playBtn.setAttribute('aria-label', 'Pause');
@@ -771,7 +882,7 @@ audio.addEventListener('play', () => {
   saveState();
 });
 
-audio.addEventListener('pause', () => {
+onDeck('pause', () => {
   playBtn.innerHTML = SVG_PLAY;
   playBtn.title = 'Play';
   playBtn.setAttribute('aria-label', 'Play');
@@ -779,13 +890,34 @@ audio.addEventListener('pause', () => {
   saveState();
 });
 
-audio.addEventListener('ended', handleNext);
+onDeck('ended', () => {
+  // the sleep timer set to the end of this song
+  if(SLEEP_STEPS[sleepStep] === 'end'){ setSleep(0); playerTitle.textContent = currentTrack ? currentTrack.name : 'Stopped'; showToast('Sleep timer: stopped'); saveState(); return; }
+  _nextFromEnded = true;
+  try { handleNext(false); } finally { _nextFromEnded = false; }
+});
+onDeck('playing', () => { _failedInARow = 0; _attemptPlayed = true; _lastProgressAt = Date.now(); });
+onDeck('progress', () => { _lastProgressAt = Date.now(); });
+// wants to play, has run dry, and nothing has arrived for 20 s: a reply that hung. Handed to
+// the same retry as an error, which carries on from where it was.
+setInterval(() => {
+  if(!_failCurrent || !currentTrack || audio.paused || audio.ended) return;
+  if(audio.readyState >= 3){ _lastProgressAt = Date.now(); return; }
+  if(Date.now() - _lastProgressAt > 20000){ _lastProgressAt = Date.now(); _failCurrent('Stalled'); }
+}, 5000);
+// where in the song, every few seconds while playing and when the page goes away, so
+// coming back carries on from there
+let _lastPosSave = 0;
+onDeck('timeupdate', () => {
+  if(!audio.paused && Date.now() - _lastPosSave > 5000){ _lastPosSave = Date.now(); saveState(); }
+});
+window.addEventListener('pagehide', saveState);
+document.addEventListener('visibilitychange', () => { if(document.hidden) saveState(); });
 
-audio.addEventListener('error', (e) => {
+onDeck('error', (e) => {
   if(!audio.src || audio.src === '' || audio.src === location.href) return;
   console.error('[Music] Audio error:', e);
-  // this is now the main signal that a load failed, so hand it to the retry
-  // logic for the attempt in flight
+  // the main signal that a load failed: hand it to the retry for the attempt in flight
   if(_failCurrent){ _failCurrent('Audio error'); return; }
   _retrying = false;
   playerTitle.textContent = 'Error loading track';
@@ -793,14 +925,17 @@ audio.addEventListener('error', (e) => {
 
 playBtn.addEventListener('click', () => {
   if(audio.paused){
-    audio.play();
+    beforePlay();
+    // a restored song whose source was dropped (or never set): load it properly
+    if(!audio.currentSrc && currentTrack){ playTrack(currentTrack); return; }
+    audio.play().catch(() => { if(currentTrack) playTrack(currentTrack); });
   } else {
     audio.pause();
   }
 });
 
 prevBtn.addEventListener('click', handlePrev);
-nextBtn.addEventListener('click', handleNext);
+nextBtn.addEventListener('click', () => handleNext(true));
 
 loopBtn.addEventListener('click', () => {
   if(loopMode === 'none'){
@@ -822,6 +957,7 @@ progressBar.addEventListener('click', (e) => {
   const rect = progressBar.getBoundingClientRect();
   const pct = (e.clientX - rect.left) / rect.width;
   audio.currentTime = pct * audio.duration;
+  sendPosition(true);
 });
 
 downloadBtn.addEventListener('click', () => {
@@ -857,7 +993,7 @@ shuffleBtn.addEventListener('click', () => {
     activeFrame.contentWindow.postMessage({
       type: 'SHUFFLE',
       payload: {}
-    }, '*');
+    }, location.origin);
   }
 });
 
@@ -884,12 +1020,12 @@ sortBtn.addEventListener('click', () => {
 
     if(activeFrame){
       if(queueSortMode === 'added'){
-        activeFrame.contentWindow.postMessage({type: 'SORT', payload: {mode: 'added'}}, '*');
+        activeFrame.contentWindow.postMessage({type: 'SORT', payload: {mode: 'added'}}, location.origin);
       } else {
         activeFrame.contentWindow.postMessage({
           type: 'SORT',
           payload: { ascending: queueSortMode === 'asc' }
-        }, '*');
+        }, location.origin);
       }
     }
   } else {
@@ -901,10 +1037,19 @@ sortBtn.addEventListener('click', () => {
       activeFrame.contentWindow.postMessage({
         type: 'SORT',
         payload: { ascending: sortAsc }
-      }, '*');
+      }, location.origin);
     }
   }
 });
+
+// Playlists and Queue load the first time they are opened, so arriving on the page does not
+// fetch and parse the whole Music index twice. A frame that loads late is told the queue
+// and what is playing as soon as it is up.
+function ensureFrameLoaded(frame){
+  if (!frame || frame.getAttribute('src') || !frame.dataset.src) return;
+  frame.addEventListener('load', () => { broadcastQueueUpdate(); broadcastPlaybackUpdate(); }, { once: true });
+  frame.src = frame.dataset.src;
+}
 
 document.querySelectorAll('.tab').forEach(tab => {
   tab.addEventListener('click', () => {
@@ -912,6 +1057,7 @@ document.querySelectorAll('.tab').forEach(tab => {
     document.querySelectorAll('.iframe-container iframe').forEach(f => f.classList.remove('active'));
     tab.classList.add('active');
     const tabName = tab.dataset.tab;
+    ensureFrameLoaded(document.getElementById(tabName + 'Frame'));
     document.getElementById(tabName + 'Frame').classList.add('active');
 
     // Update shuffle button state when switching tabs
@@ -945,6 +1091,445 @@ document.querySelectorAll('.tab').forEach(tab => {
     }
   });
 });
+
+
+/* Now playing, the second player, sleep timer, sound. All from the song folders: no covers or tags. */
+
+// the second player: load the next song ahead, hand over at the end (or crossfade)
+const PRELOAD_S = 15;          // seconds before the end the next song starts loading
+let preload = null;            // { path, deck }
+let fadingDeck = null;         // the player fading out during a crossfade
+let _xfadeNext = false;        // the next playTrack is a crossfade, not a cut
+
+// the song handleNext(false) would play, without moving there
+function peekNext(){
+  if(loopMode === 'single') return null;
+  const inQueue = playbackMode === 'queue' && queue.length > 0;
+  const list = inQueue ? queue : currentPlaylist, i = inQueue ? queueIndex : currentIndex;
+  if(!list.length) return null;
+  if(i < list.length - 1) return list[i + 1];
+  return loopMode === 'all' ? list[0] : null;
+}
+function spareDeck(){ return audio === deckA ? deckB : deckA; }
+function retireDeck(d){
+  if(d === audio) return;
+  if(fadingDeck === d) fadingDeck = null;
+  d.pause(); d.removeAttribute('src'); d.load();
+  deckLevel(d, 1);
+}
+function clearPreload(){
+  if(!preload) return;
+  const d = preload.deck; preload = null;
+  if(d !== fadingDeck) retireDeck(d);
+}
+for(const d of [deckA, deckB]) d.addEventListener('error', () => { if(preload && preload.deck === d && d !== audio) preload = null; });
+
+function aheadTick(){
+  if(!TWO_DECKS || audio.paused || !isFinite(audio.duration) || audio.duration <= 0) return;
+  const left = audio.duration - audio.currentTime;
+  if(SLEEP_STEPS[sleepStep] === 'end') return;            // stopping at the end: nothing to load
+  if(left > PRELOAD_S + sound.crossfade) return;
+  const nxt = peekNext();
+  if(!nxt || (currentTrack && nxt.path === currentTrack.path)) return;
+  if(!preload || preload.path !== nxt.path){
+    clearPreload();
+    const d = spareDeck();
+    if(d === fadingDeck) return;                           // still fading the last one out
+    d.preload = 'auto'; d.src = mediaUrl(nxt.path); d.load();
+    preload = { path: nxt.path, deck: d };
+    return;
+  }
+  // crossfade: hand over early, once the next song can play
+  if(sound.crossfade > 0 && actx && left <= sound.crossfade && preload.deck.readyState >= 2 && !fadingDeck){
+    _xfadeNext = true;
+    handleNext(false);
+  }
+}
+
+// start track in the player that already has it loaded, false when it doesn't
+function takeOver(track, gen){
+  const p = preload;
+  if(!TWO_DECKS || !p || p.path !== track.path || p.deck === audio) return false;
+  if(p.deck.readyState < 2){ clearPreload(); return false; }
+  preload = null;
+  const old = audio, fade = (_xfadeNext && actx) ? sound.crossfade : 0;
+  _xfadeNext = false;
+  _failCurrent = null;
+  if(fadingDeck && fadingDeck !== old) retireDeck(fadingDeck);
+  audio = p.deck;
+  currentTrack = track;
+  playerTitle.textContent = track.name || 'Unknown';
+  progressFill.style.width = '0%';
+  currentTime.textContent = '0:00';
+  totalTime.textContent = fmtTime(audio.duration);
+  _lastLoadTime = Date.now();
+  if(fade > 0){
+    deckLevel(audio, 0); rampDeck(audio, 1, fade);
+    rampDeck(old, 0, fade); fadingDeck = old;
+    setTimeout(() => { if(fadingDeck === old) retireDeck(old); }, fade * 1000 + 400);
+  } else {
+    retireDeck(old);
+    deckLevel(audio, 1);
+  }
+  // if it fails after all, load it again the ordinary way
+  _failCurrent = () => { if(gen === _playGeneration){ _failCurrent = null; playTrack(track, 1); } };
+  audio.play().catch(e => {
+    if(e && e.name === 'NotAllowedError'){ playerTitle.textContent = (track.name || 'Unknown') + ' (tap play)'; return; }
+    if(_failCurrent) _failCurrent('Play failed: ' + e);
+  });
+  updateMediaSession();
+  broadcastPlaybackUpdate();
+  saveState();
+  onTrackChange();
+  return true;
+}
+
+// sound: crossfade, equalizer, night mode (Web Audio, not on iPhone)
+const SOUND_KEY = 'nomad_music_sound_v1';
+const EQ_FREQS = [60, 230, 910, 3600, 14000];
+const EQ_NAMES = ['60 Hz', '230 Hz', '910 Hz', '3.6 kHz', '14 kHz'];
+const EQ_PRESETS = { 'Flat': [0, 0, 0, 0, 0], 'More bass': [6, 3, 0, 0, 0], 'Voices': [-3, 0, 3, 4, 1],
+                     'Small speaker': [-5, 3, 2, 3, 1], 'Treble': [0, 0, 0, 3, 6] };
+const sound = { crossfade: 0, night: false, eq: [0, 0, 0, 0, 0] };
+try {
+  const sv = JSON.parse(localStorage.getItem(SOUND_KEY) || 'null');
+  if(sv){
+    sound.crossfade = Math.min(8, Math.max(0, +sv.crossfade || 0));
+    sound.night = !!sv.night;
+    if(Array.isArray(sv.eq) && sv.eq.length === 5) sound.eq = sv.eq.map(v => Math.min(12, Math.max(-12, +v || 0)));
+  }
+} catch(e){}
+function saveSound(){ try { localStorage.setItem(SOUND_KEY, JSON.stringify(sound)); } catch(e){} }
+
+let actx = null, master = null, makeup = null, comp = null, eqNodes = [];
+const deckGains = new Map();
+const soundUsed = () => !IOS && (sound.crossfade > 0 || sound.night || sound.eq.some(v => v));
+
+// the sound path, built the first time a setting needs it (from a tap, so it may start).
+// Once a player goes through it, it stays that way for this visit.
+function ensureGraph(){
+  if(actx) return true;
+  if(!soundUsed()) return false;
+  const AC = window.AudioContext || window.webkitAudioContext;
+  if(!AC) return false;
+  try {
+    actx = new AC();
+    eqNodes = EQ_FREQS.map((f, i) => {
+      const b = actx.createBiquadFilter();
+      b.type = i === 0 ? 'lowshelf' : i === EQ_FREQS.length - 1 ? 'highshelf' : 'peaking';
+      b.frequency.value = f; b.Q.value = 1;
+      return b;
+    });
+    comp = actx.createDynamicsCompressor();
+    makeup = actx.createGain();
+    master = actx.createGain();
+    for(let i = 0; i < eqNodes.length - 1; i++) eqNodes[i].connect(eqNodes[i + 1]);
+    eqNodes[eqNodes.length - 1].connect(comp); comp.connect(makeup); makeup.connect(master); master.connect(actx.destination);
+    for(const d of [deckA, deckB]){
+      const g = actx.createGain();
+      actx.createMediaElementSource(d).connect(g); g.connect(eqNodes[0]);
+      deckGains.set(d, g);
+    }
+    applySound();
+    return true;
+  } catch(e){
+    console.warn('[Music] sound settings unavailable', e);
+    actx = null; deckGains.clear();
+    return false;
+  }
+}
+function applySound(){
+  if(!actx) return;
+  sound.eq.forEach((v, i) => { eqNodes[i].gain.value = v; });
+  if(sound.night){
+    comp.threshold.value = -34; comp.knee.value = 24; comp.ratio.value = 4; comp.attack.value = 0.01; comp.release.value = 0.35;
+    makeup.gain.value = 1.6;
+  } else {
+    comp.threshold.value = 0; comp.knee.value = 0; comp.ratio.value = 1;
+    makeup.gain.value = 1;
+  }
+}
+// before any play: the sound path up and running, if a setting uses it
+function beforePlay(){
+  if(ensureGraph() && actx.state !== 'running') actx.resume().catch(() => {});
+}
+function deckLevel(d, v){
+  const g = deckGains.get(d);
+  if(g){ g.gain.cancelScheduledValues(actx.currentTime); g.gain.value = v; }
+  else if(!IOS) d.volume = v;
+}
+function rampDeck(d, to, secs){
+  const g = deckGains.get(d);
+  if(!g){ deckLevel(d, to); return; }
+  const t = actx.currentTime;
+  g.gain.cancelScheduledValues(t);
+  g.gain.setValueAtTime(g.gain.value, t);
+  g.gain.linearRampToValueAtTime(to, t + secs);
+}
+
+// sleep timer: off, 15, 30, 45, 60 minutes, or the end of this song
+const SLEEP_STEPS = [0, 15, 30, 45, 60, 'end'];
+let sleepStep = 0, sleepAt = 0, sleepTick = null;
+function setSleep(step){
+  sleepStep = step;
+  clearInterval(sleepTick); sleepTick = null; sleepAt = 0;
+  const v = SLEEP_STEPS[step];
+  if(typeof v === 'number' && v > 0){ sleepAt = Date.now() + v * 60000; sleepTick = setInterval(showSleep, 5000); }
+  if(v === 'end') clearPreload();
+  showSleep();
+}
+function sleepText(){
+  const v = SLEEP_STEPS[sleepStep];
+  if(!v) return '';
+  if(v === 'end') return 'End of song';
+  return Math.max(1, Math.ceil((sleepAt - Date.now()) / 60000)) + ' min';
+}
+function showSleep(){
+  const t = sleepText();
+  npSleepLabel.textContent = t ? 'Sleep: ' + t : 'Sleep';
+  npSleep.classList.toggle('on', !!t);
+  npSleep.title = t ? (t === 'End of song' ? 'Stops at the end of this song' : 'Stops in ' + t) : 'Sleep timer: off';
+  barSleep.hidden = !t;
+  barSleep.textContent = t === 'End of song' ? 'Sleep: end' : 'Sleep ' + t;
+  if(typeof SLEEP_STEPS[sleepStep] === 'number' && sleepAt && Date.now() >= sleepAt){ setSleep(0); sleepFade(); }
+}
+// a few seconds' fade, then pause, then the level back for next time
+function sleepFade(){
+  const d = audio, secs = 6;
+  if(d.paused) return;
+  if(master){
+    const t = actx.currentTime;
+    master.gain.cancelScheduledValues(t); master.gain.setValueAtTime(master.gain.value, t); master.gain.linearRampToValueAtTime(0, t + secs);
+  }
+  let k = 0;
+  const step = setInterval(() => {
+    k++;
+    if(!master && !IOS) d.volume = Math.max(0, 1 - k / (secs * 4));
+    if(k >= secs * 4){
+      clearInterval(step);
+      d.pause();
+      if(master){ master.gain.cancelScheduledValues(actx.currentTime); master.gain.value = 1; }
+      deckLevel(d, 1);
+      showToast('Sleep timer: stopped');
+    }
+  }, 250);
+}
+
+// the lock screen's scrubber
+let _posAt = 0;
+function sendPosition(force){
+  if(!('mediaSession' in navigator) || !navigator.mediaSession.setPositionState) return;
+  const d = audio.duration;
+  if(!isFinite(d) || d <= 0) return;
+  const now = Date.now();
+  if(!force && now - _posAt < 5000) return;
+  _posAt = now;
+  try { navigator.mediaSession.setPositionState({ duration: d, playbackRate: audio.playbackRate || 1, position: Math.min(audio.currentTime, d) }); } catch(e){}
+}
+
+// recently played, on this phone, for the Songs tab
+const RECENT_KEY = 'nomad_music_recent_v1';
+let _recentFor = null;
+function noteRecent(){
+  if(!currentTrack || _recentFor === currentTrack.path) return;
+  _recentFor = currentTrack.path;
+  try {
+    const list = JSON.parse(localStorage.getItem(RECENT_KEY) || '[]').filter(p => p !== currentTrack.path);
+    list.unshift(currentTrack.path);
+    localStorage.setItem(RECENT_KEY, JSON.stringify(list.slice(0, 20)));
+  } catch(e){}
+  try { if(songsFrame.contentWindow) songsFrame.contentWindow.postMessage({ type: 'RECENT_UPDATE' }, location.origin); } catch(e){}
+}
+
+// the Now playing sheet
+const npSheet = document.getElementById('npSheet'), npTop = document.getElementById('npTop');
+const npTitle = document.getElementById('npTitle'), npSub = document.getElementById('npSub'), npWhere = document.getElementById('npWhere');
+const npCur = document.getElementById('npCur'), npDur = document.getElementById('npDur'), npSeek = document.getElementById('npSeek');
+const npPlay = document.getElementById('npPlay'), npLoop = document.getElementById('npLoop');
+const npSleep = document.getElementById('npSleep'), npSleepLabel = document.getElementById('npSleepLabel');
+const npSound = document.getElementById('npSoundBtn'), npSoundPanel = document.getElementById('npSoundPanel');
+const npNextList = document.getElementById('npNextList'), barSleep = document.getElementById('barSleep');
+const nowOpen = document.getElementById('nowOpen');
+npPlay.innerHTML = SVG_PLAY;
+let _seeking = false;
+
+function syncSheetLoop(){
+  npLoop.innerHTML = loopBtn.innerHTML;
+  npLoop.title = loopBtn.title;
+  npLoop.style.cssText = loopBtn.style.cssText;
+}
+// what follows, in the order it will play
+function upcoming(n){
+  if(loopMode === 'single') return [];
+  const inQueue = playbackMode === 'queue' && queue.length > 0;
+  const list = inQueue ? queue : currentPlaylist, i = inQueue ? queueIndex : currentIndex, out = [];
+  for(let k = 1; k <= n && list.length; k++){
+    let j = i + k;
+    if(j >= list.length){ if(loopMode !== 'all') break; j %= list.length; if(j === i) break; }
+    out.push({ t: list[j], j, inQueue });
+  }
+  return out;
+}
+function syncSheet(all){
+  if(npSheet.hidden) return;
+  if(all){
+    npTitle.textContent = currentTrack ? (currentTrack.name || 'Unknown') : 'Not playing';
+    npSub.textContent = currentTrack ? (currentTrack.display || '') : '';
+    // the top folder the song is in (folder names often have " - " in them, so not from display)
+    const top = currentTrack ? String(currentTrack.path || '').split('/').filter(Boolean) : [];
+    npWhere.textContent = playbackMode === 'queue' ? 'Playing from the queue' : (top.length > 2 ? 'Playing from ' + top[1] : 'Now playing');
+    npNextList.innerHTML = '';
+    const next = upcoming(5);
+    if(!next.length){ const p = document.createElement('p'); p.textContent = loopMode === 'single' ? 'This song again' : 'Nothing after this one'; npNextList.appendChild(p); }
+    for(const u of next){
+      const li = document.createElement('li');
+      const b = document.createElement('b'); b.textContent = u.t.name || 'Unknown';
+      const sp = document.createElement('span'); sp.textContent = u.t.display || '';
+      li.append(b, sp);
+      li.addEventListener('click', () => {
+        if(u.inQueue) queueIndex = u.j; else currentIndex = u.j;
+        playAtIndex(u.j, u.inQueue ? queue : currentPlaylist);
+      });
+      npNextList.appendChild(li);
+    }
+    syncSheetLoop();
+  }
+  npPlay.innerHTML = audio.paused ? SVG_PLAY : SVG_PAUSE;
+  npPlay.setAttribute('aria-label', audio.paused ? 'Play' : 'Pause');
+  const d = audio.duration;
+  npDur.textContent = fmtTime(d);
+  if(!_seeking){
+    npCur.textContent = fmtTime(audio.currentTime);
+    npSeek.value = isFinite(d) && d > 0 ? Math.round(audio.currentTime / d * 1000) : 0;
+  }
+}
+function openSheet(){
+  NomadBack.open('now-playing', closeSheet);   // the phone's Back closes it
+  npSheet.hidden = false;
+  requestAnimationFrame(() => npSheet.classList.add('open'));
+  syncSheet(true);
+  showSleep();
+  document.getElementById('npClose').focus();
+}
+function closeSheet(){
+  NomadBack.done('now-playing');
+  npSheet.classList.remove('open');
+  npSheet.style.transform = '';
+  setTimeout(() => { if(!npSheet.classList.contains('open')) npSheet.hidden = true; }, 280);
+}
+// a song change: the sheet, the lock screen's position, and the next song not yet loaded
+function onTrackChange(){
+  syncSheet(true);
+  _posAt = 0;
+}
+
+nowOpen.addEventListener('click', () => { if(!_swiped) openSheet(); });
+// Enter opens it. Space stays play and pause everywhere, like most music players
+nowOpen.addEventListener('keydown', (e) => { if(e.key === 'Enter'){ e.preventDefault(); openSheet(); } });
+document.getElementById('npClose').addEventListener('click', closeSheet);
+npPlay.addEventListener('click', () => playBtn.click());
+document.getElementById('npPrev').addEventListener('click', handlePrev);
+document.getElementById('npNextBtn').addEventListener('click', () => handleNext(true));
+npLoop.addEventListener('click', () => loopBtn.click());
+npSleep.addEventListener('click', () => setSleep((sleepStep + 1) % SLEEP_STEPS.length));
+const toggleSoundPanel = () => {
+  npSoundPanel.hidden = !npSoundPanel.hidden;
+  npSound.setAttribute('aria-expanded', String(!npSoundPanel.hidden));
+  npSound.classList.toggle('on', !npSoundPanel.hidden);
+  if(!npSoundPanel.hidden) npSoundPanel.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+};
+npSound.addEventListener('click', toggleSoundPanel);
+npSeek.addEventListener('input', () => { _seeking = true; if(isFinite(audio.duration)) npCur.textContent = fmtTime(npSeek.value / 1000 * audio.duration); });
+npSeek.addEventListener('change', () => {
+  if(isFinite(audio.duration)) audio.currentTime = npSeek.value / 1000 * audio.duration;
+  _seeking = false; sendPosition(true);
+});
+
+// pull the sheet down to close it
+(() => {
+  let y0 = null, dy = 0;
+  npTop.addEventListener('pointerdown', (e) => { if(e.target.closest('button')) return; y0 = e.clientY; dy = 0; npTop.setPointerCapture(e.pointerId); npSheet.style.transition = 'none'; });
+  npTop.addEventListener('pointermove', (e) => { if(y0 === null) return; dy = Math.max(0, e.clientY - y0); npSheet.style.transform = `translateY(${dy}px)`; });
+  const end = () => { if(y0 === null) return; y0 = null; npSheet.style.transition = ''; if(dy > 90) closeSheet(); else npSheet.style.transform = ''; };
+  npTop.addEventListener('pointerup', end); npTop.addEventListener('pointercancel', end);
+})();
+
+// swipe the player bar: left for the next song, right for the one before
+let _swiped = false;
+(() => {
+  const bar = document.querySelector('.player-bar');
+  let x0 = null, y0 = 0;
+  bar.addEventListener('pointerdown', (e) => {
+    if(e.target.closest('button') || e.target.closest('.progress-bar')){ x0 = null; return; }
+    x0 = e.clientX; y0 = e.clientY; _swiped = false;
+  });
+  bar.addEventListener('pointerup', (e) => {
+    if(x0 === null) return;
+    const dx = e.clientX - x0, dy = e.clientY - y0;
+    x0 = null;
+    if(Math.abs(dx) > 60 && Math.abs(dx) > 2 * Math.abs(dy)){
+      _swiped = true; setTimeout(() => { _swiped = false; }, 400);
+      if(dx < 0) handleNext(true); else handlePrev();
+    }
+  });
+})();
+
+// keys on a computer: space plays and pauses, arrows seek 10 s, shift + arrows change song
+document.addEventListener('keydown', (e) => {
+  const tag = (e.target && e.target.tagName) || '';
+  if(/INPUT|TEXTAREA|SELECT/.test(tag) || e.metaKey || e.ctrlKey || e.altKey) return;
+  if(e.key === 'Escape' && !npSheet.hidden){ closeSheet(); return; }
+  if(e.key === ' ' && !/BUTTON/.test(tag)){ e.preventDefault(); playBtn.click(); }
+  else if(e.key === 'ArrowRight'){ e.preventDefault(); if(e.shiftKey) handleNext(true); else if(audio.duration){ audio.currentTime = Math.min(audio.duration - 1, audio.currentTime + 10); sendPosition(true); } }
+  else if(e.key === 'ArrowLeft'){ e.preventDefault(); if(e.shiftKey) handlePrev(); else { audio.currentTime = Math.max(0, audio.currentTime - 10); sendPosition(true); } }
+});
+
+// the Sound panel
+(() => {
+  const xf = document.getElementById('xfRange'), xfLabel = document.getElementById('xfLabel'), night = document.getElementById('nightBtn');
+  const presets = document.getElementById('eqPresets'), bands = document.getElementById('eqBands');
+  if(IOS){
+    document.getElementById('sndNote').hidden = false;
+    for(const id of ['sndXfRow', 'sndNightRow', 'sndEq']) document.getElementById(id).classList.add('snd-off');
+  }
+  const presetName = () => Object.keys(EQ_PRESETS).find(k => EQ_PRESETS[k].every((v, i) => v === sound.eq[i])) || '';
+  const show = () => {
+    xf.value = sound.crossfade;
+    xfLabel.textContent = sound.crossfade ? `${sound.crossfade} s` : 'Off';
+    night.textContent = sound.night ? 'On' : 'Off';
+    night.classList.toggle('on', sound.night);
+    night.setAttribute('aria-pressed', String(sound.night));
+    const pn = presetName();
+    presets.querySelectorAll('button').forEach(b => b.classList.toggle('on', b.textContent === pn));
+    bands.querySelectorAll('input').forEach((inp, i) => { inp.value = sound.eq[i]; inp.nextElementSibling.textContent = (sound.eq[i] > 0 ? '+' : '') + sound.eq[i] + ' dB'; });
+  };
+  const changed = () => { saveSound(); if(soundUsed()){ beforePlay(); applySound(); } else applySound(); show(); };
+  for(const name of Object.keys(EQ_PRESETS)){
+    const b = document.createElement('button'); b.type = 'button'; b.textContent = name;
+    b.addEventListener('click', () => { sound.eq = EQ_PRESETS[name].slice(); changed(); });
+    presets.appendChild(b);
+  }
+  EQ_NAMES.forEach((label, i) => {
+    const row = document.createElement('label'); row.className = 'snd-band';
+    const l = document.createElement('span'); l.textContent = label;
+    const inp = document.createElement('input'); inp.type = 'range'; inp.min = -12; inp.max = 12; inp.step = 1; inp.setAttribute('aria-label', label);
+    const v = document.createElement('b');
+    inp.addEventListener('input', () => { sound.eq[i] = +inp.value; changed(); });
+    row.append(l, inp, v); bands.appendChild(row);
+  });
+  xf.addEventListener('input', () => { sound.crossfade = +xf.value; changed(); });
+  night.addEventListener('click', () => { sound.night = !sound.night; changed(); });
+  show();
+})();
+
+// keep the sheet, the lock screen, the next song and the timer in step with the player
+onDeck('timeupdate', () => { syncSheet(false); aheadTick(); sendPosition(false); });
+onDeck('play', () => { syncSheet(false); sendPosition(true); });
+onDeck('pause', () => { syncSheet(false); sendPosition(true); });
+onDeck('loadedmetadata', () => { syncSheet(false); sendPosition(true); });
+onDeck('seeked', () => { sendPosition(true); if(preload && audio.duration - audio.currentTime > PRELOAD_S + sound.crossfade + 5) clearPreload(); });
+onDeck('playing', noteRecent);
+showSleep();
 
 setInterval(() => {
   if(!audio.paused && audio.currentTime > 0){

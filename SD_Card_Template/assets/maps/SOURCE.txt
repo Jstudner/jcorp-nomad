@@ -1,0 +1,13 @@
+Vendored for the Maps page (maps.html):
+
+- maplibre-gl 6.11.2 (BSD-3-Clause, LICENSE-maplibre.txt): maplibre-gl.mjs imports
+  ./maplibre-gl-shared.mjs and starts ./maplibre-gl-worker.mjs relative to its own URL,
+  so the three files stay together.
+- pmtiles 4.5.0 (BSD-3-Clause, LICENSE-pmtiles.txt): reads .pmtiles by byte range.
+- @protomaps/basemaps 5.7.2 (BSD-3-Clause, LICENSE-basemaps.md): builds the map style
+  (light, dark, white, grayscale, black) for Protomaps v4 tiles in the browser.
+- protomaps/basemaps-assets 028c18f: fonts/ (Noto Sans Regular, Medium, Italic; Latin,
+  Greek, Cyrillic, Armenian, Hebrew and punctuation ranges; SIL OFL, fonts/OFL.txt) and
+  sprites/v4/ (MIT, sprites/LICENSE.md).
+
+nomad-route.js is Nomad's own: offline directions over NRG3 routing packs.

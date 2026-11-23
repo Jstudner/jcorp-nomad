@@ -6,7 +6,7 @@
 #include <ArduinoJson.h>
 #include "NomadSD.h"
 
-// the sketch aliases SD_MMC to the SdFat shim; do the same here
+// the sketch aliases SD_MMC to the SdFat shim, do the same here
 #define SD_MMC NomadSD
 
 // helpers that live in the sketch
@@ -28,7 +28,7 @@ static char s_uuid[48] = "";
 static const char *ST_ROOT = "upnp:rootdevice";
 static const char *ST_MS   = "urn:schemas-upnp-org:device:MediaServer:1";
 static const char *ST_CDS  = "urn:schemas-upnp-org:service:ContentDirectory:1";
-static const char *SSDP_SERVER = "FreeRTOS/10 UPnP/1.0 JcorpNomad/4.6";
+static const char *SSDP_SERVER = "FreeRTOS/10 UPnP/1.0 JcorpNomad/4.8";
 
 // one flags string everywhere. OP=01 = byte seek, and the LG-required
 // realTimeInfo header is added by handleRangeRequest on the stream itself.
@@ -48,7 +48,7 @@ static const char *deviceUUID() {
   return s_uuid;
 }
 
-/* ---------------- SSDP ---------------- */
+// SSDP
 
 static void ssdpSendTo(const String &msg, IPAddress ip, uint16_t port) {
   s_ssdp.writeTo((const uint8_t *)msg.c_str(), msg.length(), ip, port);
@@ -173,7 +173,7 @@ bool dlnaIsEnabled() {
   return s_enabled;
 }
 
-/* ---------------- device + service descriptions ---------------- */
+// device + service descriptions
 
 static void sendDeviceXml(AsyncWebServerRequest *request) {
   String xml =
@@ -270,7 +270,7 @@ static const char CMS_SCPD[] PROGMEM =
   "</serviceStateTable>"
   "</scpd>";
 
-/* ---------------- ContentDirectory Browse ---------------- */
+// ContentDirectory Browse
 
 struct BucketDef { const char *id; const char *title; bool video; bool audio; bool image; };
 static const BucketDef BUCKETS[] = {
@@ -340,7 +340,7 @@ static String didlItem(const String &path, const String &name, const String &par
                "\" restricted=\"1\"><dc:title>" + xmlEscape(title) +
                "</dc:title><upnp:class>" + upnpClassFor(mime) + "</upnp:class>";
   // same-named .jpg sidecar poster (web UI convention). emitted without an
-  // exists() so browsing costs no extra SD stats - a 404'd art fetch just
+  // exists() so browsing costs no extra SD stats. A 404'd art fetch just
   // leaves the client's generic icon
   if (mime.startsWith("video/")) {
     int adot = path.lastIndexOf('.');
@@ -415,6 +415,19 @@ static bool browseDir(const String &dirPath, const BucketDef *b, const String &c
   if (sdMutex && xSemaphoreTake(sdMutex, pdMS_TO_TICKS(1500)) != pdTRUE) return false;
 
   File f = SD_MMC.open(indexFile, FILE_READ);
+
+  // No per-folder index? Read the bucket's own index and keep the entries under this
+  // path. /Shows/* and /Music/* fold onto their bucket root (those indexes are
+  // recursive), so Shows__Foo.nested.ndjson never exists. A prefix filter over the
+  // bucket index gives exactly the folder's subtree.
+  String prefixFilter;
+  if (!f && !bucketRoot) {
+    int cut = dirPath.indexOf('/', 1);
+    String bucket = (cut > 0) ? dirPath.substring(0, cut) : dirPath;
+    f = SD_MMC.open(String(INDEX_DIR) + "/" + bucket.substring(1) + ".index.ndjson", FILE_READ);
+    if (f) prefixFilter = dirPath + "/";
+  }
+
   if (!f) {
     if (sdMutex) xSemaphoreGive(sdMutex);
     // no index yet reads as an empty folder, not an error
@@ -423,47 +436,142 @@ static bool browseDir(const String &dirPath, const BucketDef *b, const String &c
     return true;
   }
 
-  bool headerSkipped = false;
-  uint32_t match = 0;
-  while (f.available()) {
-    String line = f.readStringUntil('\n');
-    line.trim();
-    if (!line.length()) continue;
-    if (!headerSkipped) { headerSkipped = true; continue; }
+  // A folder's entries, out of an index that lists its whole subtree (bucket and nested
+  // indexes are recursive): only the entries whose parent is this folder.
+  //
+  // A TV pages a folder 30 at a time, and a full index scan on the network task is slow
+  // (Music: about 2 s). The first page scans in 4 KB blocks and keeps where each of this
+  // folder's entries starts; the pages after it seek straight to theirs. Kept for the last
+  // few folders, and only while the index is the same one (its header line and size).
+  struct BrowseCache { String dir, file; uint32_t key; uint32_t *offs; uint32_t n, cap, used; };
+  static BrowseCache s_cache[6];
+  static uint32_t s_cacheTick = 0;
 
-    // 1KB: a long nested path overflows 512B and the item silently vanishes
-    // from the TV's listing (and its paging count)
+  // The path as the index writes it (quote, backslash, newline and return escaped): most
+  // lines are turned away by their "p" before any JSON is parsed, the slow part of a scan.
+  String escDir;
+  for (size_t q = 0; q < dirPath.length(); q++) {
+    const char c = dirPath[q];
+    if (c == '"' || c == '\\') { escDir += '\\'; escDir += c; }
+    else if (c == '\n') escDir += "\\n";
+    else if (c == '\r') escDir += "\\r";
+    else escDir += c;
+  }
+  escDir += '/';
+  auto emit = [&](const char *line, uint32_t at) -> bool {
+    // true when the line is one of this folder's entries (and, when at is in range, emitted)
+    const char *pp = strstr(line, "\"p\":\"");
+    if (pp) {
+      pp += 5;
+      if (strncmp(pp, escDir.c_str(), escDir.length()) != 0) return false;
+      for (const char *q = pp + escDir.length(); *q && *q != '"'; q++) {
+        if (*q == '\\') { if (!*++q) break; continue; }
+        if (*q == '/') return false;               // a level further down
+      }
+    }
     StaticJsonDocument<1024> doc;
-    if (deserializeJson(doc, line)) continue;
+    if (deserializeJson(doc, line)) return false;
     const char *t = doc["t"] | "";
     const char *n = doc["n"] | "";
     const char *p = doc["p"] | "";
-    if (!n[0]) continue;
+    if (!n[0]) return false;
     String full = p[0] ? String(p) : dirPath + "/" + n;
-
+    if (full.substring(0, full.lastIndexOf('/')) != dirPath) return false;   // deeper down: not this folder's
     if (t[0] == 'd') {
-      if (match >= start && returned < want) {
-        didl += didlContainer("c:" + full, containerId, String(n));
-        returned++;
-      }
-      match++;
-    } else if (t[0] == 'f') {
-      String lower = String(n);
-      lower.toLowerCase();
-      String mime = mimeForName(lower);
-      if (mime.length() == 0 || !typeAllowed(mime, b)) continue;
-      if (match >= start && returned < want) {
-        uint64_t sz = doc["sz"] | (uint64_t)0;
-        didl += didlItem(full, String(n), containerId, mime, sz);
-        returned++;
-      }
-      match++;
+      if (at != UINT32_MAX && returned < want) { didl += didlContainer("c:" + full, containerId, String(n)); returned++; }
+      return true;
     }
-    yield();
+    if (t[0] != 'f') return false;
+    String lower = String(n);
+    lower.toLowerCase();
+    const String mime = mimeForName(lower);
+    if (mime.length() == 0 || !typeAllowed(mime, b)) return false;
+    if (at != UINT32_MAX && returned < want) {
+      uint64_t sz = doc["sz"] | (uint64_t)0;
+      didl += didlItem(full, String(n), containerId, mime, sz);
+      returned++;
+    }
+    return true;
+  };
+
+  const uint32_t fsize = (uint32_t)f.size();
+  char *line = (char *)heap_caps_malloc(1100, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+  uint8_t *blk = (uint8_t *)heap_caps_malloc(4096, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+  if (!line || !blk) { free(line); free(blk); f.close(); if (sdMutex) xSemaphoreGive(sdMutex); return false; }
+
+  // the header line names the build (its signature and count): with the size, the key
+  size_t hl = 0;
+  {
+    const int k = f.read(blk, 1024);
+    while (hl < (size_t)(k > 0 ? k : 0) && blk[hl] != '\n') hl++;
   }
+  uint32_t key = 2166136261u ^ fsize;
+  for (size_t q = 0; q < hl; q++) { key ^= blk[q]; key *= 16777619u; }
+  key ^= (uint32_t)prefixFilter.length();
+
+  BrowseCache *hit = nullptr;
+  for (auto &c : s_cache) if (c.offs && c.key == key && c.dir == dirPath && c.file == indexFile) { hit = &c; break; }
+
+  if (hit) {
+    hit->used = ++s_cacheTick;
+    const uint32_t end = (start + want < hit->n) ? start + want : hit->n;
+    for (uint32_t k = start; k < end; k++) {
+      if (!f.seek(hit->offs[k])) break;
+      const int got = f.read((uint8_t *)line, 1024);
+      if (got <= 0) break;
+      int len = 0;
+      while (len < got && line[len] != '\n') len++;
+      line[len] = 0;
+      emit(line, k);
+    }
+    total = hit->n;
+  } else {
+    // a fresh scan: every entry of this folder, its offset kept, the requested ones emitted
+    uint32_t *offs = nullptr, n = 0, cap = 0;
+    bool keep = true;
+    f.seek(0);
+    uint32_t base = 0, lineAt = 0;
+    size_t ll = 0;
+    bool header = true, tooLong = false;
+    for (;;) {
+      const int got = f.read(blk, 4096);
+      if (got <= 0) break;
+      for (int q = 0; q < got; q++) {
+        const char c = (char)blk[q];
+        if (c != '\n') {
+          if (ll < 1023) line[ll++] = c; else tooLong = true;
+          continue;
+        }
+        line[ll] = 0;
+        if (header) header = false;
+        else if (ll && !tooLong && emit(line, n >= start ? n : UINT32_MAX)) {
+          if (keep && n == cap) {
+            const uint32_t nc = cap ? cap * 2 : 256;
+            uint32_t *g = (uint32_t *)heap_caps_realloc(offs, nc * sizeof(uint32_t), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+            if (g) { offs = g; cap = nc; } else keep = false;
+          }
+          if (keep) offs[n] = lineAt;
+          n++;
+        }
+        ll = 0; tooLong = false;
+        lineAt = base + q + 1;
+      }
+      base += got;
+    }
+    total = n;
+    if (keep && offs) {
+      BrowseCache *slot = &s_cache[0];
+      for (auto &c : s_cache) if (!c.offs || c.used < slot->used) { slot = &c; if (!c.offs) break; }
+      free(slot->offs);
+      *slot = BrowseCache{ dirPath, indexFile, key, offs, n, cap, ++s_cacheTick };
+    } else {
+      free(offs);
+    }
+  }
+  free(line);
+  free(blk);
   f.close();
   if (sdMutex) xSemaphoreGive(sdMutex);
-  total = match;
   return true;
 }
 
@@ -472,7 +580,7 @@ static void handleBrowse(AsyncWebServerRequest *request, const String &body) {
   String flag = soapTag(body, "BrowseFlag");
   uint32_t start = (uint32_t)strtoul(soapTag(body, "StartingIndex").c_str(), nullptr, 10);
   uint32_t want = (uint32_t)strtoul(soapTag(body, "RequestedCount").c_str(), nullptr, 10);
-  // 0 means "everything"; cap so one response can't eat the heap. TVs page.
+  // 0 means "everything", cap so one response can't eat the heap. TVs page.
   if (want == 0 || want > 30) want = 30;
   bool metadata = flag.equals("BrowseMetadata");
 
@@ -529,14 +637,16 @@ static void handleBrowse(AsyncWebServerRequest *request, const String &body) {
   soapOk(request, ST_CDS, "Browse", args);
 }
 
-/* ---------------- HTTP routes ---------------- */
+// HTTP routes
 
-// SOAP bodies arrive through the body callback; keep them bounded. Uses a
+// SOAP bodies arrive through the body callback, keep them bounded. Uses a
 // malloc'd buffer because the library free()s _tempObject if the client
 // disconnects mid request.
 static void collectBody(AsyncWebServerRequest *request, uint8_t *data, size_t len, size_t index, size_t total) {
-  if (total == 0 || total > 8192) return;
-  if (index == 0) request->_tempObject = calloc(1, total + 1);
+  if (!s_enabled || total == 0 || total > 8192) return;
+  // the server hands over whatever arrives, even past the Content-Length the buffer was sized from
+  if (index + len > total) return;
+  if (index == 0 && !request->_tempObject) request->_tempObject = calloc(1, total + 1);
   char *buf = (char *)request->_tempObject;
   if (!buf) return;
   memcpy(buf + index, data, len);
@@ -616,8 +726,8 @@ void dlnaRegisterRoutes(AsyncWebServer &server) {
       }
     }, NULL, collectBody);
 
-  // No eventing. Answer politely so a TV's SUBSCRIBE attempt does not hang;
-  // players work fine without change notifications from a read only server.
+  // No eventing. Answer anyway so a TV's SUBSCRIBE attempt doesn't hang.
+  // Players work fine without change notifications from a read only server.
   server.on("/dlna/event/cds", HTTP_ANY, [](AsyncWebServerRequest *request) {
     AsyncWebServerResponse *r = request->beginResponse(200, "text/plain", "");
     r->addHeader("SID", "uuid:nomad-noevents");

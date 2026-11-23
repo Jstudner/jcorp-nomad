@@ -7,8 +7,8 @@
 <title>Nomad • Dots and Boxes</title>
 <link rel="icon" href="/favicon.ico" type="image/x-icon">
 <link rel="stylesheet" href="/master.css">
-<script src="/theme-boot.js"></script>
-<script src="/theme-manager.js"></script>
+<script src="/theme-boot.js?v=5"></script>
+<script src="/theme-manager.js?v=5"></script>
 <style>
   *{box-sizing:border-box}
   html,body{margin:0;padding:0}
@@ -21,7 +21,6 @@
   }
   .wrap{max-width:520px;margin:0 auto;padding:14px 12px 40px;}
 
-  /* Top bar */
   .topbar{
     display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin-bottom:14px;
   }
@@ -48,7 +47,6 @@
   .controls{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:14px;align-items:center}
   .controls label{font-size:13px;color:var(--muted,#777)}
 
-  /* Status line: player chips */
   .status{
     display:flex;flex-wrap:wrap;gap:8px;margin-bottom:14px;
   }
@@ -63,7 +61,6 @@
   .chip .name{font-weight:600}
   .chip .score{color:var(--muted,#777);font-variant-numeric:tabular-nums}
 
-  /* Board */
   .boardcard{
     background:var(--card,#fff);border:1px solid var(--line,#dcdce3);
     border-radius:var(--radius,10px);padding:10px;
@@ -75,7 +72,6 @@
   .boxlabel{fill:#fff;font-weight:700;font-family:inherit;text-anchor:middle;dominant-baseline:central;pointer-events:none}
   .hit{fill:transparent;cursor:pointer}
 
-  /* Result banner */
   .result{
     margin-top:14px;padding:14px;border-radius:var(--radius,10px);
     background:var(--card,#fff);border:1px solid var(--line,#dcdce3);
@@ -83,7 +79,7 @@
   }
   .result.show{display:block}
 
-  /* Dark theme overrides driven by body.dark */
+  /* dark theme */
   body.dark{background:var(--bg,#181820);color:var(--text,#e6e6ee)}
   body.dark .btn{background:var(--card,#232330);color:var(--text,#e6e6ee);border-color:var(--line,#33333f)}
   body.dark .btn.primary{color:#fff}
@@ -103,11 +99,11 @@
   <div class="controls">
     <label for="pcount">Players</label>
     <select id="pcount" class="btn">
-      <option value="2">2 players</option>
-      <option value="3">3 players</option>
-      <option value="4">4 players</option>
+      <option value="2">2</option>
+      <option value="3">3</option>
+      <option value="4">4</option>
     </select>
-    <button id="newgame" class="btn primary">New Game</button>
+    <button id="newgame" class="btn primary">New game</button>
   </div>
 
   <div id="status" class="status"></div>
@@ -124,17 +120,15 @@
   "use strict";
   var SVGNS = "http://www.w3.org/2000/svg";
 
-  // Fixed player identity colors (accessible, stay constant across themes)
+  // player colors, the same in both themes
   var COLORS = ["#e5484d","#3e63dd","#30a46c","#f5a623"];
 
-  // Board geometry
   var DOTS = 5;            // dots per side => 4x4 boxes
   var SP = 90;             // spacing between dots
   var MARGIN = 45;         // outer margin
   var INSET = 12;          // hit-rect inset from dots (keeps corners tap-free)
   var HIT = 38;            // hit-rect thickness
 
-  // Game state
   var numPlayers = 2;
   var hEdges, vEdges;      // edge owners; -1 = undrawn.  hEdges[r][c], vEdges[r][c]
   var boxes;               // box owners; -1 = unclaimed. boxes[r][c]
@@ -177,7 +171,6 @@
     renderStatus();
   }
 
-  // Return true if the box at (br,bc) has all four sides drawn.
   function boxComplete(br,bc){
     return hEdges[br][bc]   !== -1 &&   // top
            hEdges[br+1][bc] !== -1 &&   // bottom
@@ -185,22 +178,18 @@
            vEdges[br][bc+1] !== -1;     // right
   }
 
-  // Play an edge for the current player.
-  // type: "h" or "v".  Ignores already-drawn edges.
+  // type: "h" or "v"
   function playEdge(type, r, c){
     if(gameOver) return;
     if(type === "h"){
-      if(hEdges[r][c] !== -1) return;   // ignore taps on drawn edges
+      if(hEdges[r][c] !== -1) return;
       hEdges[r][c] = current;
     } else {
       if(vEdges[r][c] !== -1) return;
       vEdges[r][c] = current;
     }
 
-    // --- Box-completion + extra-turn logic ---
-    // An edge borders up to two boxes. Check each; any box whose 4th side we
-    // just drew is claimed by the current player. Completing >=1 box grants
-    // the SAME player another turn; completing none passes to the next player.
+    // an edge borders up to two boxes; closing one claims it and the same player goes again
     var B = DOTS - 1;
     var completed = 0;
     var adj = (type === "h")
@@ -208,8 +197,8 @@
       : [[r,c-1],[r,c]];    // vertical edge: box left and box right
     for(var i=0;i<adj.length;i++){
       var br = adj[i][0], bc = adj[i][1];
-      if(br<0||bc<0||br>=B||bc>=B) continue;   // off-board neighbour
-      if(boxes[br][bc] !== -1) continue;        // already claimed
+      if(br<0||bc<0||br>=B||bc>=B) continue;
+      if(boxes[br][bc] !== -1) continue;
       if(boxComplete(br,bc)){
         boxes[br][bc] = current;
         scores[current]++;
@@ -218,10 +207,8 @@
       }
     }
     if(completed === 0){
-      // No box completed -> pass turn to next player (wrap around).
       current = (current + 1) % numPlayers;
     }
-    // else: current player keeps the turn (standard extra-turn rule).
 
     if(claimedCount === B*B){ gameOver = true; }
 
@@ -231,14 +218,14 @@
   }
 
   function render(){
-    // Rebuild the SVG each move (board is small; keeps logic simple + correct).
+    // the board is small, so the SVG is rebuilt every move
     while(svg.firstChild) svg.removeChild(svg.firstChild);
     var W = MARGIN*2 + (DOTS-1)*SP;
     svg.setAttribute("viewBox", "0 0 " + W + " " + W);
     var B = DOTS - 1;
     var r, c;
 
-    // 1) Claimed box fills + labels (bottom layer)
+    // layers, bottom up: claimed boxes, edges, dots, hit areas
     for(r=0;r<B;r++){ for(c=0;c<B;c++){
       if(boxes[r][c] === -1) continue;
       var col = COLORS[boxes[r][c]];
@@ -254,7 +241,6 @@
       svg.appendChild(t);
     }}
 
-    // 2) Placeholder lines for every edge (faint), then drawn lines in colour
     for(r=0;r<DOTS;r++){ for(c=0;c<DOTS-1;c++){
       appendEdge("h", r, c, hEdges[r][c]);
     }}
@@ -262,12 +248,11 @@
       appendEdge("v", r, c, vEdges[r][c]);
     }}
 
-    // 3) Dots on top of the lines
     for(r=0;r<DOTS;r++){ for(c=0;c<DOTS;c++){
       svg.appendChild(make("circle", { cx: dx(c), cy: dy(r), r: 6, "class": "dotc" }));
     }}
 
-    // 4) Transparent hit rectangles on the very top (only for undrawn edges)
+    // hit areas only for undrawn edges
     for(r=0;r<DOTS;r++){ for(c=0;c<DOTS-1;c++){
       if(hEdges[r][c] === -1 && !gameOver) appendHit("h", r, c);
     }}
@@ -331,7 +316,7 @@
     for(var p=0;p<numPlayers;p++) if(scores[p] === best) winners.push(p);
     var msg;
     if(winners.length > 1){
-      msg = "Tie! " + winners.map(function(w){return "P"+(w+1);}).join(" & ") + " — " + best + " boxes each";
+      msg = "Tie! " + winners.map(function(w){return "P"+(w+1);}).join(" & ") + ", " + best + " boxes each";
     } else {
       msg = "P" + (winners[0]+1) + " wins with " + best + " boxes!";
     }

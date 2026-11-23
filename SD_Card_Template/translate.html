@@ -1,19 +1,21 @@
 <!DOCTYPE html>
-<!-- Version 5 -->
+<!-- Version 6 -->
 <html lang="en">
 <head>
 <meta charset="utf-8"/>
+<script>/* nomad-load-guard: reload, twice at most, when one of Nomad's own scripts or stylesheets fails to load */(function(){var k='nomadLoadGuard:'+location.pathname;window.addEventListener('error',function(e){var t=e.target;if(!t||!t.tagName)return;var s=t.tagName==='SCRIPT',c=t.tagName==='LINK'&&/stylesheet/i.test(t.rel||'');if(!s&&!c)return;var u=t.src||t.href||'';if(u.indexOf(location.origin+'/')!==0)return;var n=0;try{n=+sessionStorage.getItem(k)||0;}catch(x){return;}if(n>=2)return;try{sessionStorage.setItem(k,String(n+1));}catch(x){return;}setTimeout(function(){location.reload();},1500*(n+1));},true);window.addEventListener('load',function(){setTimeout(function(){try{sessionStorage.removeItem(k);}catch(x){}},15000);});})();</script>
 <meta name="viewport" content="width=device-width,initial-scale=1"/>
 <meta name="description" content="Jcorp Nomad Media Server - Offline Translation">
 <title>Nomad • Translate</title>
 <link rel="icon" href="favicon.ico" type="image/x-icon">
 <link rel="stylesheet" href="/master.css">
-<script src="/theme-boot.js"></script>
-<script src="/theme-manager.js"></script>
+<script src="/theme-boot.js?v=5"></script>
+<script src="/nomad-icons.js?v=1"></script>
+<script src="/theme-manager.js?v=5"></script>
 <!-- Classic script, so it runs before the deferred module below and has
      window.fetch patched in time. -->
 <script>
-  // Optional override for benchmarking the transfer: /translate.html?c=1
+  // Optional download concurrency override: /translate.html?c=1
   // Must run before nomad-xlate.js reads it.
   (function(){ var m=/[?&]c=(\d+)/.exec(location.search);
     if (m) window.NOMAD_XLATE_CONCURRENCY = +m[1]; })();
@@ -23,7 +25,6 @@
   html,body{height:100%}
   body{display:flex;flex-direction:column;overflow:hidden}
 
-  /* ---- language bar ---- */
   .langbar{display:flex;align-items:center;gap:8px;padding:10px 12px;
     background:var(--card);border-bottom:1px solid var(--line);flex:0 0 auto}
   .langbar select{flex:1;min-width:0;background:var(--bg);color:var(--text);
@@ -33,16 +34,14 @@
   .swap{flex:0 0 auto;width:40px;height:40px;border-radius:50%;border:none;
     background:transparent;color:var(--primary);cursor:pointer;font-size:1.25rem;
     display:flex;align-items:center;justify-content:center;transition:background .15s}
-  .swap:hover{background:rgba(0,123,255,.1)}
+  .swap:hover{background:var(--primary-alpha-10)}
   .swap:disabled{color:var(--muted);cursor:default;background:transparent}
 
-  /* ---- the two panels ---- */
   .panes{flex:1;display:flex;min-height:0;background:var(--bg);position:relative}
   .pane{flex:1;display:flex;flex-direction:column;min-width:0;position:relative;
     background:var(--card)}
   .pane + .pane{border-left:1px solid var(--line)}
-  /* the box being translated INTO is tinted, so it is obvious which way the
-     text is currently flowing without reading anything */
+  /* the box being translated into is tinted, to show which way the text flows */
   .pane.receiving{background:var(--bg)}
 
   .pane-lang{flex:0 0 auto;padding:10px 18px 0;font-size:.75rem;
@@ -60,7 +59,8 @@
   .pane-foot{flex:0 0 auto;display:flex;align-items:center;justify-content:space-between;
     gap:8px;padding:6px 14px 12px;min-height:34px}
   .count{font-size:.78rem;color:var(--muted)}
-  .icon-btn{border:none;background:transparent;color:var(--muted);cursor:pointer;
+  /* master.css sizes .icon-btn as a 40 px square for icon-only buttons. these have words */
+  .icon-btn{width:auto;height:auto;min-width:0;border:none;background:transparent;color:var(--muted);cursor:pointer;white-space:nowrap;
     padding:6px 10px;border-radius:var(--radius-small);font-size:.85rem;
     display:inline-flex;align-items:center;gap:6px;transition:background .15s,color .15s}
   .icon-btn:hover{background:var(--line);color:var(--text)}
@@ -74,10 +74,8 @@
   .btn.ghost{background:transparent;color:var(--primary);
     border:1px solid var(--primary)}
 
-  /* ---- setup screen ----
-     Covers the typing area until the pack is ready. a text box you can type into is a
-     promise that something will happen when you do. */
-  .setup{position:absolute;inset:0;z-index:50;background:var(--bg);
+  /* setup screen: covers the typing area until the pack is ready */
+  .setup{position:absolute;top:0;right:0;bottom:0;left:0;inset:0;z-index:50;background:var(--bg);
     display:none;flex-direction:column;align-items:center;justify-content:center;
     padding:26px 22px;text-align:center;overflow-y:auto}
   .setup.open{display:flex}
@@ -88,12 +86,11 @@
   .setup p.lead{color:var(--text)}
 
   .notice{display:flex;gap:10px;text-align:left;background:var(--card);
-    border:1px solid var(--card-border);border-left:4px solid var(--warning);
+    border:1px solid var(--warning);
     border-radius:var(--radius-medium);padding:12px 14px;margin:16px 0 20px}
   .notice .ico{font-size:1.1rem;line-height:1.4}
   .notice div{font-size:.9rem;line-height:1.5;color:var(--text)}
 
-  /* big honest percentage */
   .pct{font-size:3.4rem;font-weight:var(--font-weight-bold);color:var(--primary);
     line-height:1;margin:6px 0 4px;font-variant-numeric:tabular-nums}
   .pct small{font-size:1.4rem;font-weight:var(--font-weight-medium)}
@@ -109,15 +106,53 @@
   .setup .btn{margin-top:6px}
   .setup .subtle{font-size:.82rem;margin-top:16px}
 
-  /* ---- ready strip along the bottom ---- */
+  /* ready strip along the bottom */
   .ready{flex:0 0 auto;padding:6px 14px;background:var(--card);
     border-top:1px solid var(--line);font-size:.82rem;color:var(--muted);
     display:none;align-items:center;justify-content:space-between;gap:12px}
   .ready.open{display:flex}
   .ready-right{display:flex;align-items:center;gap:6px;flex:0 0 auto}
-  #readyText{min-width:0}
+  #readyText{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  #autoSpeakWrap input{margin:0 4px 0 0;accent-color:var(--primary)}
 
-  /* stacked on phones, exactly like Google Translate */
+  .work{flex:1;display:flex;flex-direction:column;min-height:0;position:relative}
+  .modebar{display:flex;gap:6px;padding:8px 12px 0;background:var(--card);flex:0 0 auto}
+  .modebar button{flex:1;border:1px solid var(--card-border);background:var(--bg);color:var(--text);
+    border-radius:var(--radius-medium);padding:7px 10px;font-size:.88rem;cursor:pointer;
+    font-weight:var(--font-weight-semibold)}
+  .modebar button.on{background:var(--primary);border-color:var(--primary);color:var(--header-text)}
+  body.mode-conv .panes{display:none}
+  body.mode-text .conv{display:none}
+  .conv{flex:1;display:flex;flex-direction:column;min-height:0;background:var(--bg)}
+  .log{flex:1;overflow-y:auto;padding:14px 12px 8px;display:flex;flex-direction:column;gap:10px}
+  .log .empty{margin:auto;max-width:360px;text-align:center;color:var(--muted);font-size:.92rem;line-height:1.5}
+  .msg{max-width:86%;background:var(--card);border:1px solid var(--card-border);border-radius:var(--radius-large);
+    padding:10px 12px;box-shadow:var(--shadow-small)}
+  .msg.b{align-self:flex-end;background:var(--primary-alpha-10);border-color:var(--primary-alpha-30)}
+  .msg .who{font-size:.72rem;letter-spacing:.04em;text-transform:uppercase;color:var(--muted);
+    font-weight:var(--font-weight-semibold);margin-bottom:4px}
+  .msg .tr{font-size:1.2rem;line-height:1.4;color:var(--text);white-space:pre-wrap;overflow-wrap:anywhere}
+  .msg .tr.wait{color:var(--muted);font-style:italic;font-size:1rem}
+  .msg .orig{font-size:.88rem;line-height:1.4;color:var(--muted);margin-top:6px;white-space:pre-wrap;overflow-wrap:anywhere}
+  .msg .acts{display:flex;gap:4px;margin-top:6px;margin-left:-8px}
+  .composer{flex:0 0 auto;background:var(--card);border-top:1px solid var(--card-border);padding:8px 10px 10px}
+  .turns{display:flex;gap:6px;margin-bottom:8px}
+  .turns button{flex:1;border:1px solid var(--card-border);background:var(--bg);color:var(--text);
+    border-radius:var(--radius-medium);padding:9px 8px;font-size:.92rem;cursor:pointer;line-height:1.2}
+  .turns button small{display:block;font-size:.72rem;color:var(--muted);margin-top:2px}
+  .turns button.on{background:var(--primary);border-color:var(--primary);color:var(--header-text)}
+  .turns button.on small{color:inherit;opacity:.85}
+  .turns button:disabled{opacity:.45;cursor:default}
+  .sendrow{display:flex;gap:8px;align-items:flex-end}
+  .sendrow textarea{flex:1;min-width:0;resize:none;border:1px solid var(--card-border);border-radius:var(--radius-medium);
+    background:var(--bg);color:var(--text);padding:10px 12px;font-size:1.05rem;line-height:1.35;
+    font-family:var(--font-secondary);max-height:30vh;outline:none}
+  .sendrow textarea:focus{border-color:var(--primary)}
+  .sendrow .btn{padding:11px 18px}
+  .pane .clear{position:absolute;top:6px;right:8px;z-index:2}
+  .pane-foot .acts{display:flex;gap:2px}
+
+  /* stacked on phones */
   @media (max-width:700px){
     .panes{flex-direction:column}
     .pane + .pane{border-left:none;border-top:1px solid var(--line)}
@@ -137,8 +172,30 @@
 
   <div class="langbar">
     <select id="srcLang" aria-label="Translate from"></select>
-    <button class="swap" id="swapBtn" title="Swap languages" aria-label="Swap languages">⇄</button>
+    <button class="swap" id="swapBtn" title="Swap languages" aria-label="Swap languages" data-icon="swap" data-icon-size="20"></button>
     <select id="tgtLang" aria-label="Translate into"></select>
+  </div>
+
+  <div class="modebar" role="tablist" aria-label="How to translate">
+    <button data-mode="conv" role="tab">Conversation</button>
+    <button data-mode="text" role="tab">Text</button>
+  </div>
+
+  <div class="work">
+  <!-- Conversation: whoever's turn it is types, the line goes into the chat with its
+       translation under the other language, and the turn passes across. -->
+  <div class="conv" id="conv">
+    <div class="log" id="log" aria-live="polite"></div>
+    <div class="composer">
+      <div class="turns" role="group" aria-label="Who is talking">
+        <button id="turnA"></button>
+        <button id="turnB"></button>
+      </div>
+      <div class="sendrow">
+        <textarea id="msg" rows="1" autocomplete="off" autocapitalize="sentences" spellcheck="false" enterkeyhint="send"></textarea>
+        <button class="btn" id="sendBtn">Send</button>
+      </div>
+    </div>
   </div>
 
   <div class="panes">
@@ -147,31 +204,37 @@
          touching the language pickers. -->
     <div class="pane" id="paneA">
       <div class="pane-lang" id="langLabelA"></div>
+      <button class="icon-btn clear" id="clearA" title="Clear" aria-label="Clear" data-icon="x" hidden></button>
       <textarea id="textA" placeholder="Type here" autocomplete="off"
                 autocapitalize="sentences" spellcheck="false"></textarea>
       <div class="pane-foot">
         <span class="count" id="countA"></span>
-        <button class="icon-btn" id="copyA" title="Copy this text" disabled>Copy</button>
+        <span class="acts"><button class="icon-btn" id="speakA" hidden>Read aloud</button>
+        <button class="icon-btn" id="copyA" disabled>Copy</button></span>
       </div>
     </div>
     <div class="pane" id="paneB">
       <div class="pane-lang" id="langLabelB"></div>
+      <button class="icon-btn clear" id="clearB" title="Clear" aria-label="Clear" data-icon="x" hidden></button>
       <textarea id="textB" placeholder="Type here" autocomplete="off"
                 autocapitalize="sentences" spellcheck="false"></textarea>
       <div class="pane-foot">
         <span class="count" id="countB"></span>
-        <button class="icon-btn" id="copyB" title="Copy this text" disabled>Copy</button>
+        <span class="acts"><button class="icon-btn" id="speakB" hidden>Read aloud</button>
+        <button class="icon-btn" id="copyB" disabled>Copy</button></span>
       </div>
     </div>
 
-    <!-- Sits inside .panes so it covers the typing area, not the header. -->
+  </div>
+
+    <!-- Covers the typing area (either mode), not the header. -->
     <div class="setup open" id="setup">
       <div class="setup-inner">
-        <h2 id="setupTitle">Getting things ready</h2>
-        <p class="lead" id="setupLead">Checking which languages are on this Nomad.</p>
+        <h2 id="setupTitle">Loading</h2>
+        <p class="lead" id="setupLead"></p>
 
         <div class="notice" id="setupNotice" style="display:none">
-          <span class="ico" aria-hidden="true">⚠️</span>
+          <span class="ico" aria-hidden="true" data-icon="warning"></span>
           <div id="setupNoticeText"></div>
         </div>
 
@@ -195,21 +258,22 @@
     <span id="readyText"></span>
     <span class="ready-right">
       <span class="count" id="timingNote"></span>
-      <button class="icon-btn" id="clearAll" title="Clear both boxes">Clear both</button>
+      <label class="icon-btn" id="autoSpeakWrap" title="Read each translation out loud" hidden><input type="checkbox" id="autoSpeak"> Read aloud</label>
+      <button class="icon-btn" id="clearAll" title="Start over">Clear</button>
     </span>
   </div>
 
 <script type="module">
 import { pipeline, env } from '/Translate/runtime/transformers.min.js';
 
-/* Environment. Every one of these matters on a Nomad:
+/* Environment for Nomad:
  *
  *  - allowRemoteModels off: there is no internet. left on, a missing file turns into
- *    a silent huggingface.co fetch that hangs until it times out.
- *  - useBrowserCache off: http://192.168.4.1 is not a secure context so the Cache API
- *    does not exist. nomad-xlate.js caches in IndexedDB instead.
+ *    a huggingface.co fetch that hangs until it times out.
+ *  - useBrowserCache off: http://192.168.4.1 isn't a secure context, so the Cache API
+ *    doesn't exist. nomad-xlate.js caches in IndexedDB instead.
  *  - numThreads 1: WASM threads need SharedArrayBuffer, which also needs a secure
- *    context. left on autodetect this can pick the threaded build and fail. */
+ *    context. autodetect can pick the threaded build and fail. */
 env.allowRemoteModels = false;
 env.allowLocalModels  = true;
 env.localModelPath    = '/Translate/models/';
@@ -218,7 +282,10 @@ env.backends.onnx.wasm.wasmPaths  = '/Translate/runtime/';
 env.backends.onnx.wasm.numThreads = 1;
 env.backends.onnx.wasm.proxy      = false;
 
-const MAX_CHARS = 480;   // model is trained at 512 tokens; stay under it
+/* pieces() already feeds the model a sentence at a time. This cap just keeps one paste
+ * from tying the phone up for minutes. Text past it is cut, with a note in the box. */
+const MAX_CHARS = 2000;
+const cut = { a: false, b: false };
 
 const $ = id => document.getElementById(id);
 const srcSel = $('srcLang'), tgtSel = $('tgtLang');
@@ -248,9 +315,8 @@ function fmtTime(sec) {
   return 'about ' + m + (m === 1 ? ' minute' : ' minutes');
 }
 
-/* ---------------- the setup screen ----------------
- * One function drives every pre-ready state, so the screen can never show a stale
- * mix of two of them. */
+/* The setup screen. One function drives every pre-ready state, so the screen can never
+ * show a stale mix of two of them. */
 function setup(state, o) {
   o = o || {};
   const box = $('setup');
@@ -279,16 +345,17 @@ function setup(state, o) {
   $('setupFoot').textContent = o.foot || '';
 
   // Typing is pointless until a model is loaded, so do not invite it.
-  boxA.disabled = boxB.disabled = true;
+  boxA.disabled = boxB.disabled = msgEl.disabled = $('sendBtn').disabled = true;
 }
 
 function setupDone(msg) {
   $('setup').classList.remove('open');
   $('ready').classList.add('open');
   $('readyText').textContent = msg;
-  boxA.disabled = boxB.disabled = false;
+  boxA.disabled = boxB.disabled = msgEl.disabled = $('sendBtn').disabled = false;
+  if (!pipeFor(turn)) turn = otherOf(turn);
   applyDirectionUI();
-  (dir.ab ? boxA : boxB).focus();
+  focusInput();
 }
 
 function showProgress(done, total, label) {
@@ -297,11 +364,11 @@ function showProgress(done, total, label) {
   $('track').style.width = pct + '%';
   $('figDone').textContent = fmtMB(done) + ' of ' + fmtMB(total);
   $('figLeft').textContent = o_eta(done, total);
-  if (label) $('stepText').textContent = label;
+  $('stepText').textContent = label || '';
 }
 
-/* Estimate from the rate actually achieved so far, not a guess. Stays quiet
- * until there is enough data for the number to mean anything. */
+/* Estimate from the rate so far. Stays quiet until there's enough data for the
+ * number to mean anything. */
 let rateT0 = 0, rateB0 = 0;
 function o_eta(done, total) {
   if (!rateT0) return '';
@@ -314,11 +381,9 @@ function o_eta(done, total) {
   return t ? t + ' left' : '';
 }
 
-/* ---------------- manifest and pack choice ---------------- */
-
 async function loadManifest() {
   // Plain fetch: the manifest is tiny and lives outside the managed prefixes.
-  // A busy card answers 503 briefly right after boot; retry, don't fail.
+  // A busy card answers 503 briefly right after boot. Retry, don't fail.
   let res = await fetch('/Translate/manifest.json', { cache: 'no-store' });
   for (let i = 0; i < 3 && res.status === 503; i++) {
     await new Promise(r => setTimeout(r, 700 * (i + 1)));
@@ -407,12 +472,20 @@ function sortLangs(codes) {
   });
 }
 
+// the last pair used on this phone comes back next visit, if this card still has it
+const PAIR_KEY = 'nomad_xlate_pair';
+function savePair() { try { localStorage.setItem(PAIR_KEY, srcSel.value + '>' + tgtSel.value); } catch (e) {} }
+
 function fillLangs() {
   const froms = sortLangs(allSources());
   srcSel.innerHTML = froms.map(c =>
     `<option value="${c}">${nameOf(c)}</option>`).join('');
-  if (froms.indexOf('en') >= 0) srcSel.value = 'en';
+  let saved = [];
+  try { saved = (localStorage.getItem(PAIR_KEY) || '').split('>'); } catch (e) {}
+  if (froms.indexOf(saved[0]) >= 0) srcSel.value = saved[0];
+  else if (froms.indexOf('en') >= 0) srcSel.value = 'en';
   syncTargets();
+  if (saved[1] && targetsFor(srcSel.value).indexOf(saved[1]) >= 0) tgtSel.value = saved[1];
 }
 
 function syncTargets() {
@@ -423,8 +496,6 @@ function syncTargets() {
   if (tos.indexOf(keep) >= 0) tgtSel.value = keep;
   else if (tos.indexOf('en') >= 0 && srcSel.value !== 'en') tgtSel.value = 'en';
 }
-
-/* ---------------- model loading ---------------- */
 
 /* Both packs for the current language choice, deduplicated: a bundle can serve one
  * direction while a dedicated model serves the other, and both directions
@@ -450,8 +521,8 @@ async function refreshPairStatus() {
 
   if (!ab && !ba) {
     setup('none', {
-      title: "That language pair isn't on this card",
-      lead: 'Pick a different pair, or add the pack with the Nomad card tools.',
+      title: 'Not on this card',
+      lead: 'Pick a different pair, or add the pack with Nomad-Tools.',
       bad: true
     });
     return;
@@ -470,15 +541,15 @@ async function refreshPairStatus() {
   const langs = nameOf(a) + ' and ' + nameOf(b);
   const oneWayNote = both ? '' :
     ' Only ' + nameOf(ab ? a : b) + ' into ' + nameOf(ab ? b : a) +
-    ' is available on this card, so this one goes one way.';
+    ' is on this card.';
 
   const fullyCached = files.every(f => st.files[f] && st.files[f].done);
 
   if (fullyCached) {
     setup('offer', {
-      title: 'Ready when you are',
-      lead: 'The ' + langs + ' packs are already saved here. They just need a moment to open.',
-      button: 'Open the language packs',
+      title: langs,
+      lead: 'Saved on this phone.',
+      button: 'Open language packs',
       onClick: () => ensurePipelines(true)
     });
     return;
@@ -486,38 +557,30 @@ async function refreshPairStatus() {
 
   if (st.have > 0) {
     setup('offer', {
-      title: 'Picking up where you left off',
-      lead: 'You have ' + fmtMB(st.have) + ' of the ' + langs + ' packs. Loading the '
-          + 'remaining ' + fmtMB(Math.max(0, total - st.have)) + '.',
+      title: 'Set up ' + langs,
+      lead: fmtMB(st.have) + ' of ' + fmtMB(total) + ' loaded.',
       notice: 'Keep this page open until it reaches 100 percent.',
       button: 'Continue loading',
-      onClick: () => ensurePipelines(true),
-      foot: 'If it stops, it resumes from here — nothing is lost.'
+      onClick: () => ensurePipelines(true)
     });
     return;
   }
 
   setup('offer', {
     title: 'Set up ' + langs,
-    lead: 'This device needs its own copy of the ' + langs + ' packs — about '
-        + fmtMB(total) + '. Both directions load together, so you can type in either box '
-        + 'and hand the device back and forth.' + oneWayNote,
-    notice: 'This takes a few minutes. Keep this page open while it loads — you can stop '
-          + 'and come back later without losing progress.',
-    button: 'Start loading the language packs',
+    lead: 'Saves about ' + fmtMB(total) + ' to this phone.'
+        + oneWayNote,
+    notice: 'Takes a few minutes. Keep this page open, or stop and come back later.',
+    button: 'Load language packs',
     onClick: () => ensurePipelines(true)
   });
 }
 
 function readyLine() {
   const a = nameOf(srcSel.value), b = nameOf(tgtSel.value);
-  if (dir.ab && dir.ba) {
-    return 'Ready. Type in either box and it translates into the other — pass it back '
-         + 'and forth between ' + a + ' and ' + b + '.';
-  }
+  if (dir.ab && dir.ba) return 'Ready';
   const from = dir.ab ? a : b, to = dir.ab ? b : a;
-  return 'Ready to translate ' + from + ' into ' + to
-       + '. This card only has that one direction, so the other box stays read only.';
+  return 'Ready. Only ' + from + ' into ' + to + ' is on this card.';
 }
 
 async function ensurePipelines(userAsked) {
@@ -540,25 +603,20 @@ async function ensurePipelines(userAsked) {
 
     setup('loading', {
       title: 'Loading ' + langs,
-      lead: 'Loading ' + (list.length > 1 ? 'both language packs' : 'the language pack')
-          + '. You can watch it go.',
       notice: 'Keep this page open until it reaches 100 percent.'
     });
-    showProgress(0, total || 1, 'Starting');
+    showProgress(0, total || 1);
 
     await NomadXlate.preload(files, (path, done, tot) => {
       if (!rateT0 && done > 0) { rateT0 = performance.now(); rateB0 = done; }
-      showProgress(done, tot, 'Now loading ' + path.split('/').pop());
+      showProgress(done, tot);
     }, total);
 
     const dl = (performance.now() - t0) / 1000;
 
     setup('loading', {
-      title: 'Almost there',
-      lead: 'Everything is loaded. Starting the '
-          + (list.length > 1 ? 'translators' : 'translator')
-          + ' — a few more seconds.',
-      notice: 'Nearly done. Keep this page open just a moment longer.'
+      title: 'Loading ' + langs,
+      notice: 'Keep this page open a moment longer.'
     });
     showProgress(total || 1, total || 1, 'Starting the translator');
 
@@ -575,19 +633,17 @@ async function ensurePipelines(userAsked) {
     dir.ba = ba ? pipeCache.get(ba.model) : null;
     dir.key = dirKey();
 
-    setupDone(readyLine() + ' Loaded in ' + Math.round(dl) + ' seconds.');
+    setupDone(readyLine());
     applyDirectionUI();
     if (boxA.value.trim()) translateFrom('a');
   } catch (err) {
     console.error('[translate] load failed', err);
     if (myGen !== loadGen) return;   // stale load, the screen belongs to the new pair now
     setup('error', {
-      title: 'That did not finish',
-      lead: 'Something went wrong while loading. Nothing you already loaded was '
-          + 'lost, so trying again carries on from where it stopped rather than '
-          + 'starting over.',
-      notice: 'If it keeps stopping, move closer to the Nomad. A weak WiFi signal '
-            + 'is the usual reason.',
+      title: 'Loading stopped',
+      lead: 'Try again to pick up where it stopped.',
+      notice: 'If it keeps stopping, move closer to Nomad'
+            + '.',
       bad: true,
       button: 'Try again',
       onClick: () => ensurePipelines(true),
@@ -599,9 +655,45 @@ async function ensurePipelines(userAsked) {
   }
 }
 
-/* ---------------- translating ----------------
- * Either box can be the source. Typing in one translates into the other, and the
- * receiving box is tinted so the direction is obvious. */
+/* Either box can be the source: typing in one translates into the other. */
+
+/* A sentence at a time: under the model's limit, it reads better, and a sentence that was
+ * already translated isn't done again when more is typed after it. One model run at a time
+ * for both modes (inference blocks inside WASM, overlapping runs just stack up). */
+const sentenceCache = new Map();
+function pieces(paragraph) {
+  const out = [];
+  for (let part of (paragraph.match(/[^.!?。！？]+(?:[.!?。！？]+|$)/g) || [])) {
+    part = part.trim();
+    while (part.length > 400) {       // no full stop for a long way: break at a comma or space
+      let cut = part.lastIndexOf(',', 400); if (cut < 200) cut = part.lastIndexOf(' ', 400); if (cut < 100) cut = 400;
+      out.push(part.slice(0, cut + 1).trim()); part = part.slice(cut + 1).trim();
+    }
+    if (part) out.push(part);
+  }
+  return out;
+}
+let chain = Promise.resolve();
+function exclusive(fn) { const p = chain.then(fn, fn); chain = p.catch(() => {}); return p; }
+async function translateText(which, text) {
+  const pipe = pipeFor(which), pack = packForBox(which), to = targetLangOf(which);
+  const paras = [];
+  for (const para of text.split(/\n+/)) {
+    const done = [];
+    for (const piece of pieces(para)) {
+      const key = pack.model + '|' + to + '|' + piece;
+      let t = sentenceCache.get(key);
+      if (t == null) {
+        const r = await pipe(prepareInput(piece, pack, to), { max_new_tokens: 512 });
+        t = Array.isArray(r) ? r[0].translation_text : r.translation_text;
+        sentenceCache.set(key, t);
+      }
+      done.push(t);
+    }
+    paras.push(done.join(' '));
+  }
+  return paras.join('\n');
+}
 
 let runId = 0, running = false, pendingFrom = null;
 /* The box the user touched last owns the conversation. Without this a debounced
@@ -623,20 +715,26 @@ function applyDirectionUI(activeWhich) {
   const canA = !!dir.ab, canB = !!dir.ba;   // can this box act as a source
   boxA.readOnly = !canA;
   boxB.readOnly = !canB;
-  boxA.placeholder = canA ? 'Type here' : 'Translation appears here';
-  boxB.placeholder = canB ? 'Type here' : 'Translation appears here';
+  boxA.placeholder = canA ? 'Type here' : 'Translation';
+  boxB.placeholder = canB ? 'Type here' : 'Translation';
   $('langLabelA').textContent = nameOf(srcSel.value);
   $('langLabelB').textContent = nameOf(tgtSel.value);
+  updateTurns();
   $('paneA').classList.toggle('receiving', activeWhich === 'b');
   $('paneB').classList.toggle('receiving', activeWhich === 'a' || !activeWhich);
   updateCounts();
 }
 
 function updateCounts() {
-  $('countA').textContent = boxA.value.length ? boxA.value.length + ' / ' + MAX_CHARS : '';
-  $('countB').textContent = boxB.value.length ? boxB.value.length + ' / ' + MAX_CHARS : '';
+  for (const w of ['a', 'b']) {
+    const n = boxOf(w).value.length;
+    $('count' + w.toUpperCase()).textContent = cut[w] && n >= MAX_CHARS ? 'Cut to ' + MAX_CHARS + ' characters' : n ? n + ' / ' + MAX_CHARS : '';
+  }
   $('copyA').disabled = !boxA.value.trim();
   $('copyB').disabled = !boxB.value.trim();
+  $('clearA').hidden = !boxA.value; $('clearB').hidden = !boxB.value;
+  $('speakA').hidden = !boxA.value.trim() || !voiceFor(srcSel.value);
+  $('speakB').hidden = !boxB.value.trim() || !voiceFor(tgtSel.value);
 }
 
 async function translateFrom(which) {
@@ -656,16 +754,14 @@ async function translateFrom(which) {
 
   try {
     const t0 = performance.now();
-    const input = prepareInput(text, pack, targetLangOf(which));
-    const out = await pipe(input, { max_new_tokens: 512 });
+    const translated = await exclusive(() => translateText(which, text));
     if (me !== runId || which !== activeBox) return;   // superseded
-    const translated = Array.isArray(out) ? out[0].translation_text : out.translation_text;
     dst.value = translated;
     $('timingNote').textContent = ((performance.now() - t0) / 1000).toFixed(1) + 's';
     updateCounts();
   } catch (err) {
     console.error('[translate] failed', err);
-    dst.value = 'Could not translate that. ' + (err && err.message || '');
+    dst.value = "Couldn't translate that. " + (err && err.message || '');
     updateCounts();
   } finally {
     running = false;
@@ -687,11 +783,12 @@ function wireBox(which) {
   const el = boxOf(which);
   el.addEventListener('input', () => {
     if (el.readOnly) return;
-    if (el.value.length > MAX_CHARS) el.value = el.value.slice(0, MAX_CHARS);
+    cut[which] = el.value.length > MAX_CHARS;
+    if (cut[which]) el.value = el.value.slice(0, MAX_CHARS);
     takeOver(which);
     applyDirectionUI(which);
     clearTimeout(timers[which]);
-    timers[which] = setTimeout(() => translateFrom(which), 450);
+    timers[which] = setTimeout(() => translateFrom(which), 600);
   });
   // Focusing a box is a clear signal of which way the user is about to go.
   el.addEventListener('focus', () => {
@@ -723,11 +820,133 @@ $('copyA').addEventListener('click', () => copyText(boxA, $('copyA')));
 $('copyB').addEventListener('click', () => copyText(boxB, $('copyB')));
 
 $('clearAll').addEventListener('click', () => {
-  boxA.value = ''; boxB.value = '';
   $('timingNote').textContent = '';
+  if (mode === 'conv') { log = []; saveLog(); renderLog(); focusInput(); return; }
+  boxA.value = ''; boxB.value = '';
   updateCounts();
   (dir.ab ? boxA : boxB).focus();
 });
+// a box's own clear: it and its translation
+for (const w of ['a', 'b']) $('clear' + w.toUpperCase()).addEventListener('click', () => {
+  boxOf(w).value = ''; boxOf(otherOf(w)).value = ''; runId++;
+  updateCounts(); boxOf(w).focus();
+});
+$('speakA').addEventListener('click', () => speak(boxA.value, srcSel.value));
+$('speakB').addEventListener('click', () => speak(boxB.value, tgtSel.value));
+
+/* Read aloud uses the phone's own voices: offline for the common languages, nothing to put
+ * on Nomad, and they work on a plain http page. A language with no voice gets no button. */
+const synth = window.speechSynthesis || null;
+function voiceFor(lang) {
+  if (!synth || !lang) return null;
+  const l = lang.toLowerCase(), vs = synth.getVoices();
+  return vs.find(v => v.lang.toLowerCase().replace('_', '-').split('-')[0] === l && v.localService)
+      || vs.find(v => v.lang.toLowerCase().replace('_', '-').split('-')[0] === l) || null;
+}
+function speak(text, lang) {
+  const v = voiceFor(lang);
+  if (!v || !text.trim()) return;
+  synth.cancel();
+  const u = new SpeechSynthesisUtterance(text);
+  u.voice = v; u.lang = v.lang; u.rate = 0.95;
+  synth.speak(u);
+}
+if (synth) synth.addEventListener && synth.addEventListener('voiceschanged', () => { updateCounts(); renderLog(); updateAutoSpeak(); });
+const autoSpeakEl = $('autoSpeak');
+try { autoSpeakEl.checked = localStorage.getItem('nomad_xlate_autospeak') === '1'; } catch (e) {}
+autoSpeakEl.addEventListener('change', () => { try { localStorage.setItem('nomad_xlate_autospeak', autoSpeakEl.checked ? '1' : '0'); } catch (e) {} });
+function updateAutoSpeak() {
+  $('autoSpeakWrap').hidden = !(mode === 'conv' && (voiceFor(srcSel.value) || voiceFor(tgtSel.value)));
+}
+
+/* Conversation: whoever's turn it is types and sends. The line goes into the chat with its
+ * translation and the turn passes to the other person. */
+const msgEl = $('msg'), logEl = $('log');
+let turn = 'a';
+let log = [];
+const LOG_KEY = 'nomad_xlate_conversation';
+try { log = JSON.parse(localStorage.getItem(LOG_KEY) || '[]') || []; } catch (e) { log = []; }
+function saveLog() { try { localStorage.setItem(LOG_KEY, JSON.stringify(log.slice(-80))); } catch (e) {} }
+function esc(t) { return String(t).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])); }
+function renderLog() {
+  if (!log.length) {
+    logEl.innerHTML = '<div class="empty">No messages yet</div>';
+    return;
+  }
+  logEl.innerHTML = log.map((m, i) => `<div class="msg ${m.who}">
+      <div class="who">${esc(nameOf(m.from))} to ${esc(nameOf(m.to))}</div>
+      <div class="tr${m.out == null ? ' wait' : ''}">${m.out == null ? 'Translating…' : esc(m.err || m.out)}</div>
+      <div class="orig">${esc(m.src)}</div>
+      ${m.out ? `<div class="acts">${voiceFor(m.to) ? `<button class="icon-btn" data-say="${i}">Read aloud</button>` : ''}<button class="icon-btn" data-copy="${i}">Copy</button></div>` : ''}
+    </div>`).join('');
+  logEl.querySelectorAll('[data-say]').forEach(b => b.onclick = () => { const m = log[+b.dataset.say]; speak(m.out, m.to); });
+  logEl.querySelectorAll('[data-copy]').forEach(b => b.onclick = () => {
+    const m = log[+b.dataset.copy], ta = document.createElement('textarea');
+    ta.value = m.out; document.body.appendChild(ta);
+    copyText(ta, b).finally(() => ta.remove());
+  });
+  logEl.scrollTop = logEl.scrollHeight;
+}
+function langOfTurn(w) { return w === 'a' ? srcSel.value : tgtSel.value; }
+function updateTurns() {
+  for (const w of ['a', 'b']) {
+    const b = $('turn' + w.toUpperCase());
+    b.innerHTML = esc(nameOf(langOfTurn(w))) + '<small>' + (pipeFor(w) ? (turn === w ? 'talking now' : '') : 'not on this card') + '</small>';
+    b.classList.toggle('on', turn === w);
+    b.disabled = !pipeFor(w);
+  }
+  msgEl.placeholder = 'Type in ' + nameOf(langOfTurn(turn));
+  msgEl.lang = langOfTurn(turn);
+  updateAutoSpeak();
+}
+function setTurn(w) { if (pipeFor(w)) { turn = w; updateTurns(); } }
+$('turnA').addEventListener('click', () => { setTurn('a'); msgEl.focus(); });
+$('turnB').addEventListener('click', () => { setTurn('b'); msgEl.focus(); });
+function autoGrow() { msgEl.style.height = 'auto'; msgEl.style.height = Math.min(msgEl.scrollHeight, window.innerHeight * 0.3) + 'px'; }
+msgEl.addEventListener('input', autoGrow);
+// Enter while an input method is still composing picks the word, it doesn't send
+msgEl.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter' && !e.shiftKey && !e.isComposing && e.keyCode !== 229) { e.preventDefault(); send(); }
+});
+$('sendBtn').addEventListener('click', () => { send(); msgEl.focus(); });
+async function send() {
+  const text = msgEl.value.trim(), which = turn;
+  if (!text || !pipeFor(which)) return;
+  msgEl.value = ''; autoGrow();
+  const m = { who: which, from: langOfTurn(which), to: targetLangOf(which), src: text, out: null };
+  log.push(m); renderLog();
+  if (pipeFor(otherOf(which))) setTurn(otherOf(which));   // their turn now
+  const t0 = performance.now();
+  try {
+    m.out = await exclusive(() => translateText(which, text));
+    $('timingNote').textContent = ((performance.now() - t0) / 1000).toFixed(1) + 's';
+  } catch (err) {
+    console.error('[translate] failed', err);
+    m.out = ''; m.err = "Couldn't translate that. " + (err && err.message || '');
+  }
+  saveLog(); renderLog();
+  if (autoSpeakEl.checked && m.out) speak(m.out, m.to);
+}
+
+let mode = 'conv';
+try { mode = localStorage.getItem('nomad_xlate_mode') === 'text' ? 'text' : 'conv'; } catch (e) {}
+function setMode(m) {
+  mode = m;
+  try { localStorage.setItem('nomad_xlate_mode', m); } catch (e) {}
+  document.body.classList.toggle('mode-conv', m === 'conv');
+  document.body.classList.toggle('mode-text', m === 'text');
+  document.querySelectorAll('.modebar button').forEach(b => b.classList.toggle('on', b.dataset.mode === m));
+  $('clearAll').title = m === 'conv' ? 'Clear the conversation' : 'Clear both boxes';
+  updateAutoSpeak();
+  if (!$('setup').classList.contains('open')) focusInput();
+}
+document.querySelectorAll('.modebar button').forEach(b => b.addEventListener('click', () => setMode(b.dataset.mode)));
+function focusInput() {
+  if (mode === 'conv') { msgEl.focus(); return; }
+  (dir.ab ? boxA : boxB).focus();
+}
+setMode(mode);
+renderLog();
 
 /* The swap button just relabels the boxes and moves the text across. Both
  * directions are already loaded, so there is nothing to wait for. */
@@ -737,6 +956,7 @@ $('swapBtn').addEventListener('click', () => {
 
   loadGen++; loading = false;   // abandon any load still in flight for the old orientation
   srcSel.value = b; syncTargets(); tgtSel.value = a;
+  savePair();
 
   const textA = boxA.value;
   boxA.value = boxB.value;
@@ -751,9 +971,9 @@ $('swapBtn').addEventListener('click', () => {
     activeBox = dir.ab ? 'a' : 'b';
     applyDirectionUI();
     setupDone(readyLine());
-    // no re-translation here on purpose. after the swap each box already holds the right
-    // text for its new language, what was the translation is now the original. running
-    // it through the model again would block for seconds and degrade the wording
+    // no re-translation here. after the swap each box already holds the right text for
+    // its new language. running it through the model again would block for seconds and
+    // degrade the wording
   } else {
     refreshPairStatus();
   }
@@ -767,29 +987,33 @@ srcSel.addEventListener('change', () => {
   loadGen++;         // strand any load still running for the old pair
   loading = false;   // switching pairs abandons any half-started load; don't let it wedge the buttons
   syncTargets(); dir = { ab:null, ba:null, packAB:null, packBA:null, key:'' };
+  savePair();
   updateSwapState(); applyDirectionUI(); refreshPairStatus();
 });
 tgtSel.addEventListener('change', () => {
   loadGen++;
   loading = false;
+  savePair();
   dir = { ab:null, ba:null, packAB:null, packBA:null, key:'' };
   updateSwapState(); applyDirectionUI(); refreshPairStatus();
 });
 
-/* ---------------- boot ---------------- */
-
 (async function boot() {
   setup('checking', {
-    title: 'Getting things ready',
-    lead: 'Looking for the language packs stored on this Nomad.'
+    title: 'Loading'
   });
   try {
     manifest = await loadManifest();
   } catch (err) {
-    setup('none', {
-      title: 'No languages are on this card yet',
-      lead: 'This Nomad does not have any translation packs installed. You can add '
-          + 'them to the card with the Nomad card tools, then come back here.',
+    // only a missing manifest means no packs; anything else is Nomad not answering
+    const missing = /HTTP 404/.test(String(err && err.message));
+    setup('none', missing ? {
+      title: 'No languages on this card',
+      lead: 'Add language packs with Nomad-Tools.',
+      bad: true
+    } : {
+      title: "Couldn't reach Nomad",
+      lead: 'Reload the page.',
       bad: true
     });
     srcSel.disabled = tgtSel.disabled = true;
@@ -797,8 +1021,8 @@ tgtSel.addEventListener('change', () => {
   }
   if (!manifest.packs.length) {
     setup('none', {
-      title: 'No languages are on this card yet',
-      lead: 'The translation folder is there but no language packs are in it yet.',
+      title: 'No languages on this card',
+      lead: 'Add language packs with Nomad-Tools.',
       bad: true
     });
     srcSel.disabled = tgtSel.disabled = true;

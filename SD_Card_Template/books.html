@@ -1,15 +1,16 @@
 <!DOCTYPE html>
-<!-- Version 4 -->
+<!-- Version 7 -->
 <html lang="en">
 <head>
     <link rel="stylesheet" href="/master.css">
-    <script src="/theme-boot.js"></script>
-    <script src="/nomad-utils.js"></script>
+    <script src="/theme-boot.js?v=5"></script>
+<script src="/nomad-icons.js?v=1"></script>
+    <script src="/nomad-utils.js?v=52"></script>
     <meta charset="utf-8" />
+<script>/* nomad-load-guard: reload, twice at most, when one of Nomad's own scripts or stylesheets fails to load */(function(){var k='nomadLoadGuard:'+location.pathname;window.addEventListener('error',function(e){var t=e.target;if(!t||!t.tagName)return;var s=t.tagName==='SCRIPT',c=t.tagName==='LINK'&&/stylesheet/i.test(t.rel||'');if(!s&&!c)return;var u=t.src||t.href||'';if(u.indexOf(location.origin+'/')!==0)return;var n=0;try{n=+sessionStorage.getItem(k)||0;}catch(x){return;}if(n>=2)return;try{sessionStorage.setItem(k,String(n+1));}catch(x){return;}setTimeout(function(){location.reload();},1500*(n+1));},true);window.addEventListener('load',function(){setTimeout(function(){try{sessionStorage.removeItem(k);}catch(x){}},15000);});})();</script>
     <meta name="viewport" content="width=device-width,initial-scale=1" />
     <title>Nomad • Books</title>
     <!-- Books page supports epub, audiobook, and PDF formats. Comics (CBZ/CBR/folder) open in comics.html. -->
-    <script src="/assets/epub.min.js"></script>
     <style>
         *, *::before, *::after {
             box-sizing: border-box;
@@ -54,31 +55,6 @@
                 body.dark .modal-content, body.dark .list-modal-content {
                     background: var(--card);
                     color: var(--text);
-                }
-
-                body.dark .reader-container {
-                    background: var(--card);
-                    color: var(--text);
-                }
-
-                body.dark .reader-header {
-                    background: var(--card);
-                }
-
-                body.dark .reader-navigation {
-                    background: var(--card);
-                    border-top-color: var(--white-alpha-4);
-                }
-
-                body.dark .toc-panel {
-                    background: var(--card);
-                    border-left: 1px solid var(--white-alpha-6);
-                }
-
-                body.dark .audio-player {
-                    background: var(--card);
-                    backdrop-filter: blur(10px);
-                    border-top-color: var(--white-alpha-8);
                 }
 
                 body.dark .progress-bar-container {
@@ -205,7 +181,7 @@
 
         @media (max-width: 600px) {
             .media-grid.small {
-                grid-template-columns: repeat(2, 1fr);
+                grid-template-columns: repeat(4, 1fr);
             }
 
             .media-grid.medium {
@@ -213,7 +189,7 @@
             }
 
             .media-grid.large {
-                grid-template-columns: repeat(4, 1fr);
+                grid-template-columns: repeat(2, 1fr);
             }
         }
 
@@ -252,14 +228,15 @@
             top: 8px;
             right: 8px;
             z-index: 3;
-            font-size: 1.2rem;
-            opacity: 0.7;
-            text-shadow: 0 1px 3px rgba(0,0,0,0.3);
+            display: flex;
+            color: #fff;
+            opacity: 0.85;
+            filter: drop-shadow(0 1px 2px rgba(0,0,0,0.45));
             pointer-events: none;
         }
 
         body.dark .folder-icon {
-            text-shadow: 0 1px 3px rgba(0,0,0,0.6);
+            filter: drop-shadow(0 1px 2px rgba(0,0,0,0.7));
         }
 
         .media-card:hover {
@@ -281,7 +258,7 @@
 
         .overlay-title {
             position: absolute;
-            inset: 0;
+            top:0;right:0;bottom:0;left:0;inset:0;
             display: flex;
             align-items: center;
             justify-content: center;
@@ -305,24 +282,53 @@
             transition: opacity .35s ease;
         }
 
-        .badge-resume {
-            position: absolute;
-            left: 8px;
-            bottom: 8px;
-            z-index: 4;
-            padding: 4px 8px;
-            font-size: 12px;
-            font-weight: 700;
-            border-radius: 6px;
-            background: rgba(0,0,0,0.75);
-            color: #fff;
-            box-shadow: 0 2px 6px rgba(0,0,0,0.25);
+        /* How far along (paintProgress): a thin bar and a short label on covers, rows,
+           folder popup items and Continue; a quiet "Finished" once done */
+        .prog { pointer-events: none; }
+        .prog-bar { display: block; height: 3px; border-radius: 2px; background: var(--line); overflow: hidden; }
+        .prog-bar i { display: block; height: 100%; background: var(--primary); }
+        .prog.done .prog-bar, .prog.nobar .prog-bar { display: none; }
+        .thumb-wrapper .prog { position: absolute; left: 0; right: 0; bottom: 0; z-index: 4; }
+        .thumb-wrapper .prog-label {
+            position: absolute; left: 6px; bottom: 9px; max-width: calc(100% - 12px);
+            padding: 2px 6px; border-radius: 4px; background: rgba(0,0,0,0.72); color: #fff;
+            font-size: 11px; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
         }
+        .thumb-wrapper .prog-bar { height: 4px; border-radius: 0; background: rgba(0,0,0,0.35); }
+        .thumb-wrapper .prog.done .prog-label { bottom: 6px; background: rgba(0,0,0,0.5); font-weight: 600; }
+        .book-row { position: relative; }
+        .book-row .prog-label { color: var(--muted); font-size: 0.85rem; font-weight: 600; white-space: nowrap; }
+        .book-row .prog-bar { position: absolute; left: 10px; right: 10px; bottom: 2px; }
+        .book-row.has-prog .context { display: none; }
+
+        /* Continue: what you're partway through, newest first */
+        .continue { margin-bottom: 1rem; }
+        .continue[hidden] { display: none; }
+        .continue h2 { font-size: 1rem; margin: 0 0 0.5rem; }
+        .continue-list { display: flex; gap: 10px; overflow-x: auto; padding-bottom: 4px; scroll-snap-type: x proximity; }
+        .cont-tile {
+            flex: 0 0 auto; width: 230px; max-width: 80vw; display: flex; gap: 10px; align-items: center;
+            padding: 8px; border: 1px solid var(--card-border); border-radius: var(--radius);
+            background: var(--card); color: var(--text); font: inherit; text-align: left; cursor: pointer; scroll-snap-align: start;
+        }
+        .cont-tile:hover { border-color: var(--primary); }
+        .cont-art {
+            width: 40px; height: 60px; flex: 0 0 auto; border-radius: 4px; overflow: hidden; background: var(--bg);
+            display: flex; align-items: center; justify-content: center; color: var(--primary);
+        }
+        .cont-art { position: relative; }
+        .cont-art img { position: absolute; top:0;right:0;bottom:0;left:0;inset:0; width: 100%; height: 100%; object-fit: cover; opacity: 0; }
+        .cont-art.has-img img { opacity: 1; }
+        .cont-art.has-img svg { visibility: hidden; }
+        .cont-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+        .cont-title { font-weight: 700; font-size: 0.9rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .cont-text .prog { display: flex; flex-direction: column; gap: 4px; }
+        .cont-text .prog-label { color: var(--muted); font-size: 0.8rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
         .modal, .list-modal {
             display: none;
             position: fixed;
-            inset: 0;
+            top:0;right:0;bottom:0;left:0;inset:0;
             background: rgba(0,0,0,0.6);
             justify-content: center;
             align-items: center;
@@ -353,7 +359,18 @@
             #actionModal .modal-content h2 { margin: 0; }
             #actionSub { font-size: 0.9rem; color: var(--muted); }
 
+            /* the list scrolls inside a popup that never outgrows the screen: on a phone held
+               sideways 70vh plus the title and Close button would run off the top and bottom */
+            .list-modal-content {
+                display: flex;
+                flex-direction: column;
+                max-height: calc(100vh - 24px);
+                max-height: calc(100dvh - 24px);
+            }
+
             .list-modal-content .list {
+                flex: 1 1 auto;
+                min-height: 0;
                 display: grid;
                 grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
                 gap: 12px;
@@ -462,6 +479,8 @@
         .book-row .book-icon {
             font-size: 1.2rem;
             flex-shrink: 0;
+            display: flex;
+            color: var(--primary);
         }
 
         .book-row .title {
@@ -491,323 +510,58 @@
                 cursor: pointer
             }
 
-        /* EPUB Reader */
-        .reader-container {
-            display: none;
-            position: fixed;
-            inset: 0;
-            background: #fff;
-            z-index: 2000;
-            flex-direction: column;
-        }
-
-            .reader-container.active {
-                display: flex;
-            }
-
-        .reader-header {
-            background: var(--primary);
-            color: #fff;
-            padding: 12px 16px;
-            display: flex;
-            gap: 10px;
-            align-items: center;
-            flex-wrap: wrap;
-        }
-
-        .reader-title {
-            font-size: 1rem;
-            font-weight: 700;
-            margin-right: auto;
-        }
-
-        .reader-controls {
-            display: flex;
-            gap: 6px;
-            align-items: center;
-            flex-wrap: wrap;
-        }
-
-        .reader-btn {
-            background: rgba(255,255,255,0.2);
-            border: none;
-            color: #fff;
-            padding: 8px 12px;
-            border-radius: 5px;
-            cursor: pointer;
-            font-size: 0.9rem;
-            transition: background 0.2s ease;
-            white-space: nowrap;
-        }
-
-            .reader-btn:hover {
-                background: rgba(255,255,255,0.3);
-            }
-
-        .reader-main {
-            flex: 1;
-            display: flex;
-            min-height: 0;
-            position: relative;
-            overflow: hidden;
-        }
-
-        #epub-viewer {
-            flex: 1;
-            display: flex;
-            justify-content: center;
-            align-items: stretch;
-            overflow: hidden;
-            background: #fafafa;
-        }
-
-        .reader-navigation {
-            background: #f5f5f5;
-            padding: 12px;
-            display: flex;
-            gap: 10px;
-            justify-content: center;
-            align-items: center;
-            border-top: 1px solid #ddd;
-            flex-wrap: wrap;
-        }
-
-        .nav-btn {
-            background: var(--primary);
-            color: #fff;
-            border: none;
-            padding: 8px 14px;
-            border-radius: 5px;
-            cursor: pointer;
-            font-size: 0.95em;
-        }
-
-            .nav-btn:disabled {
-                background: #ccc;
-                cursor: not-allowed;
-            }
-
-        .progress-info {
-            color: #333;
-            font-weight: 600;
-        }
-
-        /* TOC slide-in panel */
-        .toc-panel {
-            position: absolute;
-            top: 0;
-            right: 0;
-            bottom: 0;
-            width: var(--reader-sidebar-width);
-            max-width: 80%;
-            background: #fff;
-            border-left: 1px solid #e5e7eb;
-            transform: translateX(100%);
-            transition: transform .25s ease;
-            z-index: 5;
-            display: flex;
-            flex-direction: column;
-            box-shadow: -8px 0 20px rgba(0,0,0,0.08);
-        }
-
-            .toc-panel.open {
-                transform: translateX(0%);
-            }
-
-        .toc-header {
-            padding: 10px 12px;
-            font-weight: 700;
-            border-bottom: 1px solid #e5e7eb;
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-        }
-
-        .toc-content {
-            padding: 8px 6px;
-            overflow: auto;
-            flex: 1;
-        }
-
-        .toc-item {
-            display: block;
-            padding: 8px 10px;
-            border-radius: 6px;
-            cursor: pointer;
-            color: #0f1720;
-            text-decoration: none;
-            font-size: 0.95rem;
-        }
-
-            .toc-item:hover {
-                background: #eef3ff;
-            }
-
-        .toc-sub {
-            padding-left: 16px;
-        }
-
-        /* Audiobook Player */
+        /* Audiobook player: a bar along the bottom on Nomad's theme. Cover, title and
+           folder (a series) it sits in, a seek bar you can drag, then the controls. */
         .audio-player {
             display: none;
             position: fixed;
             bottom: 0;
             left: 0;
             right: 0;
-            background: rgba(255,255,255,0.98);
-            backdrop-filter: blur(10px);
-            box-shadow: 0 -2px 12px rgba(0,0,0,0.15);
-            padding: 12px 16px;
-            z-index: 1500;
-            border-top: 2px solid var(--primary);
-        }
-
-            .audio-player.active {
-                display: block;
-            }
-
-        .audio-player-inner {
-            max-width: 860px;
-            margin: 0 auto;
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            gap: 10px;
-        }
-
-        .audio-title {
-            font-size: 0.95em;
-            font-weight: 700;
+            background: var(--card);
             color: var(--text);
-            text-align: center;
-            max-width: 100%;
-            overflow: hidden;
-            text-overflow: ellipsis;
-            white-space: nowrap;
+            box-shadow: var(--shadow-large);
+            border-top: 1px solid var(--card-border);
+            padding: 10px 14px;
+            padding-bottom: max(10px, env(safe-area-inset-bottom));
+            z-index: 1500;
         }
+        .audio-player.active { display: block; }
+        .audio-player-inner { max-width: 760px; margin: 0 auto; display: flex; flex-direction: column; gap: 6px; }
+        .audio-top-row { display: flex; align-items: center; gap: 10px; }
+        .audio-art { width: 44px; height: 44px; border-radius: var(--radius-small); object-fit: cover; flex: 0 0 auto; background: var(--bg); }
+        .audio-meta { flex: 1; min-width: 0; }
+        .audio-title { font-size: 0.95rem; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .audio-sub { font-size: 0.8rem; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .audio-close-btn { width: 36px; height: 36px; border: none; background: none; color: var(--muted); cursor: pointer;
+            border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; flex: 0 0 auto; }
+        .audio-close-btn:hover { color: var(--text); background: var(--primary-alpha-10); }
 
-        .audio-controls {
-            display: flex;
-            gap: 8px;
-            align-items: center;
-            justify-content: center;
-            flex-wrap: wrap;
-        }
+        .audio-progress-section { display: flex; flex-direction: column; gap: 2px; }
+        #audioSeek { width: 100%; height: 24px; margin: 0; accent-color: var(--primary); cursor: pointer; }
+        .time-info { display: flex; justify-content: space-between; color: var(--muted); font-size: 0.78rem; font-variant-numeric: tabular-nums; }
 
-        .audio-btn {
-            background: var(--primary);
-            color: #fff;
-            border: none;
-            padding: 8px 12px;
-            border-radius: 18px;
-            cursor: pointer;
-            font-size: 0.9em;
-            transition: all 0.2s ease;
-            white-space: nowrap;
-        }
-
-            .audio-btn:hover {
-                background: var(--primary-dark);
-                transform: scale(1.05);
-            }
-
-            /* skip buttons: themed glyphs rather than emoji, which render at a
-               different size and baseline on every platform */
-            .audio-btn.icon {
-                width: 40px; height: 40px; padding: 0; border-radius: 50%;
-                display: inline-flex; align-items: center; justify-content: center;
-                background: transparent; color: var(--primary);
-                border: 1px solid var(--line);
-            }
-            .audio-btn.icon:hover { background: var(--primary); color: #fff; border-color: var(--primary); }
-            .audio-btn.icon svg { width: 22px; height: 22px; fill: currentColor; }
-            .audio-btn.icon svg text { font-size: 8px; font-weight: 700; fill: currentColor; }
-
-            /* a fixed square with the glyph centered by flex: the old pill sat
-               visibly off-center because a text triangle carries side bearing */
-            .audio-btn.play-pause {
-                width: 52px; height: 52px; padding: 0; border-radius: 50%;
-                display: inline-flex; align-items: center; justify-content: center;
-            }
-            .audio-btn.play-pause svg { width: 24px; height: 24px; fill: currentColor; display: block; }
-            .audio-btn.play-pause .ic-pause { display: none; }
-            .audio-btn.play-pause.playing .ic-play { display: none; }
-            .audio-btn.play-pause.playing .ic-pause { display: block; }
-
-        .audio-progress-section {
-            width: 100%;
-            display: flex;
-            flex-direction: column;
-            gap: 6px;
-        }
-
-        .progress-bar-container {
-            width: 100%;
-            height: 7px;
-            background: #e0e0e0;
-            border-radius: 4px;
-            cursor: pointer;
-            position: relative;
-        }
-
-        .progress-fill {
-            height: 100%;
-            background: var(--primary);
-            border-radius: 4px;
-            width: 0%;
-            transition: width 0.1s ease;
-        }
-
-        .time-info {
-            display: flex;
-            justify-content: space-between;
-            color: var(--muted);
-            font-size: 0.8em;
-        }
-
-        .audio-actions {
-            display: flex;
-            justify-content: center;
-            gap: 8px;
-        }
-
-        .audio-top-row {
-            display: flex;
-            width: 100%;
-            align-items: center;
-            justify-content: space-between;
-            gap: 8px;
-        }
-
-        .audio-close-btn {
-            background: transparent;
-            border: none;
-            color: var(--muted);
-            cursor: pointer;
-            font-size: 1.1em;
-            padding: 4px 8px;
-            transition: color 0.2s ease;
-        }
-
-            .audio-close-btn:hover {
-                color: var(--primary);
-            }
-
-        @media (max-width:768px) {
-            .audio-top-row {
-                flex-wrap: wrap;
-                justify-content: center;
-            }
-
-            .audio-title {
-                order: 1;
-                flex: 1 1 100%;
-            }
-
-            .reader-controls {
-                width: 100%;
-                justify-content: flex-start;
-            }
+        .audio-controls { display: flex; align-items: center; justify-content: center; gap: 6px; }
+        .audio-btn { border: none; cursor: pointer; display: inline-flex; align-items: center; justify-content: center;
+            background: transparent; color: var(--text); border-radius: 50%; flex: 0 0 auto; }
+        .audio-btn svg { width: 24px; height: 24px; fill: currentColor; display: block; }
+        .audio-btn svg text { font-size: 7.5px; font-weight: 700; fill: currentColor; }
+        .audio-btn.icon { width: 44px; height: 44px; }
+        .audio-btn.icon:hover:not(:disabled) { background: var(--primary-alpha-10); color: var(--primary); }
+        .audio-btn:disabled { opacity: 0.3; cursor: default; }
+        .audio-btn[hidden] { display: none; }
+        .audio-btn.play-pause { width: 56px; height: 56px; background: var(--primary); color: var(--header-text); margin: 0 4px; }
+        .audio-btn.play-pause svg { width: 28px; height: 28px; }
+        .audio-btn.play-pause .ic-pause { display: none; }
+        .audio-btn.play-pause.playing .ic-play { display: none; }
+        .audio-btn.play-pause.playing .ic-pause { display: block; }
+        .audio-btn.pill { border-radius: var(--radius-medium); min-width: 52px; height: 34px; padding: 0 8px; font-size: 0.82rem;
+            font-weight: 700; border: 1px solid var(--card-border); color: var(--text); font-variant-numeric: tabular-nums; }
+        .audio-btn.pill.on { background: var(--primary); border-color: var(--primary); color: var(--header-text); }
+        @media (max-width: 400px) {
+            .audio-btn.icon { width: 40px; height: 40px; }
+            .audio-btn.pill { min-width: 44px; padding: 0 6px; }
+            .audio-controls { gap: 2px; }
         }
 
         @keyframes pop-in {
@@ -822,7 +576,13 @@
             }
         }
     </style>
-    <script src="theme-manager.js"></script>
+    <script src="theme-manager.js?v=5"></script>
+    <script src="/assets/nomad-marks.js?v=1"></script>
+    <style>
+        .marks-pill { position: relative; }
+        .marks-pill svg { width: 15px; height: 15px; }
+        .marks-pill.has-marks::after { content: ''; position: absolute; top: 3px; right: 3px; width: 7px; height: 7px; border-radius: 50%; background: #ffd400; }
+    </style>
 </head>
 <body>
     <header>
@@ -831,18 +591,24 @@
     </header>
 
     <div class="toolbar">
-        <input id="searchInput" type="search" placeholder="Search books…" aria-label="Search books">
+        <input id="searchInput" type="search" placeholder="Search" aria-label="Search books">
         <select id="sortSelect" aria-label="Sort books">
             <option value="nameAsc">A → Z</option>
             <option value="nameDesc">Z → A</option>
         </select>
-        <button class="view-btn" data-size="small" title="Compact view">🔳</button>
-        <button class="view-btn active" data-size="medium" title="Comfort view">🔲</button>
-        <button class="view-btn" data-size="large" title="Gallery view">⬜</button>
+        <div class="view-group">
+          <button class="view-btn" data-size="small" title="Compact view">🔳</button>
+          <button class="view-btn active" data-size="medium" title="Comfort view">🔲</button>
+          <button class="view-btn" data-size="large" title="Gallery view">⬜</button>
+        </div>
     </div>
 
     <main>
         <div class="grid-wrapper">
+            <section class="continue" id="continueRow" hidden aria-label="Continue">
+                <h2>Continue</h2>
+                <div class="continue-list" id="continueList"></div>
+            </section>
             <div id="grid" class="media-grid medium" aria-live="polite" role="list"></div>
         </div>
     </main>
@@ -859,71 +625,41 @@
         <div class="modal-content" onclick="event.stopPropagation()">
             <h2 id="actionTitle">What do you want to do?</h2>
             <div id="actionSub"></div>
-            <button id="viewButton" class="btn" aria-label="Primary action"></button>
+            <button id="viewButton" class="btn"></button>
             <button id="downloadButton" class="btn-muted" aria-label="Download file" data-dl>Download</button>
             <button id="actionCancelBtn" class="btn-muted">Cancel</button>
         </div>
     </div>
 
-    <!-- EPUB Reader -->
-    <div class="reader-container" id="readerContainer">
-        <div class="reader-header">
-            <div class="reader-title" id="readerTitle">Book Title</div>
-            <div class="reader-controls">
-                <button class="reader-btn" id="tocBtn" title="Table of Contents">📑 TOC</button>
-                <button class="reader-btn" id="viewModeBtn" title="Toggle view mode">Pages</button>
-                <button class="reader-btn" id="fontSizeDown" title="Decrease font size">A-</button>
-                <button class="reader-btn" id="fontSizeUp" title="Increase font size">A+</button>
-                <button class="reader-btn" id="closeReader" title="Close reader">✕ Close</button>
-            </div>
-        </div>
-        <div class="reader-main">
-            <div id="epub-viewer"></div>
-            <aside class="toc-panel" id="tocPanel">
-                <div class="toc-header">
-                    <span>Table of Contents</span>
-                    <button class="reader-btn" id="closeToc" title="Close TOC">✕</button>
-                </div>
-                <div class="toc-content" id="tocContent"></div>
-            </aside>
-        </div>
-        <div class="reader-navigation">
-            <button class="nav-btn" id="prevBtn">← Previous</button>
-            <span class="progress-info" id="progressInfo">0%</span>
-            <button class="nav-btn" id="nextBtn">Next →</button>
-        </div>
-    </div>
-
     <!-- Audiobook Player -->
-    <div class="audio-player" id="audioPlayer">
+    <div class="audio-player" id="audioPlayer" role="region" aria-label="Audiobook player">
         <div class="audio-player-inner">
             <div class="audio-top-row">
-                <div class="audio-title" id="audioTitle">Audiobook</div>
-                <button class="audio-close-btn" id="closeAudio" title="Close">✕</button>
-            </div>
-            <div class="audio-actions">
-                <div class="audio-controls">
-                    <button class="audio-btn icon" id="rewind" title="Back 15 seconds" aria-label="Back 15 seconds">
-                        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5V2L7 6l5 4V7a6 6 0 1 1-6 6H4a8 8 0 1 0 8-8z"/><text x="12" y="16" text-anchor="middle">15</text></svg>
-                    </button>
-                    <button class="audio-btn play-pause" id="playPause" title="Play/Pause" aria-label="Play or pause">
-                        <svg class="ic-play" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5.5v13l11-6.5z"/></svg>
-                        <svg class="ic-pause" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 5h3.2v14H7zm6.8 0H17v14h-3.2z"/></svg>
-                    </button>
-                    <button class="audio-btn icon" id="forward" title="Forward 15 seconds" aria-label="Forward 15 seconds">
-                        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5V2l5 4-5 4V7a6 6 0 1 0 6 6h2a8 8 0 1 1-8-8z"/><text x="12" y="16" text-anchor="middle">15</text></svg>
-                    </button>
-                    <button class="audio-btn" id="speedBtn" title="Speed">1.0x</button>
+                <img class="audio-art" id="audioArt" alt="" hidden>
+                <div class="audio-meta">
+                    <div class="audio-title" id="audioTitle">Audiobook</div>
+                    <div class="audio-sub" id="audioSub"></div>
                 </div>
+                <button class="audio-close-btn" id="closeAudio" title="Close" aria-label="Close" data-icon="x"></button>
             </div>
             <div class="audio-progress-section">
-                <div class="progress-bar-container" id="audioProgressBar">
-                    <div class="progress-fill" id="audioProgressFill"></div>
-                </div>
-                <div class="time-info">
-                    <span id="currentTime">0:00</span>
-                    <span id="duration">0:00</span>
-                </div>
+                <input type="range" id="audioSeek" min="0" max="1000" step="1" value="0" aria-label="Position in this book">
+                <div class="time-info"><span id="currentTime">0:00</span><span id="duration">0:00</span></div>
+            </div>
+            <div class="audio-controls">
+                <button class="audio-btn pill" id="speedBtn" title="Playback speed">1x</button>
+                <button class="audio-btn icon" id="rewind" title="Back 15 seconds" aria-label="Back 15 seconds">
+                    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5V2L7 6l5 4V7a6 6 0 1 1-6 6H4a8 8 0 1 0 8-8z"/><text x="12" y="16" text-anchor="middle">15</text></svg>
+                </button>
+                <button class="audio-btn play-pause" id="playPause" title="Play or pause" aria-label="Play or pause">
+                    <svg class="ic-play" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5.5v13l11-6.5z"/></svg>
+                    <svg class="ic-pause" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 5h3.2v14H7zm6.8 0H17v14h-3.2z"/></svg>
+                </button>
+                <button class="audio-btn icon" id="forward" title="Forward 15 seconds" aria-label="Forward 15 seconds">
+                    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5V2l5 4-5 4V7a6 6 0 1 0 6 6h2a8 8 0 1 1-8-8z"/><text x="12" y="16" text-anchor="middle">15</text></svg>
+                </button>
+                <button class="audio-btn pill" id="sleepBtn" title="Sleep timer">Sleep</button>
+                <button class="audio-btn pill marks-pill" id="audioMarksBtn" title="Bookmarks" aria-label="Bookmarks" data-icon="pin"></button>
             </div>
         </div>
         <audio id="audioElement" preload="metadata" crossorigin="anonymous"></audio>
@@ -952,11 +688,13 @@
         function prettify(filename) {
             if (!filename) return '';
             let base = filename.replace(/\.[^/.]+$/, '');
-            let title = base.replace(/[_\.]+/g, ' ').trim();
+            let title = base.replace(/[_\.]+/g, ' ').replace(/\s+/g, ' ').trim();
             title = title.replace(/\s*($$\d{4}$$|\d{4})\s*$/, '').trim();
             return title || filename;
         }
         function fileUrlDirect(path) { if (!path) return ''; return `/media?file=${encodeURIComponent(normalizePath(path))}`; }
+        // names in natural order (HTTYD 2 before HTTYD 10), the order comics.html uses for pages
+        const byName = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' });
         function formatBytes(bytes) {
             if (!bytes && bytes !== 0) return '0 B';
             const k = 1024;
@@ -976,63 +714,122 @@
 
         /* Resume store */
         const RESUME_KEY = 'nomad_resume_store_v1';
-        function readResume() { try { return JSON.parse(localStorage.getItem(RESUME_KEY) || '{}'); } catch (e) { return {}; } }
-        function writeResume(obj) { try { localStorage.setItem(RESUME_KEY, JSON.stringify(obj)); } catch (e) { } }
+        function readResume() { try { return JSON.parse(NomadPrefs.raw(RESUME_KEY) || '{}'); } catch (e) { return {}; } }
+        function writeResume(obj) { try { NomadPrefs.setRaw(RESUME_KEY, JSON.stringify(obj)); } catch (e) { } }
         function fileKey(path, sz, mt) { return `${normalizePath(path)}|${sz || 0}|${mt || 0}`; }
         function findResume(movie) {
             const store = readResume();
             const norm = normalizePath(movie.path);
             const exact = fileKey(movie.path, movie.sz || 0, movie.mt || 0);
             if (store[exact]) return { key: exact, entry: store[exact] };
+            // by path alone, never by file name: chapter files ("01.mp3") of different books share theirs
             for (const k of Object.keys(store)) { const p = (k.split('|')[0] || ''); if (normalizePath(p) === norm) return { key: k, entry: store[k] }; }
-            for (const k of Object.keys(store)) { const p = (k.split('|')[0] || '').replace(/^\//, ''); if (p === norm.replace(/^\//, '')) return { key: k, entry: store[k] }; }
-            const base = norm.split('/').pop().toLowerCase();
-            for (const k of Object.keys(store)) { const p = (k.split('|')[0] || '').toLowerCase(); if (p.split('/').pop() === base) return { key: k, entry: store[k] }; }
             return null;
         }
-        function clearResumeFor(path) {
-            const store = readResume();
+        // one place per file: a key written without the size (from Continue, or a link to
+        // #play=) must not leave an older key for the same file that findResume finds first
+        function dropResumeFor(store, path) {
             const norm = normalizePath(path);
-            let changed = false;
-            for (const k of Object.keys(store)) {
-                const p = (k.split('|')[0] || '');
-                if (normalizePath(p) === norm || p.replace(/^\//, '') === norm.replace(/^\//, '')) {
-                    delete store[k]; changed = true;
-                }
-            }
-            if (changed) writeResume(store);
+            for (const k of Object.keys(store)) if (normalizePath(k.split('|')[0] || '') === norm) delete store[k];
         }
-        // kind is 'percent' or 'time'. Without it the value was guessed from its
-        // size, so an audiobook paused at 45 seconds read as "Resume 45%".
-        function updateResumeBadge(movie, positionOrPercent, kind) {
-            if (!movie || !movie.path) return;
-            const cards = Array.from(gridEl.querySelectorAll('.media-card'));
-            for (const card of cards) {
-                if (card.dataset.path === movie.path) {
-                    const badge = card.querySelector('.badge-resume');
-                    const wrapper = card.querySelector('.thumb-wrapper');
-                    const show = positionOrPercent && positionOrPercent > 1;
-                    if (show) {
-                        const asPercent = kind
-                            ? kind === 'percent'
-                            : (typeof positionOrPercent === 'number' && positionOrPercent <= 100);
-                        const text = asPercent
-                            ? `Resume ${Math.round(positionOrPercent)}%`
-                            : `Resume ${formatTime(positionOrPercent)}`;
-                        if (badge) { badge.textContent = text; }
-                        else if (wrapper) {
-                            const div = document.createElement('div');
-                            div.className = 'badge-resume';
-                            div.textContent = text;
-                            wrapper.appendChild(div);
-                        }
-                    } else {
-                        if (badge) badge.remove();
-                    }
-                    break;
+
+        /* How far along, from NomadProgress (nomad-utils.js), which every reader and the
+           player here write. A folder shows the book in it you're on. Anything with
+           data-prog is painted, wherever it sits. */
+        const BOOK_KINDS = ['epub', 'pdf', 'comic', 'audio'];
+        let inProgress = null;   // newest first, read once per paint
+        function progressFor(path, isDir) {
+            path = normalizePath(path);
+            const own = NomadProgress.get(path);
+            if (own || !isDir) return own;
+            if (!inProgress) inProgress = NomadProgress.recent({ kinds: BOOK_KINDS });
+            return inProgress.find(e => e.path.startsWith(path + '/')) || null;
+        }
+        function paintProgress(el) {
+            const e = progressFor(el.dataset.path || '', el.dataset.dir === '1');
+            const host = el.querySelector('.thumb-wrapper, .cont-text') || el;
+            let box = host.querySelector('.prog');
+            const shown = e && (e.done || e.p > 0 || e.l);
+            el.classList.toggle('has-prog', !!shown);
+            if (!shown) { if (box) box.remove(); return; }
+            if (!box) {
+                box = document.createElement('div');
+                box.className = 'prog';
+                box.innerHTML = '<span class="prog-label"></span><span class="prog-bar"><i></i></span>';
+                host.appendChild(box);
+            }
+            box.classList.toggle('done', !!e.done);
+            box.classList.toggle('nobar', !e.done && e.p == null);
+            box.querySelector('.prog-label').textContent = e.done ? 'Finished' : (e.l || Math.round(e.p * 100) + '%');
+            box.querySelector('.prog-bar i').style.width = (e.p > 0 ? Math.max(2, e.p * 100) : 0) + '%';
+        }
+        function refreshProgress() {
+            NomadProgress._fresh();   // a reader in another tab, or this page back from the cache
+            inProgress = null;
+            renderContinue();
+            document.querySelectorAll('[data-prog]').forEach(paintProgress);
+        }
+
+        /* Continue: the books and audiobooks you're partway through, newest first. Hidden
+           while searching, and when there is nothing to continue. */
+        let continueSig = null;
+        function coverFor(path) {
+            path = normalizePath(path);
+            let best = null;
+            for (const x of library) {
+                const p = normalizePath(x.type === 'file' ? x.fileEntry.path : x.dir);
+                if (p === path) return x.cover;
+                if (x.cover && x.type === 'dir' && path.startsWith(p + '/')) best = x.cover;
+            }
+            return best;
+        }
+        function kindIcon(k) { return NomadIcons.svg(k === 'audio' ? 'headphones' : k === 'comic' ? 'books' : 'book'); }
+        function renderContinue() {
+            const row = document.getElementById('continueRow'), list = document.getElementById('continueList');
+            if (searchInput.value.trim()) { row.hidden = true; return; }   // tiles stay for after
+            const items = NomadProgress.recent({ kinds: BOOK_KINDS }).filter(e => e.path.startsWith(ROOT + '/')).slice(0, 8);
+            row.hidden = !items.length;
+            const sig = items.map(e => e.path).join('\n');
+            if (sig === continueSig) return;   // the same books: paintProgress updates them in place
+            continueSig = sig;
+            // tiles already there move rather than being made again, so their covers don't reload
+            const had = new Map([...list.children].map(t => [t.dataset.path, t]));
+            list.innerHTML = '';
+            for (const e of items) {
+                const kept = had.get(e.path);
+                if (kept) { list.appendChild(kept); continue; }
+                const tile = document.createElement('button');
+                tile.type = 'button';
+                tile.className = 'cont-tile';
+                tile.dataset.prog = '';
+                tile.dataset.path = e.path;
+                const title = e.t || prettify(e.path.split('/').pop());
+                tile.innerHTML = `<span class="cont-art">${kindIcon(e.k)}</span>
+                    <span class="cont-text"><span class="cont-title">${escapeHtml(title)}</span></span>`;
+                tile.title = title;
+                const cover = coverFor(e.path);
+                if (cover) {
+                    // the icon until the cover arrives (it loads through the shared queue, in place)
+                    const art = tile.querySelector('.cont-art'), img = document.createElement('img');
+                    img.alt = '';
+                    img.addEventListener('load', () => art.classList.add('has-img'));
+                    art.appendChild(img);
+                    NomadImages.observe(img, fileUrlDirect(cover));
                 }
+                tile.addEventListener('click', () => openFromProgress(e));
+                paintProgress(tile);
+                list.appendChild(tile);
             }
         }
+        function openFromProgress(e) {
+            const q = encodeURIComponent(e.path);
+            if (e.k === 'epub') location.href = `/epub?path=${q}`;
+            else if (e.k === 'pdf') location.href = `/pdf?path=${q}`;
+            else if (e.k === 'comic') location.href = `/comics?path=${q}`;
+            else playTrack({ name: prettify(e.path.split('/').pop()), path: e.path });
+        }
+        window.addEventListener('pageshow', (ev) => { if (ev.persisted) refreshProgress(); });
+        window.addEventListener('storage', (ev) => { if (ev.key === NomadProgress.KEY) refreshProgress(); });
 
         /* DOM refs */
         const gridEl = document.getElementById('grid');
@@ -1048,6 +845,7 @@
         const viewButton = document.getElementById('viewButton');
         const downloadButton = document.getElementById('downloadButton');
         const actionCancelBtn = document.getElementById('actionCancelBtn');
+        const actionSub = document.getElementById('actionSub');
 
         /* Audio refs */
         const audioPlayer = document.getElementById('audioPlayer');
@@ -1055,36 +853,15 @@
         const audioElement = document.getElementById('audioElement');
         const playPauseBtn = document.getElementById('playPause');
         const speedBtn = document.getElementById('speedBtn');
-        const audioProgressBar = document.getElementById('audioProgressBar');
-        const audioProgressFill = document.getElementById('audioProgressFill');
+        const audioSeek = document.getElementById('audioSeek');
         const currentTimeEl = document.getElementById('currentTime');
         const durationEl = document.getElementById('duration');
-
-        /* EPUB refs */
-        const readerContainer = document.getElementById('readerContainer');
-        const readerTitle = document.getElementById('readerTitle');
-        const epubViewer = document.getElementById('epub-viewer');
-        const progressInfo = document.getElementById('progressInfo');
-        const tocBtn = document.getElementById('tocBtn');
-        const closeReaderBtn = document.getElementById('closeReader');
-        const fontUpBtn = document.getElementById('fontSizeUp');
-        const fontDownBtn = document.getElementById('fontSizeDown');
-        const prevBtn = document.getElementById('prevBtn');
-        const nextBtn = document.getElementById('nextBtn');
-        const tocPanel = document.getElementById('tocPanel');
-        const tocContent = document.getElementById('tocContent');
-        const closeToc = document.getElementById('closeToc');
-        const viewModeBtn = document.getElementById('viewModeBtn');
 
         /* State */
         let library = [];
         let filtered = [];
-        let currentSize = localStorage.getItem('nomadBooksSize') || 'medium';
+        let currentSize = NomadPrefs.raw('nomadBooksSize') || 'medium';
         let currentItem = null;
-        let currentBook = null;
-        let rendition = null;
-        let epubFontSize = parseInt(localStorage.getItem('nomad_epub_font_pct') || '110', 10);
-        let epubFlow = localStorage.getItem('nomad_epub_flow') || 'paginated';
         const ANIM_KEY = 'nomadBooksAnimated_v1';
 
         /* Audio bottom padding management */
@@ -1094,32 +871,10 @@
             document.documentElement.style.setProperty('--audio-height', height + 'px');
         }
         window.addEventListener('resize', updateAudioHeight);
+        if (window.ResizeObserver) new ResizeObserver(updateAudioHeight).observe(document.getElementById('audioPlayer'));
 
         /* Index fetch (NDJSON) */
-        async function fetchIndex(path) {
-            const url = `${INDEX_ENDPOINT}?path=${encodeURIComponent(normalizePath(path))}`;
-            let res = await fetch(url);
-            // 503 means the SD is busy for a moment, not that the index is missing
-            for (let i = 0; i < 3 && res.status === 503; i++) {
-                await new Promise(r => setTimeout(r, 800 * (i + 1)));
-                res = await fetch(url);
-            }
-            if (!res.ok) throw new Error('index fetch failed ' + res.status);
-            const text = await res.text();
-            const lines = text.split('\n').filter(Boolean);
-            const header = lines.length ? (() => { try { return JSON.parse(lines[0]); } catch (e) { console.warn('index header parse failed', lines[0]); return null; } })() : null;
-            const entries = [];
-            for (let i = 1; i < lines.length; i++) {
-                const line = lines[i];
-                try { entries.push(JSON.parse(line)); }
-                catch (err) {
-                    const brace = line.indexOf('{');
-                    if (brace >= 0) { try { entries.push(JSON.parse(line.slice(brace))); continue; } catch (e2) { } }
-                    console.warn('index line parse failed', line);
-                }
-            }
-            return { header, entries };
-        }
+        async function fetchIndex(path){ return NomadIndex.fetch(path); }   // shared reader, nomad-utils.js
 
         /* Build top-level library */
         async function buildLibrary() {
@@ -1162,7 +917,7 @@
                 }
             }
 
-            out.sort((a, b) => a.name.localeCompare(b.name));
+            out.sort((a, b) => byName.compare(a.name, b.name));
             return out;
         }
         async function loadDirContents(dir) {
@@ -1214,7 +969,8 @@
                         files.push({ name: e.n, path: entryPath, isDir: true, isComic, cover });
                     }
                 }
-                files.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+                // by file name, numbers as numbers: chapter 2 before chapter 10
+                files.sort((a, b) => byName.compare(a.path.split('/').pop(), b.path.split('/').pop()));
                 return { header: resp.header, files };
             } catch (err) {
                 console.warn('loadDirContents failed', dir, err);
@@ -1226,15 +982,17 @@
             currentSize = size;
             viewButtons.forEach(btn => btn.classList.toggle('active', btn.dataset.size === size));
             gridEl.className = `media-grid ${size}`;
-            localStorage.setItem('nomadBooksSize', size);
+            NomadPrefs.setRaw('nomadBooksSize', size);
         }
         setViewSize(currentSize);
         viewButtons.forEach(btn => btn.addEventListener('click', () => setViewSize(btn.dataset.size)));
 
         /* Render grid */
         function renderGrid() {
+            inProgress = null;
+            renderContinue();
             if (filtered.length === 0) {
-                gridEl.innerHTML = '<p style="grid-column:1/-1;text-align:center;color:var(--primary-dark);padding:12px">No books found.</p>';
+                gridEl.innerHTML = '<p style="grid-column:1/-1;text-align:center;color:var(--primary-dark);padding:12px">No books found</p>';
                 return;
             }
 
@@ -1249,7 +1007,7 @@
                 gridEl.className = `media-grid ${currentSize}`;
             }
 
-            const shouldAnimate = !localStorage.getItem(ANIM_KEY);
+            const shouldAnimate = !NomadPrefs.raw(ANIM_KEY);
             let animIdx = 0;
 
             const frag = document.createDocumentFragment();
@@ -1264,14 +1022,16 @@
                     }
                     card.setAttribute('role', 'listitem');
                     card.setAttribute('aria-label', item.name || '');
-                    const pathVal = item.type === 'file' ? (item.fileEntry?.path || '') : (item.dir || '');
+                    const pathVal = item.type === 'file' ? ((item.fileEntry && item.fileEntry.path) || '') : (item.dir || '');
                     card.dataset.path = pathVal;
+                    card.dataset.prog = '';
+                    if (item.type === 'dir') card.dataset.dir = '1';
 
                     const coverPath = item.cover ? fileUrlDirect(item.cover) : '';
-                    const imgHTML = coverPath ? `<img class="media-thumb" loading="lazy" src="${coverPath}" alt="${escapeHtml(item.name)}">` : '';
+                    const imgHTML = coverPath ? `<img class="media-thumb" loading="lazy" alt="${escapeHtml(item.name)}">` : '';
 
                     const showFolderIcon = item.type === 'dir' && !item.isComic;
-                    const folderIconHTML = showFolderIcon ? '<span class="folder-icon">📁</span>' : '';
+                    const folderIconHTML = showFolderIcon ? `<span class="folder-icon">${NomadIcons.svg('folder', 20)}</span>` : '';
 
                     card.innerHTML = `
                     <div class="thumb-wrapper" aria-hidden="false">
@@ -1286,7 +1046,7 @@
                     if (img && coverPath) {
                         img.addEventListener('load', () => { img.style.opacity = '1'; if (fallback) fallback.style.display = 'none'; });
                         img.addEventListener('error', () => { img.style.display = 'none'; if (fallback) fallback.style.display = 'block'; });
-                        img.src = coverPath;
+                        NomadImages.observe(img, coverPath);   // a few covers at a time, near the viewport
                     } else {
                         if (fallback) fallback.style.display = 'block';
                     }
@@ -1309,17 +1069,7 @@
                         animIdx++;
                     }
 
-                    const fe = item.type === 'file' ? item.fileEntry : null;
-                    if (fe) {
-                        const resume = findResume({ path: fe.path, sz: fe.sz, mt: fe.mt });
-                        if (resume && resume.entry) {
-                            const e = resume.entry;
-                            if (e.cfi || e.page || (e.time && e.duration)) {
-                                updateResumeBadge({ path: fe.path }, e.percent ? e.percent : e.time, e.percent ? 'percent' : 'time');
-                            }
-                        }
-                    }
-
+                    paintProgress(card);
                     frag.appendChild(card);
                 });
             }
@@ -1332,18 +1082,20 @@
                 noImages.forEach((item) => {
                     const row = document.createElement('div');
                     row.className = 'book-row';
-                    const pathVal = item.type === 'file' ? (item.fileEntry?.path || '') : (item.dir || '');
+                    const pathVal = item.type === 'file' ? ((item.fileEntry && item.fileEntry.path) || '') : (item.dir || '');
                     row.dataset.path = pathVal;
+                    row.dataset.prog = '';
+                    if (item.type === 'dir') row.dataset.dir = '1';
 
-                    let icon = '📖';
+                    let icon = NomadIcons.svg('book');
                     if (item.type === 'dir') {
-                        icon = item.isComic ? '📚' : '📁';
+                        icon = NomadIcons.svg(item.isComic ? 'books' : 'folder');
                     } else if (item.fileEntry) {
                         const name = item.fileEntry.name.toLowerCase();
                         if (name.endsWith('.mp3') || name.endsWith('.m4a') || name.endsWith('.m4b')) {
-                            icon = '🎧';
+                            icon = NomadIcons.svg('headphones');
                         } else if (name.endsWith('.cbz') || name.endsWith('.cbr')) {
-                            icon = '📚';
+                            icon = NomadIcons.svg('books');
                         }
                     }
 
@@ -1354,6 +1106,7 @@
                         <span class="title">${escapeHtml(item.name)}</span>
                         ${contextText ? `<span class="context">${contextText}</span>` : ''}
                     `;
+                    paintProgress(row);
 
                     row.addEventListener('click', async () => {
                         if (item.type === 'dir') {
@@ -1381,46 +1134,55 @@
 
             gridEl.innerHTML = '';
             gridEl.appendChild(frag);
-            if (shouldAnimate) { try { localStorage.setItem(ANIM_KEY, '1'); } catch (e) { } }
+            if (shouldAnimate) { try { NomadPrefs.setRaw(ANIM_KEY, '1'); } catch (e) { } }
         }
 
 
 
-        /* List modal */
+        /* Folder popup. A folder inside opens in the same popup. The phone's Back goes up a
+           folder, then closes it (NomadBack). Close and the backdrop close it all. */
+        let folderStack = [];   // the folders opened in the popup, the shown one last
+        let folderShowing = 0;
         async function openListModal(item) {
+            folderStack.push(item);
+            listModal.style.display = 'flex';
+            NomadBack.open('books-folder-' + folderStack.length, folderBack);
+            await showFolder(item);
+        }
+        function folderBack() {
+            folderStack.pop();
+            if (folderStack.length) showFolder(folderStack[folderStack.length - 1]);
+            else listModal.style.display = 'none';
+        }
+        async function showFolder(item) {
+            const ticket = ++folderShowing;
             listModalTitle.textContent = item.name;
             listContainer.innerHTML = '<p style="padding:12px;color:var(--muted)">Loading…</p>';
-            listModal.style.display = 'flex';
 
             const resp = await loadDirContents(item.dir);
+            if (ticket !== folderShowing) return;   // gone up or on since
             const files = resp.files || [];
             if (files.length === 0) {
-                listContainer.innerHTML = '<p style="padding:12px;color:var(--muted)">No files found in this directory.</p>';
+                listContainer.innerHTML = '<p style="padding:12px;color:var(--muted)">This folder is empty</p>';
                 return;
             }
 
             listContainer.innerHTML = '';
-            listContainer.style.maxHeight = '70vh';
-            listContainer.style.overflowY = 'auto';
-            listContainer.style.display = 'grid';
-            listContainer.style.gridTemplateColumns = 'repeat(auto-fill, minmax(120px, 1fr))';
-            listContainer.style.gap = '12px';
-            listContainer.style.padding = '12px';
-
+            inProgress = null;
             const frag = document.createDocumentFragment();
 
             for (const f of files) {
                 const card = document.createElement('div');
                 card.className = 'media-card';
-                card.style.maxWidth = '100%';
-                card.style.margin = '0';
-                
+                card.dataset.path = f.path;
+                card.dataset.prog = '';
                 if (f.isDir) {
                     card.classList.add('is-directory');
+                    card.dataset.dir = '1';
                 }
 
                 const coverPath = f.cover ? fileUrlDirect(f.cover) : '';
-                const imgHTML = coverPath ? `<img class="media-thumb" loading="lazy" src="${coverPath}" alt="${escapeHtml(f.name)}">` : '';
+                const imgHTML = coverPath ? `<img class="media-thumb" loading="lazy" alt="${escapeHtml(f.name)}">` : '';
 
                 card.innerHTML = `
                 <div class="thumb-wrapper" aria-hidden="false">
@@ -1440,101 +1202,98 @@
                         img.style.display = 'none'; 
                         if (fallback) fallback.style.display = 'block'; 
                     });
-                    img.src = coverPath;
+                    NomadImages.observe(img, coverPath);   // a few covers at a time, near the viewport
                 } else {
                     if (fallback) fallback.style.display = 'block';
                 }
 
                 card.addEventListener('click', () => {
-                    listModal.style.display = 'none';
                     if (f.isDir) {
-                        if (f.isComic) {
-                            window.location.href = `/comics?path=${encodeURIComponent(f.path)}`;
-                        } else {
-                            openListModal({ name: f.name, dir: f.path });
-                        }
+                        if (f.isComic) leaveTo(`/comics?path=${encodeURIComponent(f.path)}`);
+                        else openListModal({ name: f.name, dir: f.path });
                     } else {
-                        openActionModal({ name: f.name, path: f.path, sz: f.sz, mt: f.mt });
+                        openActionModal({ name: f.name, path: f.path, sz: f.sz, mt: f.mt, cover: f.cover });
                     }
                 });
 
+                paintProgress(card);
                 frag.appendChild(card);
             }
 
             listContainer.appendChild(frag);
         }
-        function closeListModal() { listModal.style.display = 'none'; }
+        function closeListModal() {
+            if (!folderStack.length) return;
+            folderStack = [];
+            folderShowing++;
+            listModal.style.display = 'none';
+            NomadBack.done('books-folder-1');
+        }
         listCloseBtn.addEventListener('click', closeListModal);
 
+        // closes the action popup and the folder popup under it, with their Back entries
+        function closePopups() {
+            actionModal.style.display = 'none';
+            if (folderStack.length) closeListModal();   // takes the action popup's entry with it
+            else NomadBack.done('books-action');
+        }
+        // off to a reader: the popups' Back entries go first, so Back from the reader lands
+        // on the shelf and not on a popup that is no longer there
+        function leaveTo(url) {
+            if (!folderStack.length && !NomadBack.isOpen('books-action')) { location.href = url; return; }
+            let gone = false;
+            const go = () => { if (!gone) { gone = true; location.href = url; } };
+            window.addEventListener('popstate', go, { once: true });
+            setTimeout(go, 400);
+            closePopups();
+        }
+
         /* Action modal */
+        // through /media with download=1, as Movies does: the raw path is not a URL Nomad serves
         function downloadFile(path, filename) {
             const a = document.createElement('a');
-            a.href = path.startsWith('/') ? path : ('/' + path);
+            a.href = `/media?file=${encodeURIComponent(normalizePath(path))}&download=1`;
             a.download = filename || (path ? path.split('/').pop() : 'file');
             document.body.appendChild(a);
             a.click();
             document.body.removeChild(a);
         }
-        /* Natural sort comparator for filenames */
-        function naturalSortName(a, b) {
-            const ax = String(a).split(/(\d+)/).map(s => (/\d+/.test(s) ? Number(s) : s.toLowerCase()));
-            const bx = String(b).split(/(\d+)/).map(s => (/\d+/.test(s) ? Number(s) : s.toLowerCase()));
-            for (let i = 0; i < Math.max(ax.length, bx.length); i++) {
-                if (ax[i] === undefined) return -1;
-                if (bx[i] === undefined) return 1;
-                if (ax[i] === bx[i]) continue;
-                return ax[i] < bx[i] ? -1 : 1;
-            }
-            return 0;
-        }
-
         function openActionModal(file) {
             currentItem = file;
             actionTitle.textContent = file.name || 'File';
             const fext = ext(file.path).toLowerCase();
+            const q = encodeURIComponent(file.path);
 
             if (fext === '.pdf') {
                 viewButton.textContent = 'Read PDF';
-                viewButton.onclick = () => {
-                    actionModal.style.display = 'none';
-                    setTimeout(() => {
-                        window.location.href = `/pdf?path=${encodeURIComponent(file.path)}`;
-                    }, 20);
-                };
+                viewButton.onclick = () => leaveTo(`/pdf?path=${q}`);
             } else if (fext === '.epub') {
                 viewButton.textContent = 'Read EPUB';
-                viewButton.onclick = () => {
-                    actionModal.style.display = 'none';
-                    setTimeout(() => {
-                        window.location.href = `/epub?path=${encodeURIComponent(file.path)}`;
-                    }, 20);
-                };
+                viewButton.onclick = () => leaveTo(`/epub?path=${q}`);
             } else if (isComicName(file.path)) {
-                viewButton.textContent = 'Read Comic';
-                viewButton.onclick = () => {
-                    actionModal.style.display = 'none';
-                    // small delay so modal closing paint completes
-                    setTimeout(async () => {
-                        try { await openComicReader(file); }
-                        catch (err) { console.error('openComicReader error', err); alert('Failed to open comic: ' + (err && err.message)); }
-                    }, 20);
-                };
+                // comics open in comics.html, which streams pages instead of loading the whole archive here
+                viewButton.textContent = 'Read comic';
+                viewButton.onclick = () => leaveTo(`/comics?path=${q}`);
             } else if (isAudioName(file.path)) {
                 viewButton.textContent = 'Listen';
-                viewButton.onclick = () => { actionModal.style.display = 'none'; setTimeout(() => openAudioPlayer(file), 20); };
+                viewButton.onclick = () => { closePopups(); openAudioPlayer(file); };
             } else {
                 viewButton.textContent = 'Download';
-                viewButton.onclick = () => { actionModal.style.display = 'none'; setTimeout(() => downloadFile(file.path, file.name), 20); };
+                viewButton.onclick = () => { closeActionModal(); downloadFile(file.path, file.name); };
             }
 
             // the modal is reused: when downloads are disabled, hide the view
             // button only while it acts as a Download fallback
             viewButton.style.display = (window.__dlDisabled && viewButton.textContent === 'Download') ? 'none' : '';
+            const prog = NomadProgress.get(file.path);
+            actionSub.textContent = prog ? (prog.done ? 'Finished' : prog.l || '') : '';
+            actionSub.hidden = !actionSub.textContent;
 
-            downloadButton.onclick = () => { actionModal.style.display = 'none'; setTimeout(() => downloadFile(file.path, file.name), 20); };
+            downloadButton.onclick = () => { closeActionModal(); downloadFile(file.path, file.name); };
             actionModal.style.display = 'flex';
+            NomadBack.open('books-action', () => { actionModal.style.display = 'none'; });
         }
-        function closeActionModal() { actionModal.style.display = 'none'; }
+        function closeActionModal() { actionModal.style.display = 'none'; NomadBack.done('books-action'); }
         actionCancelBtn.addEventListener('click', closeActionModal);
 
         /* Search & Sort */
@@ -1542,230 +1301,352 @@
             const query = searchInput.value.toLowerCase().trim();
             const sort = sortSelect.value;
             filtered = library.filter(item => (item.name || '').toLowerCase().includes(query));
-            if (sort === 'nameAsc') filtered.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
-            else if (sort === 'nameDesc') filtered.sort((a, b) => (b.name || '').localeCompare(a.name || ''));
+            if (sort === 'nameAsc') filtered.sort((a, b) => byName.compare(a.name || '', b.name || ''));
+            else if (sort === 'nameDesc') filtered.sort((a, b) => byName.compare(b.name || '', a.name || ''));
             renderGrid();
         }
         searchInput.addEventListener('input', applyFilters);
         sortSelect.addEventListener('change', applyFilters);
 
-        /* EPUB Reader */
-        async function openEpubReader(file) {
-            currentBook = file;
-            readerTitle.textContent = file.name || 'Book';
-            readerContainer.classList.add('active');
-            epubViewer.innerHTML = '<p style="padding:20px;text-align:center;color:var(--muted)">Loading EPUB…</p>';
 
-            try {
-                const book = ePub(fileUrlDirect(file.path));
-                rendition = book.renderTo(epubViewer, { width: '100%', height: '100%', flow: epubFlow, spread: 'auto' });
+        /* Audio Player
+           A file is a book, or one part of a book split into files. A part that ends goes on
+           to the next part in its folder, but a folder of whole books (a series) never runs on
+           into the next book, and neither do loose files. Each file keeps its own place. */
+        let currentAudio = null;
+        // bookmarks and notes by time in this file, kept on this phone
+        const audioMarks = NomadMarks.attach(document.getElementById('audioMarksBtn'), {
+            key: () => currentAudio && currentAudio.path,
+            title: () => audioTitle.textContent,
+            here: () => (currentAudio ? { at: audioElement.currentTime, order: audioElement.currentTime, label: NomadMarks.clock(audioElement.currentTime) } : null),
+            go: (t) => { try { audioElement.currentTime = +t; audioElement.play().catch(() => {}); } catch (e) {} },
+        });
+        const speeds = [0.75, 1.0, 1.25, 1.5, 1.75, 2.0];
+        let speed = parseFloat(NomadPrefs.raw('nomad_audio_speed') || '1') || 1;
+        const audioArt = document.getElementById('audioArt');
+        audioArt.addEventListener('error', () => { audioArt.hidden = true; });
+        const audioSub = document.getElementById('audioSub');
+        const sleepBtn = document.getElementById('sleepBtn');
 
-                const resume = findResume(file);
-                let startCfi = null;
-                if (resume && resume.entry && resume.entry.cfi) startCfi = resume.entry.cfi;
+        // a part of a book by its name: "01", "Chapter 3", "Part 2", "Disc 1"
+        const PART_NAME = /^\s*(\d|chapter\b|ch\b|part\b|pt\b|track\b|disc\b|cd\b)/i;
+        // a folder holds one book in parts when its files are all named as parts, or are the
+        // same apart from their numbers ("Dune - 01", "Dune - 02"). A series is neither
+        // ("HTTYD 1. How To Train Your Dragon", "HTTYD 2. How To Be A Pirate").
+        function partsOfOneBook(names) {
+            if (names.length < 2) return false;
+            if (names.every(n => PART_NAME.test(n))) return true;
+            return new Set(names.map(n => n.replace(/\d+/g, '#').replace(/[\s_.\-]+/g, ' ').trim().toLowerCase())).size === 1;
+        }
+        // the title Continue shows: the file's, or for a part named as one the folder's,
+        // which is the book's name
+        function bookTitleFor(path) {
+            const parts = normalizePath(path).split('/');
+            const file = prettify(parts.pop());
+            const folder = parts.length > 2 ? parts[parts.length - 1].replace(/[_\.]+/g, ' ').replace(/\s+/g, ' ').trim() : '';
+            return folder && PART_NAME.test(file) ? folder : file;
+        }
 
-                await rendition.display(startCfi || undefined);
-                rendition.themes.fontSize(`${epubFontSize}%`);
-
-                book.loaded.navigation.then(nav => {
-                    tocContent.innerHTML = '';
-                    if (nav.toc && nav.toc.length) {
-                        nav.toc.forEach(chapter => {
-                            const link = document.createElement('a');
-                            link.className = 'toc-item';
-                            link.textContent = chapter.label;
-                            link.href = '#';
-                            link.onclick = (e) => { e.preventDefault(); rendition.display(chapter.href); tocPanel.classList.remove('open'); };
-                            tocContent.appendChild(link);
-                            if (chapter.subitems) {
-                                chapter.subitems.forEach(sub => {
-                                    const subLink = document.createElement('a');
-                                    subLink.className = 'toc-item toc-sub';
-                                    subLink.textContent = sub.label;
-                                    subLink.href = '#';
-                                    subLink.onclick = (e) => { e.preventDefault(); rendition.display(sub.href); tocPanel.classList.remove('open'); };
-                                    tocContent.appendChild(subLink);
-                                });
-                            }
-                        });
-                    } else {
-                        tocContent.innerHTML = '<p style="padding:12px;color:var(--muted)">No table of contents available.</p>';
-                    }
-                });
-
-                rendition.on('relocated', (location) => {
-                    const percent = book.locations.percentageFromCfi(location.start.cfi);
-                    progressInfo.textContent = Math.round(percent * 100) + '%';
-                    const store = readResume();
-                    const key = fileKey(file.path, file.sz, file.mt);
-                    store[key] = { cfi: location.start.cfi, percent: Math.round(percent * 100), time: Date.now() };
-                    writeResume(store);
-                    updateResumeBadge(file, Math.round(percent * 100), 'percent');
-                });
-
-                prevBtn.onclick = () => rendition.prev();
-                nextBtn.onclick = () => rendition.next();
-
-                rendition.on('keyup', (e) => {
-                    if (e.key === 'ArrowLeft') rendition.prev();
-                    else if (e.key === 'ArrowRight') rendition.next();
-                });
-
-            } catch (err) {
-                console.error('EPUB load error', err);
-                epubViewer.innerHTML = '<p style="padding:20px;text-align:center;color:red">Failed to load EPUB.</p>';
+        function openAudioPlayer(file) { playTrack(file); }
+        function showTrackInfo() {
+            const f = currentAudio;
+            const folder = (f.path || '').split('/').slice(-2, -1)[0] || '';
+            audioTitle.textContent = f.name || 'Audiobook';
+            audioSub.textContent = folder && !/^books$/i.test(folder) ? folder : '';
+            // its own picture, or the one beside it (or its folder) on the shelf
+            const cover = f.cover || coverFor(f.path || '');
+            if (cover) { audioArt.src = fileUrlDirect(cover); audioArt.hidden = false; } else audioArt.hidden = true;
+            if ('mediaSession' in navigator && window.MediaMetadata) {
+                try {
+                    navigator.mediaSession.metadata = new MediaMetadata({
+                        title: f.name || 'Audiobook',
+                        album: folder && !/^books$/i.test(folder) ? folder : '',
+                        artwork: cover ? [{ src: location.origin + fileUrlDirect(cover) }] : []
+                    });
+                } catch (e) {}
             }
         }
-
-        closeReaderBtn.addEventListener('click', () => {
-            readerContainer.classList.remove('active');
-            if (rendition) { rendition.destroy(); rendition = null; }
-            epubViewer.innerHTML = '';
-            currentBook = null;
-        });
-
-        tocBtn.addEventListener('click', () => tocPanel.classList.toggle('open'));
-        closeToc.addEventListener('click', () => tocPanel.classList.remove('open'));
-
-        fontUpBtn.addEventListener('click', () => {
-            epubFontSize = Math.min(200, epubFontSize + 10);
-            if (rendition) rendition.themes.fontSize(`${epubFontSize}%`);
-            localStorage.setItem('nomad_epub_font_pct', epubFontSize);
-        });
-
-        fontDownBtn.addEventListener('click', () => {
-            epubFontSize = Math.max(80, epubFontSize - 10);
-            if (rendition) rendition.themes.fontSize(`${epubFontSize}%`);
-            localStorage.setItem('nomad_epub_font_pct', epubFontSize);
-        });
-
-        viewModeBtn.addEventListener('click', () => {
-            epubFlow = epubFlow === 'paginated' ? 'scrolled-doc' : 'paginated';
-            localStorage.setItem('nomad_epub_flow', epubFlow);
-            viewModeBtn.textContent = epubFlow === 'paginated' ? 'Pages' : 'Scroll';
-            if (currentBook) openEpubReader(currentBook);
-        });
-        viewModeBtn.textContent = epubFlow === 'paginated' ? 'Pages' : 'Scroll';
-
-        /* comics open in comics.html, which streams pages instead of loading the whole archive here */
-        async function openComicReader(file) {
-            window.location.href = `/comics?path=${encodeURIComponent(file.path)}`;
-        }
-
-        /* Audio Player */
-        let currentAudio = null;
-        let speeds = [0.5, 0.75, 1.0, 1.25, 1.5, 1.75, 2.0];
-        let speedIndex = 2;
-
-        function openAudioPlayer(file) {
+        function playTrack(file) {
+            saveAudioPosition(true);
             currentAudio = file;
-            audioTitle.textContent = file.name || 'Audiobook';
+            if (audioMarks) audioMarks.refresh();
             audioElement.pause();
             audioElement.src = fileUrlDirect(file.path);
-            try { audioElement.load(); } catch(e){}
+            try { audioElement.load(); } catch (e) {}
+            audioElement.playbackRate = speed;
             audioPlayer.classList.add('active');
+            showTrackInfo();
             updateAudioHeight();
-
             const resume = findResume(file);
-            if (resume && resume.entry && resume.entry.time) {
-                audioElement.currentTime = resume.entry.time;
+            // a book you finished starts again from the top
+            if (resume && resume.entry && resume.entry.time && !(resume.entry.duration && resume.entry.time > resume.entry.duration - 5)) {
+                const t = resume.entry.time;
+                audioElement.addEventListener('loadedmetadata', () => { audioElement.currentTime = t; }, { once: true });
             }
-
-            audioElement.play();
-            playPauseBtn.classList.add('playing');
+            // a browser that won't start without a tap leaves it paused: the play button does it
+            audioElement.play().catch(() => {});
+            findUpNext(file);
         }
-
-        document.getElementById('closeAudio').addEventListener('click', () => {
+        function closeAudio() {
+            saveAudioPosition(true);
             audioPlayer.classList.remove('active');
             audioElement.pause();
-            audioElement.src = '';
+            audioElement.removeAttribute('src');
+            try { audioElement.load(); } catch (e) {}
             currentAudio = null;
+            upNext = null;
+            setNextAction();
+            setSleep(0);
             updateAudioHeight();
-        });
+        }
+        document.getElementById('closeAudio').addEventListener('click', closeAudio);
+
+        // the next part in this one's folder, looked up when it starts so the switch at its
+        // end is immediate (a locked phone may not wait for a slow card)
+        let upNext = null;
+        async function findUpNext(file) {
+            upNext = null;
+            setNextAction();
+            const parent = normalizePath(file.path.replace(/\/[^/]*$/, ''));
+            if (parent === normalizePath(ROOT)) return;
+            const { files } = await loadDirContents(parent);
+            if (currentAudio !== file) return;
+            const parts = files.filter(f => !f.isDir && isAudioName(f.path));
+            const i = parts.findIndex(f => normalizePath(f.path) === normalizePath(file.path));
+            if (i >= 0 && !file.cover && parts[i].cover) { file.cover = parts[i].cover; showTrackInfo(); }
+            const oneBook = partsOfOneBook(parts.map(f => f.path.split('/').pop().replace(/\.[^/.]+$/, '')));
+            upNext = oneBook && i >= 0 && parts[i + 1] ? parts[i + 1] : null;
+            setNextAction();
+        }
+        function setNextAction() {
+            if (!('mediaSession' in navigator)) return;
+            try { navigator.mediaSession.setActionHandler('nexttrack', upNext ? () => playTrack(upNext) : null); } catch (e) {}
+        }
 
         playPauseBtn.addEventListener('click', () => {
-            if (audioElement.paused) audioElement.play();
-            else audioElement.pause();
+            if (audioElement.paused) audioElement.play().catch(() => {}); else audioElement.pause();
         });
+        const skip = (s) => { if (isFinite(audioElement.duration)) audioElement.currentTime = Math.max(0, Math.min(audioElement.duration, audioElement.currentTime + s)); };
+        document.getElementById('rewind').addEventListener('click', () => skip(-15));
+        document.getElementById('forward').addEventListener('click', () => skip(15));
 
-        document.getElementById('rewind').addEventListener('click', () => {
-            audioElement.currentTime = Math.max(0, audioElement.currentTime - 15);
-        });
-
-        document.getElementById('forward').addEventListener('click', () => {
-            audioElement.currentTime = Math.min(audioElement.duration, audioElement.currentTime + 15);
-        });
-
+        function showSpeed() { speedBtn.textContent = (speed % 1 ? speed : speed.toFixed(0)) + 'x'; speedBtn.classList.toggle('on', speed !== 1); }
         speedBtn.addEventListener('click', () => {
-            speedIndex = (speedIndex + 1) % speeds.length;
-            audioElement.playbackRate = speeds[speedIndex];
-            speedBtn.textContent = speeds[speedIndex] + 'x';
+            const i = speeds.indexOf(speed);
+            speed = speeds[(i + 1) % speeds.length];
+            audioElement.playbackRate = speed;
+            NomadPrefs.setRaw('nomad_audio_speed', String(speed));
+            showSpeed();
+        });
+        showSpeed();
+
+        /* Sleep timer: off, 15, 30 or 60 minutes. The last few seconds fade out instead of
+           stopping mid-word. No "end of the book" step: playback runs on through a book's
+           folder and stops at its end by itself. */
+        const SLEEP_STEPS = [0, 15, 30, 60];
+        const FADE_MS = 8000;
+        let sleepStep = 0, sleepAt = 0, sleepTick = null, fade = null;
+        function setSleep(step) {
+            stopFade();
+            sleepStep = step;
+            clearInterval(sleepTick); sleepTick = null; sleepAt = 0;
+            const v = SLEEP_STEPS[step];
+            if (v > 0) { sleepAt = Date.now() + v * 60000; sleepTick = setInterval(showSleep, 1000); }
+            showSleep();
+        }
+        function showSleep() {
+            const v = SLEEP_STEPS[sleepStep];
+            sleepBtn.classList.toggle('on', !!v);
+            if (!v) { sleepBtn.textContent = 'Sleep'; sleepBtn.title = 'Sleep timer: off'; return; }
+            const left = Math.max(0, Math.ceil((sleepAt - Date.now()) / 60000));
+            sleepBtn.textContent = left + 'm'; sleepBtn.title = 'Stops in ' + left + ' minutes';
+            if (!fade && Date.now() >= sleepAt - FADE_MS) startFade();
+        }
+        function startFade() {
+            if (audioElement.paused) { setSleep(0); return; }
+            const from = audioElement.volume, t0 = Date.now();
+            fade = { from, timer: setInterval(() => {
+                const k = 1 - (Date.now() - t0) / FADE_MS;
+                if (k > 0) { audioElement.volume = from * k; return; }
+                clearInterval(fade.timer); fade = null;
+                audioElement.pause();
+                audioElement.volume = from;
+                setSleep(0);
+            }, 100) };
+        }
+        function stopFade() {
+            if (!fade) return;
+            clearInterval(fade.timer);
+            audioElement.volume = fade.from;
+            fade = null;
+        }
+        sleepBtn.addEventListener('click', () => setSleep((sleepStep + 1) % SLEEP_STEPS.length));
+
+        let seeking = false;
+        audioSeek.addEventListener('input', () => {
+            seeking = true;
+            if (isFinite(audioElement.duration)) currentTimeEl.textContent = formatTime(audioSeek.value / 1000 * audioElement.duration);
+        });
+        audioSeek.addEventListener('change', () => {
+            if (isFinite(audioElement.duration)) audioElement.currentTime = audioSeek.value / 1000 * audioElement.duration;
+            seeking = false;
         });
 
         audioElement.addEventListener('loadedmetadata', () => {
-            durationEl.textContent = formatTime(audioElement.duration);
+            durationEl.textContent = '-' + formatTime(audioElement.duration);
+            sendPosition(true);
         });
 
-        // Position is written on a timer, not on every timeupdate. timeupdate fires about
-        // four times a second and each one re-parsed and rewrote the whole resume store,
-        // then scanned the grid for the card.
+        // position is saved on a timer: timeupdate fires ~4 times a second, and each save
+        // rewrites the whole resume store and scans the grid
         let lastAudioSave = 0;
         function saveAudioPosition(force) {
             if (!currentAudio || !(audioElement.duration > 0)) return;
             const now = Date.now();
             if (!force && now - lastAudioSave < 5000) return;
             lastAudioSave = now;
+            const t = audioElement.currentTime, d = audioElement.duration;
             const store = readResume();
-            const key = fileKey(currentAudio.path, currentAudio.sz, currentAudio.mt);
-            store[key] = {
-                time: audioElement.currentTime,
-                duration: audioElement.duration,
-                percent: Math.round((audioElement.currentTime / audioElement.duration) * 100),
+            dropResumeFor(store, currentAudio.path);
+            store[fileKey(currentAudio.path, currentAudio.sz, currentAudio.mt)] = {
+                time: t,
+                duration: d,
+                percent: Math.round((t / d) * 100),
                 timestamp: now
             };
             writeResume(store);
-            updateResumeBadge(currentAudio, audioElement.currentTime, 'time');
+            // nothing heard yet (just opened, or a finished book opened again): leave it as it was
+            if (t < 1) return;
+            NomadProgress.note(currentAudio.path, { k: 'audio', p: t / d, t: bookTitleFor(currentAudio.path), l: NomadProgress.timeLeft(d - t) });
+            refreshProgress();
+        }
+
+        // the lock screen's scrubber, as Music does it
+        let posAt = 0;
+        function sendPosition(force) {
+            if (!('mediaSession' in navigator) || !navigator.mediaSession.setPositionState) return;
+            const d = audioElement.duration;
+            if (!isFinite(d) || d <= 0) return;
+            const now = Date.now();
+            if (!force && now - posAt < 5000) return;
+            posAt = now;
+            try { navigator.mediaSession.setPositionState({ duration: d, playbackRate: audioElement.playbackRate || 1, position: Math.min(audioElement.currentTime, d) }); } catch (e) {}
         }
 
         audioElement.addEventListener('timeupdate', () => {
-            currentTimeEl.textContent = formatTime(audioElement.currentTime);
-            const percent = (audioElement.currentTime / audioElement.duration) * 100;
-            audioProgressFill.style.width = percent + '%';
+            const d = audioElement.duration, t = audioElement.currentTime;
+            if (!seeking) {
+                currentTimeEl.textContent = formatTime(t);
+                if (isFinite(d) && d > 0) audioSeek.value = Math.round(t / d * 1000);
+            }
+            if (isFinite(d)) durationEl.textContent = '-' + formatTime(Math.max(0, d - t));
             saveAudioPosition(false);
+            sendPosition(false);
         });
+        audioElement.addEventListener('seeked', () => sendPosition(true));
+        audioElement.addEventListener('ratechange', () => sendPosition(true));
 
         // the throttle above could otherwise drop the last few seconds
         audioElement.addEventListener('pause', () => saveAudioPosition(true));
         // drive the icon off the element, so it stays right no matter what
         // paused playback (end of file, another tab, headphone controls)
-        audioElement.addEventListener('play',  () => playPauseBtn.classList.add('playing'));
-        audioElement.addEventListener('pause', () => playPauseBtn.classList.remove('playing'));
-        audioElement.addEventListener('ended', () => playPauseBtn.classList.remove('playing'));
-        audioElement.addEventListener('ended', () => saveAudioPosition(true));
+        audioElement.addEventListener('play',  () => { playPauseBtn.classList.add('playing'); if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'playing'; sendPosition(true); });
+        audioElement.addEventListener('pause', () => {
+            playPauseBtn.classList.remove('playing');
+            if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'paused';
+            sendPosition(true);
+            if (fade) setSleep(0);   // paused by hand while fading out: the timer is done
+        });
+        audioElement.addEventListener('ended', () => {
+            saveAudioPosition(true);
+            if (currentAudio) NomadProgress.finish(currentAudio.path, { k: 'audio', t: bookTitleFor(currentAudio.path) });
+            refreshProgress();
+            if (upNext) { playTrack(upNext); return; }
+            playPauseBtn.classList.remove('playing');
+        });
         window.addEventListener('pagehide', () => saveAudioPosition(true));
 
-        audioProgressBar.addEventListener('click', (e) => {
-            const rect = audioProgressBar.getBoundingClientRect();
-            const percent = (e.clientX - rect.left) / rect.width;
-            audioElement.currentTime = percent * audioElement.duration;
+        // a busy Nomad turns a read away now and then (503): try the file again, from where it was
+        let audioRetries = 0;
+        audioElement.addEventListener('playing', () => { audioRetries = 0; });
+        audioElement.addEventListener('error', () => {
+            const f = currentAudio;
+            if (!f || !audioElement.getAttribute('src') || audioRetries >= 3) return;
+            const at = audioElement.currentTime || (findResume(f) || { entry: {} }).entry.time || 0;
+            setTimeout(() => {
+                if (currentAudio !== f) return;
+                audioElement.src = fileUrlDirect(f.path);
+                try { audioElement.load(); } catch (e) {}
+                if (at) audioElement.addEventListener('loadedmetadata', () => { audioElement.currentTime = at; }, { once: true });
+                audioElement.play().catch(() => {});
+            }, 1500 * ++audioRetries);
         });
 
+        // lock screen, headphones and car buttons
+        if ('mediaSession' in navigator) {
+            const ms = navigator.mediaSession, on = (a, f) => { try { ms.setActionHandler(a, f); } catch (e) {} };
+            on('play', () => audioElement.play().catch(() => {}));
+            on('pause', () => audioElement.pause());
+            on('seekbackward', () => skip(-15));
+            on('seekforward', () => skip(15));
+            on('seekto', (d) => { if (d && isFinite(d.seekTime)) { audioElement.currentTime = d.seekTime; sendPosition(true); } });
+        }
+
+        /* Keys: Escape closes the top popup. With a book playing, Space plays or pauses and
+           the arrows go back or forward 15 seconds (not while typing or on a popup) */
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape') {
+                if (actionModal.style.display === 'flex') closeActionModal();
+                else if (folderStack.length) closeListModal();
+                return;
+            }
+            if (!currentAudio || e.ctrlKey || e.metaKey || e.altKey) return;
+            const t = e.target || {};
+            if (/^(INPUT|TEXTAREA|SELECT|BUTTON)$/.test(t.tagName || '') || t.isContentEditable) return;
+            if (actionModal.style.display === 'flex' || folderStack.length) return;
+            if (e.key === ' ') { e.preventDefault(); playPauseBtn.click(); }
+            else if (e.key === 'ArrowLeft') { e.preventDefault(); skip(-15); }
+            else if (e.key === 'ArrowRight') { e.preventDefault(); skip(15); }
+        });
+
+        // the menu's Continue row opens an audiobook here as /books#play=<path>: play it from
+        // its place, then take the hash off so a reload doesn't start it again
+        function playFromHash() {
+            const m = /^#play=(.+)$/.exec(location.hash);
+            if (!m) return;
+            let path;
+            try { path = normalizePath(decodeURIComponent(m[1])); } catch (e) { return; }
+            try { history.replaceState(history.state, '', location.pathname + location.search); } catch (e) {}
+            playTrack({ name: prettify(path.split('/').pop()), path });
+        }
+        window.addEventListener('hashchange', playFromHash);
+
         /* Init */
-        (async function init() {
+        let _buildingRetries = 0;
+        async function init() {
             try {
                 library = await buildLibrary();
                 filtered = library;
                 renderGrid();
             } catch (err) {
+                // a card whose index is still being built answers 202, wait for it
+                // instead of reporting an empty library on first boot
+                if (NomadIndex.isBuilding(err) && _buildingRetries++ < 10) {
+                    gridEl.innerHTML = '<p style="grid-column:1/-1;text-align:center;color:var(--primary-dark);padding:12px">Building the book index…</p>';
+                    setTimeout(init, 3000);
+                    return;
+                }
                 console.error('Failed to load library', err);
-                gridEl.innerHTML = '<p style="grid-column:1/-1;text-align:center;color:red;padding:20px">Failed to load library.</p>';
+                gridEl.innerHTML = '<p style="grid-column:1/-1;text-align:center;color:red;padding:20px">Couldn\'t load the library. Reload to try again.</p>';
             }
-        })();
+            playFromHash();
+        }
+        init();
     
 /* admin toggle: hide download actions when downloads are disabled (the
    fallback 'Download' view-button is handled where the modal is populated) */
 NomadUI.applyDownloadPolicy('downloadButton');
-NomadUI.config().then(c => { window.__dlDisabled = !!c.downloadsDisabled; });
+NomadUI.config().then(c => { window.__dlDisabled = !NomadUI.canDownload(c, 'books'); });
 </script>
 </body>
 </html>

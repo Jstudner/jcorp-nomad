@@ -3,19 +3,20 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
+<script>/* nomad-load-guard: reload, twice at most, when one of Nomad's own scripts or stylesheets fails to load */(function(){var k='nomadLoadGuard:'+location.pathname;window.addEventListener('error',function(e){var t=e.target;if(!t||!t.tagName)return;var s=t.tagName==='SCRIPT',c=t.tagName==='LINK'&&/stylesheet/i.test(t.rel||'');if(!s&&!c)return;var u=t.src||t.href||'';if(u.indexOf(location.origin+'/')!==0)return;var n=0;try{n=+sessionStorage.getItem(k)||0;}catch(x){return;}if(n>=2)return;try{sessionStorage.setItem(k,String(n+1));}catch(x){return;}setTimeout(function(){location.reload();},1500*(n+1));},true);window.addEventListener('load',function(){setTimeout(function(){try{sessionStorage.removeItem(k);}catch(x){}},15000);});})();</script>
   <meta name="viewport" content="width=device-width,initial-scale=1.0">
   <meta name="description" content="Jcorp Nomad Media Server - Cookbook">
   <title>Nomad • Cookbook</title>
   <link rel="icon" href="favicon.ico" type="image/x-icon">
   <link rel="stylesheet" href="/master.css">
-  <script src="/theme-boot.js"></script>
-  <script src="/theme-manager.js"></script>
-  <script src="/nomad-utils.js"></script>
+  <script src="/theme-boot.js?v=5"></script>
+<script src="/nomad-icons.js?v=1"></script>
+  <script src="/theme-manager.js?v=5"></script>
+  <script src="/nomad-utils.js?v=52"></script>
   <style>
     body { display: flex; flex-direction: column; min-height: 100vh; }
 
-    /* Toolbar / grid mirror movies.html and games.html so the library behaves
-       identically across pages (sticky offsets, mobile columns, cover fallbacks). */
+    /* toolbar and grid mirror movies.html and games.html */
     .toolbar {
       padding: .6rem 1rem; display: flex; flex-wrap: wrap; gap: .6rem; align-items: center;
       border-bottom: 1px solid var(--line); position: sticky; top: var(--header-height);
@@ -40,9 +41,9 @@
     .media-grid.medium { grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); }
     .media-grid.large  { grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); }
     @media (max-width:600px) {
-      .media-grid.small  { grid-template-columns: repeat(2, 1fr); }
+      .media-grid.small  { grid-template-columns: repeat(3, 1fr); }
       .media-grid.medium { grid-template-columns: repeat(2, 1fr); }
-      .media-grid.large  { grid-template-columns: repeat(3, 1fr); }
+      .media-grid.large  { grid-template-columns: repeat(1, 1fr); }
     }
 
     .media-card { width: 100%; cursor: pointer; }
@@ -54,19 +55,18 @@
       border-radius: var(--radius); overflow: hidden; box-shadow: var(--shadow);
     }
     .fallback-text {
-      position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+      position: absolute; top:0;right:0;bottom:0;left:0;inset:0; display: flex; align-items: center; justify-content: center;
       z-index: 2; text-align: center; font-weight: 700; color: var(--thumb-title, var(--text));
       pointer-events: none; padding: 8px; font-size: .95rem; line-height: 1.25;
     }
     .media-thumb {
-      width: 100%; height: 100%; object-fit: cover; position: absolute; inset: 0;
+      width: 100%; height: 100%; object-fit: cover; position: absolute; top:0;right:0;bottom:0;left:0;inset:0;
       z-index: 1; opacity: 0; transition: opacity .35s ease;
     }
     .meta { padding: 6px 4px 0; text-align: center; }
     .meta strong { display: block; font-size: .9rem; line-height: 1.25; }
     .meta small { display: block; font-size: .72rem; color: var(--muted); margin-top: 2px; }
 
-    /* ---- recipe view ---- */
     #recipe { display: none; }
     .recipe-head { display: flex; gap: 1.25rem; flex-wrap: wrap; align-items: flex-start; margin-bottom: 1.25rem; }
     .recipe-head img {
@@ -76,8 +76,7 @@
     .recipe-head .info { flex: 1 1 260px; min-width: 0; }
     .recipe-head h2 { margin: 0 0 .4rem; font-size: 1.5rem; }
     .facts { display: flex; flex-wrap: wrap; gap: .4rem; margin: .5rem 0; }
-    /* icons are inline SVG on currentColor, not emoji: an emoji keeps its own
-       colour whatever the theme is set to, and these sit on a themed pill */
+    /* icons are inline SVG on currentColor, not emoji, which ignore the theme colour */
     .fact {
       display: inline-flex; align-items: center; gap: .3rem;
       font-size: .78rem; padding: .22rem .6rem; border-radius: 999px;
@@ -91,8 +90,7 @@
     .panel { background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); padding: 1rem; }
     .panel h3 { margin: 0 0 .6rem; font-size: 1.05rem; }
 
-    /* Scaling: turns a recipe for 4 into a recipe for 9 with no mental math, which is
-       why quantities get parsed out of the text instead of just printed. */
+    /* scaling: quantities are parsed out of the text so they can be multiplied */
     .scaler { display: flex; align-items: center; gap: .5rem; margin-bottom: .8rem; flex-wrap: wrap; }
     .scaler button {
       width: 32px; height: 32px; border-radius: 50%; border: 1px solid var(--line);
@@ -142,7 +140,7 @@
 
     .empty { text-align: center; color: var(--muted); padding: 2.5rem 1rem; line-height: 1.7; }
     .empty code { background: var(--card); padding: .12rem .4rem; border-radius: 4px; }
-    /* an incomplete listing has to say so, or a missing recipe reads as a lost file */
+    /* an incomplete listing gets a notice, or a missing recipe reads as a lost file */
     .notice {
       margin: 0 0 .8rem; padding: .55rem .8rem; border-radius: var(--radius);
       font-size: .85rem; line-height: 1.5;
@@ -150,7 +148,6 @@
     }
     footer { text-align: center; padding: 1rem 0; font-size: .9rem; color: var(--muted); }
 
-    /* ---- editor ---- */
     #editor { display: none; max-width: 780px; }
     #editor h2 { margin: 0 0 1rem; font-size: 1.35rem; }
     .field { margin-bottom: .9rem; }
@@ -177,9 +174,7 @@
     #editorMsg.ok  { color: var(--primary); }
     .path-hint { font-size: .78rem; color: var(--muted); margin-top: .3rem; word-break: break-all; }
 
-    /* ---- timers ----
-       A dock rather than a modal: a timer has to stay readable while the steps it
-       belongs to are being followed, so it sits over the corner of the page. */
+    /* timers: a dock, not a modal, so it stays readable while the steps are followed */
     #timerDock {
       position: fixed; right: 12px; bottom: 12px; z-index: 900; width: min(300px, calc(100vw - 24px));
       background: var(--card); border: 1px solid var(--line); border-radius: var(--radius);
@@ -243,6 +238,11 @@
       .recipe-cols { display: block; }
       ul.ing li, ol.steps li { cursor: default; }
     }
+    /* phones: category and sort share a row, then the size buttons and New recipe */
+    @media (max-width: 600px) {
+      body .toolbar #catSelect, body .toolbar #sortSelect { flex: 1 1 40%; }
+      body .toolbar #newBtn { flex: 1 1 auto; }
+    }
   </style>
 </head>
 <body data-page="cookbook">
@@ -252,20 +252,20 @@
   </header>
 
   <div class="toolbar">
-    <input id="searchInput" type="search" placeholder="Search recipes, ingredients, tags…" aria-label="Search recipes">
-    <select id="catSelect" aria-label="Filter by category"><option value="">All Categories</option></select>
+    <input id="searchInput" type="search" placeholder="Search" aria-label="Search recipes">
+    <select id="catSelect" aria-label="Filter by category"><option value="">All categories</option></select>
     <select id="sortSelect" aria-label="Sort recipes">
       <option value="nameAsc">A → Z</option>
       <option value="nameDesc">Z → A</option>
       <option value="timeAsc">Quickest first</option>
     </select>
-    <div style="display:flex;gap:.5rem;">
+    <div class="view-group">
       <button class="view-btn" data-size="small" title="Compact view">🔳</button>
       <button class="view-btn active" data-size="medium" title="Comfort view">🔲</button>
       <button class="view-btn" data-size="large" title="Gallery view">⬜</button>
     </div>
     <!-- hidden when the admin has turned writing off -->
-    <button class="view-btn" id="newBtn" style="display:none;font-weight:700;">＋ New recipe</button>
+    <button class="view-btn" id="newBtn" style="display:none;font-weight:700;" data-icon="plus"> New recipe</button>
   </div>
 
   <main>
@@ -283,10 +283,10 @@
           <div class="facts" id="rFacts"></div>
           <div id="rDesc" style="color:var(--muted);line-height:1.6;white-space:pre-line;"></div>
           <div class="recipe-actions">
-            <button id="cookBtn" title="Bigger type and keeps the screen awake"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 21h12v-4H6z"></path><path d="M6 17c0-1.5-.6-2-1.4-2.8A4.5 4.5 0 0 1 8 6.4a5 5 0 0 1 8 0 4.5 4.5 0 0 1 1.4 7.8C16.6 15 16 15.5 16 17"></path></svg>Cook mode</button>
+            <button id="cookBtn" title="Bigger type"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 21h12v-4H6z"></path><path d="M6 17c0-1.5-.6-2-1.4-2.8A4.5 4.5 0 0 1 8 6.4a5 5 0 0 1 8 0 4.5 4.5 0 0 1 1.4 7.8C16.6 15 16 15.5 16 17"></path></svg>Cook mode</button>
             <button id="printBtn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="6 9 6 2 18 2 18 9"></polyline><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"></path><rect x="6" y="14" width="12" height="8"></rect></svg>Print</button>
-            <button id="resetChecks">↺ Clear checkmarks</button>
-            <button id="editBtn" style="display:none;">✎ Edit</button>
+            <button id="resetChecks" data-icon="undo"> Clear checkmarks</button>
+            <button id="editBtn" style="display:none;" data-icon="pencil"> Edit</button>
           </div>
         </div>
       </div>
@@ -327,7 +327,7 @@
           <datalist id="catList"></datalist>
         </div>
         <div class="field">
-          <label for="fServings">Servings <span class="sub">enables scaling</span></label>
+          <label for="fServings">Servings <span class="sub">optional</span></label>
           <input id="fServings" type="text" maxlength="20" placeholder="8" autocomplete="off">
         </div>
         <div class="field">
@@ -348,17 +348,17 @@
       </div>
 
       <div class="field">
-        <label for="fDesc">Description <span class="sub">one or two lines, shown under the title</span></label>
+        <label for="fDesc">Description <span class="sub">optional</span></label>
         <textarea id="fDesc" rows="2" maxlength="400"></textarea>
       </div>
 
       <div class="field">
-        <label for="fIng">Ingredients <span class="sub">one per line — start with the amount and it will rescale</span></label>
+        <label for="fIng">Ingredients <span class="sub">one per line, amount first</span></label>
         <textarea id="fIng" rows="9" placeholder="1 cup cornmeal&#10;1 1/2 tsp salt&#10;2 eggs&#10;salt to taste"></textarea>
       </div>
 
       <div class="field">
-        <label for="fSteps">Steps <span class="sub">one per line — any time you mention becomes a tappable timer</span></label>
+        <label for="fSteps">Steps <span class="sub">one per line</span></label>
         <textarea id="fSteps" rows="9" placeholder="Heat the oven to 425°F.&#10;Bake 20-25 minutes until the top springs back."></textarea>
       </div>
 
@@ -368,7 +368,7 @@
       </div>
 
       <div class="editor-actions">
-        <button id="saveBtn" class="primary">Save to card</button>
+        <button id="saveBtn" class="primary">Save</button>
         <button id="editorCancel">Cancel</button>
         <button id="deleteBtn" class="danger" style="display:none;">Delete recipe</button>
       </div>
@@ -380,8 +380,8 @@
     <div class="dock-head">
       <span id="dockTitle">Timers</span>
       <span>
-        <button id="dockMin" title="Collapse">▾</button>
-        <button id="dockClose" title="Clear all timers">✕</button>
+        <button id="dockMin" title="Collapse" aria-label="Collapse" data-icon="chevron-down"></button>
+        <button id="dockClose" title="Clear all timers" aria-label="Clear all timers" data-icon="x"></button>
       </span>
     </div>
     <div class="dock-body" id="dockBody"></div>
@@ -413,10 +413,8 @@ function escapeHtml(s) {
   return String(s).replace(/[&<>"']/g, c => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[c]));
 }
 
-/* Inline icons, stroked with currentColor so they take the theme's primary on a
-   fact pill and the button's text colour elsewhere. Same approach as the music
-   player's transport icons, and for the same reason: a colour emoji ignores CSS
-   colour entirely, so it stayed blue-grey on every custom theme and in dark mode. */
+/* Inline icons stroked with currentColor, so they follow the theme. A colour emoji
+   ignores CSS colour. */
 const svgIcon = (body) => '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" ' +
   'stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' + body + '</svg>';
 const SVG_CLOCK = svgIcon('<circle cx="12" cy="12" r="9"></circle><polyline points="12 7 12 12 15.5 14"></polyline>');
@@ -448,11 +446,10 @@ let filtered    = [];
 let current     = null;  // recipe being viewed
 let scale       = 1;
 let debounce    = null;
-let currentSize = localStorage.getItem('nomadCookbookSize') || 'medium';
+let currentSize = NomadPrefs.raw('nomadCookbookSize') || 'medium';
 
-/* ---------------- quantity parsing ----------------
-   Ingredient lines get their leading amount pulled out and multiplied. Everything
-   after the number is left exactly as the author wrote it. */
+/* Quantity parsing: an ingredient line's leading amount is pulled out and multiplied.
+   Everything after the number stays as the author wrote it. */
 
 const VULGAR = { '½':.5, '⅓':1/3, '⅔':2/3, '¼':.25, '¾':.75, '⅕':.2, '⅖':.4, '⅗':.6,
                  '⅘':.8, '⅙':1/6, '⅚':5/6, '⅐':1/7, '⅛':.125, '⅜':.375, '⅝':.625, '⅞':.875, '⅑':1/9, '⅒':.1 };
@@ -534,9 +531,8 @@ function scaleIngredient(line, factor) {
   return { qty, rest: text.slice(m[0].length).trim() };
 }
 
-/* ---------------- recipe file parsing ----------------
-   Two formats: JSON for anything generated by a tool, Markdown for someone typing a
-   recipe straight onto the card in a text editor. Both end up as the same object. */
+/* Recipe files: JSON from tools, Markdown typed by hand, or Cooklang. All end up as the
+   same object. */
 
 /* Cooklang (.cook): plain text where @ingredient{qty%unit}, #cookware{} and
    ~timer{5%min} are tagged inline, blank lines separate steps, and ">> key: value"
@@ -654,9 +650,8 @@ function parseMarkdownRecipe(raw) {
     } else if (section === 'notes') {
       out.notes = (out.notes ? out.notes + '\n' : '') + t;
     } else if (!/^[-*+#]/.test(t) && out.ingredients.length === 0) {
-      // every line before the first section is the description. Taking only the
-      // first one silently ate line two of anything written in the editor, whose
-      // own label invites "one or two lines".
+      // every line before the first section is the description, not just the first
+      // (the editor's description box takes more than one line)
       out.description = (out.description ? out.description + '\n' : '') + t;
     }
   }
@@ -669,17 +664,19 @@ function normalizeRecipe(o, fallbackName) {
   const asList = (v) => Array.isArray(v) ? v
     : (typeof v === 'string' ? v.split(/\r?\n/).map(s => s.trim()).filter(Boolean) : []);
 
+  // first defined value in a list (like `a ?? b ?? c`, spelled out for old WebViews)
+  const first = (v) => { for (const x of v) { if (x !== undefined && x !== null) return x; } return undefined; };
   const ingredients = asList(o.ingredients || o.ingredient).map(i => {
     if (i && typeof i === 'object') {
       // structured {qty, unit, item} still has to come out as a scalable line
-      const parts = [i.qty ?? i.quantity ?? i.amount, i.unit, i.item ?? i.name ?? i.ingredient]
+      const parts = [first([i.qty, i.quantity, i.amount]), i.unit, first([i.item, i.name, i.ingredient])]
         .filter(v => v !== undefined && v !== null && String(v).trim() !== '');
       return parts.join(' ');
     }
     return String(i);
   }).filter(Boolean);
 
-  const servingsRaw = o.servings ?? o.serves ?? o.yield ?? null;
+  const servingsRaw = first([o.servings, o.serves, o.yield, null]);
   const servingsNum = qtyToNumber(servingsRaw);
 
   return {
@@ -711,11 +708,8 @@ function timeToMinutes(t) {
   return hit ? mins : null;
 }
 
-/* ---------------- loading ----------------
-   The library is built in the browser: list each folder through NomadList (which
-   picks between the live scan and the index and tells us when a folder came back
-   short), then read every recipe file a few at a time, capped, because flooding the
-   SD bus is what crashes the device. */
+/* Loading: list each folder through NomadList, then read recipe files a few at a
+   time, capped: flooding the SD bus crashes the device. */
 
 const encPath = (p) => NomadList.encPath(p);
 const MAX_CATEGORY_DIRS = 24;
@@ -726,8 +720,8 @@ async function loadLibrary() {
   libraryWarning = '';
 
   const top  = await NomadList.dir(COOKBOOK_DIR);
-  if (top.truncated) libraryWarning = 'This folder holds more files than the Nomad can list in one go. ' +
-    'Run Admin → Library Index so the rest show up, or move some recipes into subfolders.';
+  if (top.truncated) libraryWarning = 'Not every recipe is listed. ' +
+    'Run Admin → Library index, or move some recipes into subfolders.';
 
   const dirs = top.entries.filter(e => e.isDir && !e.name.startsWith('.'));
   const all  = [{ dir: COOKBOOK_DIR, category: '', entries: top.entries.filter(e => !e.isDir) }];
@@ -739,8 +733,8 @@ async function loadLibrary() {
   for (const d of dirs.slice(0, MAX_CATEGORY_DIRS)) {
     const sub = await NomadList.dir(d.path);
     if (sub.truncated && !libraryWarning) {
-      libraryWarning = '"' + d.name + '" holds more files than the Nomad can list in one go. ' +
-        'Run Admin → Library Index so the rest show up.';
+      libraryWarning = 'Not every recipe in "' + d.name + '" is listed. ' +
+        'Run Admin → Library index.';
     }
     all.push({ dir: d.path, category: d.name, entries: sub.entries.filter(e => !e.isDir) });
   }
@@ -782,11 +776,11 @@ async function loadLibrary() {
 async function loadAllMeta() {
   const queue = recipes.slice(0, META_LIMIT);
   // past the cap a recipe still opens and reads fine, it just has no time/servings
-  // on its card and its ingredients are not in the search box. Say so rather than
+  // on its card and its ingredients are not in the search box. Show that rather than
   // letting the search quietly cover only part of the shelf.
   if (recipes.length > META_LIMIT && !libraryWarning) {
     libraryWarning = 'Search covers the ingredients of the first ' + META_LIMIT + ' of ' +
-      recipes.length + ' recipes. Every recipe still opens normally.';
+      recipes.length + ' recipes.';
   }
   let cursor = 0, dirty = false;
 
@@ -820,18 +814,17 @@ async function loadAllMeta() {
 function buildCategories() {
   const cats = [...new Set(recipes.map(r => r.category).filter(Boolean))].sort((a, b) => a.localeCompare(b));
   const keep = catSelect.value;
-  catSelect.innerHTML = '<option value="">All Categories</option>' +
+  catSelect.innerHTML = '<option value="">All categories</option>' +
     cats.map(c => `<option value="${escapeHtml(c)}">${escapeHtml(c)}</option>`).join('');
   if (cats.includes(keep)) catSelect.value = keep;
 }
 
-/* ---------------- library view ---------------- */
 
 function setViewSize(size) {
   currentSize = size;
   grid.className = `media-grid ${size}`;
   viewButtons.forEach(b => b.classList.toggle('active', b.dataset.size === size));
-  localStorage.setItem('nomadCookbookSize', size);
+  NomadPrefs.setRaw('nomadCookbookSize', size);
 }
 setViewSize(currentSize);
 viewButtons.forEach(b => b.addEventListener('click', () => setViewSize(b.dataset.size)));
@@ -873,15 +866,14 @@ function renderGrid() {
 
   if (!recipes.length) {
     grid.innerHTML = '<div class="empty" style="grid-column:1/-1;">' +
-      '<strong>No recipes on this card yet.</strong><br>' +
-      (writesAllowed ? 'Tap <strong>＋ New recipe</strong> to write one here, or drop ' : 'Drop ') +
-      '<code>.md</code>, <code>.cook</code> or <code>.json</code> recipe files into <code>/Cookbook</code>' +
-      ' — subfolders become categories, and an image beside a recipe becomes its photo.' +
+      '<strong>No recipes</strong><br>' +
+      'Add <code>.md</code>, <code>.cook</code> or <code>.json</code> files to <code>/Cookbook</code>' +
+      '.' +
       '</div>';
     return;
   }
   if (!filtered.length) {
-    grid.innerHTML = '<p class="empty" style="grid-column:1/-1;">No recipes match that.</p>';
+    grid.innerHTML = '<p class="empty" style="grid-column:1/-1;">No matches</p>';
     return;
   }
 
@@ -896,7 +888,7 @@ function renderGrid() {
     card.innerHTML = `
       <div class="thumb-wrapper">
         <span class="fallback-text">${escapeHtml(r.name)}</span>
-        ${r.cover ? `<img class="media-thumb" loading="lazy" src="${encPath(r.cover)}" alt="${escapeHtml(r.name)}">` : ''}
+        ${r.cover ? `<img class="media-thumb" loading="lazy" alt="${escapeHtml(r.name)}">` : ''}
       </div>
       <div class="meta">
         <strong>${escapeHtml(r.name)}</strong>
@@ -907,13 +899,13 @@ function renderGrid() {
     if (img) {
       img.onload  = () => { img.style.opacity = '1'; fb.style.display = 'none'; };
       img.onerror = () => { img.style.display = 'none'; fb.style.display = 'flex'; };
+      NomadImages.observe(img, encPath(r.cover));   // a few covers at a time, near the viewport
     }
     card.onclick = () => openRecipe(r);
     grid.appendChild(card);
   }
 }
 
-/* ---------------- recipe view ---------------- */
 
 async function openRecipe(r) {
   if (!r.meta) {
@@ -924,6 +916,8 @@ async function openRecipe(r) {
   }
   current = r;
   scale = 1;
+  // the phone's Back closes the recipe instead of leaving the Cookbook
+  NomadBack.open('recipe', () => closeRecipe(true));
   history.replaceState(null, '', '?r=' + encodeURIComponent(r.path));
   renderRecipe();
   library.style.display = 'none';
@@ -932,7 +926,8 @@ async function openRecipe(r) {
   window.scrollTo({ top: 0 });
 }
 
-function closeRecipe() {
+function closeRecipe(fromBack) {
+  if (!fromBack) NomadBack.done('recipe');
   setCookMode(false);
   current = null;
   history.replaceState(null, '', location.pathname);
@@ -966,7 +961,7 @@ function renderRecipe() {
 function renderScale() {
   const m = current.meta;
   const label = document.getElementById('scaleLabel');
-  // if the recipe declared a serving count, scaling talks in servings; if it
+  // if the recipe declared a serving count, scaling talks in servings. if it
   // didn't, there's nothing to count so it talks in multiples instead
   if (m.servingsNum) {
     const n = m.servingsNum * scale;
@@ -985,14 +980,16 @@ function renderIngredients() {
   ul.innerHTML = '';
   const list = current.meta.ingredients;
   if (!list.length) {
-    ul.innerHTML = '<li style="cursor:default;color:var(--muted);"><span class="txt">No ingredients listed.</span></li>';
+    ul.innerHTML = '<li style="cursor:default;color:var(--muted);"><span class="txt">No ingredients</span></li>';
     return;
   }
+  const saved = Checks.get(current);
   list.forEach((line, i) => {
     const { qty, rest } = scaleIngredient(line, scale);
     const li = document.createElement('li');
-    li.innerHTML = `<span class="box">✓</span><span class="txt">${qty ? `<span class="qty">${escapeHtml(qty)}</span> ` : ''}${escapeHtml(rest)}</span>`;
-    li.onclick = () => li.classList.toggle('done');
+    li.innerHTML = `<span class="box">${NomadIcons.svg('check', 14)}</span><span class="txt">${qty ? `<span class="qty">${escapeHtml(qty)}</span> ` : ''}${escapeHtml(rest)}</span>`;
+    if (saved && saved.i.includes(i)) li.classList.add('done');
+    li.onclick = () => { li.classList.toggle('done'); Checks.save(); };
     ul.appendChild(li);
   });
 }
@@ -1002,15 +999,16 @@ function renderSteps() {
   ol.innerHTML = '';
   const list = current.meta.steps;
   if (!list.length) {
-    ol.innerHTML = '<li style="cursor:default;color:var(--muted);"><span class="txt">No steps listed.</span></li>';
+    ol.innerHTML = '<li style="cursor:default;color:var(--muted);"><span class="txt">No steps</span></li>';
     return;
   }
+  const saved = Checks.get(current);
   list.forEach((step, i) => {
     const li = document.createElement('li');
+    if (saved && saved.s.includes(i)) li.classList.add('done');
     li.innerHTML = `<span class="num">${i + 1}</span><span class="txt">${escapeHtml(step)}</span>`;
 
-    // any duration written into the step gets a one-tap timer beside it, which
-    // is the moment someone actually wants one - not five taps into a menu
+    // any duration written into the step gets a one-tap timer beside it
     const chipHost = li.querySelector('.txt');
     for (const d of findDurations(step)) {
       const chip = document.createElement('button');
@@ -1025,15 +1023,39 @@ function renderSteps() {
       chipHost.appendChild(chip);
     }
 
-    li.onclick = () => li.classList.toggle('done');
+    li.onclick = () => { li.classList.toggle('done'); Checks.save(); };
     ol.appendChild(li);
   });
 }
 
-/* ---------------- durations in step text ----------------
-   Turns "bake 20-25 minutes" or "rest 1 hr 30 min" into something startable. Ranges
-   use the low end, the point of the timer is to come back and check. Unit words are
-   spelled out far enough to avoid matching a bare "m" or "s" in ordinary prose. */
+/* Ticked ingredients and steps, kept on this phone per recipe so a reload or a trip to
+   another page mid-cook doesn't lose them. Only for a day: the next time it's cooked
+   starts clean. Dropped if the recipe was edited to a different length since. */
+const Checks = {
+  KEY: 'nomad_cookbook_checks',
+  KEEP_MS: 24 * 3600e3,
+  all() { try { return JSON.parse(NomadPrefs.raw(this.KEY) || '{}') || {}; } catch (e) { return {}; } },
+  get(r) {
+    const e = this.all()[r.path];
+    if (!e || Date.now() - e.t > this.KEEP_MS) return null;
+    if (e.n[0] !== r.meta.ingredients.length || e.n[1] !== r.meta.steps.length) return null;
+    return e;
+  },
+  save() {
+    if (!current) return;
+    const all = this.all(), now = Date.now();
+    const ticked = (sel) => [...document.querySelectorAll(sel)].map((li, i) => li.classList.contains('done') ? i : -1).filter(i => i >= 0);
+    const i = ticked('#rIng li'), s = ticked('#rSteps li');
+    if (i.length || s.length) all[current.path] = { t: now, n: [current.meta.ingredients.length, current.meta.steps.length], i, s };
+    else delete all[current.path];
+    for (const k of Object.keys(all)) if (!all[k] || now - all[k].t > this.KEEP_MS) delete all[k];
+    try { NomadPrefs.setRaw(this.KEY, JSON.stringify(all)); } catch (e) {}
+  }
+};
+
+/* Durations in step text: "bake 20-25 minutes" or "rest 1 hr 30 min" become timers.
+   Ranges use the low end, to come back and check. Unit words are spelled out far
+   enough to avoid matching a bare "m" or "s" in ordinary prose. */
 const DUR_RE = /\b(\d+(?:\.\d+)?)\s*(?:[-–—]|\s+to\s+)?\s*(\d+(?:\.\d+)?)?\s*(hours?|hrs?|h|minutes?|mins?|m|seconds?|secs?|s)\b/gi;
 
 function unitSeconds(u) {
@@ -1068,8 +1090,8 @@ function findDurations(text) {
                seconds: parseFloat(m[1]) * unitSeconds(m[3]), unit: unitSeconds(m[3]) });
   }
 
-  // "1 hr 30 min" arrives as two matches sitting next to each other; join them
-  // so it starts one 90-minute timer rather than two competing ones
+  // "1 hr 30 min" arrives as two matches sitting next to each other. join them
+  // so it starts one 90-minute timer instead of two
   const out = [];
   for (let i = 0; i < raw.length; i++) {
     let sec = raw[i].seconds, end = raw[i].end;
@@ -1085,10 +1107,8 @@ function findDurations(text) {
   return out;
 }
 
-/* ---------------- timers ----------------
-   Kept as absolute end times in localStorage so a reload, or wandering off to another
-   page and back, doesnt lose one. Anything that finished while the page was closed
-   comes back marked done rather than silently dropped. */
+/* Timers are kept as absolute end times in localStorage, so a reload doesn't lose one.
+   Anything that finished while the page was closed comes back marked done. */
 const NomadTimers = (() => {
   const KEY = 'nomad:cookbook:timers:v1';
   let list = [];
@@ -1100,24 +1120,23 @@ const NomadTimers = (() => {
 
   function load() {
     try {
-      const raw = JSON.parse(localStorage.getItem(KEY) || '[]');
+      const raw = JSON.parse(NomadPrefs.raw(KEY) || '[]');
       const now = Date.now();
       list = (Array.isArray(raw) ? raw : [])
-        // forget anything that finished more than two hours ago; keeping those
-        // would greet you with a dock full of yesterday's cooking
+        // forget anything that finished more than two hours ago
         .filter(t => t && t.endsAt && (t.endsAt > now - 2 * 3600 * 1000))
         .map(t => ({ ...t, ringing: false, done: t.endsAt <= now }));
     } catch (e) { list = []; }
   }
 
   function save() {
-    try { localStorage.setItem(KEY, JSON.stringify(list.map(({ id, label, endsAt, total }) => ({ id, label, endsAt, total })))); }
+    try { NomadPrefs.setRaw(KEY, JSON.stringify(list.map(({ id, label, endsAt, total }) => ({ id, label, endsAt, total })))); }
     catch (e) {}
   }
 
-  /* Web Audio rather than an audio file: nothing extra to ship on the card, and it cant
-     fail because a media element was blocked. The context is created on the tap that
-     starts a timer, which is the user gesture browsers require before making noise. */
+  /* Web Audio instead of an audio file: nothing extra on the card, and no media element
+     to get blocked. The context is made on the tap that starts a timer, browsers want a
+     user gesture before they make noise. */
   function ensureAudio() {
     if (audio) return audio;
     try {
@@ -1179,12 +1198,10 @@ const NomadTimers = (() => {
       body().appendChild(el);
     }
 
-    // The tab title is the only thing visible when the phone is on another app, and
-    // it is the one spot an emoji earns its keep: a tab strip renders plain text, so
-    // there is no SVG to swap in and nothing to theme it against anyway.
+    // the tab title is the only thing visible while the phone is on another app
     const first = list.find(t => t.done) || list.find(t => !t.done);
     document.title = !first ? 'Nomad • Cookbook'
-      : (first.done ? '⏰ Timer done • Nomad' : '⏲ ' + fmt(first.endsAt - Date.now()) + ' • Nomad');
+      : (first.done ? 'Timer done • Nomad' : fmt(first.endsAt - Date.now()) + ' • Nomad');
   }
 
   function pump() {
@@ -1242,7 +1259,7 @@ const NomadTimers = (() => {
     document.getElementById('dockMin').onclick = () => {
       const d = dock();
       d.classList.toggle('min');
-      document.getElementById('dockMin').textContent = d.classList.contains('min') ? '▴' : '▾';
+      document.getElementById('dockMin').innerHTML = NomadIcons.svg(d.classList.contains('min') ? 'chevron-up' : 'chevron-down');
     };
     const addTimer = () => {
       const mins = parseFloat(document.getElementById('tMins').value);
@@ -1263,19 +1280,19 @@ const NomadTimers = (() => {
 
 /* Cook mode uses the shared wake lock helper from nomad-utils.js, the same one the
    video player uses, so a recipe left open on the counter doesnt blank out. */
+// plain http has no wake lock, so only promise it where the browser has one
+if ('wakeLock' in navigator) document.getElementById('cookBtn').title = 'Bigger type, screen stays on';
 function setCookMode(on) {
   document.body.classList.toggle('cooking', on);
   document.getElementById('cookBtn').classList.toggle('on', on);
   if (on) { try { requestWakeLock(); } catch (e) {} }
-  // leaving cook mode must not blank the screen out from under a timer that's
-  // still counting - whichever of the two still needs the lock keeps it
+  // leaving cook mode must not blank the screen under a timer that's still
+  // counting. whichever of the two still needs the lock keeps it
   else if (!NomadTimers.running()) { try { releaseWakeLock(); } catch (e) {} }
 }
 
-/* ---------------- editor ----------------
-   Writes recipes back to the card as Markdown through /save, the same atomic
-   temp-then-rename endpoint the admin panel uses. Markdown rather than JSON so what
-   gets written stays readable and hand-editable on a computer later. */
+/* Editor: writes recipes to the card as Markdown through /save (atomic temp-then-rename),
+   so files stay hand-editable. */
 
 const editorView = document.getElementById('editor');
 let editingPath = null;      // null = writing a new file
@@ -1283,7 +1300,7 @@ let writesAllowed = false;
 
 const F = id => document.getElementById(id);
 
-/* SD-safe, and safe to put in a URL. FAT rejects most of what's stripped here;
+/* SD-safe, and safe to put in a URL. FAT rejects most of what's stripped here,
    the rest would just make the file annoying to handle from a PC. */
 function safeFilename(title) {
   let s = String(title).trim()
@@ -1346,11 +1363,13 @@ function openEditor(recipe) {
   library.style.display = 'none';
   recipeView.style.display = 'none';
   editorView.style.display = 'block';
+  NomadBack.open('editor', () => closeEditor(true));
   document.querySelector('.toolbar').style.display = 'none';
   window.scrollTo({ top: 0 });
 }
 
-function closeEditor() {
+function closeEditor(fromBack) {
+  if (!fromBack) NomadBack.done('editor');
   editorView.style.display = 'none';
   if (current) { recipeView.style.display = 'block'; }
   else { library.style.display = ''; document.querySelector('.toolbar').style.display = ''; }
@@ -1385,12 +1404,12 @@ async function saveRecipe() {
   // only guard new files: saving over the one being edited is the point
   if (!editingPath && recipes.some(r => r.path.toLowerCase() === path.toLowerCase())) {
     msg.className = 'err';
-    msg.textContent = 'A recipe file with that name is already on the card. Change the title, or open that one and edit it.';
+    msg.textContent = 'A recipe with that name is already on the card. Change the title, or edit that one.';
     return;
   }
 
   F('saveBtn').disabled = true;
-  msg.className = ''; msg.textContent = 'Writing to the card…';
+  msg.className = ''; msg.textContent = 'Saving…';
   try {
     const res = await fetch('/save', {
       method: 'POST',
@@ -1399,7 +1418,7 @@ async function saveRecipe() {
     });
     if (!res.ok) throw new Error('the device answered ' + res.status + ' ' + (await res.text()).slice(0, 90));
 
-    msg.className = 'ok'; msg.textContent = 'Saved.';
+    msg.className = 'ok'; msg.textContent = 'Saved';
     editingPath = path;
     // the firmware queues the write, so the file is not on the card the instant
     // /save answers. Re-list until it turns up rather than guessing at one delay.
@@ -1409,15 +1428,14 @@ async function saveRecipe() {
       await loadLibrary();
       saved = recipes.find(r => r.path === path);
     }
-    // loadLibrary rebuilt the list, so the old `current` object is stale - drop
+    // loadLibrary rebuilt the list, so the old `current` object is stale. drop
     // it before closeEditor() decides which view to restore
     current = null;
     if (!saved) {
-      // written, but not showing up yet. Saying nothing here is what made a
-      // successful save look like it had done nothing at all.
+      // written, but not showing up yet. show a notice, or a good save looks like it did nothing
       msg.className = 'ok';
-      msg.textContent = 'Saved to ' + path + '. It has not appeared in the library yet; ' +
-        'reload the page in a moment, or run Admin → Library Index if it stays missing.';
+      msg.textContent = 'Saved to ' + path + '. Not listed yet. ' +
+        'Reload in a moment, or run Admin → Library index.';
       return;
     }
     closeEditor();
@@ -1444,6 +1462,7 @@ async function deleteRecipe() {
     if (!res.ok) throw new Error('the device answered ' + res.status);
     editingPath = null;
     current = null;
+    NomadBack.done(NomadBack.isOpen('recipe') ? 'recipe' : 'editor');   // the editor and the recipe under it
     await new Promise(r => setTimeout(r, 400));
     await loadLibrary();
     editorView.style.display = 'none';
@@ -1460,8 +1479,8 @@ async function deleteRecipe() {
 F('fTitle').addEventListener('input', updatePathHint);
 F('saveBtn').onclick     = saveRecipe;
 F('deleteBtn').onclick   = deleteRecipe;
-F('editorCancel').onclick = closeEditor;
-F('editorBack').onclick  = closeEditor;
+F('editorCancel').onclick = () => closeEditor();
+F('editorBack').onclick  = () => closeEditor();
 F('newBtn').onclick      = () => openEditor(null);
 F('editBtn').onclick     = () => { if (current) openEditor(current); };
 
@@ -1471,7 +1490,7 @@ async function applyWritePermission() {
   try {
     NomadUI._cfg = null;   // always re-read, the admin may have just flipped it
     const cfg = await NomadUI.config();
-    writesAllowed = !cfg.uploadsDisabled;
+    writesAllowed = NomadUI.canUpload(cfg, 'cookbook');
   } catch (e) { writesAllowed = true; }
   F('newBtn').style.display  = writesAllowed ? '' : 'none';
   F('editBtn').style.display = writesAllowed ? '' : 'none';
@@ -1479,11 +1498,12 @@ async function applyWritePermission() {
 applyWritePermission();
 window.addEventListener('pageshow', e => { if (e.persisted) applyWritePermission(); });
 
-document.getElementById('backToGrid').onclick = closeRecipe;
+document.getElementById('backToGrid').onclick = () => closeRecipe();
 document.getElementById('printBtn').onclick   = () => window.print();
 document.getElementById('cookBtn').onclick    = () => setCookMode(!document.body.classList.contains('cooking'));
 document.getElementById('resetChecks').onclick = () => {
   document.querySelectorAll('#rIng li, #rSteps li').forEach(li => li.classList.remove('done'));
+  Checks.save();
 };
 
 // quarter steps below 1, half steps above: the useful sizes, without landing on

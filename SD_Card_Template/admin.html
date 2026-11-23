@@ -1,12 +1,14 @@
 <!DOCTYPE html>
-<!-- Version 5 -->
+<!-- Version 7 -->
 <html lang="en">
 <head>
     <link rel="stylesheet" href="/master.css">
-    <script src="/theme-boot.js"></script>
+    <script src="/theme-boot.js?v=5"></script>
+<script src="/nomad-icons.js?v=1"></script>
   <meta charset="UTF-8">
+<script>/* nomad-load-guard: reload, twice at most, when one of Nomad's own scripts or stylesheets fails to load */(function(){var k='nomadLoadGuard:'+location.pathname;window.addEventListener('error',function(e){var t=e.target;if(!t||!t.tagName)return;var s=t.tagName==='SCRIPT',c=t.tagName==='LINK'&&/stylesheet/i.test(t.rel||'');if(!s&&!c)return;var u=t.src||t.href||'';if(u.indexOf(location.origin+'/')!==0)return;var n=0;try{n=+sessionStorage.getItem(k)||0;}catch(x){return;}if(n>=2)return;try{sessionStorage.setItem(k,String(n+1));}catch(x){return;}setTimeout(function(){location.reload();},1500*(n+1));},true);window.addEventListener('load',function(){setTimeout(function(){try{sessionStorage.removeItem(k);}catch(x){}},15000);});})();</script>
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Admin Panel</title>
+  <title>Nomad • Admin</title>
   <style>
     :root {
       --primary: #007bff;
@@ -216,6 +218,19 @@
     .file-browser-section {
       grid-column: 1 / -1;
     }
+
+    /* Update: a full row, so it is three wide at desktop width and never leaves a ragged
+       row in the grid. Hidden until admin.js finds home WiFi and the update server. */
+    .update-card { grid-column: 1 / -1; }
+    .update-card[hidden], .update-card [hidden] { display: none !important; }   /* .btn and .progress set display */
+    .update-row { display: flex; align-items: center; justify-content: space-between; gap: 1rem; flex-wrap: wrap; }
+    .update-summary { font-size: 0.95rem; }
+    .update-summary a { color: var(--primary); }
+    .update-list { list-style: none; margin: 0.75rem 0 0; padding: 0; columns: 3 220px; column-gap: 1.5rem; font-size: 0.85rem; }
+    .update-list li { break-inside: avoid; display: flex; justify-content: space-between; gap: 0.75rem; padding: 0.15rem 0; }
+    .update-list li span:last-child { color: var(--muted); white-space: nowrap; }
+    .update-list li.is-new span:first-child::after { content: " new"; color: var(--primary); font-size: 0.75rem; }
+    .update-card .progress { margin-top: 0.75rem; }
     /* Cards */
     .card {
       background: var(--card-bg);
@@ -521,6 +536,15 @@
     .wifi-status.online .dot { background: var(--success); }
     .wifi-status.warn .dot { background: var(--warning); }
 
+    /* Scan Video results: same dots as the file browser */
+    .video-check-head { color: var(--text); font-weight: 600; }
+    .video-check-list { list-style: none; margin: 0.35rem 0 0; padding: 0; }
+    .video-check-list li { display: flex; align-items: center; gap: 0.5rem; padding: 0.1rem 0; }
+    .video-check-n { margin-left: auto; font-variant-numeric: tabular-nums; }
+    .video-check-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; background: var(--muted); }
+    .video-check-dot.bad { background: var(--danger); }
+    .video-check-dot.warn { background: var(--warning); }
+
     .wifi-scan-list {
       border: 1px solid var(--card-border);
       border-radius: 0.5rem;
@@ -616,9 +640,6 @@
         justify-content: center;
       }
 
-      .file-browser-section {
-        display: none !important;
-      }
     }
 
     @media (max-width: 480px) {
@@ -700,18 +721,245 @@
       transform: translateX(26px);
     }
   </style>
-  <script src="theme-manager.js"></script>
+  <script src="theme-manager.js?v=5"></script>
+
+  <style>
+  /* Admin page layout: one sticky top, one section at a time, one card and control
+     scale. The file browser, log and theme editor take the whole screen. */
+  [hidden]{display:none !important;}   /* a class that sets display must not beat hidden */
+  :root{--adm-gap:12px;--adm-r:14px;--adm-ctl:38px;}
+
+  /* the top: header and sections in one block */
+  .adm-top{position:sticky;top:0;z-index:50;background:var(--primary);box-shadow:0 2px 10px rgba(0,0,0,.12);}
+  header.adm-header{position:static;box-shadow:none;display:flex;flex-direction:row;align-items:center;justify-content:flex-start;gap:10px;
+    padding:6px 12px;min-height:0;height:44px;box-sizing:border-box;max-width:1200px;margin:0 auto;}
+  header.adm-header h1{display:block;margin:0;font-size:1.05rem;font-weight:800;flex:1;white-space:nowrap;}
+  header.adm-header .menu-button{width:auto;order:-1;padding:5px 11px;font-size:.85rem;font-weight:700;white-space:nowrap;border-radius:999px;}
+  .adm-head-right{display:flex;gap:6px;}
+  .adm-chip{border:0;border-radius:999px;padding:5px 10px;font-weight:700;font-size:.78rem;background:rgba(255,255,255,.18);color:var(--header-text,#fff);
+    cursor:pointer;display:inline-flex;align-items:center;gap:4px;white-space:nowrap;}
+  .adm-chip svg{width:13px;height:13px;}
+  .adm-tabs{display:flex;gap:4px;overflow-x:auto;scrollbar-width:none;max-width:1200px;margin:0 auto;padding:0 10px 8px;box-sizing:border-box;}
+  .adm-tabs::-webkit-scrollbar{display:none;}
+  .adm-tabs button{flex:0 0 auto;border:0;background:rgba(255,255,255,.14);color:var(--header-text,#fff);border-radius:999px;padding:6px 13px;
+    font-weight:700;font-size:.85rem;cursor:pointer;opacity:.85;}
+  .adm-tabs button.active{background:#fff;color:var(--primary);opacity:1;}
+
+  /* the sections */
+  .container{padding:var(--adm-gap);}
+  .grid.adm-sections{display:block;columns:2 420px;column-gap:var(--adm-gap);margin:0;}
+  .adm-sections > [data-sec]{display:none;}
+  .adm-sections > *{min-width:0;}   /* a wide row inside must not widen the page */
+  .adm-sections > [data-sec].shown{display:block;break-inside:avoid;margin:0 0 var(--adm-gap);}
+  .adm-wide{column-span:all;}
+  .adm-sections .card{border-radius:var(--adm-r);padding:16px;box-shadow:0 1px 3px rgba(0,0,0,.06);transform:none !important;}
+  .adm-sections .card:hover{box-shadow:0 1px 3px rgba(0,0,0,.06);}
+  .adm-sections .card h2{color:var(--text);font-size:1rem;font-weight:800;margin:0 0 10px;letter-spacing:.01em;}
+  .adm-sections .form-group{margin-bottom:12px;}
+  .adm-sections .form-label{font-size:.8rem;margin-bottom:5px;font-weight:600;}
+  .adm-sections .form-control{height:var(--adm-ctl);padding:0 11px;border-radius:10px;font-size:.9rem;box-sizing:border-box;}
+  .adm-sections select.form-control{padding-right:28px;}
+  .adm-sections input[type=range].form-control{height:auto;padding:0;border:0;}
+  .adm-sections .btn,.adm-safe .btn{min-height:var(--adm-ctl);padding:0 14px;border-radius:10px;font-size:.88rem;font-weight:700;justify-content:center;width:auto;}
+  .adm-sections .btn-secondary,.adm-safe .btn-secondary{background:var(--card-bg);color:var(--text);border:1px solid var(--card-border);}
+  .adm-sections .btn-secondary:hover,.adm-safe .btn-secondary:hover{border-color:var(--primary);color:var(--primary);}
+  .adm-sections .btn-danger{background:var(--card-bg);color:#e5484d;border:1px solid color-mix(in srgb,#e5484d 45%,transparent);}
+  .adm-sections .btn-danger:hover{background:#e5484d;color:#fff;}
+  .adm-sections .card > .btn{width:100%;}
+  .adm-sections .toggle-switch{width:46px;height:26px;flex:0 0 auto;}
+  .adm-sections .toggle-switch .slider:before{width:20px;height:20px;left:3px;bottom:3px;}
+  .adm-sections .toggle-switch input:checked + .slider:before{transform:translateX(20px);}
+  .adm-sections .progress{height:8px;border-radius:999px;}
+  .adm-hint{font-size:.8rem;color:var(--muted);margin:0 0 10px;line-height:1.45;}
+  .adm-msg{font-size:.8rem;color:var(--muted);margin-top:8px;}
+  .adm-msg:empty{display:none;}
+  .adm-safe{margin:0 0 14px;padding:12px 14px;border-radius:12px;border:1px solid color-mix(in srgb,#f59e0b 60%,var(--card-border));
+    background:color-mix(in srgb,#f59e0b 12%,var(--card-bg, var(--bg)));display:flex;flex-wrap:wrap;gap:8px 16px;align-items:center;justify-content:space-between;}
+  .adm-safe[hidden]{display:none;}
+  .adm-safe b{display:block;}
+  .adm-safe span{display:block;font-size:.85rem;color:var(--muted);margin-top:2px;}
+  .adm-safe .adm-btn-row{margin:0;flex:1 1 280px;max-width:420px;flex-wrap:nowrap;}
+  .adm-safe .adm-btn-row .btn{flex:1 1 0;min-width:0;}
+  #sup-crash{font-family:inherit;font-weight:600;text-align:right;}
+  .adm-btn-row{display:flex;gap:8px;flex-wrap:wrap;margin:8px 0;}
+  .adm-btn-row .btn{flex:1 1 auto;}
+  .adm-inline{display:flex;gap:8px;}
+  .adm-inline .form-control{flex:1;min-width:0;}
+  .adm-inline .btn{flex:0 0 auto;}
+  .adm-row{display:flex;align-items:center;justify-content:space-between;gap:12px;margin:10px 0;font-size:.9rem;}
+  .adm-row small{display:block;font-size:.76rem;color:var(--muted);font-weight:400;margin-top:2px;}
+  .adm-kv{display:flex;justify-content:space-between;align-items:center;padding:8px 11px;border:1px solid var(--card-border);border-radius:10px;margin-bottom:12px;}
+  .adm-kv .label{font-size:.72rem;text-transform:uppercase;color:var(--muted);font-weight:700;letter-spacing:.04em;}
+  .adm-kv .value{font-weight:700;font-family:ui-monospace,monospace;}
+  .adm-power{display:grid;grid-template-columns:1fr 1fr;gap:8px;}
+  .adm-power .btn{width:100%;}
+  /* the small "how this works" at the foot of a card */
+  .adm-why{margin-top:10px;font-size:.8rem;color:var(--muted);}
+  .adm-why summary{cursor:pointer;font-weight:700;list-style:none;display:inline-flex;align-items:center;gap:5px;}
+  .adm-why summary::-webkit-details-marker{display:none;}
+  .adm-why summary::before{content:'\203A';display:inline-block;transition:transform .15s;font-size:1rem;line-height:1;}
+  .adm-why[open] summary::before{transform:rotate(90deg);}
+  .adm-why p{margin:6px 0 0;line-height:1.45;}
+  .adm-check{display:inline-flex;align-items:center;gap:6px;font-size:.85rem;color:var(--muted);cursor:pointer;}
+  /* a heading with its figure on the right */
+  .adm-h2row{display:flex;align-items:center;gap:8px;margin-bottom:10px;flex-wrap:wrap;}
+  .adm-sections .card .adm-h2row h2{margin:0;flex:1;}
+  .adm-big{font-size:1.15rem;font-weight:800;font-variant-numeric:tabular-nums;}
+  .adm-badge{font-size:.68rem;font-weight:700;padding:2px 8px;border-radius:999px;}
+  .adm-sub{font-size:.8rem;color:var(--muted);margin:6px 0 4px;font-variant-numeric:tabular-nums;}
+  .adm-check-row{display:flex;margin:0 0 12px;}
+  .adm-row-top{border-top:1px solid var(--card-border);padding-top:12px;margin-bottom:0;}
+  .adm-progress{margin-top:10px;font-size:.82rem;font-weight:600;}
+  .adm-progress .progress{margin-top:4px;}
+  /* library counts */
+  .adm-tiles{display:grid;grid-template-columns:repeat(auto-fill,minmax(84px,1fr));gap:6px;}
+  .adm-tile{background:var(--bg);border:1px solid var(--card-border);border-radius:10px;padding:7px 4px;text-align:center;}
+  .adm-tile b{display:block;font-size:1rem;font-variant-numeric:tabular-nums;}
+  .adm-tile span{font-size:.7rem;color:var(--muted);}
+  .adm-tiles-note{grid-column:1/-1;font-size:.82rem;color:var(--muted);}
+  .adm-more{margin-top:10px;}
+  .adm-more summary{cursor:pointer;font-weight:700;font-size:.8rem;color:var(--muted);list-style:none;display:inline-flex;align-items:center;gap:5px;}
+  .adm-more summary::-webkit-details-marker{display:none;}
+  .adm-more summary::before{content:'\203A';display:inline-block;transition:transform .15s;font-size:1rem;line-height:1;}
+  .adm-more[open] summary::before{transform:rotate(90deg);}
+  .adm-table{width:100%;font-size:.84rem;border-collapse:collapse;margin-top:8px;}
+  .adm-table th{font-size:.68rem;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);text-align:right;padding:4px;}
+  .adm-table th:first-child,.adm-table td:first-child{text-align:left;}
+  .adm-table td{padding:5px 4px;border-top:1px solid var(--card-border);text-align:right;font-variant-numeric:tabular-nums;}
+  /* screen and lights */
+  .adm-range{width:100%;accent-color:var(--primary);margin:2px 0 4px;}
+  .adm-seg-row{display:flex;align-items:center;gap:10px;}
+  .adm-seg{flex:1;display:flex;background:var(--bg);border:1px solid var(--card-border);border-radius:10px;padding:3px;gap:3px;}
+  .adm-sections .adm-seg .btn{flex:1;min-height:32px;border:0;background:none;color:var(--muted);border-radius:8px;}
+  .adm-sections .adm-seg .btn.btn-primary{background:var(--primary);color:#fff;}
+  .adm-swatch{width:40px;height:40px;flex:0 0 40px;border:1px solid var(--card-border);border-radius:50%;padding:0;cursor:pointer;
+    overflow:hidden;-webkit-appearance:none;appearance:none;background:none;}
+  .adm-swatch::-webkit-color-swatch-wrapper{padding:0;}
+  .adm-swatch::-webkit-color-swatch{border:0;border-radius:50%;}
+  .adm-swatch::-moz-color-swatch{border:0;border-radius:50%;}
+  .adm-sections .btn.adm-ic{width:var(--adm-ctl);padding:0;flex:0 0 auto;display:inline-flex;align-items:center;}
+  .adm-ic svg{width:17px;height:17px;}
+  /* at a glance */
+  .adm-glance.shown{display:grid !important;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;padding:10px;}
+  .adm-stat{min-width:0;padding:4px 6px;}
+  .adm-stat .k{display:block;font-size:.66rem;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);font-weight:700;}
+  .adm-stat .v{display:block;font-weight:800;font-size:.92rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+  /* firmware: marked as the risky one */
+  .adm-sections .card.adm-risky{border-color:color-mix(in srgb,#f59e0b 55%,var(--card-border));}
+  .adm-risk{font-size:.8rem;line-height:1.45;margin:8px 0 10px;padding:8px 10px;border-radius:10px;
+    background:color-mix(in srgb,#f59e0b 12%,transparent);color:var(--text);}
+  #fw-actions .adm-check{margin-top:2px;}
+  /* popups (the WiFi QR code) */
+  .adm-pop{position:fixed;top:0;right:0;bottom:0;left:0;inset:0;z-index:9000;background:rgba(0,0,0,.5);display:flex;align-items:flex-end;justify-content:center;}
+  @media (min-width:700px){.adm-pop{align-items:center;}}
+  .adm-pop-card{background:var(--card-bg,var(--card));color:var(--text);width:100%;max-width:420px;border-radius:18px 18px 0 0;
+    padding:16px 16px calc(16px + env(safe-area-inset-bottom));box-shadow:0 -10px 40px rgba(0,0,0,.3);max-height:92vh;overflow:auto;box-sizing:border-box;}
+  @media (min-width:700px){.adm-pop-card{border-radius:18px;}}
+  .adm-pop-card h2{margin:0;font-size:1rem;font-weight:800;flex:1;}
+  .adm-pop .btn{min-height:38px;padding:0 14px;border-radius:10px;font-size:.88rem;font-weight:700;display:inline-flex;align-items:center;justify-content:center;gap:6px;cursor:pointer;}
+  .adm-pop .btn-secondary{background:var(--card-bg,var(--card));color:var(--text);border:1px solid var(--card-border);}
+  .adm-pop .btn-primary{background:var(--primary);color:#fff;border:1px solid var(--primary);}
+  .adm-pop .btn.adm-ic{width:38px;padding:0;}
+  .adm-pop .adm-ic svg{width:17px;height:17px;}
+  .adm-pop .adm-seg{display:flex;gap:3px;padding:3px;border-radius:10px;background:var(--bg);border:1px solid var(--card-border);}
+  .adm-pop .adm-seg .btn{flex:1;min-height:32px;border:0;}
+  .adm-pop .adm-seg .btn-secondary{background:none;color:var(--muted);}
+  .adm-pop .adm-btn-row .btn{flex:1;}
+  .qr-box{background:#fff;border-radius:14px;padding:10px;display:grid;place-items:center;margin:4px 0 8px;}
+  .qr-box canvas{width:100%;max-width:300px;height:auto;image-rendering:pixelated;display:block;}
+  .qr-cap{text-align:center;font-size:.82rem;color:var(--muted);margin:0 0 10px;}.qr-cap:empty{display:none;}
+  .adm-pop:fullscreen{background:#fff;align-items:center;}
+  .adm-pop:fullscreen .adm-pop-card{max-width:min(92vh,92vw);box-shadow:none;background:#fff;color:#111;}
+  .adm-pop:fullscreen .qr-box canvas{max-width:min(70vh,86vw);}
+  /* what got used */
+  .use-when{flex:0 0 auto;}
+  #use-tiles{grid-template-columns:repeat(4,minmax(0,1fr));}
+  .adm-sections .use-when .btn{min-height:28px;padding:0 10px;font-size:.76rem;}
+  .use-list{margin-top:12px;}
+  .use-list h3,.use-bars h3{font-size:.72rem;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);margin:0 0 6px;font-weight:800;}
+  .use-row{display:flex;justify-content:space-between;gap:10px;padding:5px 0;border-top:1px solid var(--card-border);font-size:.86rem;}
+  .use-row span{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  .use-row b{font-variant-numeric:tabular-nums;}
+  .use-bars{margin-top:12px;}
+  .use-bar{display:grid;grid-template-columns:76px 1fr 36px;gap:8px;align-items:center;font-size:.8rem;margin:4px 0;}
+  .use-bar i{display:block;height:8px;border-radius:999px;background:var(--primary);min-width:2px;}
+  .use-bar b{text-align:right;font-variant-numeric:tabular-nums;font-weight:700;}
+  .use-reset{border:0;background:none;color:var(--primary);font:inherit;font-weight:700;cursor:pointer;padding:0;margin-left:4px;}
+  /* card health */
+  .adm-facts{display:grid;grid-template-columns:auto 1fr;gap:4px 12px;margin:8px 0 4px;font-size:.84rem;}
+  .adm-facts dt{color:var(--muted);font-weight:600;}
+  .adm-facts dd{margin:0;font-variant-numeric:tabular-nums;min-width:0;overflow-wrap:anywhere;}
+  .adm-badge.good{background:color-mix(in srgb,#16a34a 16%,transparent);color:#16a34a;}
+  .adm-badge.warn{background:color-mix(in srgb,#f59e0b 20%,transparent);color:#b45309;}
+  .adm-badge.bad{background:color-mix(in srgb,#e5484d 18%,transparent);color:#e5484d;}
+  body.dark .adm-badge.warn{color:#fbbf24;}
+  /* activity */
+  .act-list{display:flex;flex-direction:column;gap:8px;}
+  .act-row{border:1px solid var(--card-border);border-radius:12px;padding:10px 12px;display:grid;grid-template-columns:1fr auto;gap:4px 10px;align-items:center;}
+  .act-title{font-weight:700;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+  .act-sub{grid-column:1 / -1;font-size:.76rem;color:var(--muted);min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+  .act-bar{grid-column:1 / -1;height:6px;border-radius:999px;background:color-mix(in srgb,var(--muted) 22%,transparent);overflow:hidden;}
+  .act-bar > i{display:block;height:100%;background:var(--primary);border-radius:999px;transition:width .6s;}
+  .act-meta{grid-column:1 / -1;display:flex;flex-wrap:wrap;gap:4px 12px;font-size:.76rem;color:var(--muted);font-variant-numeric:tabular-nums;}
+  .act-state{font-size:.72rem;font-weight:800;padding:2px 8px;border-radius:999px;white-space:nowrap;}
+  .act-state.on{background:color-mix(in srgb,#16a34a 16%,transparent);color:#16a34a;}
+  .act-state.idle{background:color-mix(in srgb,var(--muted) 18%,transparent);color:var(--muted);}
+  .act-state.stopped{background:color-mix(in srgb,#e5484d 16%,transparent);color:#e5484d;}
+  .act-actions{grid-column:1 / -1;display:flex;justify-content:flex-end;gap:6px;}
+  .adm-sections .act-actions .btn{min-height:32px;padding:0 12px;font-size:.8rem;}
+  /* pages: a row a page, a box per thing it can do */
+  .perm-table{width:100%;border-collapse:collapse;font-size:.9rem;}
+  .perm-table th{font-size:.68rem;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);text-align:center;padding:4px 2px 6px;font-weight:700;}
+  .perm-table th:first-child,.perm-table td:first-child{text-align:left;}
+  .perm-table td{padding:6px 2px;border-top:1px solid var(--card-border);text-align:center;}
+  .perm-table td:first-child{font-weight:600;}
+  .perm-table .perm-all td{font-weight:800;color:var(--primary);border-top:0;background:color-mix(in srgb,var(--primary) 6%,transparent);}
+  .perm-table .perm-all td:first-child{border-radius:8px 0 0 8px;padding-left:8px;}
+  .perm-table .perm-all td:last-child{border-radius:0 8px 8px 0;}
+  .perm-table .na{color:var(--muted);opacity:.45;}
+  .perm-table input.perm{width:20px;height:20px;accent-color:var(--primary);cursor:pointer;margin:0;vertical-align:middle;}
+  .perm-table input.perm:disabled{cursor:not-allowed;opacity:.3;}
+  /* sections that take the screen: the height left under the sticky top */
+  .adm-fill.shown{display:flex !important;flex-direction:column;height:calc(100vh - 110px);height:calc(100dvh - 110px);min-height:420px;padding:12px;}
+  .nf-host{flex:1;min-height:0;display:flex;flex-direction:column;}
+  .nf-host > .nf{flex:1;}
+  /* the log */
+  .adm-log-status{display:flex;gap:12px;flex-wrap:wrap;font-size:.78rem;color:var(--muted);}
+  .adm-log-status b{color:var(--text);margin-left:4px;}
+  .adm-log-bar{display:flex;gap:6px;align-items:center;margin:0 0 8px;}
+  .adm-log-bar select{width:auto;flex:1 1 0;min-width:0;}
+  #console-output{flex:1;min-height:0;height:auto;max-height:none;overflow:auto;font-size:.78rem;line-height:1.4;border-radius:10px;margin:0;}
+  #console-output .ln{padding:1px 0;word-break:break-word;}
+  #console-output .t{opacity:.55;margin-right:6px;}
+  #console-output .error{color:#ff6b6b;} #console-output .warning{color:#ffb347;} #console-output .success{color:#2ee6a0;}
+  #console-output .info{color:#5ec8ff;} #console-output .system{color:#9fb4ff;} #console-output .media{color:#8be28b;}
+  /* the theme editor: its own cards, at their own height */
+  .adm-bare{background:none;border:0;padding:0;}
+  .adm-theme-frame{width:100%;height:900px;border:0;display:block;background:transparent;}
+  /* the sign-in box */
+  .auth-keep{margin:4px 0 12px;}
+  .auth-back{display:block;text-align:center;margin-top:12px;font-size:.85rem;color:var(--muted);}
+  @media (max-width:600px){
+    .container{padding:10px;}
+    .grid.adm-sections{columns:1;}
+    .adm-glance.shown{grid-template-columns:repeat(2,minmax(0,1fr));}
+    .adm-sections .btn{font-size:.85rem;}
+    .adm-sections .card > .btn, .adm-power .btn{width:100%;}
+  }
+  </style>
 </head>
 <body>
   <!-- Authentication Overlay -->
   <div id="auth-overlay" class="auth-overlay hidden">
     <div class="auth-modal">
-      <h3>Admin Authentication</h3>
+      <h3>Admin sign-in</h3>
       <div class="form-group">
-        <input type="password" id="auth-password" class="form-control" placeholder="Enter admin password" autocomplete="off">
+        <input type="password" id="auth-password" class="form-control" placeholder="Admin password" autocomplete="current-password">
       </div>
-      <button id="auth-submit" class="btn btn-primary" style="width: 100%;">Login</button>
-      <div id="auth-error" class="auth-error hidden">Incorrect password. Please try again.</div>
+      <label class="adm-check auth-keep"><input type="checkbox" id="auth-keep" checked> Keep me signed in</label>
+      <button id="auth-submit" class="btn btn-primary" style="width: 100%;">Sign in</button>
+      <div id="auth-error" class="auth-error hidden">Wrong password.</div>
+      <a href="/menu" class="auth-back">Back to the menu</a>
     </div>
   </div>
 
@@ -726,7 +974,7 @@
         <input type="text" id="wifi-sta-ssid" class="form-control" autocomplete="off" placeholder="Your home WiFi">
       </div>
 
-      <button id="wifi-scan-btn" class="btn btn-secondary" style="width: 100%;">Scan for networks</button>
+      <button id="wifi-scan-btn" class="btn btn-secondary" style="width: 100%;" title="Playback may pause a moment">Scan for networks</button>
       <div id="wifi-scan-list" class="wifi-scan-list hidden"></div>
 
       <div class="form-group" style="margin-top: 1rem;">
@@ -736,329 +984,377 @@
 
       <label class="wifi-persist-row">
         <input type="checkbox" id="wifi-sta-persist">
-        <span>Reconnect automatically on every boot</span>
+        <span>Reconnect on every boot</span>
       </label>
 
-      <label class="wifi-persist-row">
+      <label class="wifi-persist-row" title="Legacy. Stops phones on the hotspot using mobile data.">
         <input type="checkbox" id="wifi-dns-catchall">
-        <span>Legacy catch-all DNS &mdash; hotspot answers every address. Leave off so phones keep using mobile data for messages and internet.</span>
+        <span>Catch-all DNS</span>
       </label>
 
-      <p class="wifi-help">
-        Nomad restarts, joins your network, and serves its library (plus DLNA and OPDS)
-        to every device on it — no captive portal. The Nomad screen shows the address it
-        was given. If the network can't be reached, it falls back to hotspot mode on its own.
-        Without auto-reconnect, unplugging and replugging always returns to hotspot mode;
-        with it, hold the side button while Nomad boots to force hotspot mode.
-        Tip: set an admin password before joining a shared network.
-      </p>
+      <p class="wifi-help">Set an admin password before joining a shared network.</p>
 
       <div class="wifi-actions">
-        <button id="wifi-connect-btn" class="btn btn-primary">Connect to network</button>
-        <button id="wifi-disable-btn" class="btn btn-warning">Return to hotspot mode</button>
+        <button id="wifi-connect-btn" class="btn btn-primary">Connect</button>
+        <button id="wifi-disable-btn" class="btn btn-warning">Back to hotspot</button>
         <button id="wifi-close-btn" class="btn btn-secondary">Close</button>
       </div>
     </div>
   </div>
 
-  <!-- Header -->
-  <header class="header">
-    <h1>Admin Panel</h1>
-    <a href="/menu" class="menu-button">← Back</a>
-  </header>
+  <!-- sticky top: back, title, temperature and sign-in chips, section tabs -->
+  <div class="adm-top">
+    <header class="header adm-header">
+      <a href="/menu" class="menu-button" aria-label="Back to the menu">&larr; Menu</a>
+      <h1>Admin</h1>
+      <div class="adm-head-right">
+        <button id="cpu-temp" class="adm-chip" title="Temperature">--&deg;C</button>
+        <button id="account-btn" class="adm-chip" hidden onclick="showSection('device')">Signed in</button>
+      </div>
+    </header>
+    <nav class="adm-tabs" id="adm-tabs" aria-label="Admin sections">
+      <button data-sec="overview" class="active">Overview</button>
+      <button data-sec="activity">Activity</button>
+      <button data-sec="library">Library</button>
+      <button data-sec="pages">Pages</button>
+      <button data-sec="network">Network</button>
+      <button data-sec="device">Device</button>
+      <button data-sec="logs">Logs</button>
+      <button data-sec="files">Files</button>
+      <button data-sec="theme">Theme</button>
+    </nav>
+  </div>
 
-  <!-- Action Bar -->
-  <div class="action-bar">
-    <div class="action-buttons">
-      <button id="btn-restart" class="btn btn-success">Restart</button>
-      <button id="btn-shutdown" class="btn btn-danger">Shutdown</button>
-      <button id="btn-usbmode" class="btn btn-warning">USB Mode</button>
-      <button id="btn-flashmode" class="btn btn-info">Flash Mode</button>
-      <button id="btn-wifimode" class="btn btn-primary">WiFi Mode</button>
-      <button id="cpu-temp" class="btn btn-secondary">🌡️ --°C</button>
+  <div class="container">
+    <!-- safe mode: shown on every section until Nomad starts normally -->
+    <div id="safe-banner" class="adm-safe" role="alert" hidden>
+      <div><b>Nomad started in safe mode</b><span id="safe-why"></span></div>
+      <div class="adm-btn-row">
+        <button id="safe-save" class="btn btn-secondary">Save support file</button>
+        <button id="safe-normal" class="btn btn-primary">Start normally</button>
+      </div>
     </div>
+    <div class="grid adm-sections">
 
-    <div class="device-info">
-      <div class="info-badge">
-        <span class="label">SSID</span>
-        <span id="bar-ssid" class="value" aria-live="polite" title="SSID">—</span>
+      <div class="card adm-wide adm-glance" data-sec="overview">
+        <div class="adm-stat"><span class="k">Network</span><span id="bar-ssid" class="v">&mdash;</span></div>
+        <div class="adm-stat"><span class="k">Users</span><span id="bar-users" class="v">&mdash;</span></div>
+        <div class="adm-stat"><span class="k">Card</span><span id="strip-card" class="v">&mdash;</span></div>
+        <div class="adm-stat"><span class="k">Index</span><span id="strip-index" class="v">Idle</span></div>
       </div>
-      <div class="info-badge">
-        <span class="label">Password</span>
-        <span id="bar-wifi-pass" class="value" aria-live="polite" title="Wi-Fi password">—</span>
+      <div class="card update-card" data-sec="overview" id="update-card" hidden>
+        <h2>Update</h2>
+        <div class="update-row">
+          <span class="update-summary" id="update-summary"></span>
+          <button class="btn btn-primary" id="update-btn" hidden>Update</button>
+        </div>
+        <div class="progress" id="update-progress" hidden><div class="progress-bar" id="update-bar" style="width: 0%"></div></div>
+        <ul class="update-list" id="update-list"></ul>
       </div>
-      <div class="info-badge">
-        <span class="label">Users</span>
-        <span id="bar-users" class="value">—</span>
+
+      <div class="card" data-sec="overview">
+        <div class="adm-h2row"><h2>Storage</h2><span id="sd-trust-badge" class="adm-badge" style="display: none;"></span><b id="sd-percent" class="adm-big">--%</b></div>
+        <div class="progress"><div id="sd-bar" class="progress-bar" style="width: 0%"></div></div>
+        <div class="adm-sub"><span id="sd-used">-- GB used</span> <span id="sd-total">of -- GB</span></div>
+        <div class="adm-btn-row">
+          <button onclick="triggerSDScan()" class="btn btn-secondary">Scan card</button>
+          <button id="video-check-btn" onclick="triggerVideoCheck()" class="btn btn-secondary">Check videos</button>
+        </div>
+        <div id="sd-scan-msg" class="adm-msg"></div>
+        <div id="video-check-msg" class="video-check adm-msg"></div>
       </div>
+
+      <div class="card" data-sec="overview">
+        <div class="adm-h2row"><h2>Card health</h2><span id="hl-badge" class="adm-badge" hidden></span></div>
+        <div id="hl-summary" class="adm-sub">Asking the card&hellip;</div>
+        <dl id="hl-facts" class="adm-facts"></dl>
+        <div class="adm-btn-row">
+          <button id="hl-check" class="btn btn-secondary" title="About 10 seconds, safe during playback">Check the card</button>
+        </div>
+        <div id="hl-msg" class="adm-msg"></div>
+      </div>
+
+      <div class="card" data-sec="library">
+        <h2>Library</h2>
+        <div id="lib-stats" class="adm-tiles"><div class="adm-tiles-note">Counting&hellip;</div></div>
+        <!-- Breakdown by folder (populated by the most recent full system scan) -->
+        <details class="adm-more">
+          <summary>Size by folder</summary>
+          <table id="sd-breakdown-table" class="adm-table" style="display: none;">
+            <thead><tr><th>Folder</th><th>Size</th><th>Files</th></tr></thead>
+            <tbody id="sd-breakdown-body"></tbody>
+          </table>
+        </details>
+      </div>
+
+      <div class="card adm-wide" data-sec="activity">
+        <div class="adm-h2row"><h2>Playing now</h2><span id="act-count" class="adm-sub" style="margin:0"></span></div>
+        <div id="act-list" class="act-list"><div class="adm-tiles-note">Looking&hellip;</div></div>
+        <div id="act-msg" class="adm-msg"></div>
+      </div>
+
+      <div class="card" data-sec="activity" id="use-card">
+        <div class="adm-h2row"><h2>Activity</h2>
+          <div class="adm-seg use-when" role="group" aria-label="Which totals">
+            <button class="btn btn-primary" data-v="now" title="Resets when Nomad restarts">Since restart</button>
+            <button class="btn btn-secondary" data-v="all">All time</button>
+          </div></div>
+        <div class="adm-tiles" id="use-tiles"><div class="adm-tiles-note">Counting&hellip;</div></div>
+        <div id="use-top" class="use-list"></div>
+        <div id="use-pages" class="use-bars"></div>
+        <div class="adm-btn-row adm-row-top"><button type="button" class="btn btn-secondary" id="use-reset">Reset counts</button></div>
+      </div>
+
+      <div class="card" data-sec="library">
+        <h2>Library index</h2>
+        <div class="form-group">
+          <label class="form-label" for="index-scan-scope">Scan</label>
+          <select id="index-scan-scope" class="form-control" onchange="onIndexScanScopeChange()">
+            <option value="all">All main folders</option>
+            <option value="folder">One folder&hellip;</option>
+          </select>
+        </div>
+        <div class="form-group" id="index-scan-dir-wrap" style="display: none;">
+          <label class="form-label" for="index-scan-dir">Folder</label>
+          <select id="index-scan-dir" class="form-control"></select>
+        </div>
+        <label class="adm-check adm-check-row"><input type="checkbox" id="index-scan-with-sd"> Also scan the card</label>
+        <button onclick="triggerIndexScan()" class="btn btn-primary">Start scan</button>
+        <div id="index-progress-wrap" class="adm-progress" style="display: none;">
+          <div id="index-progress-text">Indexing&hellip;</div>
+          <div class="progress"><div id="index-progress-bar" class="progress-bar" style="width: 0%"></div></div>
+        </div>
+        <div id="generate-msg" class="adm-msg"></div>
+        <div class="adm-row adm-row-top">
+          <span>Check for new files on boot</span>
+          <label class="toggle-switch"><input type="checkbox" id="auto-generate"><span class="slider"></span></label>
+        </div>
+      </div>
+
+      <div class="card" data-sec="pages">
+        <h2>Pages</h2>
+        <table class="perm-table">
+          <thead>
+            <tr><th>Page</th><th>Show</th><th>Download</th><th>Upload</th></tr>
+            <tr class="perm-all">
+              <td>Everything</td><td></td>
+              <td><input type="checkbox" class="perm" id="ui-downloads" checked aria-label="Downloads, all pages"></td>
+              <td><input type="checkbox" class="perm" id="ui-uploads" checked aria-label="Uploads, all pages"></td>
+            </tr>
+          </thead>
+          <tbody id="ui-pages"></tbody>
+        </table>
+        <div id="ui-pages-msg" class="adm-msg"></div>
+      </div>
+
+      <div class="card" data-sec="pages">
+        <h2>Community &amp; sharing</h2>
+        <div class="form-group">
+          <label class="form-label" for="ui-motd">Menu message</label>
+          <div class="adm-inline">
+            <input type="text" id="ui-motd" class="form-control" maxlength="120" placeholder="None">
+            <button onclick="saveMotd()" class="btn btn-primary">Save</button>
+          </div>
+        </div>
+        <div class="adm-row">
+          <span title="Smart TVs, Roku, VLC, Kodi">TV support (DLNA)</span>
+          <label class="toggle-switch"><input type="checkbox" id="dlna-enabled"><span class="slider"></span></label>
+        </div>
+        <div id="dlna-msg" class="adm-msg"></div>
+        <div class="adm-row">
+          <span title="Movies, Shows and the Games page">Watch Together</span>
+          <label class="toggle-switch"><input type="checkbox" id="ui-watch" checked><span class="slider"></span></label>
+        </div>
+        <div class="adm-row">
+          <span title="In the Movies and Shows player">Video bookmarks</span>
+          <label class="toggle-switch"><input type="checkbox" id="ui-marks" checked><span class="slider"></span></label>
+        </div>
+        <div class="adm-btn-row">
+          <button onclick="clearChatHistory()" class="btn btn-secondary">Clear chat</button>
+          <button onclick="clearWhiteboard()" class="btn btn-secondary">Clear whiteboard</button>
+        </div>
+        <div id="ui-community-msg" class="adm-msg"></div>
+        <div id="ui-downloads-msg" class="adm-msg"></div>
+      </div>
+
+      <div class="card" data-sec="network">
+        <h2>Hotspot</h2>
+        <div class="adm-kv"><span class="label">Password</span><span id="bar-wifi-pass" class="value">&mdash;</span></div>
+        <div class="form-group">
+          <label class="form-label" for="ssid">Network name</label>
+          <input type="text" id="ssid" class="form-control" maxlength="32">
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="wifi-password">Password</label>
+          <input type="text" id="wifi-password" class="form-control" maxlength="63" autocomplete="off" title="8 to 63 characters, or empty for an open network">
+        </div>
+        <div class="adm-btn-row">
+          <button onclick="updateWiFiSettings()" class="btn btn-primary">Save hotspot</button>
+          <button id="qr-open" class="btn btn-secondary">WiFi QR code</button>
+        </div>
+        <div id="wifi-msg" class="adm-msg"></div>
+      </div>
+      <div class="card" data-sec="network">
+        <h2>WiFi Mode</h2>
+        <button id="btn-wifimode" class="btn btn-primary" title="Needed for updates from nomadflash">Join a WiFi network&hellip;</button>
+      </div>
+
+      <div class="card" data-sec="device">
+        <h2>Power</h2>
+        <div class="adm-power">
+          <button id="btn-restart" class="btn btn-secondary">Restart</button>
+          <button id="btn-shutdown" class="btn btn-danger">Shut down</button>
+          <button id="btn-usbmode" class="btn btn-secondary" title="Shows the card to the computer Nomad is plugged into">USB mode</button>
+          <button id="btn-flashmode" class="btn btn-secondary" title="For new firmware over USB">Flash mode</button>
+        </div>
+      </div>
+      <div class="card" data-sec="device">
+        <h2>Admin password</h2>
+        <div id="session-info" class="adm-hint"></div>
+        <div class="adm-btn-row" id="signout-buttons" hidden>
+          <button class="btn btn-secondary" onclick="signOut(false)">Sign out</button>
+          <button class="btn btn-secondary" onclick="signOut(true)">Sign out everywhere</button>
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="new-password">New password</label>
+          <input type="password" id="new-password" class="form-control" autocomplete="new-password">
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="confirm-password">Confirm password</label>
+          <input type="password" id="confirm-password" class="form-control" autocomplete="new-password">
+        </div>
+        <div class="adm-btn-row">
+          <button onclick="updateAdminPassword()" class="btn btn-primary">Set password</button>
+          <button id="btn-disable-password" class="btn btn-secondary">Remove password</button>
+        </div>
+        <div id="password-msg" class="adm-msg"></div>
+      </div>
+      <div class="card" data-sec="device" id="fw-card">
+        <h2>Firmware</h2>
+        <div id="fw-now" class="adm-sub">Asking Nomad&hellip;</div>
+        <p class="adm-risk">Keep Nomad plugged in while it updates.</p>
+        <div id="fw-last" class="adm-msg"></div>
+        <div id="fw-actions">
+          <div class="adm-btn-row">
+            <button id="fw-pull" class="btn btn-secondary" title="Needs WiFi Mode on a network with internet">Check nomadflash</button>
+            <button id="fw-pick" class="btn btn-secondary" title=".nomadfw from nomadflash, works offline">Upload a file&hellip;</button>
+          </div>
+          <input type="file" id="fw-file" accept=".nomadfw" hidden>
+          <label class="adm-check"><input type="checkbox" id="fw-older"> Allow older versions</label>
+        </div>
+        <div id="fw-progress" class="adm-progress" hidden>
+          <div id="fw-progress-text"></div>
+          <div class="progress"><div id="fw-bar" class="progress-bar" style="width: 0%"></div></div>
+        </div>
+        <div id="fw-ready" hidden>
+          <div id="fw-ready-text" class="adm-sub"></div>
+          <div class="adm-btn-row">
+            <button id="fw-apply" class="btn btn-danger">Restart into it</button>
+            <button id="fw-discard" class="btn btn-secondary">Discard</button>
+          </div>
+        </div>
+        <div id="fw-msg" class="adm-msg"></div>
+      </div>
+      <div class="card" data-sec="device">
+        <h2>Backup</h2>
+        <div class="adm-btn-row">
+          <button id="bk-save" class="btn btn-secondary" title="Leaves out the admin password and home WiFi">Download backup</button>
+          <button id="bk-load" class="btn btn-secondary">Restore&hellip;</button>
+        </div>
+        <input type="file" id="bk-file" accept=".json,application/json" hidden>
+        <div id="bk-msg" class="adm-msg"></div>
+      </div>
+      <div class="card" data-sec="device" id="sup-card">
+        <h2>Support file</h2>
+        <div class="adm-kv"><span class="label">Last crash</span><span class="value" id="sup-crash">--</span></div>
+        <div class="adm-btn-row">
+          <button id="sup-save" class="btn btn-secondary" title="For bug reports, passwords left out">Save support file</button>
+          <button id="sup-forget" class="btn btn-secondary" hidden>Forget the crash</button>
+        </div>
+        <div id="sup-msg" class="adm-msg"></div>
+      </div>
+      <div class="card" data-sec="device">
+        <div class="adm-h2row"><h2>Screen</h2><b id="brightness-percent" class="adm-big">--%</b></div>
+        <input type="range" id="brightness" class="adm-range" min="1" max="100" aria-label="Brightness"
+               oninput="updateBrightnessLabel(this.value)"
+               onchange="setBrightness(this.value)">
+        <div class="adm-row">
+          <span>Flip 180&deg;</span>
+          <label class="toggle-switch"><input type="checkbox" id="flip-screen"><span class="slider"></span></label>
+        </div>
+        <div class="adm-row">
+          <span>QR code</span>
+          <label class="toggle-switch"><input type="checkbox" id="screen-qr"><span class="slider"></span></label>
+        </div>
+        <button id="lcd-toggle" class="btn btn-secondary">Turn off</button>
+      </div>
+      <div class="card" data-sec="device">
+        <h2>Lights</h2>
+        <div class="adm-seg-row">
+          <div class="adm-seg" role="group" aria-label="Light mode">
+            <button id="mode-off" class="btn btn-secondary">Off</button>
+            <button id="mode-solid" class="btn btn-secondary">Solid</button>
+            <button id="mode-rainbow" class="btn btn-secondary">Rainbow</button>
+          </div>
+          <input type="color" id="led-color" class="adm-swatch" value="#ff0000" aria-label="Colour">
+        </div>
+      </div>
+
+      <div class="card adm-wide adm-fill" data-sec="logs">
+        <div class="adm-h2row">
+          <h2>System log</h2>
+          <div class="adm-log-status">
+            <span>Status <b id="scan-status-text">Idle</b></span>
+            <span>Mode <b id="scan-mode-text">&mdash;</b></span>
+            <span>Queue <b id="scan-queue-depth">0</b></span>
+          </div>
+        </div>
+        <div class="adm-log-bar">
+          <select id="log-filter" class="form-control" aria-label="Show">
+            <option value="all">Everything</option>
+            <option value="problems">Problems only</option>
+            <option value="media">Playing and downloads</option>
+          </select>
+          <label class="adm-check"><input type="checkbox" id="log-follow" checked> Follow</label>
+          <button class="btn btn-secondary adm-ic" onclick="copyLog()" title="Copy the log" aria-label="Copy the log" data-icon="list"></button>
+          <button class="btn btn-secondary adm-ic" onclick="refreshConsole()" title="Refresh" aria-label="Refresh" data-icon="refresh"></button>
+        </div>
+        <div class="console" id="console-output" role="log" aria-live="polite"></div>
+      </div>
+
+      <div class="card adm-wide adm-fill" data-sec="files">
+        <div id="nf-host" class="nf-host"></div>
+      </div>
+
+      <!-- theme editor at its full height, no scroll of its own -->
+      <div class="adm-wide adm-bare" data-sec="theme">
+        <iframe id="theme-iframe" data-src="/theme-customization-ui.html?embed=1" title="Theme" class="adm-theme-frame" scrolling="no"></iframe>
+      </div>
+
     </div>
   </div>
 
-  <!-- Main Container -->
-  <div class="container">
-    <!-- Control Cards Grid -->
-    <div class="grid">
-      <!-- SD Card Usage -->
-      <div class="card">
-        <h2>SD Card Usage</h2>
-        <div class="form-group">
-          <div id="sd-used">Used: -- GB</div>
-          <div id="sd-total">Total: -- GB</div>
-          <div class="progress">
-            <div id="sd-bar" class="progress-bar" style="width: 0%"></div>
-          </div>
-          <div style="display: flex; align-items: center; justify-content: center; gap: 0.5rem; margin-top: 0.5rem;">
-            <div id="sd-percent" style="font-weight: 600; font-size: 1.5rem;">--%</div>
-            <span id="sd-trust-badge" style="display: none; font-size: 0.7rem; font-weight: 600; padding: 0.15rem 0.5rem; border-radius: 1rem;"></span>
-          </div>
-        </div>
-        <div style="margin-top: 1rem;">
-          <button onclick="triggerSDScan()" class="btn btn-secondary" style="width: 100%;">Scan SD Card</button>
-        </div>
-        <div id="sd-scan-msg" style="font-size: 0.8rem; color: var(--muted); margin-top: 0.5rem;"></div>
+  <div id="qr-pop" class="adm-pop" hidden>
+    <div class="adm-pop-card" role="dialog" aria-modal="true" aria-labelledby="qr-title">
+      <div class="adm-h2row"><h2 id="qr-title">Join the WiFi</h2><button class="btn btn-secondary adm-ic" id="qr-close" aria-label="Close" data-icon="x"></button></div>
+      <div class="qr-box"><canvas id="qr-canvas" aria-label="WiFi QR code"></canvas></div>
+      <p class="qr-cap"></p>
+      <div class="adm-kv"><span class="label">Network</span><span id="qr-ssid" class="value"></span></div>
+      <div class="adm-kv"><span class="label">Password</span><span id="qr-pass" class="value"></span></div>
+      <div class="adm-seg" role="group" aria-label="Which code" style="margin-bottom:10px">
+        <button id="qr-show-wifi" class="btn btn-primary">WiFi</button>
+        <button id="qr-show-page" class="btn btn-secondary">Page address</button>
       </div>
-
-      <!-- RGB Settings -->
-      <div class="card">
-        <h2>RGB Settings</h2>
-        <div class="rgb-controls">
-          <div class="rgb-buttons">
-            <button id="mode-off" class="btn btn-secondary">Off</button>
-            <button id="mode-solid" class="btn btn-primary">Solid</button>
-            <button id="mode-rainbow" class="btn btn-success">Rainbow</button>
-          </div>
-          <input type="color" id="led-color" class="color-picker" value="#ff0000">
-        </div>
-      </div>
-
-      <!-- Admin Password -->
-      <div class="card">
-        <h2>Admin Password</h2>
-        <div class="form-group">
-          <label class="form-label">New Password</label>
-          <input type="password" id="new-password" class="form-control">
-        </div>
-        <div class="form-group">
-          <label class="form-label">Confirm Password</label>
-          <input type="password" id="confirm-password" class="form-control">
-        </div>
-        <div style="display: flex; gap: 0.5rem; flex-wrap: wrap;">
-          <button onclick="updateAdminPassword()" class="btn btn-primary">Set Password</button>
-          <button id="btn-disable-password" class="btn btn-secondary">Disable</button>
-        </div>
-      </div>
-
-      <!-- LCD Display -->
-      <div class="card">
-        <h2>LCD Display</h2>
-        <div class="form-group">
-          <label class="form-label">Brightness Level</label>
-          <input type="range" id="brightness" class="form-control" min="1" max="100"
-                 oninput="updateBrightnessLabel(this.value)"
-                 onchange="setBrightness(this.value)">
-          <div id="brightness-percent" style="text-align: center; font-weight: 600; margin-top: 0.5rem;">--%</div>
-        </div>
-        <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 1rem;">
-          <label class="form-label" style="margin: 0;">Flip screen 180&deg; (upside-down mount):</label>
-          <label class="toggle-switch">
-            <input type="checkbox" id="flip-screen">
-            <span class="slider"></span>
-          </label>
-        </div>
-        <button id="lcd-toggle" class="btn btn-secondary" style="width: 100%;">Off</button>
-      </div>
-
-      <!-- WiFi Settings -->
-      <div class="card">
-        <h2>WiFi Settings</h2>
-        <div class="form-group">
-          <label class="form-label">SSID</label>
-          <input type="text" id="ssid" class="form-control">
-        </div>
-        <div class="form-group">
-          <label class="form-label">Password</label>
-          <input type="text" id="wifi-password" class="form-control">
-        </div>
-        <button onclick="updateWiFiSettings()" class="btn btn-primary">Update WiFi</button>
-      </div>
-
-      <!-- Library Index -->
-      <div class="card">
-        <h2>Library Index</h2>
-        <div style="display: flex; flex-direction: column; gap: 1rem;">
-          <div class="form-group" style="margin: 0;">
-            <label class="form-label">Scan scope</label>
-            <select id="index-scan-scope" class="form-control" onchange="onIndexScanScopeChange()">
-              <option value="all">All main folders (recommended)</option>
-              <option value="folder">Specific folder&hellip;</option>
-            </select>
-          </div>
-          <div class="form-group" id="index-scan-dir-wrap" style="display: none; margin: 0;">
-            <label class="form-label">Folder</label>
-            <select id="index-scan-dir" class="form-control"></select>
-          </div>
-          <label style="display: flex; align-items: center; gap: 0.5rem; font-size: 0.85rem; color: var(--muted);">
-            <input type="checkbox" id="index-scan-with-sd">
-            Also scan SD card when finished
-          </label>
-          <button onclick="triggerIndexScan()" class="btn btn-primary">Start Scan</button>
-          <div style="display: flex; align-items: center; justify-content: space-between;">
-            <label class="form-label" style="margin: 0;">Check for new files on boot:</label>
-            <label class="toggle-switch">
-              <input type="checkbox" id="auto-generate">
-              <span class="slider"></span>
-            </label>
-          </div>
-          <div id="index-progress-wrap" style="display: none;">
-            <div id="index-progress-text" style="font-size: 0.875rem; font-weight: 600; margin-bottom: 0.25rem;">Indexing...</div>
-            <div class="progress">
-              <div id="index-progress-bar" class="progress-bar" style="width: 0%"></div>
-            </div>
-          </div>
-          <div id="generate-msg" style="font-size: 0.875rem; color: var(--muted);"></div>
-        </div>
-      </div>
-
-      <!-- Menu Pages (frontend-only, stored in /.system-ui.json on the card) -->
-      <div class="card">
-        <h2>Menu Pages</h2>
-        <p style="font-size: 0.85rem; color: var(--muted); margin: 0 0 0.75rem;">
-          Hide pages this Nomad's users don't need. Hidden pages disappear from
-          the menu; their content stays on the card.
-        </p>
-        <div id="ui-pages" style="display: flex; flex-direction: column; gap: 0.5rem;"></div>
-        <div id="ui-pages-msg" style="font-size: 0.85rem; color: var(--muted); margin-top: 0.5rem;"></div>
-      </div>
-
-      <!-- Community & Sharing -->
-      <div class="card">
-        <h2>Community &amp; Sharing</h2>
-        <div class="form-group">
-          <label class="form-label">Message of the day (shown on the menu)</label>
-          <input type="text" id="ui-motd" class="form-control" maxlength="120" placeholder="Empty for none">
-        </div>
-        <button onclick="saveMotd()" class="btn btn-primary" style="width: 100%; margin-bottom: 0.75rem;">Save Message</button>
-        <div style="display: flex; gap: 0.5rem; margin-bottom: 1rem;">
-          <button onclick="clearChatHistory()" class="btn btn-secondary" style="flex: 1;">Clear Chat</button>
-          <button onclick="clearWhiteboard()" class="btn btn-secondary" style="flex: 1;">Clear Whiteboard</button>
-        </div>
-        <div id="ui-community-msg" style="font-size: 0.85rem; color: var(--muted); margin-bottom: 0.75rem;"></div>
-        <div style="border-top: 1px solid var(--card-border, #ddd); padding-top: 0.75rem;">
-          <div style="display: flex; align-items: center; justify-content: space-between;">
-            <label class="form-label" style="margin: 0;">Allow downloads:</label>
-            <label class="toggle-switch">
-              <input type="checkbox" id="ui-downloads" checked>
-              <span class="slider"></span>
-            </label>
-          </div>
-          <div style="display: flex; align-items: center; justify-content: space-between; margin-top: 0.5rem;">
-            <label class="form-label" style="margin: 0;">Allow uploads:</label>
-            <label class="toggle-switch">
-              <input type="checkbox" id="ui-uploads" checked>
-              <span class="slider"></span>
-            </label>
-          </div>
-          <div style="display: flex; align-items: center; justify-content: space-between; margin-top: 0.5rem;">
-            <label class="form-label" style="margin: 0;">TV support (DLNA):</label>
-            <label class="toggle-switch">
-              <input type="checkbox" id="dlna-enabled">
-              <span class="slider"></span>
-            </label>
-          </div>
-          <p style="font-size: 0.78rem; color: var(--muted); margin: 0.5rem 0 0;">
-            Downloads control the download buttons on the movie, show, book and
-            music pages. Uploads control the upload buttons on the gallery and
-            files pages, and adding recipes in the cookbook. TV support lets
-            smart TVs and players (DLNA, Roku, VLC, Kodi) browse this Nomad.
-          </p>
-          <div id="dlna-msg" style="font-size: 0.85rem; color: var(--muted); margin-top: 0.5rem;"></div>
-          <div id="ui-downloads-msg" style="font-size: 0.85rem; color: var(--muted); margin-top: 0.5rem;"></div>
-        </div>
-      </div>
-
-      <!-- Library -->
-      <div class="card">
-        <h2>Library</h2>
-        <div id="lib-stats" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(90px, 1fr)); gap: 0.5rem; margin-bottom: 1rem;">
-          <div style="grid-column: 1 / -1; font-size: 0.85rem; color: var(--muted);">Counting library…</div>
-        </div>
-        <!-- Breakdown by folder (populated by the most recent full system scan) -->
-        <details>
-          <summary style="cursor: pointer; font-weight: 600; color: var(--muted);">Breakdown by Folder</summary>
-          <div style="margin-top: 0.75rem;">
-            <table id="sd-breakdown-table" style="display: none; width: 100%; font-size: 0.85rem; border-collapse: collapse;">
-              <thead>
-                <tr style="text-align: left; border-bottom: 1px solid var(--card-border);">
-                  <th style="padding: 0.35rem 0.25rem;">Folder</th>
-                  <th style="padding: 0.35rem 0.25rem; text-align: right;">Size</th>
-                  <th style="padding: 0.35rem 0.25rem; text-align: right;">Files</th>
-                </tr>
-              </thead>
-              <tbody id="sd-breakdown-body"></tbody>
-            </table>
-          </div>
-        </details>
-      </div>
-    </div>
-
-    <!-- Full Width Sections -->
-    <div class="grid-full">
-      <!-- Console -->
-      <div class="card console-section">
-      <div class="card">
-        <h2>System Console</h2>
-        <div class="status-grid" style="margin-bottom: 1rem;">
-          <div class="status-item">
-            <div class="status-label">Status</div>
-            <div id="scan-status-text" class="status-value">Idle</div>
-          </div>
-          <div class="status-item">
-            <div class="status-label">Mode</div>
-            <div id="scan-mode-text" class="status-value">—</div>
-          </div>
-          <div class="status-item">
-            <div class="status-label">Queue</div>
-            <div id="scan-queue-depth" class="status-value">0</div>
-          </div>
-        </div>
-        <div class="console" id="console-output">
-          <div>System ready. Monitoring indexing operations...</div>
-        </div>
-        <div style="margin-top: 1rem; text-align: center;">
-          <button onclick="refreshConsole()" class="btn btn-secondary">Refresh</button>
-        </div>
-      </div>
-
-      <!-- Theme Customization -->
-      <div class="card theme-customization-section">
-        <h2>Theme Customization</h2>
-        <p style="color: var(--muted); font-size: 0.875rem; margin-bottom: 1rem;">
-          Customize your media server's appearance with pre-designed themes or create your own color scheme.
-        </p>
-        <div style="border: 1px solid var(--card-border); border-radius: 0.5rem; overflow: hidden;">
-          <iframe src="/theme-customization-ui.html" style="width: 100%; height: 800px; border: none; display: block;"></iframe>
-        </div>
-      </div>
-
-      <!-- File Browser -->
-      <div class="card file-browser-section">
-        <h2>File Browser</h2>
-        <div class="file-browser-disclaimer">
-          <strong>⚠️ Note:</strong> The file browser is a backup method for quick edits. For best results, remove the SD card and edit files directly from your PC.
-        </div>
-        <div class="file-browser">
-          <iframe id="filebrowser-iframe" src="/filebrowser" title="File Browser"></iframe>
-        </div>
-        <div style="display: flex; gap: 0.5rem; justify-content: center; margin-top: 1rem; flex-wrap: wrap;">
-          <button class="btn btn-primary" onclick="document.getElementById('filebrowser-iframe').contentWindow.location.reload();">Reload</button>
-          <button class="btn btn-secondary" onclick="window.open('/filebrowser','_blank')">Open in New Tab</button>
-        </div>
+      <div class="adm-btn-row" style="margin:0">
+        <button id="qr-full" class="btn btn-secondary">Full screen</button>
       </div>
     </div>
   </div>
 
   <!-- version query busts the firmware's max-age file caching (bump when admin.js changes) -->
-  <script src="admin.js?v=47"></script>
+  <script src="/nomad-utils.js?v=52"></script>
+  <script src="/assets/nomad-files.js?v=4"></script>
+  <script src="admin.js?v=58"></script>
 </body>
 </html>
 

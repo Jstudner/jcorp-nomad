@@ -3,74 +3,16 @@
 <html lang="en">
 <head>
 <meta charset="utf-8" />
+<script>/* nomad-load-guard: reload, twice at most, when one of Nomad's own scripts or stylesheets fails to load */(function(){var k='nomadLoadGuard:'+location.pathname;window.addEventListener('error',function(e){var t=e.target;if(!t||!t.tagName)return;var s=t.tagName==='SCRIPT',c=t.tagName==='LINK'&&/stylesheet/i.test(t.rel||'');if(!s&&!c)return;var u=t.src||t.href||'';if(u.indexOf(location.origin+'/')!==0)return;var n=0;try{n=+sessionStorage.getItem(k)||0;}catch(x){return;}if(n>=2)return;try{sessionStorage.setItem(k,String(n+1));}catch(x){return;}setTimeout(function(){location.reload();},1500*(n+1));},true);window.addEventListener('load',function(){setTimeout(function(){try{sessionStorage.removeItem(k);}catch(x){}},15000);});})();</script>
 <meta name="viewport" content="width=device-width,initial-scale=1" />
 <meta name="description" content="Jcorp Nomad Menu" />
 <title>Jcorp Nomad</title>
+<script src="/nomad-icons.js?v=1"></script>
 <link rel="icon" href="/favicon.ico" />
 <link rel="stylesheet" href="/master.css">
-<script>
-(async function() {
-  try {
-    const isDark = localStorage.getItem('nomad_dark_mode') === 'true';
-    if (isDark) {
-      document.documentElement.classList.add('dark');
-      // body.dark is what master.css keys on; tag body the moment it exists
-      new MutationObserver((m, o) => {
-        if (document.body) { document.body.classList.add('dark'); o.disconnect(); }
-      }).observe(document.documentElement, { childList: true });
-    }
-
-    async function loadThemeFromServer() {
-      try {
-        const response = await fetch('/.system-theme.json?t=' + Date.now());
-        if (response.ok) {
-          const theme = await response.json();
-          localStorage.setItem('nomad_custom_theme', JSON.stringify(theme));
-          return theme;
-        }
-      } catch (e) {
-        console.log('[Menu] No theme on SD card, using localStorage');
-      }
-      return null;
-    }
-
-    const serverTheme = await loadThemeFromServer();
-    const colors = serverTheme || (function() {
-      const saved = localStorage.getItem('nomad_custom_theme');
-      return saved ? JSON.parse(saved) : null;
-    })();
-
-    if (colors) {
-      const style = document.createElement('style');
-      style.id = 'custom-theme-style';
-      style.textContent = `
-        :root {
-          --primary: ${colors.primary} !important;
-          --primary-dark: ${colors.primaryDark} !important;
-          --bg: ${colors.bgLight} !important;
-          --card: ${colors.cardLight} !important;
-          --card-bg: ${colors.cardLight} !important;
-          --text: ${colors.textLight} !important;
-          --muted: ${colors.mutedLight} !important;
-        }
-        body.dark {
-          --bg: ${colors.bgDark} !important;
-          --card: ${colors.cardDark} !important;
-          --card-bg: ${colors.cardDark} !important;
-          --text: ${colors.textDark} !important;
-          --muted: ${colors.mutedDark} !important;
-          --primary: ${colors.primaryDarkTheme} !important;
-        }
-      `;
-      document.head.appendChild(style);
-    }
-  } catch(e) {
-    console.error('[Menu] Theme loading error:', e);
-  }
-})();
-</script>
-<script src="/theme-manager.js"></script>
-<script src="/nomad-utils.js"></script>
+<script src="/theme-boot.js?v=5"></script>
+<script src="/theme-manager.js?v=5"></script>
+<script src="/nomad-utils.js?v=52"></script>
 <style>
   /* Menu-specific functional CSS layout and search functionality */
   :root {
@@ -91,7 +33,7 @@
   /* full-page background layer to avoid mobile variable bleed / white gaps */
   .page-bg {
     position:fixed;
-    inset:0;
+    top:0;right:0;bottom:0;left:0;inset:0;
     background:var(--bg);
     z-index:0;
     pointer-events:none;
@@ -363,6 +305,25 @@
     width:100%;
   }
 
+  /* the tiles come in together: a first visit holds the grid until Nomad has said
+     which optional pages it has (at most 1.2 s), then fades it in whole. A tile that
+     changes after that fades in on its own */
+  #tiles { transition: opacity .18s ease-out; }
+  #tiles.tiles-wait { opacity: 0; }
+  .tile.tile-in { animation: tileIn .22s ease-out; }
+  @keyframes tileIn { from { opacity: 0; transform: scale(.96); } to { opacity: 1; transform: none; } }
+  @media (prefers-reduced-motion: reduce) { #tiles, .tile.tile-in { transition: none; animation: none; } }
+
+  /* the title takes the row and wraps to two lines, at a weight that leaves room for the
+     matched words in bold */
+  #resultsPanel .meta { flex: 1 1 auto; }
+  #resultsPanel .meta .title { font-weight: 500; white-space: normal; max-width: none;
+    display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+  .result-row b { font-weight: 800; color: var(--text); }
+  @media (max-width: 640px) { #resultsPanel .result-path { display: none; } }
+  a.result-row { color: inherit; text-decoration: none; }
+  .result-more { padding: 10px 12px; color: var(--muted); font-size: .85rem; text-align: center; }
+
   /* search results panel */
   #resultsPanel {
     position:absolute;
@@ -463,150 +424,19 @@
     max-width:40ch;
   }
 
-  /* Resume panel - fixed sizing and centered rows */
-  #resumePanel {
-    margin-top:16px;
-    max-width:760px;
-    margin-left:auto;
-    margin-right:auto;
-    background:var(--card-bg);
-    border-radius:var(--radius);
-    border:1px solid var(--line);
-    padding:12px;
-    box-shadow:var(--shadow-medium);
-    text-align:center;
-    overflow:visible;
-  }
 
-  #resumePanel h3 {
-    margin:0 0 8px;
-    font-size:1rem;
-    color:var(--text);
-  }
 
-  .resume-list {
-    display:flex;
-    flex-direction:column;
-    gap:14px;
-    align-items:center;
-    justify-content:center;
-    max-width:720px;
-    margin:0 auto;
-  }
 
-  .resume-section {
-    display:flex;
-    gap:12px;
-    align-items:center;
-    justify-content:center;
-    flex-wrap:nowrap;
-  }
 
-  /* Fixed-size resume cards (desktop) */
-  .resume-item {
-    width:140px;
-    height:200px;
-    min-width:120px;
-    border-radius:8px;
-    overflow:hidden;
-    position:relative;
-    background:linear-gradient(180deg, rgba(0,0,0,0.03), transparent);
-    border:1px solid var(--line);
-    cursor:pointer;
-    display:flex;
-    align-items:center;
-    justify-content:center;
-    box-sizing:border-box;
-  }
 
-  /* Resume episode title styling */
-  .resume-episode-title {
-    position:absolute;
-    left:50%;
-    transform:translateX(-50%);
-    bottom:28px;
-    background:rgba(0,0,0,0.75);
-    color:#fff;
-    padding:4px 8px;
-    border-radius:12px;
-    font-weight:600;
-    font-size:10px;
-    z-index:3;
-    max-width:90%;
-    overflow:hidden;
-    white-space:nowrap;
-  }
 
-  .resume-episode-title .marquee {
-    display:block;
-    white-space:nowrap;
-    overflow:hidden;
-    position:relative;
-    height:14px;
-    width:100%;
-  }
 
-  .resume-episode-title .m-inner {
-    display:inline-block;
-    white-space:nowrap;
-    will-change:transform;
-  }
 
-  .resume-episode-title .m-inner span {
-    display:inline-block;
-    white-space:nowrap;
-  }
 
-  .resume-thumb {
-    width:100%;
-    height:100%;
-    display:block;
-    position:relative;
-  }
 
-  .resume-thumb img {
-    width:100%;
-    height:100%;
-    object-fit:cover;
-    display:block;
-  }
 
-  .fallback-text {
-    position:absolute;
-    inset:0;
-    display:flex;
-    align-items:center;
-    justify-content:center;
-    z-index:2;
-    text-align:center;
-    font-weight:700;
-    color:var(--text);
-    padding:8px;
-    background:linear-gradient(180deg, rgba(255,255,255,0.02), transparent);
-  }
 
-  .resume-overlay {
-    position:absolute;
-    left:50%;
-    transform:translateX(-50%);
-    bottom:8px;
-    background:rgba(0,0,0,0.6);
-    color:#fff;
-    padding:6px 10px;
-    border-radius:999px;
-    font-weight:700;
-    font-size:12px;
-    z-index:4;
-    min-width:40px;
-    text-align:center;
-    overflow:hidden;
-  }
 
-  .resume-overlay.small {
-    font-size:11px;
-    padding:4px 8px;
-    background:rgba(0,0,0,0.55);
-  }
 
   @media (max-width:640px) {
     /* header tweaks */
@@ -685,86 +515,50 @@
       width:calc(100% - 16px);
     }
 
-    .resume-list {
-      flex-direction:row;
-      gap:8px;
-      align-items:center;
-      justify-content:center;
-    }
 
-    .resume-section {
-      flex-wrap:nowrap;
-    }
 
-    .resume-item {
-      width:48%;
-      height:auto;
-      aspect-ratio:2/3;
-      min-width:0;
-    }
 
-    .resume-overlay {
-      font-size:11px;
-    }
   }
 
-  /* marquee helper (used for scrolling episode names) */
-  .marquee {
-    display:block;
-    white-space:nowrap;
-    overflow:hidden;
-    position:relative;
-    height:20px;
-    max-width:100%;
-  }
 
-  .m-inner {
-    display:inline-block;
-    white-space:nowrap;
-    will-change:transform;
-  }
 
-  .m-inner span {
-    display:inline-block;
-    white-space:nowrap;
-  }
 
-  /* Remove button for resume items */
-  .resume-remove {
-    position:absolute;
-    top:4px;
-    right:4px;
-    width:20px;
-    height:20px;
-    background:rgba(255, 0, 0, 0.8);
-    color:#fff;
-    border:none;
-    border-radius:50%;
-    font-size:12px;
-    font-weight:bold;
-    cursor:pointer;
-    display:flex;
-    align-items:center;
-    justify-content:center;
-    z-index:10;
-    opacity:0;
-    transition:opacity 0.2s, transform 0.2s;
-    transform:scale(0.8);
-  }
 
-  .resume-item:hover .resume-remove {
-    opacity:1;
-    transform:scale(1);
-  }
 
-  .resume-remove:hover {
-    background:rgba(255, 0, 0, 1);
-    transform:scale(1.1);
-  }
 
-  .resume-remove:active {
-    transform:scale(0.95);
-  }
+  /* Continue: what this phone was on, newest first, one row that scrolls sideways */
+  #resumePanel{margin:4px auto 0;width:calc(100% - 36px);box-sizing:border-box;max-width:760px;background:var(--card-bg);border-radius:var(--radius);border:1px solid var(--line);
+    padding:8px 12px;box-shadow:var(--shadow-medium);}
+  #resumePanel[open]{padding-bottom:8px;}
+  #resumePanel summary{list-style:none;display:flex;align-items:center;gap:10px;cursor:pointer;min-height:28px;color:var(--text);user-select:none;}
+  #resumePanel summary::-webkit-details-marker{display:none;}
+  #resumePanel .rs-h{font-weight:800;font-size:.95rem;flex-shrink:0;}
+  #resumePanel .rs-what{flex:1;min-width:0;text-align:left;color:var(--muted);font-weight:600;font-size:.85rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+  #resumePanel .rs-chev{width:9px;height:9px;flex-shrink:0;margin-right:4px;border-right:2px solid var(--muted);border-bottom:2px solid var(--muted);transform:rotate(45deg) translateY(-3px);transition:transform .15s;}
+  #resumePanel[open] .rs-chev{transform:rotate(-135deg) translateY(-1px);}
+  #resumePanel[open] summary{margin-bottom:10px;}
+  #resumePanel[open] .rs-what{visibility:hidden;}   /* open, the cards say it */
+  .resume-list{display:flex;gap:12px;overflow-x:auto;scroll-snap-type:x proximity;padding:0 2px 6px;scrollbar-width:thin;-webkit-overflow-scrolling:touch;}
+  .resume-item{flex:0 0 124px;scroll-snap-align:start;position:relative;display:flex;flex-direction:column;gap:6px;min-width:0;cursor:pointer;
+    background:none;border:0;padding:0;font:inherit;color:inherit;text-align:left;}
+  .resume-thumb{position:relative;aspect-ratio:2/3;border-radius:10px;overflow:hidden;display:grid;place-items:center;color:#fff;
+    background:linear-gradient(145deg,var(--primary),color-mix(in srgb,var(--primary) 55%,#000));box-shadow:0 4px 12px rgba(0,0,0,.12);}
+  .resume-thumb img{position:absolute;top:0;right:0;bottom:0;left:0;inset:0;width:100%;height:100%;object-fit:cover;}
+  .resume-thumb .rt-name{padding:10px;font-weight:800;font-size:.82rem;line-height:1.25;text-align:center;overflow-wrap:anywhere;
+    display:-webkit-box;-webkit-line-clamp:5;-webkit-box-orient:vertical;overflow:hidden;}
+  .resume-item:hover .resume-thumb,.resume-item:focus-visible .resume-thumb{outline:2px solid var(--primary);outline-offset:2px;}
+  .resume-item:focus-visible{outline:none;}
+  .resume-kind{position:absolute;top:6px;left:6px;z-index:1;font-size:.64rem;font-weight:800;letter-spacing:.02em;padding:2px 7px;border-radius:999px;
+    background:rgba(0,0,0,.62);color:#fff;}
+  .resume-bar{position:absolute;left:0;right:0;bottom:0;height:4px;background:rgba(0,0,0,.35);z-index:1;}
+  .resume-bar i{display:block;height:100%;background:var(--primary);}
+  .resume-title{font-weight:700;font-size:.84rem;line-height:1.25;color:var(--text);display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;overflow-wrap:anywhere;}
+  .resume-sub{font-size:.74rem;font-weight:600;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:-3px;}
+  /* x to take it off the row: always there on a touch screen, on hover with a mouse */
+  .resume-remove{position:absolute;top:4px;right:4px;z-index:2;width:26px;height:26px;border-radius:50%;border:0;background:rgba(0,0,0,.6);color:#fff;
+    font-size:16px;line-height:1;display:grid;place-items:center;cursor:pointer;padding:0;}
+  @media (hover:hover){ .resume-remove{opacity:0;transition:opacity .15s;} .resume-item:hover .resume-remove,.resume-remove:focus-visible{opacity:1;} }
+  @media (max-width:640px){ .resume-item{flex-basis:108px;} #resumePanel{width:calc(100% - 28px);padding:8px 10px;} }
 </style>
 </head>
 <body>
@@ -773,19 +567,19 @@
 <header>
   <div class="brand">
     <div class="logo" aria-hidden="false">
-      <img src="/logo.png" alt="Jcorp Nomad logo" onerror="this.style.display='none'">
+      <img src="/Logo.png" alt="Jcorp Nomad logo" onerror="this.style.display='none'">
     </div>
     <div style="min-width:0">
-      <div class="title" aria-label="Application title">Jcorp Nomad</div>
+      <div class="title">Jcorp Nomad</div>
     </div>
   </div>
 
   <div class="header-space">
-    <button id="themeBtn" class="icon-btn" title="Toggle theme" aria-pressed="false" aria-label="Toggle theme">☼</button>
+    <button id="themeBtn" class="icon-btn" title="Toggle theme" aria-pressed="false" aria-label="Toggle theme" data-icon="sun"></button>
     <button id="chatBtn" class="icon-btn" title="Chat" aria-label="Chat">
       <svg viewBox="0 0 24 24" fill="none" width="18" height="18"><path d="M21 11.5a8.38 8.38 0 01-.9 3.8 8.5 8.5 0 01-7.6 4.7 8.38 8.38 0 01-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 01-.9-3.8 8.5 8.5 0 014.7-7.6 8.38 8.38 0 013.8-.9h.5a8.48 8.48 0 018 8v.5z" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
     </button>
-    <a class="admin-btn" href="/admin" title="Admin panel" aria-label="Admin">
+    <a class="admin-btn" href="/admin" title="Admin" aria-label="Admin">
       <svg viewBox="0 0 24 24" fill="none" width="18" height="18"><path d="M12 15.5a3.5 3.5 0 100-7 3.5 3.5 0 000 7z" stroke="currentColor" stroke-width="1.4"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 01-2.83 2.83l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09a1.65 1.65 0 00-1-1.51 1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06a1.65 1.65 0 00.33-1.82 1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09a1.65 1.65 0 001.51-1 1.65 1.65 0 00-.33-1.82L4.31 4.9A2 2 0 017.14 2.07l.06.06c.5.5 1.16.76 1.82.76H9a1.65 1.65 0 001.51-1V1a2 2 0 014 0v.09c.14.6.62 1.09 1.22 1.33l.06.02a2 2 0 012.35-.34l.06.03a2 2 0 01.34 3.14l-.06.06c-.46.46-.66 1.15-.53 1.82h.09a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z" stroke="currentColor" stroke-width="1.2"/></svg>
     </a>
   </div>
@@ -799,11 +593,18 @@
     </div>
 
     <div class="search-row" style="position:relative; z-index:210;">
-      <input id="searchInput" class="search-input" placeholder="Search everything on this card..." aria-label="Search">
+      <input id="searchInput" class="search-input" placeholder="Search" aria-label="Search">
       <div id="searchLoader" class="search-loader" aria-hidden="true"><div class="bar"></div></div>
     </div>
 
     <div id="resultsPanel" role="list" aria-label="Search results"></div>
+
+    <!-- Continue: a dropdown right under the search. Closed it's one line, what you were on
+         last; open it's the row of everything in progress. -->
+    <details id="resumePanel" style="display:none;">
+      <summary><span class="rs-h">Continue</span><span class="rs-what" id="resumeWhat"></span><span class="rs-chev" aria-hidden="true"></span></summary>
+      <div class="resume-list" id="resumeList"></div>
+    </details>
 
     <div class="grid-wrap" aria-hidden="false">
       <div class="grid" role="navigation" aria-label="Categories" id="tiles">
@@ -820,13 +621,25 @@
         <a class="tile" href="/cookbook" data-bucket="Cookbook" style="display:none;"><div class="label">Cookbook</div></a>
         <a class="tile" href="/workshop" data-bucket="Workshop" style="display:none;"><div class="label">Workshop</div></a>
       </div>
+      <script>
+      /* before the first paint: the tiles as they were last time (optional pages found, pages
+         the admin hid), so a revisit draws the finished menu at once. A first visit has
+         nothing to go on, so the grid waits for the answer instead of assembling itself. */
+      (function(){
+        var g = document.getElementById('tiles'), st = null, hidden = [];
+        try { st = JSON.parse(localStorage.getItem('nomadMenuTiles.v1') || 'null'); hidden = JSON.parse(localStorage.getItem('nomadMenuHidden.v1') || '[]') || []; } catch(e){}
+        if (!st) { g.classList.add('tiles-wait'); setTimeout(function(){ g.classList.remove('tiles-wait'); }, 1200); return; }
+        var optional = { games: 1, maps: 1, archive: 1, translate: 1, cookbook: 1, workshop: 1 };
+        g.querySelectorAll('.tile[data-bucket]').forEach(function(t){
+          var k = t.dataset.bucket.toLowerCase();
+          var show = (optional[k] ? !!st[k] : true) && hidden.indexOf(k) < 0;
+          t.style.display = show ? '' : 'none';
+        });
+      })();
+      </script>
     </div>
   </div>
 
-  <div id="resumePanel" aria-live="polite" style="display:none;">
-    <h3 style="margin-bottom:8px">Resume</h3>
-    <div class="resume-list" id="resumeList"></div>
-  </div>
 </main>
 <script>
 /* ---------------- CONFIG ---------------- */
@@ -837,7 +650,6 @@ function activeBuckets(){
   return BUCKETS.filter(b => !isPageHidden(b.toLowerCase()));
 }
 const THEME_KEY = 'nomad_dark_mode';
-const RESUME_KEYS = ['nomad:watch:v1', 'nomad_resume', 'nomad_watch_history', 'nomad_resume_history', 'nomad_resume_cache', 'resume', 'watch_resume'];
 const RE_VIDEO = /\.(mp4|mkv|avi|mov|ts|webm|m4v)$/i;
 const RE_AUDIO = /\.(mp3|flac|wav|m4a|aac|ogg)$/i;
 const RE_IMAGE = /\.(jpe?g|png|webp|gif|heic|avif)$/i;
@@ -860,12 +672,12 @@ const pageBg = document.querySelector('.page-bg');
 // warm archives on first focus so theyre open by the time the user stops typing
 searchInput.addEventListener('focus', () => {
   warmArchives();
+  if (!buildPromise) buildPromise = buildSearchIndex();   // ready by the time the typing stops
 });
 
-/* ---------------- Archive (ZIM) search ----------------
-   searches the PC-built sidecar index via NomadArchiveIndex, one small read per query
-   instead of binary-searching the multi-GB ZIM. media results render first, archive
-   hits below. a card with no archives shows no trace of the feature. */
+/* Archive (ZIM) search: the PC-built sidecar index via NomadArchiveIndex, one small read per
+   query instead of binary-searching the multi-GB ZIM. Archive hits go below media results;
+   a card with no archives shows no trace of the feature. */
 
 let __archiveIndex = null;      // NomadArchiveIndex instance
 let __archiveIndexReady = null; // Promise: resolves to it, or null if no usable index
@@ -910,18 +722,17 @@ function getArchiveIndex() {
   return __archiveIndexReady;
 }
 
-/* pre-warm the index so the first query is instant. not eager at load: an earlier
-   version did that and it correlated with reboots (the old 2GB stdio crash signature)
-   right after the manifest fetch, so keep it on search-focus only */
+/* pre-warm the index so the first query is instant. keep it on search focus, loading it
+   at page load was tied to reboots right after the manifest fetch */
 function warmArchives() { getArchiveIndex(); }
 
-/* reveal/hide the Archive tile + the "wiki articles" hint in the search placeholder */
+/* reveal/hide the Archive tile */
 function applyArchiveUI(present) {
-  searchInput.placeholder = present
-    ? 'Search everything on this card, wiki articles...'
-    : 'Search everything on this card...';
   const archiveTile = document.querySelector('.tile[data-bucket="Archive"]');
-  if (archiveTile) archiveTile.style.display = (present && !isPageHidden('archive')) ? '' : 'none';
+  if (!archiveTile) return;
+  const show = present && !isPageHidden('archive'), was = archiveTile.style.display !== 'none';
+  archiveTile.style.display = show ? '' : 'none';
+  if (show && !was) { archiveTile.classList.remove('tile-in'); void archiveTile.offsetWidth; archiveTile.classList.add('tile-in'); }
 }
 
 /* Feature probes. Each answers true (present), false (absent) or null (unknown: SD
@@ -1058,15 +869,18 @@ function renderArchiveSection(zrows, status) {
 }
 
 /* ---------------- THEME ---------------- */
-function applyTheme(dark){
+// only a tap is this browser's own choice: a page load must not save one, or the card's
+// dark mode default (set on the admin page) could never reach this browser
+function applyTheme(dark, chosen){
   if(dark) document.body.classList.add('dark'); else document.body.classList.remove('dark');
   themeBtn.setAttribute('aria-pressed', dark ? 'true' : 'false');
-  themeBtn.textContent = dark ? '☾' : '☼';
-  try{ localStorage.setItem(THEME_KEY, dark ? 'true' : 'false'); }catch(e){}
+  themeBtn.innerHTML = NomadIcons.svg(dark ? 'moon' : 'sun');
+  if(chosen){ try{ localStorage.setItem(THEME_KEY, dark ? 'true' : 'false'); }catch(e){} }
   if(pageBg) pageBg.style.background = getComputedStyle(document.body).getPropertyValue('--bg') || '';
 }
-try{ applyTheme(localStorage.getItem(THEME_KEY) === 'true'); }catch(e){ applyTheme(false); }
-themeBtn.addEventListener('click', ()=> applyTheme(!document.body.classList.contains('dark')));
+applyTheme(window.nomadIsDark ? nomadIsDark() : false);
+window.addEventListener('nomad-dark', (ev) => applyTheme(ev.detail));
+themeBtn.addEventListener('click', ()=> applyTheme(!document.body.classList.contains('dark'), true));
 
     /* ---------------- UTIL ---------------- */
     /* Request deduplication cache to prevent spam */
@@ -1125,7 +939,9 @@ themeBtn.addEventListener('click', ()=> applyTheme(!document.body.classList.cont
         return promise;
     }
 function basenameNoExt(n){ return (n||'').replace(/\.[^/.]+$/,''); }
-function friendlyDisplayName(n){ return basenameNoExt((n||'').toString()).replace(/[_\.]+/g,' ').trim(); }
+function friendlyDisplayName(n){ return basenameNoExt((n||'').toString()).replace(/[_\.]+/g,' ').replace(/\s+/g,' ').trim(); }
+// a folder has no extension to drop: "Mr. Robot" stays whole (friendlyDisplayName would make it "Mr")
+function folderDisplayName(p){ return String(p || '').split('/').filter(Boolean).pop().replace(/_+/g,' ').replace(/\s+/g,' ').trim(); }
 function parseNdjson(text){ if(!text) return []; return text.split(/\r?\n/).map(l=>l.trim()).filter(Boolean).map(l=>{ try{ return JSON.parse(l); }catch(e){ return null; } }).filter(Boolean); }
     async function tryFetchText(url, timeoutMs = 2000) {
         return await cachedFetch(url, timeoutMs);
@@ -1182,61 +998,15 @@ function previewPathFromItemPath(itemPath){
   return null;
 }
 
-// bump when the index shape or bucket coverage changes: an old cached file
-// would otherwise pin search to the buckets it was built with
-const SEARCH_INDEX_VERSION = 2;
-async function loadSearchIndexFromSD() {
-  try {
-    const response = await fetch('/.search-index.json?t=' + Date.now());
-    if (response.ok) {
-      const data = await response.json();
-      if (data && data.v === SEARCH_INDEX_VERSION && data.entries && Array.isArray(data.entries)) {
-        console.info('[Search] Loaded cached index from SD card:', data.entries.length, 'entries');
-        return data.entries;
-      }
-    }
-  } catch (e) {
-    console.log('[Search] No cached index on SD card, will build from scratch');
-  }
-  return null;
-}
-
-async function saveSearchIndexToSD(entries) {
-  try {
-    const data = { v: SEARCH_INDEX_VERSION, entries, ts: Date.now() };
-    const blob = new Blob([JSON.stringify(data)], { type: 'application/json' });
-    const formData = new FormData();
-    formData.append('file', blob, '.search-index.json');
-    formData.append('path', '/');
-
-    const response = await fetch('/upload', {
-      method: 'POST',
-      body: formData
-    });
-
-    if (response.ok) {
-      console.info('[Search] Saved index to SD card:', entries.length, 'entries');
-      return true;
-    } else {
-      console.warn('[Search] Failed to save index to SD card:', response.status);
-    }
-  } catch (e) {
-    console.error('[Search] Error saving index to SD card:', e);
-  }
-  return false;
-}
-
 /* Builds the search index and preview maps (concurrent fetches) */
 async function buildSearchIndex(forceRebuild = false){
-  if(!forceRebuild && searchIndexCache && searchIndexCache.entries) return searchIndexCache.entries;
+  // a partial index (a section Nomad didn't send) is built again, at most every 15 s
+  const stale = searchIndexCache && searchIndexCache.partial && Date.now() - searchIndexCache.ts > 15000;
+  if(!forceRebuild && !stale && searchIndexCache && searchIndexCache.entries) return searchIndexCache.entries;
 
-  if (!forceRebuild) {
-    const cachedEntries = await loadSearchIndexFromSD();
-    if (cachedEntries) {
-      searchIndexCache = { entries: cachedEntries, ts: Date.now() };
-      return cachedEntries;
-    }
-  }
+  // Built from Nomad's own folder indexes every time. Don't save a copy to the card,
+  // nothing would check it against the library. Unchanged folder indexes come back as
+  // 304s from the browser's cache.
 
   // Prevent multiple simultaneous builds
   if (buildSearchIndex._building) {
@@ -1251,11 +1021,30 @@ async function buildSearchIndex(forceRebuild = false){
       const byBucket = {};
       for(const b of BUCKETS) byBucket[b] = [];
 
-      const fetchPromises = LIVE_BUCKETS.map(b => {
+      // two at a time, each asked again on a busy answer or a dropped connection: all nine at
+      // once make Nomad turn some away. One still missing after that marks the index partial,
+      // and the next search builds it again.
+      let missing = 0;
+      const getBucket = async (b) => {
         const idxUrl = `${INDEX_DIR}/${b}.index.ndjson`;
-        return tryFetchText(idxUrl).then(txt => ({ bucket: b, txt }));
-      });
-      const settled = await Promise.allSettled(fetchPromises);
+        for(let i = 0; i < 3; i++){
+          if(i) await new Promise(r => setTimeout(r, 800 * i));
+          try {
+            const r = await NomadNet.fetch(idxUrl, { cache: 'no-cache' }, 20000);
+            if(r.status === 404) return { bucket: b, txt: '' };     // no index for that section: nothing in it
+            if(!r.ok) continue;
+            const txt = await r.text();
+            return { bucket: b, txt: /^\s*</.test(txt) ? '' : txt };
+          } catch(e){}
+        }
+        missing++;
+        return { bucket: b, txt: '' };
+      };
+      const settled = [];
+      for(let i = 0; i < LIVE_BUCKETS.length; i += 2){
+        const two = await Promise.all(LIVE_BUCKETS.slice(i, i + 2).map(getBucket));
+        for(const value of two) settled.push({ status: 'fulfilled', value });
+      }
       for(const res of settled){
         if(res.status !== 'fulfilled') continue;
         const { bucket, txt } = res.value || {};
@@ -1269,8 +1058,13 @@ async function buildSearchIndex(forceRebuild = false){
         }
       }
 
+        // An index that already lists what is inside its folders needs no per-folder files.
+        // Asking for them anyway is two missing files per folder, hundreds of requests on a
+        // full card.
         const nestedFetches = [];
         for (const b of ['Shows', 'Music', 'Gallery']) {
+            const deep = (byBucket[b] || []).some(c => (c.path || '').split('/').length > 3);
+            if (deep) continue;
             for (const c of (byBucket[b] || [])) {
                 if (c.kind === 'dir') {
                     const candidate = `${INDEX_DIR}${c.path}.index.ndjson`.replace('//', '/');
@@ -1290,7 +1084,7 @@ async function buildSearchIndex(forceRebuild = false){
                 const text = await tryFetchText(url, 2000); // 2s timeout
                 return { bucket, parentDir, text };
             });
-            const settled = await Promise.allSettled(batchPromises);
+            const settled = await Promise.all(batchPromises.map(p => p.then(value => ({ status: 'fulfilled', value }), () => ({ status: 'rejected' }))));
             nestedResults.push(...settled.filter(r => r.status === 'fulfilled').map(r => r.value));
         }
         const nestedSettled = nestedResults;
@@ -1356,7 +1150,7 @@ async function buildSearchIndex(forceRebuild = false){
           }
         }
         for(const [k,v] of seriesMap.entries()){
-          entries.push({ title: friendlyDisplayName(v.title), bucket:'Shows', subtype:'series', path: v.dir, preview: v.preview || null });
+          entries.push({ title: folderDisplayName(v.title) || friendlyDisplayName(v.title), bucket:'Shows', subtype:'series', path: v.dir, preview: v.preview || null });
         }
       })();
 
@@ -1410,29 +1204,33 @@ async function buildSearchIndex(forceRebuild = false){
         for(const g of (byBucket['Games']||[])){
           if(g.kind !== 'file' || g.subtype === 'image') continue;
           const isHtml = /\.html?$/i.test(g.name);
-          entries.push({ title: friendlyDisplayName(basenameNoExt(g.name)), bucket:'Games',
+          entries.push({ title: friendlyDisplayName(g.name), bucket:'Games',
                          subtype: isHtml ? 'game' : 'rom', path: g.path, preview:null, raw:g.raw });
         }
         for(const r of (byBucket['Cookbook']||[])){
           if(r.kind !== 'file' || !RECIPE_RE.test(r.name)) continue;
           if(/^readme\./i.test(r.name)) continue;
-          entries.push({ title: friendlyDisplayName(basenameNoExt(r.name)), bucket:'Cookbook',
+          entries.push({ title: friendlyDisplayName(r.name), bucket:'Cookbook',
                          subtype:'recipe', path: r.path, preview:null, raw:r.raw });
         }
         for(const w of (byBucket['Workshop']||[])){
           if(w.kind !== 'file' || !MODEL_RE.test(w.name)) continue;
-          entries.push({ title: friendlyDisplayName(basenameNoExt(w.name)), bucket:'Workshop',
+          entries.push({ title: friendlyDisplayName(w.name), bucket:'Workshop',
                          subtype:'model', path: w.path, preview:null, raw:w.raw });
         }
       })();
 
+      // what is already listed, as a set (entries.some() per file is quadratic)
+      const listed = new Set(entries.filter(e => e.path).map(e => (e.bucket || '').toLowerCase() + '|' + normalizePath(e.path)));
       function addMissingFilesFromBucket(bucketName){
         const list = byBucket[bucketName] || [];
         for(const it of list){
           if(it.kind !== 'file') continue;
           if(it.subtype === 'image') continue;
           const norm = normalizePath(it.path || '');
-          if(entries.some(e => e.path && normalizePath(e.path) === norm && (e.bucket || '').toLowerCase() === bucketName.toLowerCase())) continue;
+          const key = bucketName.toLowerCase() + '|' + norm;
+          if(listed.has(key)) continue;
+          listed.add(key);
           entries.push({
             title: friendlyDisplayName(it.name || it.path || ''),
             bucket: bucketName,
@@ -1508,12 +1306,8 @@ async function buildSearchIndex(forceRebuild = false){
         }
       }
 
-      searchIndexCache = { entries: finalEntries, ts: Date.now() };
-      console.info('Search index built:', finalEntries.length);
-
-      // Save to SD card for future visits
-      saveSearchIndexToSD(finalEntries).catch(e => console.warn('[Search] Failed to save to SD:', e));
-
+      for (const e of finalEntries) { delete e.raw; prepareForSearch(e); }
+      searchIndexCache = { entries: finalEntries, ts: Date.now(), partial: missing > 0 };
       return finalEntries;
     } finally {
       delete buildSearchIndex._building;
@@ -1531,395 +1325,108 @@ function iconSVG(kind){
   return '';
 }
 
-/* simple time formatter (mm:ss or h:mm:ss) */
-function formatTimeSeconds(sec){
-  sec = Number(sec) || 0;
-  sec = Math.floor(sec);
-  const h = Math.floor(sec/3600), m = Math.floor((sec%3600)/60), s = sec%60;
-  if(h) return `${h}:${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`;
-  return `${m}:${String(s).padStart(2,'0')}`;
+// Continue, from NomadProgress (nomad-utils.js). A show keeps only the episode you're on,
+// and finished things drop off.
+const CONTINUE_MAX = 10;
+const KIND_NAMES = { film: 'Film', episode: 'Show', epub: 'Book', pdf: 'PDF', comic: 'Comic', audio: 'Audiobook' };
+
+function continueTitle(e){
+  const parts = normalizePath(e.path).split('/').filter(Boolean);
+  const file = basenameNoExt(parts[parts.length - 1] || '').replace(/[_.]+/g, ' ').trim();
+  if(e.k === 'episode'){
+    const m = /S(\d+)\s*E(\d+)/i.exec(file);
+    return { title: parts[1] || file, sub: m ? `S${+m[1]} E${+m[2]}` : file };
+  }
+  if(e.k === 'audio' && parts.length > 3) return { title: e.t || parts[parts.length - 2], sub: '' };
+  return { title: e.t || file.replace(/\s*\(\d{4}\)\s*$/, ''), sub: '' };
+}
+function continueUrl(e){
+  const p = encodeURIComponent(e.path);
+  switch(e.k){
+    case 'film': return `/movies#play=${p}`;
+    case 'episode': return `/shows#play=${p}`;
+    case 'epub': return `/epub.html?path=${p}`;
+    case 'pdf': return `/pdf.html?path=${p}`;
+    case 'comic': return `/comics.html?path=${p}`;
+    case 'audio': return `/books#play=${p}`;
+    default: return null;
+  }
+}
+// the poster or cover the search index found for it, an image named like it in its folder,
+// or the usual place for one (/Movies/<name>.jpg, /Shows/<show>.jpg, /Books/<name>.jpg)
+function continuePreview(e){
+  const norm = normalizePath(e.path);
+  if(previewByPath.get(norm)) return previewByPath.get(norm);
+  const dir = (norm.replace(/\/[^/]+$/, '') || '').toLowerCase();
+  const k = `${basenameNoExt(norm.split('/').pop() || '').toLowerCase()}|${dir}`;
+  return previewByBaseDir.get(k) || previewPathFromItemPath(norm);
 }
 
-/* ---------------- RESUME discovery & rendering ---------------- */
-function tryParseJSONSafe(str){ if(!str) return null; try{ return JSON.parse(str); }catch(e){ return null; } }
-function normalizeResumePayload(payload){
-  if(!payload) return [];
-  if(Array.isArray(payload)) {
-    return payload.map(p => {
-      if(!p) return null;
-      return {
-        path: p.path || p.file || p.p || '',
-        title: p.title || p.name || (p.rawTitle || ''),
-        position: (p.position || p.pos || p.currentTime || 0),
-        updated: p.updated || p.ts || Date.now(),
-        raw: p
-      };
-    }).filter(Boolean);
-  }
-  if(typeof payload === 'object'){
-    const keys = Object.keys(payload || {});
-    const looksLikeFileKey = keys.length && keys.every(k => typeof k === 'string' && (k.includes('|') || k.startsWith('/')));
-    if(looksLikeFileKey){
-      const arr = [];
-      for(const k of keys){
-        const v = payload[k] || {};
-        const pathPart = k.split('|')[0] || k;
-        arr.push({
-          path: pathPart,
-          title: v.title || v.name || pathPart.split('/').pop(),
-          position: v.position || v.pos || v.currentTime || 0,
-          updated: v.updated || v.ts || Date.now(),
-          raw: v
-        });
-      }
-      return arr;
-    }
-    if(payload.path || payload.file || payload.url || payload.position || payload.pos || payload.title) {
-      return [{
-        path: payload.path || payload.file || payload.url || '',
-        title: payload.title || payload.name || '',
-        position: payload.position || payload.pos || 0,
-        updated: payload.updated || payload.ts || Date.now(),
-        raw: payload
-      }];
-    }
-  }
-  return [];
-}
-
-/* Try to collect a plausible resume list from localStorage and a few common endpoints */
-async function collectResumeItems(){
-  for(const k of RESUME_KEYS){
-    try {
-      const raw = localStorage.getItem(k);
-      if(!raw) continue;
-      let parsed = tryParseJSONSafe(raw);
-      if(!parsed && typeof raw === 'string' && raw.indexOf('\n') !== -1){
-        const lines = raw.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
-        const arr = [];
-        for(const ln of lines){
-          const p = tryParseJSONSafe(ln);
-          if(p) arr.push(p);
-        }
-        if(arr.length) parsed = arr;
-      }
-      if(parsed){
-        const normalized = normalizeResumePayload(parsed);
-        if(normalized && normalized.length) return normalized;
-      }
-    } catch(e){}
-  }
-
-  const tryUrls = ['/resume.json','/.resume.json','/api/resume.json','/.system-resume.json','/resume.ndjson'];
-  for(const u of tryUrls){
-    try {
-      const controller = new AbortController();
-      const tid = setTimeout(()=>controller.abort(), 2000);
-      const r = await fetch(u, { cache: 'no-store', signal: controller.signal});
-      clearTimeout(tid);
-      if(!r.ok) continue;
-      const text = await r.text();
-      if(!text) continue;
-      if(text.trim().includes('\n')){
-        const arr = [];
-        const lines = text.split(/\r?\n/).map(l=>l.trim()).filter(Boolean);
-        for(const ln of lines){
-          const p = tryParseJSONSafe(ln);
-          if(p) arr.push(p);
-        }
-        if(arr.length){
-          const normalized = normalizeResumePayload(arr);
-          if(normalized && normalized.length) return normalized;
-        }
-      } else {
-        const j = tryParseJSONSafe(text);
-        if(j){
-          const normalized = normalizeResumePayload(j);
-          if(normalized && normalized.length) return normalized;
-        }
-      }
-    } catch(e){
-      // ignore
-    }
-  }
-
-  return [];
-}
-
-function findPreviewForResumeItem(item){
-  if(!item || !item.path) return null;
-  const norm = normalizePath(item.path);
-  if(previewByPath.has(norm)) {
-    const p = previewByPath.get(norm);
-    if(p) return p;
-  }
-  const dir = (norm.replace(/\/[^/]+$/,'') || '').toLowerCase();
-  const base = basenameNoExt((item.title||norm.split('/').pop()||'')).toLowerCase();
-  const key = `${base}|${dir}`;
-  if(previewByBaseDir.has(key)) return previewByBaseDir.get(key);
-  if(item.preview) return item.preview;
-  return previewPathFromItemPath(item.path);
-}
-
-/* Render resume area:
-*/
-function renderResume(items){
+const CONTINUE_OPEN_KEY = 'nomad:menu:continueOpen:v1';
+function renderResume(){
   resumeList.innerHTML = '';
-  // each render used to inject a <style> per scrolling title and never remove it, leaking one per render
-  document.querySelectorAll('style[data-resume-marquee]').forEach(el => el.remove());
-  if(!items || !items.length){ resumePanel.style.display = 'none'; return; }
-
-  const normalized = (items||[]).map(it => ({
-    path: it.path || it.p || it.file || it.url || '',
-    title: it.title || it.name || (it.raw && (it.raw.title || it.raw.name)) || '',
-    position: (typeof it.position !== 'undefined' ? it.position : (it.raw && (it.raw.position || it.raw.pos) ? (it.raw.position || it.raw.pos) : 0)),
-    updated: it.updated || (it.raw && (it.raw.updated||it.raw.ts)) || Date.now(),
-    raw: it.raw || {},
-  })).filter(x => x.path);
-
-  // enrich bucket hint
-  normalized.forEach(n => {
-    if(!n.bucket){
-      const p = (n.path||'').toLowerCase();
-      if(p.includes('/movies/')) n.bucket = 'Movies';
-      else if(p.includes('/shows/')) n.bucket = 'Shows';
-      else if(p.includes('/music/')) n.bucket = 'Music';
-      else if(p.includes('/books/')) n.bucket = 'Books';
-      else if(p.includes('/gallery/')) n.bucket = 'Gallery';
-      else n.bucket = 'Files';
-    }
-  });
-
-  // pick up to 3 of Movies and 3 of Shows (sorted by updated)
-  const movies = normalized.filter(n => n.bucket === 'Movies').sort((a,b)=> (b.updated||0)-(a.updated||0)).slice(0,3);
-  const shows  = normalized.filter(n => n.bucket === 'Shows').sort((a,b)=> (b.updated||0)-(a.updated||0)).slice(0,3);
-
-  const isMobile = window.matchMedia && window.matchMedia('(max-width:640px)').matches;
-
-  if(isMobile){
-    // Mobile: show the most recent Movie and the most recent Show (max 2, side-by-side)
-    const picks = [];
-    if(movies.length) picks.push(movies[0]);
-    if(shows.length) picks.push(shows[0]);
-    // fallback: if none found, show up to two generic items
-    if(!picks.length) picks.push(...(normalized.slice(0,2)));
-
-    const sec = document.createElement('div'); sec.className = 'resume-section';
-    for(const it of picks) sec.appendChild(makeResumeNode(it, true));
-    resumeList.appendChild(sec);
-    resumePanel.style.display = 'block';
-    return;
-  }
-
-  // desktop: two centered rows, Movies (up to 3) then Shows (up to 3)
-  if(movies.length){
-    const msec = document.createElement('div'); msec.className = 'resume-section';
-    movies.forEach(it => msec.appendChild(makeResumeNode(it, false)));
-    resumeList.appendChild(msec);
-  }
-
-  if(shows.length){
-    const ssec = document.createElement('div'); ssec.className = 'resume-section';
-    shows.forEach(it => ssec.appendChild(makeResumeNode(it, false, true)));
-    resumeList.appendChild(ssec);
-  }
-
-  if(!movies.length && !shows.length){
-    const others = normalized.slice(0,3);
-    if(others.length){
-      const osec = document.createElement('div'); osec.className = 'resume-section';
-      others.forEach(it => osec.appendChild(makeResumeNode(it, false)));
-      resumeList.appendChild(osec);
-    }
-  }
-
+  let items = [];
+  try { items = NomadProgress.recent({ limit: CONTINUE_MAX }).filter(e => continueUrl(e)); } catch(err){}
+  if(!items.length){ resumePanel.style.display = 'none'; return; }
+  for(const e of items) resumeList.appendChild(makeResumeNode(e));
+  // closed, the line says what you were on last (and how many more)
+  const first = continueTitle(items[0]);
+  const more = items.length > 1 ? ` and ${items.length - 1} more` : '';
+  document.getElementById('resumeWhat').textContent = [first.title, first.sub].filter(Boolean).join(' ') + more;
+  resumePanel.open = NomadPrefs.get(CONTINUE_OPEN_KEY, false) === true;
   resumePanel.style.display = 'block';
 }
+// open or closed is kept per phone
+resumePanel.addEventListener('toggle', () => NomadPrefs.set(CONTINUE_OPEN_KEY, resumePanel.open));
 
-function makeResumeNode(it, compact=false, showMarqueeForShows=false){
-  const node = document.createElement('div'); 
-  node.className = 'resume-item'; 
-  node.setAttribute('role','button');
-  node.style.position = 'relative';
-  
+function makeResumeNode(e){
+  const { title, sub } = continueTitle(e);
+  const how = [sub, e.l || (e.p != null ? Math.round(e.p * 100) + '%' : '')].filter(Boolean).join(' · ');
+  const node = document.createElement('div');
+  node.className = 'resume-item';
+  node.setAttribute('role', 'link');
+  node.tabIndex = 0;
+  node.title = title + (how ? ' · ' + how : '');
+
   const thumb = document.createElement('div'); thumb.className = 'resume-thumb';
-  const fallback = document.createElement('div'); fallback.className = 'fallback-text'; fallback.textContent = it.title || it.path.split('/').pop();
-  thumb.appendChild(fallback);
-
-  const preview = findPreviewForResumeItem(it);
+  const name = document.createElement('div'); name.className = 'rt-name'; name.textContent = title;
+  thumb.appendChild(name);
+  const preview = continuePreview(e);
   if(preview){
-    const img = document.createElement('img'); img.src = preview; img.alt = it.title || '';
-    img.onload = ()=> { fallback.style.display = 'none'; };
-    img.onerror = ()=> { img.style.display='none'; fallback.style.display='flex'; };
+    const img = document.createElement('img'); img.alt = ''; img.loading = 'lazy'; img.src = preview;
+    img.onload = () => { name.style.visibility = 'hidden'; };
+    img.onerror = () => img.remove();
     thumb.appendChild(img);
-  } else {
-    const ext = (it.path || '').split('.').pop() || '';
-    const iconWrap = document.createElement('div'); iconWrap.style.display='grid'; iconWrap.style.placeItems='center'; iconWrap.style.width='100%'; iconWrap.style.height='100%';
-    if(RE_AUDIO.test('.'+ext)) iconWrap.innerHTML = iconSVG('audio'); else iconWrap.innerHTML = iconSVG('file');
-    thumb.appendChild(iconWrap);
+  }
+  const kind = document.createElement('span'); kind.className = 'resume-kind'; kind.textContent = KIND_NAMES[e.k] || '';
+  thumb.appendChild(kind);
+  if(e.p != null){
+    const bar = document.createElement('div'); bar.className = 'resume-bar';
+    const fill = document.createElement('i'); fill.style.width = Math.max(3, Math.round(e.p * 100)) + '%';
+    bar.appendChild(fill); thumb.appendChild(bar);
   }
 
-  // Check if this is a show episode
-  const isShow = (it.path||'').toLowerCase().includes('/shows/');
-  
-  // For shows: Add episode title with marquee scrolling
-  if(isShow && it.title) {
-    const episodeTitle = document.createElement('div');
-    episodeTitle.className = 'resume-episode-title';
-    
-    // Create scrolling marquee for episode title similar to shows.html
-    const marquee = document.createElement('div');
-    marquee.className = 'marquee';
-    const inner = document.createElement('div');
-    inner.className = 'm-inner';
-    const span1 = document.createElement('span');
-    const span2 = document.createElement('span');
-    
-    span1.textContent = it.title;
-    span2.textContent = it.title;
-    
-    inner.appendChild(span1);
-    inner.appendChild(span2);
-    marquee.appendChild(inner);
-    episodeTitle.appendChild(marquee);
-    
-    // Animate the marquee
-    requestAnimationFrame(() => {
-      const textWidth = span1.getBoundingClientRect().width || (it.title.length * 7);
-      const containerWidth = episodeTitle.getBoundingClientRect().width || 120;
-      
-      if (textWidth > containerWidth - 16) { // Only scroll if text is longer than container
-        span1.style.paddingRight = '40px';
-        const totalWidth = textWidth + 40;
-        const duration = Math.max(6, Math.min(20, totalWidth / 20));
-        
-        // Create unique keyframes for this marquee
-        const keyName = `episode-scroll-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`;
-        const rule = `@keyframes ${keyName} { 0% { transform: translateX(0); } 100% { transform: translateX(-${totalWidth}px); } }`;
-        const style = document.createElement('style');
-        style.setAttribute('data-resume-marquee', '1');
-        style.textContent = rule;
-        document.head.appendChild(style);
-        
-        inner.style.animation = `${keyName} ${duration}s linear infinite`;
-      }
-    });
-    
-    thumb.appendChild(episodeTitle);
-  }
+  const t = document.createElement('div'); t.className = 'resume-title'; t.textContent = title;
+  const s = document.createElement('div'); s.className = 'resume-sub'; s.textContent = how;
 
-  // Time overlay (positioned below episode title for shows)
-  const overlay = document.createElement('div'); 
-  overlay.className = 'resume-overlay small';
-  overlay.style.opacity = '0';
-  overlay.style.transform = 'translateY(6px)';
-  overlay.style.display = 'flex';
-  overlay.style.justifyContent = 'center';
-  overlay.style.alignItems = 'center';
-  overlay.style.left = '50%';
-  overlay.style.transform = 'translateX(-50%) translateY(6px)';
-  overlay.style.maxWidth = '86%';
-  overlay.textContent = it.position ? formatTimeSeconds(it.position) : '0s';
-  
-  thumb.appendChild(overlay);
-
-  // Animate overlay in
-  requestAnimationFrame(()=> {
-    overlay.style.transition = 'opacity .28s cubic-bezier(.2,.9,.2,1), transform .28s cubic-bezier(.2,.9,.2,1)';
-    overlay.style.opacity = '1';
-    overlay.style.transform = 'translateX(-50%) translateY(0)';
-  });
-
-  // CREATE REMOVE BUTTON
   const removeBtn = document.createElement('button');
   removeBtn.className = 'resume-remove';
-  removeBtn.innerHTML = '×';
-  removeBtn.title = 'Remove from resume';
-  removeBtn.setAttribute('aria-label', 'Remove from resume');
-  
-  // Remove button click handler
-  removeBtn.addEventListener('click', (e) => {
-    e.stopPropagation();
-    removeResumeItem(it.path);
+  removeBtn.textContent = '×';
+  removeBtn.title = 'Take off Continue';
+  removeBtn.setAttribute('aria-label', 'Take ' + title + ' off Continue');
+  removeBtn.addEventListener('click', (ev) => {
+    ev.stopPropagation();
+    try { NomadProgress.clear(e.path); } catch(err){}
+    renderResume();
   });
 
-  node.appendChild(thumb);
-  node.appendChild(removeBtn);
-
-  // Resume item click handler
-  node.addEventListener('click', ()=> {
-    const p = it.path || '';
-    const resumePos = it.position || 0;
-
-    if((p||'').toLowerCase().includes('/movies/')) {
-      window.location.href = `/movies#play=${encodeURIComponent(p)}`;
-    } else if((p||'').toLowerCase().includes('/shows/')) {
-      window.location.href = `/shows#play=${encodeURIComponent(p)}`;
-    } else if((p||'').toLowerCase().includes('/music/')) {
-      window.location.href = `/music#play=${encodeURIComponent(p)}`;
-    } else if((p||'').toLowerCase().includes('/gallery/')) {
-      window.location.href = `/gallery#open=${encodeURIComponent(p)}`;
-    } else if((p||'').toLowerCase().includes('/books/')) {
-      const url = p.startsWith('/') ? p : '/' + p;
-      window.location.href = url;
-    } else {
-      window.location.href = (p.startsWith('/') ? p : '/' + p);
-    }
-  });
-
+  node.append(thumb, t, s, removeBtn);
+  const open = () => { const url = continueUrl(e); if(url) location.href = url; };
+  node.addEventListener('click', open);
+  node.addEventListener('keydown', (ev) => { if(ev.key === 'Enter'){ ev.preventDefault(); open(); } });
   return node;
 }
 
-/* Remove item from resume cache and refresh display */
-async function removeResumeItem(itemPath) {
-  if (!itemPath) return;
-  
-  // Find and modify localStorage data
-  for (const key of RESUME_KEYS) {
-    try {
-      const raw = localStorage.getItem(key);
-      if (!raw) continue;
-      
-      let parsed = tryParseJSONSafe(raw);
-      if (!parsed) continue;
-      
-      let modified = false;
-      
-      if (Array.isArray(parsed)) {
-        // Remove item from array
-        const originalLength = parsed.length;
-        parsed = parsed.filter(item => {
-          const path = item.path || item.file || item.p || item.url || '';
-          return path !== itemPath;
-        });
-        modified = parsed.length !== originalLength;
-      } else if (typeof parsed === 'object') {
-        // Handle object format (key-value pairs)
-        const keys = Object.keys(parsed);
-        for (const k of keys) {
-          const pathPart = k.split('|')[0] || k;
-          if (pathPart === itemPath) {
-            delete parsed[k];
-            modified = true;
-            break;
-          }
-        }
-      }
-      
-      if (modified) {
-        // Save back to localStorage
-        localStorage.setItem(key, JSON.stringify(parsed));
-        
-        // Refresh the resume display
-        const updatedItems = await collectResumeItems();
-        renderResume(updatedItems);
-        break;
-      }
-    } catch (e) {
-      console.warn('Error removing resume item:', e);
-    }
-  }
-}
 /* ---------------- SEARCH UI & Logic ---------------- */
 function escapeHtml(s){ if(!s) return ''; return String(s).replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m])); }
 function shortenPath(p){ if(!p) return ''; const parts = p.split('/'); if(parts.length <= 3) return p; return '…' + parts.slice(-3).join('/'); }
@@ -1951,15 +1458,44 @@ function debounce(func, wait, immediate) {
     }
   };
 }
-function renderResults(rows, q){
+const RESULTS_SHOWN = 60;
+// the title with what was typed in bold (matched without accents, shown as written)
+function highlightTitle(text, tokens){
+  const plain = String(text);
+  if (!tokens || !tokens.length) return escapeHtml(plain);
+  const folded = plain.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+  // NFD can lengthen a string, so only highlight when positions still line up
+  if (folded.length !== plain.length) return escapeHtml(plain);
+  const marks = new Array(plain.length).fill(false);
+  for (const tok of tokens) {
+    let i = -1;
+    while ((i = folded.indexOf(tok, i + 1)) >= 0) {
+      if (i === 0 || !/[a-z0-9]/.test(folded[i - 1])) { for (let k = i; k < i + tok.length; k++) marks[k] = true; break; }
+    }
+  }
+  let out = '', open = false;
+  for (let i = 0; i < plain.length; i++) {
+    if (marks[i] !== open) { out += marks[i] ? '<b>' : '</b>'; open = marks[i]; }
+    out += escapeHtml(plain[i]);
+  }
+  return out + (open ? '</b>' : '');
+}
+function renderResults(rows, q, tokens, shortcuts){
   resultsPanel.innerHTML = '';
+  const frag = document.createDocumentFragment();
+  for (const sc of (shortcuts || [])) {
+    const row = document.createElement('a'); row.className = 'result-row result-page'; row.href = sc.href;
+    row.innerHTML = `<div class="thumb square">${iconSVG('file')}</div><div class="meta"><div class="title">Open ${escapeHtml(sc.label)}</div><div class="sub">Page</div></div>`;
+    frag.appendChild(row);
+  }
   if(!rows || rows.length === 0){
+    if (!frag.childNodes.length) {
+      resultsPanel.innerHTML = `<div style="padding:12px;color:var(--muted)">No results for <strong>${escapeHtml(q)}</strong></div>`;
+    } else resultsPanel.appendChild(frag);
     resultsPanel.style.display = 'block';
-    resultsPanel.innerHTML = `<div style="padding:12px;color:var(--muted)">No results for <strong>${escapeHtml(q)}</strong></div>`;
     return;
   }
-  const frag = document.createDocumentFragment();
-  for(const r of rows.slice(0,250)){
+  for(const r of rows.slice(0, RESULTS_SHOWN)){
     const row = document.createElement('div'); row.className = 'result-row';
     const thumb = document.createElement('div'); thumb.className = 'thumb';
     const bucket = (r.bucket||'').toLowerCase();
@@ -1982,20 +1518,25 @@ function renderResults(rows, q){
       thumb.classList.add('rect');
       const img = document.createElement('img');
       if(preview){
-        img.src = preview;
         img.alt = r.title || '';
-        img.loading = 'lazy';
-        img.onerror = ()=> { img.style.display='none'; thumb.innerHTML = iconSVG(subtype === 'audio' ? 'audio' : (subtype === 'video' ? 'video' : 'file')); };
+        // the shared loader: three at a time, a refused one asked again
+        let given = false;
+        img.addEventListener('error', () => { if(given || +(img.dataset.tries || 0) < NomadImages.RETRIES) return; given = true; img.style.display='none'; thumb.innerHTML = iconSVG(subtype === 'audio' ? 'audio' : (subtype === 'video' ? 'video' : 'file')); });
         thumb.appendChild(img);
+        img.dataset.tries = String(NomadImages.RETRIES - 1);   // one retry: many guessed previews simply aren't there
+        NomadImages.observe(img, preview);
       } else {
         thumb.innerHTML = iconSVG(subtype === 'video' ? 'video' : 'file');
       }
     } else if(bucket === 'gallery' || bucket === 'cookbook' || bucket === 'workshop'){
       thumb.classList.add('square');
       if(preview){
-        const img = document.createElement('img'); img.src = preview; img.alt = r.title || ''; img.loading='lazy';
-        img.onerror = ()=> { img.style.display='none'; thumb.innerHTML = iconSVG('file'); };
+        const img = document.createElement('img'); img.alt = r.title || '';
+        let given = false;
+        img.addEventListener('error', () => { if(given || +(img.dataset.tries || 0) < NomadImages.RETRIES) return; given = true; img.style.display='none'; thumb.innerHTML = iconSVG('file'); });
         thumb.appendChild(img);
+        img.dataset.tries = String(NomadImages.RETRIES - 1);   // one retry: many guessed previews simply aren't there
+        NomadImages.observe(img, preview);
       } else {
         thumb.innerHTML = iconSVG('file');
       }
@@ -2008,7 +1549,7 @@ function renderResults(rows, q){
     }
 
     const meta = document.createElement('div'); meta.className = 'meta';
-    const title = document.createElement('div'); title.className = 'title'; title.textContent = friendlyDisplayName(r.title || r.path || '(untitled)');
+    const title = document.createElement('div'); title.className = 'title'; title.innerHTML = highlightTitle(r.title || friendlyDisplayName(r.path) || '(untitled)', tokens);
     const sub = document.createElement('div'); sub.className = 'sub';
     const ext = (r.path || '').split('.').pop() || '';
     let subTxt = (r.bucket || '');
@@ -2019,13 +1560,72 @@ function renderResults(rows, q){
     const pathDiv = document.createElement('div'); pathDiv.className = 'result-path'; pathDiv.textContent = shortenPath(r.path);
     row.appendChild(thumb); row.appendChild(meta); row.appendChild(pathDiv);
     row.addEventListener('click', ()=> onResultClick(r));
+    row._item = r;
     frag.appendChild(row);
+  }
+  if (rows.length > RESULTS_SHOWN) {
+    const more = document.createElement('div'); more.className = 'result-more';
+    more.textContent = `Showing ${RESULTS_SHOWN} of ${rows.length}`;
+    frag.appendChild(more);
   }
   resultsPanel.appendChild(frag);
   resultsPanel.style.display = 'block';
 }
 
-// ---------- performSearch (media first, archive section appended after) ----------
+// Lower case, accents off, punctuation as spaces: "Pokémon", "Spider-Man" and "AC/DC"
+// match "pokemon", "spider man" and "ac dc".
+function normForSearch(s){
+  return String(s || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    .replace(/&/g, ' and ').replace(/[^a-z0-9]+/g, ' ').trim();
+}
+// the folders an entry sits in, below its section: artist and album, a show, a gallery folder
+function contextOf(e){
+  const parts = String(e.path || '').split('/').filter(Boolean);
+  return parts.slice(1, -1).join(' ');
+}
+function prepareForSearch(e){
+  e._t = normForSearch(e.title);
+  e._tc = e._t.replace(/ /g, '');
+  e._w = e._t.split(' ');
+  e._c = normForSearch(e.bucket === 'Shows' ? '' : contextOf(e));
+}
+// one letter wrong, missing, extra, or two swapped
+function nearlyEqual(a, b){
+  if (Math.abs(a.length - b.length) > 1) return false;
+  let i = 0;
+  while (i < a.length && i < b.length && a[i] === b[i]) i++;
+  if (i === a.length && i === b.length) return true;
+  return a.slice(i + 1) === b.slice(i + 1) || a.slice(i) === b.slice(i + 1) || a.slice(i + 1) === b.slice(i)
+    || (a[i] === b[i + 1] && a[i + 1] === b[i] && a.slice(i + 2) === b.slice(i + 2));
+}
+// How well an entry answers the query: 0 is no match. Title over the folders it is in.
+// Whole title, then its start, then words starting with what was typed, in any order.
+function scoreEntry(e, qn, qt, qc){
+  if (!e._t) prepareForSearch(e);
+  const t = e._t;
+  if (t === qn) return 1000;
+  if (t.startsWith(qn)) return 900 - Math.min(t.length, 99);
+  const wordStart = (tok) => e._w.some(w => w.startsWith(tok));
+  if (qt.every(wordStart)) return 700 - Math.min(e._w.length, 50);
+  if (qc.length >= 4 && e._tc.includes(qc)) return 600;          // "spiderman", "acdc"
+  if (qt.every(tok => t.includes(tok))) return 500;
+  // some words in the title, the rest in the folders: "abba waterloo"
+  if (qt.every(tok => wordStart(tok) || e._c.includes(tok))) return qt.some(wordStart) ? 400 : 300;
+  // a slip of the finger in a longer word
+  if (qt.every(tok => wordStart(tok) || (tok.length >= 5 && e._w.some(w => nearlyEqual(tok, w.slice(0, tok.length + 1)) || nearlyEqual(tok, w)))))
+    return 200;
+  return 0;
+}
+const BUCKET_ORDER = { Movies:0, Shows:1, Music:2, Books:3, Gallery:4, Games:5, Cookbook:6, Workshop:7, Files:8 };
+// the pages themselves, so "maps" or "translate" opens one
+function pageShortcuts(qn){
+  if (qn.length < 2) return [];
+  return [...document.querySelectorAll('#tiles .tile')]
+    .filter(t => t.style.display !== 'none' && normForSearch(t.textContent).startsWith(qn))
+    .map(t => ({ label: t.textContent.trim(), href: t.getAttribute('href') }));
+}
+
+// media results first, the archive section after
 let buildPromise = null;
 let __searchToken = 0;
 async function performSearch(q){
@@ -2039,21 +1639,23 @@ async function performSearch(q){
     searchLoader.style.display = 'block';
     if(!buildPromise) buildPromise = buildSearchIndex();
     const idx = await buildPromise;
-    const t = term.toLowerCase();
-    for(const e of idx){
-      const hay = `${(e.title||'') + ' ' + (e.path||'') + ' ' + (e.bucket||'')}`.toLowerCase();
-      if(hay.includes(t)) mediaResults.push(e);
+    if (myToken !== __searchToken) return [];          // a newer keystroke took over
+    const qn = normForSearch(term);
+    const qt = qn ? qn.split(' ') : [];
+    const qc = qt.join('');
+    if (qt.length) {
+      for(const e of idx){
+        const sc = scoreEntry(e, qn, qt, qc);
+        if (sc) mediaResults.push({ e, sc });
+      }
     }
-    // initial sort for immediate render 
-    mediaResults.sort((a,b)=>{
-      const p = x => ((x.title||'').toLowerCase().startsWith(term.toLowerCase()) ? 0 : 1);
-      if(p(a)!==p(b)) return p(a)-p(b);
-      const order = { Movies:0, Shows:1, Music:2, Gallery:3, Books:4, Games:5, Cookbook:6, Workshop:7, Files:8 };
-      return (order[a.bucket]||9) - (order[b.bucket]||9);
-    });
+    mediaResults.sort((a, b) => b.sc - a.sc
+      || (BUCKET_ORDER[a.e.bucket] != null ? BUCKET_ORDER[a.e.bucket] : 9) - (BUCKET_ORDER[b.e.bucket] != null ? BUCKET_ORDER[b.e.bucket] : 9)
+      || (a.e.title || '').length - (b.e.title || '').length);
+    mediaResults = mediaResults.map(r => r.e);
 
     // render only the media results immediately
-    renderResults(mediaResults, q);
+    renderResults(mediaResults, q, qt, pageShortcuts(qn));
   } catch (e) {
     console.error('media search fail', e);
     resultsPanel.innerHTML = `<div style="padding:12px;color:darkred">Search error</div>`;
@@ -2062,9 +1664,8 @@ async function performSearch(q){
     searchLoader.style.display = 'none';
   }
 
-  // ------- Archive (ZIM) results below media -----
-  // media keeps priority above and is never reordered. the archive query is a couple
-  // of tiny reads so its fast, and a newer keystroke abandons this run
+  // archive results below media, which is never reordered. The archive query is a couple
+  // of tiny reads, and a newer keystroke abandons this run
   const stillCurrent = () => myToken === __searchToken;
   try {
     const idx = await getArchiveIndex();
@@ -2085,16 +1686,26 @@ async function performSearch(q){
   return mediaResults;
 }
 
+// books and documents open in Nomad's own readers, wherever they are on the card
+const READER_FOR = [
+  [/\.epub$/i, (p) => `/epub.html?path=${p}`],
+  [/\.pdf$/i, (p) => `/pdf.html?path=${p}`],
+  [/\.(cbz|cbr|cb7)$/i, (p) => `/comics.html?path=${p}`],
+  [/\.(docx|docm|dotx|odt|ott|pptx|pptm|ppsx|potx|odp|otp|xlsx|xlsm|xltx|ods|ots|csv|tsv|md|markdown|txt|log|rtf|gdoc|gsheet|gslides|doc|xls|ppt|pps)$/i, (p) => `/docview.html?file=${p}`],
+];
+function readerUrlFor(path){
+  const hit = READER_FOR.find(([re]) => re.test(path));
+  return hit ? hit[1](encodeURIComponent(normalizePath(path))) : null;
+}
+
 function onResultClick(item){
   const p = item.path || '';
-  if(item.bucket === 'Files'){
-    const url = p.startsWith('/') ? p : '/' + p;
-    const a = document.createElement('a'); a.href = url; a.download = item.title || ''; document.body.appendChild(a); a.click(); a.remove();
-    return;
-  }
-  if(item.bucket === 'Books'){
-    const url = (p.startsWith('/') ? p : '/' + p);
-    window.location.href = url;
+  if(item.bucket === 'Files' || item.bucket === 'Books'){
+    const reader = readerUrlFor(p);
+    if(reader){ window.location.href = reader; return; }
+    // audiobooks play on the Books page. anything else in Files opens there, in its folder
+    if(item.bucket === 'Books' && RE_AUDIO.test(p)){ window.location.href = `/books#play=${encodeURIComponent(p)}`; return; }
+    window.location.href = item.bucket === 'Books' ? '/books' : `/files#open=${encodeURIComponent(p)}`;
     return;
   }
   if(item.bucket === 'Movies'){ window.location.href = `/movies#open=${encodeURIComponent(p)}`; return; }
@@ -2102,9 +1713,9 @@ function onResultClick(item){
   if(item.bucket === 'Music'){ window.location.href = `/music#play=${encodeURIComponent(p)}`; return; }
   if(item.bucket === 'Gallery'){ window.location.href = `/gallery#open=${encodeURIComponent(p)}`; return; }
   if(item.bucket === 'Games'){
-    // built-in games are pages, open them straight; ROMs go through the library
+    // built-in games are pages, open them straight. a ROM starts in the Games page
     if(/\.html?$/i.test(p)) window.location.href = p;
-    else window.location.href = '/games';
+    else window.location.href = `/games#play=${encodeURIComponent(p)}`;
     return;
   }
   if(item.bucket === 'Cookbook'){ window.location.href = `/cookbook#open=${encodeURIComponent(p)}`; return; }
@@ -2124,7 +1735,15 @@ searchInput.addEventListener('input', debounce((e) => {
   const v = e.target.value || '';
   if(!v.trim()){ resultsPanel.style.display='none'; resultsPanel.innerHTML=''; return; }
   performSearch(v);
-}, 500)); // Increased from 200ms to 500ms
+}, 150));   // searching the index is a few ms, this only waits for a pause in typing
+searchInput.addEventListener('keydown', (e) => {
+  if (e.key !== 'Enter') return;
+  const first = resultsPanel.querySelector('.result-row');
+  if (!first) { performSearch(searchInput.value); return; }
+  e.preventDefault();
+  if (first.classList.contains('result-page')) location.href = first.getAttribute('href');
+  else if (first._item) onResultClick(first._item);
+});
 
 document.addEventListener('click', (ev) => {
   if(!resultsPanel.contains(ev.target) && ev.target !== searchInput) { resultsPanel.style.display='none'; }
@@ -2132,7 +1751,6 @@ document.addEventListener('click', (ev) => {
 
 /* warm index and load resume on boot */
 (function warm(){
-  console.info('Page loaded - search index will build when needed');
 })();
 /* admin-controlled UI config: hidden pages, chat visibility, message of the day.
    The conditional-reveal probes below also honor it via isPageHidden() so a slow
@@ -2143,8 +1761,11 @@ function isPageHidden(key){
 }
 async function applyUiConfig(){
   __uiCfg = await NomadUI.config();
+  try { localStorage.setItem('nomadMenuHidden.v1', JSON.stringify(__uiCfg.hiddenPages || [])); } catch(e){}
   document.querySelectorAll('.tile[data-bucket]').forEach(t => {
-    if (isPageHidden(t.dataset.bucket.toLowerCase())) t.style.display = 'none';
+    const k = t.dataset.bucket.toLowerCase();
+    if (TILE_KEYS.includes(k)) return;          // optional tiles: applyTileStates decides
+    t.style.display = isPageHidden(k) ? 'none' : '';
   });
   if (isPageHidden('chat')) {
     const b = document.getElementById('chatBtn');
@@ -2161,36 +1782,50 @@ async function applyUiConfig(){
     }
   }
 }
-/* ---- one clean menu boot ----
-   The active-pages setting loads first, every feature probe runs in parallel, and the
-   tiles are applied together in one pass instead of popping in as answers land. The
-   last known result is cached so a revisit paints the full menu instantly. Probes
-   that answer unknown (SD busy right after boot) keep retrying quietly and apply
-   late, which is the one case where a tile still appears on its own. */
+/* Menu boot: the hidden-pages setting and the feature answers are applied together in one
+   pass, and the result is cached so a revisit paints the full menu at once. Probes that
+   answer unknown (SD busy right after boot) retry and apply late. */
 const TILE_CACHE_KEY = 'nomadMenuTiles.v1';
 const TILE_KEYS = ['archive', 'games', 'maps', 'translate', 'cookbook', 'workshop'];
 
 function applyTileStates(st){
   st = st || {};
   __archivesPresent = !!st.archive;
-  applyArchiveUI(!!st.archive);
+  const grid = document.getElementById('tiles');
+  const waiting = grid.classList.contains('tiles-wait');
   const set = (bucket, key) => {
     const t = document.querySelector('.tile[data-bucket="' + bucket + '"]');
-    if (t) t.style.display = (st[key] && !isPageHidden(key)) ? '' : 'none';
+    if (!t) return;
+    const show = !!st[key] && !isPageHidden(key);
+    const was = t.style.display !== 'none';
+    t.style.display = show ? '' : 'none';
+    // a tile that turns up once the menu is already showing fades in
+    if (show && !was && !waiting) { t.classList.remove('tile-in'); void t.offsetWidth; t.classList.add('tile-in'); }
   };
-  set('Games', 'games'); set('Maps', 'maps'); set('Translate', 'translate');
+  set('Archive', 'archive'); set('Games', 'games'); set('Maps', 'maps'); set('Translate', 'translate');
   set('Cookbook', 'cookbook'); set('Workshop', 'workshop');
+  grid.classList.remove('tiles-wait');
+}
+
+/* the firmware's one answer for all six (/api/menu). null for each if it can't say,
+   and 'old' when the firmware doesn't have /api/menu */
+async function probeMenu(){
+  try {
+    const res = await fetch('/api/menu', { cache: 'no-store' });
+    if (res.status === 404) return 'old';
+    if (!res.ok) return null;
+    const j = JSON.parse(await res.text());
+    return TILE_KEYS.map(k => typeof j[k] === 'boolean' ? j[k] : null);
+  } catch (e) { return null; }
 }
 
 async function bootMenuFeatures(){
-  await applyUiConfig();   // hidden-pages setting first, tiles respect it from paint one
-
   let cached = null;
   try { cached = JSON.parse(localStorage.getItem(TILE_CACHE_KEY) || 'null'); } catch(e){}
-  if (cached) applyTileStates(cached);
 
   const withTimeout = (pr, ms) => Promise.race([pr, new Promise(r => setTimeout(() => r(null), ms))]);
-  const run = () => Promise.all([
+  // firmware without /api/menu: the six separate checks, in TILE_KEYS order
+  const runSix = () => Promise.all([
     withTimeout(probeArchive(), 4000),
     withTimeout(probeGames(), 4000),
     withTimeout(probeMaps(), 4000),
@@ -2198,6 +1833,18 @@ async function bootMenuFeatures(){
     withTimeout(probeDirBucket('/Cookbook'), 4000),
     withTimeout(probeDirBucket('/Workshop'), 4000),
   ]);
+  let oldFirmware = false;
+  const run = async () => {
+    if (!oldFirmware) {
+      const one = await withTimeout(probeMenu(), 4000);
+      if (one !== 'old') return one || TILE_KEYS.map(() => null);
+      oldFirmware = true;
+    }
+    return runSix();
+  };
+  // the hidden-pages setting and the answer travel together. tiles apply once both are in
+  const first = run();
+  await applyUiConfig();
 
   const st = Object.assign({}, cached || {});
   let unknown = [];
@@ -2209,7 +1856,7 @@ async function bootMenuFeatures(){
       else st[k] = v;
     });
   };
-  fold(await run());
+  fold(await first);
   applyTileStates(st);
   try { localStorage.setItem(TILE_CACHE_KEY, JSON.stringify(st)); } catch(e){}
 
@@ -2222,25 +1869,10 @@ async function bootMenuFeatures(){
   }
 }
 bootMenuFeatures();
-/* Initialize resume */
-(async function initResume(){
-  try {
-    const raw = await collectResumeItems();
-    if(!raw || !raw.length) { resumePanel.style.display='none'; return; }
-
-    const normalized = raw.map(r => ({
-      path: r.path || r.file || (typeof r === 'string' ? r : ''),
-      title: r.title || r.name || '',
-      position: (r.position || r.pos || (r.raw && (r.raw.position||r.raw.pos)) || 0),
-      updated: r.updated || (r.raw && (r.raw.updated||r.raw.ts)) || Date.now(),
-      raw: r.raw || r
-    })).filter(x => x.path);
-
-    // Render immediately (fast)
-    renderResume(normalized);
-
-  } catch(e){ console.warn('resume load fail', e); }
-})();
+/* Continue: drawn at once from this phone's own record, and again when coming back to
+   the menu (the back button can show the page from the browser's cache) */
+renderResume();
+window.addEventListener('pageshow', (e) => { if(e.persisted) renderResume(); });
 
 /* ESC to close results */
 document.addEventListener('keydown', (e) => { if(e.key === 'Escape'){ resultsPanel.style.display='none'; } });

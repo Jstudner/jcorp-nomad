@@ -3,19 +3,22 @@
 <html lang="en">
 <head>
 <meta charset="utf-8" />
+<script>/* nomad-load-guard: reload, twice at most, when one of Nomad's own scripts or stylesheets fails to load */(function(){var k='nomadLoadGuard:'+location.pathname;window.addEventListener('error',function(e){var t=e.target;if(!t||!t.tagName)return;var s=t.tagName==='SCRIPT',c=t.tagName==='LINK'&&/stylesheet/i.test(t.rel||'');if(!s&&!c)return;var u=t.src||t.href||'';if(u.indexOf(location.origin+'/')!==0)return;var n=0;try{n=+sessionStorage.getItem(k)||0;}catch(x){return;}if(n>=2)return;try{sessionStorage.setItem(k,String(n+1));}catch(x){return;}setTimeout(function(){location.reload();},1500*(n+1));},true);window.addEventListener('load',function(){setTimeout(function(){try{sessionStorage.removeItem(k);}catch(x){}},15000);});})();</script>
 <meta name="viewport" content="width=device-width,initial-scale=1" />
 <title>Queue</title>
 <link rel="stylesheet" href="master.css">
-<script src="/theme-boot.js"></script>
-<script src="/nomad-utils.js"></script>
-<script src="theme-manager.js"></script>
+<script src="/theme-boot.js?v=5"></script>
+<script src="/nomad-icons.js?v=1"></script>
+<script src="/nomad-utils.js?v=52"></script>
+<script src="theme-manager.js?v=5"></script>
 <style>
 body{margin:0;padding:0;background:var(--bg);font-family:Inter,Arial,sans-serif;}
-.toolbar{background:var(--card);padding:.6rem 14px;display:flex;gap:.6rem;align-items:center;justify-content:space-between;border-bottom:1px solid var(--black-alpha-4);position:sticky;top:0;z-index:55;}
+.toolbar{background:var(--card);padding:.45rem 10px;display:flex;gap:.6rem;align-items:center;justify-content:space-between;border-bottom:1px solid var(--black-alpha-4);position:sticky;top:0;z-index:55;}
 .queue-count{color:var(--muted);font-weight:700;font-size:0.95rem;}
 .btn{padding:.45rem .65rem;border-radius:8px;border:0;background:var(--card);box-shadow:0 2px 8px var(--black-alpha-4);cursor:pointer;font-weight:700;color:var(--text);display:inline-flex;align-items:center;gap:6px;}
 .btn.danger{background:var(--danger);color:var(--color-white);}
-main{padding:14px;max-width:1200px;margin:0 auto;padding-bottom:20px;}
+main{padding:8px;max-width:1200px;margin:0 auto;padding-bottom:16px;}
+@media (max-width:600px){ .section{padding:8px;} .section h2{display:none;} }
 .section{background:var(--card);border-radius:12px;padding:16px;box-shadow:var(--shadow);margin-bottom:12px;}
 .section h2{font-size:1.1rem;margin:0 0 12px 0;color:var(--primary);font-weight:800;}
 .empty-state{padding:48px 20px;text-align:center;color:var(--muted);font-weight:600;}
@@ -34,13 +37,19 @@ main{padding:14px;max-width:1200px;margin:0 auto;padding-bottom:20px;}
 .queue-action-btn:hover{background:var(--primary);color:var(--color-white);transform:scale(1.08);}
 .queue-action-btn.danger:hover{background:var(--danger);color:var(--color-white);}
 .queue-action-btn:disabled{opacity:0.3;cursor:not-allowed;pointer-events:none;}
+/* drag by the grip to reorder (the arrows stay for anyone who'd rather tap) */
+.queue-grip{width:22px;height:36px;display:grid;place-items:center;color:var(--muted);cursor:grab;touch-action:none;flex-shrink:0;margin-right:-6px;}
+.queue-grip:active{cursor:grabbing;}
+.queue-item.dragging{position:relative;z-index:5;box-shadow:0 10px 26px var(--black-alpha-12);background:var(--card);transition:none;cursor:grabbing;}
+.queue-item.drop-before{box-shadow:0 -3px 0 var(--primary);}
+.queue-item.drop-after{box-shadow:0 3px 0 var(--primary);}
 </style>
 </head>
 <body>
 
 <div class="toolbar">
   <div id="queueCount" class="queue-count">0 in queue</div>
-  <button id="clearQueueBtn" class="btn danger" style="display:none;">Clear Queue</button>
+  <button id="clearQueueBtn" class="btn danger" style="display:none;">Clear queue</button>
 </div>
 
 <main>
@@ -48,8 +57,8 @@ main{padding:14px;max-width:1200px;margin:0 auto;padding-bottom:20px;}
     <h2>Queue</h2>
     <div id="queueList" class="queue-list"></div>
     <div id="emptyState" class="empty-state" style="display:none;">
-      <div class="empty-state-icon">🎵</div>
-      <div>Queue is empty. Add songs from other tabs!</div>
+      <div class="empty-state-icon" data-icon="music" data-icon-size="48"></div>
+      <div>Queue is empty</div>
     </div>
   </section>
 </main>
@@ -92,7 +101,7 @@ function moveItem(fromIdx, toIdx){
   window.parent.postMessage({
     type: 'MOVE_QUEUE',
     payload: { fromIdx, toIdx }
-  }, '*');
+  }, location.origin);
 }
 
 
@@ -142,7 +151,7 @@ function render(){
     
     const upBtn = document.createElement('button');
     upBtn.className = 'queue-action-btn';
-    upBtn.textContent = '▲';
+    upBtn.innerHTML = NomadIcons.svg('chevron-up', 16);
     upBtn.title = canReorder ? 'Move up' : 'Sort by Added order to reorder';
     if(idx === 0 || !canReorder) upBtn.disabled = true;
     upBtn.onclick = (e) => {
@@ -152,7 +161,7 @@ function render(){
     
     const downBtn = document.createElement('button');
     downBtn.className = 'queue-action-btn';
-    downBtn.textContent = '▼';
+    downBtn.innerHTML = NomadIcons.svg('chevron-down', 16);
     downBtn.title = canReorder ? 'Move down' : 'Sort by Added order to reorder';
     if(idx === queue.length - 1 || !canReorder) downBtn.disabled = true;
     downBtn.onclick = (e) => {
@@ -162,20 +171,29 @@ function render(){
     
     const removeBtn = document.createElement('button');
     removeBtn.className = 'queue-action-btn danger';
-    removeBtn.textContent = '✕';
+    removeBtn.innerHTML = NomadIcons.svg('x', 16);
     removeBtn.title = 'Remove';
     removeBtn.onclick = (e) => {
       e.stopPropagation();
       window.parent.postMessage({
         type: 'REMOVE_FROM_QUEUE',
         payload: { index: orig }
-      }, '*');
+      }, location.origin);
     };
     
     actions.appendChild(upBtn);
     actions.appendChild(downBtn);
     actions.appendChild(removeBtn);
     
+    if(canReorder && queue.length > 1){
+      const grip = document.createElement('div');
+      grip.className = 'queue-grip';
+      grip.title = 'Move';
+      grip.innerHTML = '<svg width="10" height="16" viewBox="0 0 10 16" fill="currentColor" aria-hidden="true"><circle cx="2" cy="2" r="1.6"/><circle cx="8" cy="2" r="1.6"/><circle cx="2" cy="8" r="1.6"/><circle cx="8" cy="8" r="1.6"/><circle cx="2" cy="14" r="1.6"/><circle cx="8" cy="14" r="1.6"/></svg>';
+      grip.addEventListener('click', (e) => e.stopPropagation());
+      grip.addEventListener('pointerdown', (e) => startDrag(e, item, idx));
+      item.appendChild(grip);
+    }
     item.appendChild(num);
     item.appendChild(info);
     item.appendChild(actions);
@@ -184,22 +202,65 @@ function render(){
       window.parent.postMessage({
         type: 'PLAY_QUEUE',
         payload: { startIndex: orig }
-      }, '*');
+      }, location.origin);
     };
     
     queueListEl.appendChild(item);
   });
 }
 
+// drag a song by its grip: it follows the finger, a line shows where it lands
+function startDrag(e, item, from){
+  e.preventDefault(); e.stopPropagation();
+  const grip = e.currentTarget;
+  grip.setPointerCapture(e.pointerId);
+  const items = [...queueListEl.children];
+  const y0 = e.clientY;
+  let to = from;
+  item.classList.add('dragging');
+  const mark = () => items.forEach((el, i) => {
+    el.classList.toggle('drop-before', i === to && to < from);
+    el.classList.toggle('drop-after', i === to && to > from);
+  });
+  const move = (ev) => {
+    item.style.transform = `translateY(${ev.clientY - y0}px)`;
+    // where the finger is among the others' middles
+    to = from;
+    items.forEach((el, i) => {
+      if(i === from) return;
+      const r = el.getBoundingClientRect(), mid = r.top + r.height / 2;
+      if(i < from && ev.clientY < mid && i < to) to = i;
+      if(i > from && ev.clientY > mid && i > to) to = i;
+    });
+    mark();
+    if(ev.clientY < 40) window.scrollBy(0, -12);
+    else if(ev.clientY > innerHeight - 40) window.scrollBy(0, 12);
+  };
+  const end = () => {
+    grip.removeEventListener('pointermove', move);
+    grip.removeEventListener('pointerup', end);
+    grip.removeEventListener('pointercancel', end);
+    item.classList.remove('dragging'); item.style.transform = '';
+    items.forEach(el => el.classList.remove('drop-before', 'drop-after'));
+    if(to !== from) moveItem(from, to);
+  };
+  grip.addEventListener('pointermove', move);
+  grip.addEventListener('pointerup', end);
+  grip.addEventListener('pointercancel', end);
+}
+
 clearQueueBtn.addEventListener('click', () => {
   window.parent.postMessage({
     type: 'CLEAR_QUEUE',
     payload: {}
-  }, '*');
+  }, location.origin);
 });
 
 window.addEventListener('message', (event) => {
-  const { type, payload } = event.data;
+  // only the player page talks to this frame
+  if (event.origin !== location.origin || !event.data || typeof event.data !== 'object') return;
+  const { type } = event.data;
+  const payload = event.data.payload || {};
 
   if(type === 'QUEUE_UPDATE'){
     originalQueue = payload.queue || [];
@@ -232,7 +293,7 @@ window.addEventListener('message', (event) => {
 window.parent.postMessage({
   type: 'REQUEST_QUEUE_UPDATE',
   payload: {}
-}, '*');
+}, location.origin);
 
 render();
 </script>

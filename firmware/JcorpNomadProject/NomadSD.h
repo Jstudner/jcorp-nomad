@@ -19,7 +19,7 @@
 #include <FS.h>
 #include "sd_protocol_types.h"  // SDMMC_FREQ_DEFAULT / SDMMC_FREQ_HIGHSPEED
 
-// same enumerators SD_MMC's sd_defines.h provided; the sketch tests CARD_NONE
+// same enumerators SD_MMC's sd_defines.h provided, the sketch tests CARD_NONE
 typedef enum { CARD_NONE, CARD_MMC, CARD_SD, CARD_SDHC, CARD_UNKNOWN } sdcard_type_t;
 
 // 64-bit read handle for files larger than 4 GB (exFAT only).
@@ -28,7 +28,7 @@ typedef enum { CARD_NONE, CARD_MMC, CARD_SD, CARD_SDHC, CARD_UNKNOWN } sdcard_ty
 // cannot seek past 4 GB. That API is fixed by the core, so the HTTP range handler
 // uses this handle instead.
 //
-// The FsFile sits behind a void* deliberately: including SdFat's headers here would
+// The FsFile sits behind a void* because including SdFat's headers here would
 // pull in its global `typedef FsFile File`, which collides with fs::File throughout
 // the firmware. Move-only, like the FsFile it wraps.
 class NomadFile64 {
@@ -48,8 +48,8 @@ public:
   bool seek(uint64_t pos);
   size_t read(uint8_t *buf, size_t len);
   // seek and read in one lock acquisition. The HTTP range handler shares one handle
-  // between everyone reading the same file, so it has to position the handle itself,
-  // and doing that as three separate calls took the SdFat lock three times per chunk.
+  // between everyone reading the same file, so it has to position the handle itself.
+  // One call takes the SdFat lock once per chunk instead of three times.
   size_t readAt(uint64_t pos, uint8_t *buf, size_t len);
   explicit operator bool() const {
     return isOpen();
@@ -63,10 +63,13 @@ class NomadSDFS : public fs::FS {
 public:
   NomadSDFS();
 
-  // 64-bit size without opening a handle; 0 if missing or unreadable
+  // 64-bit size without opening a handle, 0 if missing or unreadable
   uint64_t fileSize64(const char *path);
 
-  // must be called before begin(); same signature as SD_MMC.setPins
+  // size and last-write time in one open, for ETags. false if missing, unreadable or a folder
+  bool fileStat64(const char *path, uint64_t &size, time_t &mtime);
+
+  // must be called before begin(), same signature as SD_MMC.setPins
   bool setPins(int clk, int cmd, int d0, int d1, int d2, int d3);
 
   // SD_MMC.begin-compatible signature so call sites compile untouched. mountpoint,
@@ -91,15 +94,65 @@ public:
   bool readRAW(uint8_t *buffer, uint32_t sector);
   bool writeRAW(uint8_t *buffer, uint32_t sector);
   // burst variants for USB MSC: one SD command per host transfer instead of
-  // one per 512-byte sector - the per-command overhead is what made MSC slow
+  // one per 512-byte sector. The per-command overhead is what makes MSC slow
   bool readRAWMulti(uint8_t *buffer, uint32_t sector, size_t count);
   bool writeRAWMulti(const uint8_t *buffer, uint32_t sector, size_t count);
 
-  // "exFAT" / "FAT32" / "FAT16" / "none" - for boot logging
+  // "exFAT" / "FAT32" / "FAT16" / "none", for boot logging
   const char *fsTypeName();
   bool isExFat();
+  // set clusters aside under a name (see NomadSD.cpp); the caller holds the card lock
+  bool reserve(const char *path, uint32_t bytes);
+  // used space counted in slices with `lock` let go between them (the caller does not hold it):
+  // exFAT from its bitmap, FAT32 from its table (SdFat never updates the FSInfo free figure).
+  // False when it could not finish.
+  bool exFatUsedSliced(uint64_t &usedOut, SemaphoreHandle_t lock);
+  // the task inside the card driver now (its lock), or null: for the hang record
+  TaskHandle_t lockHolder();
 };
 
 extern NomadSDFS NomadSD;
+
+// Storage health: what the card driver has seen since boot. Every sector read and write
+// already passes through one place, so this costs a timer read and a few adds per call.
+struct NomadSDStats {
+  uint32_t reads, readErrors, writes, writeErrors;
+  uint32_t slowReads;      // a read call that took over NOMAD_SD_SLOW_MS
+  uint32_t maxReadUs;      // the slowest read call
+  uint64_t sectorsRead, sectorsWritten;
+  uint32_t lastErrorMs;    // millis() of the last failed read or write, 0 for none
+  // readErrors / writeErrors count calls that failed for good. These count every failed
+  // attempt by kind, and the calls a second try saved.
+  uint32_t errNoMem, errCrc, errTimeout, errOther;
+  uint32_t readRetried, writeRetried;
+  int lastErr;             // the last esp_err_t seen, 0 for none
+};
+static const uint32_t NOMAD_SD_SLOW_MS = 250;
+void nomadSDStats(NomadSDStats &out);
+void nomadSDStatsPeek(NomadSDStats &out);   // the same without taking the card driver's lock
+// After a mount that failed: true when a card answered and it was its contents that could
+// not be read (not exFAT or FAT32, or damaged), false when no card answered at all.
+bool nomadSDCardAnswered();
+// The file system refused a write for want of space and nothing has been removed since.
+// While true, writes that would grow a file fail at once (see NomadSD.cpp).
+bool nomadSDFull();
+uint32_t nomadSDFullRefused();
+// Card reads or writes that failed for good on the calling task between the two calls. One
+// watcher at a time (the index build, which holds its own lock).
+void nomadSDWatchBegin();
+uint32_t nomadSDWatchEnd();
+
+// the card's own registers: who made it, when, and how the bus is running
+struct NomadSDCardInfo {
+  bool ok;
+  int mid, oid, rev, year, month;
+  uint32_t serial;
+  char name[8];
+  uint64_t bytes;
+  int freqKhz, busWidth;
+  bool sdhc, uhs1;
+  uint32_t allocUnitKb;
+};
+bool nomadSDCardInfo(NomadSDCardInfo &out);
 
 #endif  // NOMAD_SD_H

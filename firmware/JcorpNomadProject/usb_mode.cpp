@@ -6,7 +6,7 @@
 #define BOOT_BUTTON_PIN 0
 
 // TinyUSB soft connect/disconnect (compiled into the prebuilt core lib).
-// Used to re-enumerate once the disk is actually ready - see usb_setup().
+// Used to re-enumerate once the disk is actually ready, see usb_setup().
 extern "C" {
   bool tud_disconnect(void);
   bool tud_connect(void);
@@ -28,10 +28,10 @@ bool onebit = false; // using full 4-bit wiring
 // changed and needs a rescan (read-only browsing doesnt)
 static volatile bool s_usbWroteData = false;
 
-// --------------------- Callbacks ---------------------
+// Callbacks.
 // The host moves data in chunks of CFG_TUD_MSC_BUFSIZE (4KB = 8 sectors). Each chunk
-// is one multi-sector SD command; issuing 8 single-sector commands here used to spend
-// more time on command overhead than on data.
+// is one multi-sector SD command. 8 single-sector commands would spend more time on
+// command overhead than on data.
 
 static int32_t onWrite(uint32_t lba, uint32_t offset, uint8_t *buffer, uint32_t bufsize) {
   uint32_t secSize = NomadSD.sectorSize();
@@ -80,7 +80,7 @@ static void usbEventCallback(void*, esp_event_base_t event_base,
   }
 }
 
-// ------------------ USB Mode Entry Points ------------------
+// USB mode entry points
 
 void usb_setup() {
   Serial.println(">>> USB mode: mounting SD & starting MSC");
@@ -107,19 +107,26 @@ void usb_setup() {
   USB.begin();
   USB.onEvent(usbEventCallback);
 
-  // With CDC-on-boot the USB stack enumerated before setup() ran, when this LUN still
-  // had no media, no geometry and no callbacks. The host saw an empty card reader,
-  // backed off and took its time re-polling, which was the long wait before the drive
-  // appeared. Drop off the bus and come back now that the disk is real.
+  // With CDC-on-boot the USB stack enumerates before setup() runs, when this LUN has no
+  // media, geometry or callbacks yet. The host sees an empty card reader and takes its
+  // time re-polling, so drop off the bus and come back now that the disk is real.
   tud_disconnect();
   delay(150);
   tud_connect();
 
-  Serial.println("USB Mass Storage ready—awaiting host.");
+  Serial.println("USB Mass Storage ready, waiting for the host.");
 }
 
 void usb_loop() {
   delay(25);  // feed WDT; button poll needs no more than this
+
+  // Store "the computer changed the card" as soon as it happens. Pulling the stick out of
+  // the computer is a power cut: neither the eject event nor the button below gets to run.
+  static bool flagStored = false;
+  if (s_usbWroteData && !flagStored) {
+    set_needs_reindex_flag();
+    flagStored = true;
+  }
 
   if (digitalRead(BOOT_BUTTON_PIN) == LOW) {
     if (s_usbWroteData) {

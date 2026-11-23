@@ -3,80 +3,20 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
+<script>/* nomad-load-guard: reload, twice at most, when one of Nomad's own scripts or stylesheets fails to load */(function(){var k='nomadLoadGuard:'+location.pathname;window.addEventListener('error',function(e){var t=e.target;if(!t||!t.tagName)return;var s=t.tagName==='SCRIPT',c=t.tagName==='LINK'&&/stylesheet/i.test(t.rel||'');if(!s&&!c)return;var u=t.src||t.href||'';if(u.indexOf(location.origin+'/')!==0)return;var n=0;try{n=+sessionStorage.getItem(k)||0;}catch(x){return;}if(n>=2)return;try{sessionStorage.setItem(k,String(n+1));}catch(x){return;}setTimeout(function(){location.reload();},1500*(n+1));},true);window.addEventListener('load',function(){setTimeout(function(){try{sessionStorage.removeItem(k);}catch(x){}},15000);});})();</script>
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta name="description" content="Jcorp Nomad Theme Customization">
-  <title>Nomad • Theme Customization</title>
+  <title>Nomad • Theme</title>
   <link rel="icon" href="/favicon.ico" />
   <link rel="stylesheet" href="/master.css">
+  <script src="/theme-boot.js?v=5"></script>
+  <script src="/theme-manager.js?v=5"></script>
   <script>
-(async function() {
-  try {
-    const isDark = localStorage.getItem('nomad_dark_mode') === 'true';
-    if (isDark) {
-      document.documentElement.classList.add('dark');
-      new MutationObserver((m, o) => {
-        if (document.body) { document.body.classList.add('dark'); o.disconnect(); }
-      }).observe(document.documentElement, { childList: true });
-      document.documentElement.classList.add('dark-mode');
-    }
-
-    async function loadThemeFromServer() {
-      try {
-        const response = await fetch('/.system-theme.json?t=' + Date.now());
-        if (response.ok) {
-          const theme = await response.json();
-          localStorage.setItem('nomad_custom_theme', JSON.stringify(theme));
-          return theme;
-        }
-      } catch (e) {
-        console.log('[Theme UI] No theme on SD card, using localStorage');
-      }
-      return null;
-    }
-
-    const serverTheme = await loadThemeFromServer();
-    const colors = serverTheme || (function() {
-      const saved = localStorage.getItem('nomad_custom_theme');
-      return saved ? JSON.parse(saved) : null;
-    })();
-
-    if (colors) {
-      const style = document.createElement('style');
-      style.id = 'custom-theme-style';
-      style.textContent = `
-        :root {
-          --primary: ${colors.primary} !important;
-          --primary-dark: ${colors.primaryDark} !important;
-          --bg: ${colors.bgLight} !important;
-          --card: ${colors.cardLight} !important;
-          --text: ${colors.textLight} !important;
-          --muted: ${colors.mutedLight} !important;
-        }
-        body.dark, body.dark-mode {
-          --bg: ${colors.bgDark} !important;
-          --card: ${colors.cardDark} !important;
-          --text: ${colors.textDark} !important;
-          --muted: ${colors.mutedDark} !important;
-          --primary: ${colors.primaryDarkTheme} !important;
-        }
-      `;
-      document.head.appendChild(style);
-    }
-
-    document.addEventListener('DOMContentLoaded', function() {
-      if (isDark) {
-        document.body.classList.add('dark-mode');
-        document.body.classList.add('dark');
-      }
-    });
-  } catch(e) {
-    console.error('[Theme UI] Theme loading error:', e);
-  }
-})();
+  // ?embed=1: framed in the admin page (no background or padding, admin-style cards,
+  // reports its height)
+  if (/[?&]embed=1\b/.test(location.search)) document.documentElement.classList.add('embed');
 </script>
-  <script src="/theme-manager.js"></script>
-  <script src="/assets/jquery.min.js"></script>
-  <style>
+<style>
     :root {
       --primary: #007bff;
       --primary-dark: #0056b3;
@@ -118,7 +58,7 @@
 
     .page-bg {
       position: fixed;
-      inset: 0;
+      top:0;right:0;bottom:0;left:0;inset:0;
       background: linear-gradient(135deg, var(--bg) 0%, var(--card) 100%);
       z-index: -1;
       pointer-events: none;
@@ -141,6 +81,20 @@
     body.dark-mode .section, body.dark .section {
       box-shadow: 0 1px 3px rgba(0,0,0,0.3);
     }
+
+    html.embed body { background: transparent; overflow: hidden; }
+    html.embed .page-bg { display: none; }
+    html.embed main { max-width: none; padding: 0 0 2px; }
+    html.embed .section { background: var(--card-bg, var(--card)); border: 1px solid var(--card-border, transparent);
+      border-radius: 14px; padding: 16px; margin-bottom: 12px; box-shadow: 0 1px 3px rgba(0,0,0,.06); }
+    html.embed .section-title { color: var(--text); font-size: 1rem; font-weight: 800; }
+    html.embed .section-description { font-size: .8rem; margin-bottom: 12px; }
+    html.embed .theme-grid { grid-template-columns: repeat(auto-fill, minmax(104px, 1fr)); gap: 8px; }
+    /* in the admin page: a swatch and a name per preset, the line about it on hover */
+    html.embed .theme-card { padding: 8px; border-radius: 10px; }
+    html.embed .theme-preview { height: 26px; margin-bottom: 6px; }
+    html.embed .theme-name { font-size: .8rem; }
+    html.embed .theme-desc { display: none; }
 
     .section-title {
       font-size: 1.25rem;
@@ -354,6 +308,35 @@
       border: 1px solid var(--danger-border);
     }
 
+    .status-info {
+      background: color-mix(in srgb, var(--primary) 10%, transparent);
+      color: var(--text);
+      border: 1px solid color-mix(in srgb, var(--primary) 30%, transparent);
+    }
+    /* presets are buttons so a keyboard can use them too */
+    button.theme-card { font: inherit; color: inherit; text-align: left; width: 100%; display: block; }
+    .btn-secondary { background: transparent; color: var(--text); border: 1px solid var(--card-border, rgba(0,0,0,.15)); }
+    .btn-secondary:hover:not(:disabled) { background: transparent; color: var(--primary); border-color: var(--primary); box-shadow: none; }
+    .btn { font-weight: 700; border-radius: 10px; min-height: 38px; }
+    .btn-primary.dirty { box-shadow: 0 0 0 3px color-mix(in srgb, var(--primary) 30%, transparent); }
+    .actions { margin-top: 12px; }
+    /* light / dark / match device */
+    .seg { display: flex; gap: 3px; padding: 3px; border-radius: 10px; background: var(--bg); border: 1px solid var(--card-border, rgba(0,0,0,.12)); }
+    .seg button { flex: 1; min-height: 32px; border: 0; border-radius: 8px; background: none; color: var(--muted); font: inherit; font-weight: 700; font-size: .85rem; cursor: pointer; }
+    .seg button.on { background: var(--primary); color: #fff; }
+    /* the small "how this works" under a control */
+    details.why { margin-top: 10px; font-size: .8rem; color: var(--muted); }
+    details.why summary { cursor: pointer; font-weight: 700; list-style: none; display: inline-flex; align-items: center; gap: 5px; }
+    details.why summary::-webkit-details-marker { display: none; }
+    details.why summary::before { content: '›'; display: inline-block; transition: transform .15s; font-size: 1rem; line-height: 1; }
+    details.why[open] summary::before { transform: rotate(90deg); }
+    details.why p { margin: 6px 0 0; line-height: 1.45; }
+    details.fine { margin-top: 12px; border-top: 1px solid var(--card-border, rgba(0,0,0,.1)); padding-top: 10px; }
+    details.fine summary { cursor: pointer; font-weight: 700; font-size: .88rem; }
+    details.fine .color-grid { margin-top: 12px; }
+    .own-note { margin-top: 10px; font-size: .8rem; color: var(--muted); }
+    .link-btn { border: 0; background: none; color: var(--primary); font: inherit; font-weight: 700; cursor: pointer; padding: 0; }
+
     @media (max-width: 768px) {
       body {
         font-size: 13px;
@@ -453,211 +436,201 @@
 
   <main>
     <div class="section">
-      <h2 class="section-title">Theme Presets</h2>
-      <p class="section-description">Choose from these presets or make your own.</p>
-      <div id="theme-grid" class="theme-grid"></div>
+      <h2 class="section-title">Default mode</h2>
+      <div class="seg" id="mode-seg" role="group" aria-label="Dark mode for every device">
+        <button type="button" data-mode="light">Light</button>
+        <button type="button" data-mode="dark">Dark</button>
+        <button type="button" data-mode="auto">Match device</button>
+      </div>
+      <div class="own-note" id="own-note" hidden>This browser has its own pick saved.
+        <button type="button" id="btn-forget" class="link-btn">Use the default here</button></div>
     </div>
 
     <div class="section">
-      <h2 class="section-title">Custom Colors</h2>
-      <p class="section-description">Fine-tune individual colors to create a theme. Click the color squares to pick visually.</p>
+      <h2 class="section-title">Colours</h2>
+      <div id="theme-grid" class="theme-grid"></div>
+      <details class="fine" id="fine">
+        <summary>Fine-tune colours</summary>
       <div class="color-grid">
         <div class="color-input-group">
-          <label class="color-label">Primary Color</label>
-          <div class="color-help">Headers, buttons, active states</div>
+          <label class="color-label">Primary colour</label>
           <div class="color-input-wrapper">
             <input type="color" id="color-primary" class="color-input" value="#007bff">
             <input type="text" id="text-primary" class="color-text-input" value="#007bff">
           </div>
         </div>
         <div class="color-input-group">
-          <label class="color-label">Primary Hover</label>
-          <div class="color-help">Button hover states</div>
+          <label class="color-label">Primary hover</label>
           <div class="color-input-wrapper">
             <input type="color" id="color-primary-dark" class="color-input" value="#0056b3">
             <input type="text" id="text-primary-dark" class="color-text-input" value="#0056b3">
           </div>
         </div>
         <div class="color-input-group">
-          <label class="color-label">Light Background</label>
-          <div class="color-help">Page background in light mode</div>
+          <label class="color-label">Light page background</label>
           <div class="color-input-wrapper">
             <input type="color" id="color-bg-light" class="color-input" value="#f4f4f9">
             <input type="text" id="text-bg-light" class="color-text-input" value="#f4f4f9">
           </div>
         </div>
         <div class="color-input-group">
-          <label class="color-label">Light Card Background</label>
-          <div class="color-help">Cards, panels in light mode</div>
+          <label class="color-label">Light cards and panels</label>
           <div class="color-input-wrapper">
             <input type="color" id="color-card-light" class="color-input" value="#ffffff">
             <input type="text" id="text-card-light" class="color-text-input" value="#ffffff">
           </div>
         </div>
         <div class="color-input-group">
-          <label class="color-label">Light Text</label>
-          <div class="color-help">Main text in light mode</div>
+          <label class="color-label">Light text</label>
           <div class="color-input-wrapper">
             <input type="color" id="color-text-light" class="color-input" value="#333333">
             <input type="text" id="text-text-light" class="color-text-input" value="#333333">
           </div>
         </div>
         <div class="color-input-group">
-          <label class="color-label">Light Muted Text</label>
-          <div class="color-help">Secondary text in light mode</div>
+          <label class="color-label">Light muted text</label>
           <div class="color-input-wrapper">
             <input type="color" id="color-muted-light" class="color-input" value="#6b7280">
             <input type="text" id="text-muted-light" class="color-text-input" value="#6b7280">
           </div>
         </div>
         <div class="color-input-group">
-          <label class="color-label">Dark Background</label>
-          <div class="color-help">Page background in dark mode</div>
+          <label class="color-label">Dark page background</label>
           <div class="color-input-wrapper">
             <input type="color" id="color-bg-dark" class="color-input" value="#071226">
             <input type="text" id="text-bg-dark" class="color-text-input" value="#071226">
           </div>
         </div>
         <div class="color-input-group">
-          <label class="color-label">Dark Card Background</label>
-          <div class="color-help">Cards, panels in dark mode</div>
+          <label class="color-label">Dark cards and panels</label>
           <div class="color-input-wrapper">
             <input type="color" id="color-card-dark" class="color-input" value="#071722">
             <input type="text" id="text-card-dark" class="color-text-input" value="#071722">
           </div>
         </div>
         <div class="color-input-group">
-          <label class="color-label">Dark Text</label>
-          <div class="color-help">Main text in dark mode</div>
+          <label class="color-label">Dark text</label>
           <div class="color-input-wrapper">
             <input type="color" id="color-text-dark" class="color-input" value="#eaf6ff">
             <input type="text" id="text-text-dark" class="color-text-input" value="#eaf6ff">
           </div>
         </div>
         <div class="color-input-group">
-          <label class="color-label">Dark Muted Text</label>
-          <div class="color-help">Secondary text in dark mode</div>
+          <label class="color-label">Dark muted text</label>
           <div class="color-input-wrapper">
             <input type="color" id="color-muted-dark" class="color-input" value="#93a9c6">
             <input type="text" id="text-muted-dark" class="color-text-input" value="#93a9c6">
           </div>
         </div>
         <div class="color-input-group">
-          <label class="color-label">Dark Primary Color</label>
-          <div class="color-help">Primary color in dark mode</div>
+          <label class="color-label">Dark primary colour</label>
           <div class="color-input-wrapper">
             <input type="color" id="color-primary-dark-theme" class="color-input" value="#4aa3ff">
             <input type="text" id="text-primary-dark-theme" class="color-text-input" value="#4aa3ff">
           </div>
         </div>
       </div>
-    </div>
-
-    <div class="section">
-      <h2 class="section-title">Save Changes</h2>
-      <p class="section-description">Save your theme to SD card. Theme will persist across all devices and reboots.</p>
+      </details>
       <div class="actions">
-        <button id="btn-reset" class="btn btn-secondary">Reset to Default</button>
-        <button id="btn-save" class="btn btn-primary">Save Theme</button>
+        <button id="btn-reset" class="btn btn-secondary">Reset</button>
+        <button id="btn-save" class="btn btn-primary">Save</button>
       </div>
       <div id="status-message" class="status-message"></div>
     </div>
   </main>
 
   <script>
+    const EMBED = document.documentElement.classList.contains('embed') && window.parent !== window;
+    // tell the admin page our height so its frame never scrolls. Measure main, not body:
+    // in a frame body is the frame's own height and never grows.
+    const report = () => {
+      if (!EMBED) return;
+      const m = document.querySelector('main');
+      window.parent.postMessage({ type: 'nomad-theme-height', height: Math.ceil(m.getBoundingClientRect().bottom + window.scrollY) + 4 }, location.origin);
+    };
+    if (EMBED) {
+      new ResizeObserver(report).observe(document.querySelector('main'));
+      window.addEventListener('load', report);
+    }
+    // the admin page around this gets the colours and dark mode as soon as they are saved
+    const tellParent = (msg) => { if (EMBED) window.parent.postMessage(Object.assign({ type: 'nomad-theme-saved' }, msg), location.origin); };
+
     let currentColors = {};
+    let savedColors = null;   // what the card has: null for the built-in blue
+    let cardMode = 'light';
     let themes = [];
+    const DEFAULT_ID = 'default-blue';
 
     async function init() {
-      console.log('[Theme UI] Starting initialization...');
-      try {
-        console.log('[Theme UI] Loading themes from ThemeManager...');
-        themes = await ThemeManager.loadThemes();
-        console.log('[Theme UI] Themes loaded:', themes);
-
-        if (!themes || themes.length === 0) {
-          console.warn('[Theme UI] No themes loaded, using fallback');
-          showStatus('Failed to load themes. Using defaults.', 'error');
-          themes = [{ id: 'default-blue', name: 'Default Blue', description: 'Default theme', colors: { primary: '#007bff', primaryDark: '#0056b3', bgLight: '#f4f4f9', cardLight: '#ffffff', textLight: '#333333', mutedLight: '#6b7280', bgDark: '#071226', cardDark: '#071722', textDark: '#eaf6ff', mutedDark: '#93a9c6', primaryDarkTheme: '#4aa3ff' } }];
-        }
-
-        console.log('[Theme UI] Rendering themes...');
-        renderThemes();
-        console.log('[Theme UI] Loading current colors...');
-        loadCurrentColors();
-        console.log('[Theme UI] Setting up color inputs...');
-        setupColorInputs();
-        console.log('[Theme UI] Setting up buttons...');
-        setupButtons();
-        console.log('[Theme UI] Initialization complete!');
-      } catch (e) {
-        console.error('[Theme UI] Init error:', e);
-        showStatus('Initialization error: ' + e.message, 'error');
+      themes = await ThemeManager.loadThemes();
+      if (!themes.length) {
+        showStatus("Couldn't load the presets. Only the default is shown.", 'error');
+        themes = [{ id: DEFAULT_ID, name: 'Default Blue', description: '', colors: { primary: '#007bff', primaryDark: '#0056b3', bgLight: '#f4f4f9', cardLight: '#ffffff', textLight: '#333333', mutedLight: '#6b7280', bgDark: '#071226', cardDark: '#071722', textDark: '#eaf6ff', mutedDark: '#93a9c6', primaryDarkTheme: '#4aa3ff' } }];
       }
+      renderThemes();
+      setupColorInputs();
+      setupButtons();
+      setupMode();
+      // start from what the card has, not from the default
+      const file = await ThemeManager.fetchCard();
+      if (file === undefined) showStatus("Couldn't reach Nomad. Showing this browser's copy.", 'error');
+      savedColors = file === undefined ? ThemeManager.loadThemeFromStorage() : ThemeManager.colorsOf(file);
+      cardMode = file === undefined ? (localStorage.getItem(ThemeManager.DEFAULT_KEY) || 'light') : ThemeManager.modeOf(file);
+      showColors(savedColors || defaultColors());
+      showMode();
+      report();
     }
+
+    const defaultColors = () => ({ ...(themes.find(t => t.id === DEFAULT_ID) || themes[0]).colors });
+    const same = (a, b) => ThemeManager.COLOR_KEYS.every(k => String(a[k] || '').toLowerCase() === String(b[k] || '').toLowerCase());
 
     function renderThemes() {
+      const esc = (v) => String(v).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
       const grid = document.getElementById('theme-grid');
       grid.innerHTML = themes.map(theme => `
-        <div class="theme-card" data-id="${theme.id}">
+        <button type="button" class="theme-card" data-id="${esc(theme.id)}" title="${esc(theme.description || '')}">
           <div class="theme-preview">
-            <div class="color-bar" style="background: ${theme.colors.primary}"></div>
-            <div class="color-bar" style="background: ${theme.colors.bgLight}"></div>
-            <div class="color-bar" style="background: ${theme.colors.cardDark}"></div>
-            <div class="color-bar" style="background: ${theme.colors.primaryDarkTheme}"></div>
+            <div class="color-bar" style="background: ${esc(theme.colors.primary)}"></div>
+            <div class="color-bar" style="background: ${esc(theme.colors.bgLight)}"></div>
+            <div class="color-bar" style="background: ${esc(theme.colors.cardDark)}"></div>
+            <div class="color-bar" style="background: ${esc(theme.colors.primaryDarkTheme)}"></div>
           </div>
-          <div class="theme-name">${theme.name}</div>
-          <div class="theme-desc">${theme.description}</div>
-        </div>
+          <div class="theme-name">${esc(theme.name)}</div>
+          <div class="theme-desc">${esc(theme.description || '')}</div>
+        </button>
       `).join('');
-      document.querySelectorAll('.theme-card').forEach(card => {
-        card.addEventListener('click', () => selectTheme(card.dataset.id));
-      });
+      grid.querySelectorAll('.theme-card').forEach(card => card.addEventListener('click', () => {
+        const t = themes.find(x => x.id === card.dataset.id);
+        if (t) preview({ ...t.colors });
+      }));
     }
 
-    function selectTheme(themeId) {
-      const theme = themes.find(t => t.id === themeId);
-      if (!theme) return;
-
-      document.querySelectorAll('.theme-card').forEach(c => c.classList.remove('active'));
-      document.querySelector(`[data-id="${themeId}"]`).classList.add('active');
-
-      currentColors = { ...theme.colors };
-      applyColorsToInputs(theme.colors);
-      showStatus('Theme selected! Click "Save Theme" to apply permanently.', 'success');
+    // the colours in the inputs and on this page, with the matching preset lit
+    function showColors(colors) {
+      currentColors = { ...colors };
+      applyColorsToInputs(colors);
+      ThemeManager.applyThemeColors(colors);
+      const hit = themes.find(t => same(t.colors, colors));
+      document.querySelectorAll('.theme-card').forEach(c => c.classList.toggle('active', !!hit && c.dataset.id === hit.id));
+      markDirty();
     }
-
-    function loadCurrentColors() {
-      const defaultTheme = themes.find(t => t.id === 'default-blue');
-      if (defaultTheme) {
-        currentColors = { ...defaultTheme.colors };
-        applyColorsToInputs(defaultTheme.colors);
-      }
+    function preview(colors) {
+      showColors(colors);
+      if (!same(colors, savedColors || defaultColors())) showStatus('Preview only. Save to apply it to every device.', 'info');
+    }
+    function markDirty() {
+      const dirty = !same(currentColors, savedColors || defaultColors());
+      document.getElementById('btn-save').classList.toggle('dirty', dirty);
     }
 
     function applyColorsToInputs(colors) {
-      document.getElementById('color-primary').value = colors.primary;
-      document.getElementById('text-primary').value = colors.primary;
-      document.getElementById('color-primary-dark').value = colors.primaryDark;
-      document.getElementById('text-primary-dark').value = colors.primaryDark;
-      document.getElementById('color-bg-light').value = colors.bgLight;
-      document.getElementById('text-bg-light').value = colors.bgLight;
-      document.getElementById('color-card-light').value = colors.cardLight;
-      document.getElementById('text-card-light').value = colors.cardLight;
-      document.getElementById('color-text-light').value = colors.textLight;
-      document.getElementById('text-text-light').value = colors.textLight;
-      document.getElementById('color-muted-light').value = colors.mutedLight;
-      document.getElementById('text-muted-light').value = colors.mutedLight;
-      document.getElementById('color-bg-dark').value = colors.bgDark;
-      document.getElementById('text-bg-dark').value = colors.bgDark;
-      document.getElementById('color-card-dark').value = colors.cardDark;
-      document.getElementById('text-card-dark').value = colors.cardDark;
-      document.getElementById('color-text-dark').value = colors.textDark;
-      document.getElementById('text-text-dark').value = colors.textDark;
-      document.getElementById('color-muted-dark').value = colors.mutedDark;
-      document.getElementById('text-muted-dark').value = colors.mutedDark;
-      document.getElementById('color-primary-dark-theme').value = colors.primaryDarkTheme;
-      document.getElementById('text-primary-dark-theme').value = colors.primaryDarkTheme;
+      const ids = { primary: 'primary', primaryDark: 'primary-dark', bgLight: 'bg-light', cardLight: 'card-light', textLight: 'text-light', mutedLight: 'muted-light',
+        bgDark: 'bg-dark', cardDark: 'card-dark', textDark: 'text-dark', mutedDark: 'muted-dark', primaryDarkTheme: 'primary-dark-theme' };
+      for (const [k, id] of Object.entries(ids)) {
+        if (!colors[k]) continue;
+        document.getElementById('color-' + id).value = colors[k];
+        document.getElementById('text-' + id).value = colors[k];
+      }
     }
 
     function setupColorInputs() {
@@ -671,65 +644,77 @@
     }
 
     function updateCurrentColors() {
-      currentColors = {
-        primary: document.getElementById('text-primary').value,
-        primaryDark: document.getElementById('text-primary-dark').value,
-        bgLight: document.getElementById('text-bg-light').value,
-        cardLight: document.getElementById('text-card-light').value,
-        textLight: document.getElementById('text-text-light').value,
-        mutedLight: document.getElementById('text-muted-light').value,
-        bgDark: document.getElementById('text-bg-dark').value,
-        cardDark: document.getElementById('text-card-dark').value,
-        textDark: document.getElementById('text-text-dark').value,
-        mutedDark: document.getElementById('text-muted-dark').value,
-        primaryDarkTheme: document.getElementById('text-primary-dark-theme').value
-      };
-
-      document.querySelectorAll('.theme-card').forEach(c => c.classList.remove('active'));
+      const v = (id) => document.getElementById('text-' + id).value;
+      preview({
+        primary: v('primary'), primaryDark: v('primary-dark'), bgLight: v('bg-light'), cardLight: v('card-light'),
+        textLight: v('text-light'), mutedLight: v('muted-light'), bgDark: v('bg-dark'), cardDark: v('card-dark'),
+        textDark: v('text-dark'), mutedDark: v('muted-dark'), primaryDarkTheme: v('primary-dark-theme')
+      });
     }
 
     function setupButtons() {
       document.getElementById('btn-reset').addEventListener('click', async () => {
         const result = await ThemeManager.resetTheme();
-        if (result.success) {
-          const defaultTheme = themes.find(t => t.id === 'default-blue');
-          if (defaultTheme) {
-            selectTheme('default-blue');
-          }
-          showStatus(result.message + ' Refresh to see changes across all pages.', 'success');
-          setTimeout(() => location.reload(), 1000);
-        } else {
-          showStatus('Error: ' + result.message, 'error');
-        }
+        if (!result.success) { showStatus(result.message, 'error'); return; }
+        savedColors = null;
+        showColors(defaultColors());
+        ThemeManager.applyThemeColors(null);
+        tellParent({ colors: null });
+        showStatus(result.message, 'success');
       });
       document.getElementById('btn-save').addEventListener('click', async () => {
         const saveBtn = document.getElementById('btn-save');
         saveBtn.disabled = true;
-        saveBtn.textContent = 'Saving to SD Card...';
-
-        try {
-          const result = await ThemeManager.saveThemeToStorage(currentColors);
-          saveBtn.disabled = false;
-          saveBtn.textContent = 'Save Theme';
-          if (result.success) {
-            showStatus(result.message, 'success');
-          } else {
-            showStatus('Error: ' + result.message, 'error');
-          }
-        } catch (err) {
-          saveBtn.disabled = false;
-          saveBtn.textContent = 'Save Theme';
-          showStatus('Error: ' + err.message, 'error');
-        }
+        saveBtn.textContent = 'Saving…';
+        // the default blue is saved as no theme at all, so a reset and picking Default Blue end up the same
+        const isDefault = same(currentColors, defaultColors());
+        const result = isDefault ? await ThemeManager.resetTheme() : await ThemeManager.saveThemeToServer(currentColors);
+        saveBtn.disabled = false;
+        saveBtn.textContent = 'Save';
+        if (!result.success) { showStatus(result.message, 'error'); return; }
+        savedColors = isDefault ? null : { ...currentColors };
+        markDirty();
+        tellParent({ colors: savedColors });
+        showStatus(isDefault ? 'Saved. Default colours on every device.' : result.message, 'success');
       });
     }
 
+    function setupMode() {
+      document.querySelectorAll('#mode-seg button').forEach(b => b.addEventListener('click', async () => {
+        const mode = b.dataset.mode;
+        if (mode === cardMode) return;
+        const before = cardMode;
+        cardMode = mode; showMode();
+        const result = await ThemeManager.setDefaultMode(mode);
+        if (!result.success) { cardMode = before; showMode(); showStatus(result.message, 'error'); return; }
+        tellParent({ mode });
+        showStatus(mode === 'auto' ? 'Every device now follows its own setting.' : `Every device now starts in ${mode} mode.`, 'success');
+      }));
+      document.getElementById('btn-forget').addEventListener('click', () => {
+        ThemeManager.clearOwnDarkMode();
+        showMode();
+        tellParent({ mode: cardMode });
+      });
+    }
+    function showMode() {
+      document.querySelectorAll('#mode-seg button').forEach(b => b.classList.toggle('on', b.dataset.mode === cardMode));
+      // a browser with its own pick doesn't see the default change; show a note, with a way back
+      const own = ThemeManager.hasOwnDarkMode();
+      const ownDark = own && localStorage.getItem(ThemeManager.STORAGE_KEY) === 'true';
+      const differs = own && (cardMode === 'auto' || ownDark !== (cardMode === 'dark'));
+      document.getElementById('own-note').hidden = !differs;
+      report();
+    }
+
+    let statusTimer = 0;
     function showStatus(message, type) {
       const statusEl = document.getElementById('status-message');
       statusEl.textContent = message;
       statusEl.className = `status-message status-${type}`;
       statusEl.style.display = 'block';
-      setTimeout(() => { statusEl.style.display = 'none'; }, 5000);
+      clearTimeout(statusTimer);
+      statusTimer = setTimeout(() => { statusEl.style.display = 'none'; report(); }, 6000);
+      report();
     }
 
     init();

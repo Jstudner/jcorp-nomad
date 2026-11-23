@@ -1,17 +1,18 @@
 <!DOCTYPE html>
 <!-- Nomad Files Page -->
-<!-- Version 4 -->
+<!-- Version 5 -->
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
+<script>/* nomad-load-guard: reload, twice at most, when one of Nomad's own scripts or stylesheets fails to load */(function(){var k='nomadLoadGuard:'+location.pathname;window.addEventListener('error',function(e){var t=e.target;if(!t||!t.tagName)return;var s=t.tagName==='SCRIPT',c=t.tagName==='LINK'&&/stylesheet/i.test(t.rel||'');if(!s&&!c)return;var u=t.src||t.href||'';if(u.indexOf(location.origin+'/')!==0)return;var n=0;try{n=+sessionStorage.getItem(k)||0;}catch(x){return;}if(n>=2)return;try{sessionStorage.setItem(k,String(n+1));}catch(x){return;}setTimeout(function(){location.reload();},1500*(n+1));},true);window.addEventListener('load',function(){setTimeout(function(){try{sessionStorage.removeItem(k);}catch(x){}},15000);});})();</script>
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <meta name="description" content="Jcorp Nomad Media Server – Files" />
   <title>Nomad • Files</title>
   <link rel="icon" href="favicon.ico" type="image/x-icon" />
   <link rel="stylesheet" href="/master.css" />
-  <script src="/theme-boot.js"></script>
-  <script src="/nomad-utils.js?v=45"></script>
-  <script src="/theme-manager.js"></script>
+  <script src="/theme-boot.js?v=5"></script>
+  <script src="/nomad-utils.js?v=52"></script>
+  <script src="/theme-manager.js?v=5"></script>
   <style>
     /* Functional CSS: Full-height layout and sticky positioning */
     html, body { height: 100%; }
@@ -21,6 +22,7 @@
       min-height: 100vh;
       padding: 0 0.5rem;
     }
+    body.fv-open { overflow: hidden; }
 
     header {
       position: sticky;
@@ -34,17 +36,17 @@
       gap: 0.5rem;
     }
 
+    /* top is set from the header's real height (fitToolbar), the header wraps on phones */
     .toolbar {
       padding: 0.75rem 1rem;
       display: flex;
-      gap: 1rem;
+      gap: 0.6rem;
       flex-wrap: wrap;
       align-items: center;
       border-bottom: 1px solid var(--line);
       position: sticky;
-      top: 56px;
+      top: var(--header-height);
       z-index: 45;
-      justify-content: flex-end;
       margin-left: -0.5rem;
       margin-right: -0.5rem;
       padding-left: calc(1rem + 0.5rem);
@@ -61,10 +63,8 @@
       font-size: 0.9rem;
       min-width: 0;
     }
-    body.dark .toolbar input[type="search"] { background: var(--card); color: var(--text); }
-
-    .toolbar .btn {
-      padding: .5rem .9rem;
+    .toolbar .btn, .toolbar select, .view-switch button {
+      padding: .5rem .8rem;
       border: 1px solid var(--line);
       background: var(--card);
       color: var(--text);
@@ -72,69 +72,116 @@
       font-size: .9rem;
       cursor: pointer;
     }
-    .toolbar select {
-      padding: 0.5rem 0.75rem;
-      border: 1px solid var(--line);
-      background: var(--card);
-      color: var(--text);
-      border-radius: var(--radius);
-      font-size: 0.9rem;
-      min-width: 120px;
-    }
+    .toolbar select { min-width: 0; flex: 1 1 110px; max-width: 180px; }
+    .view-switch { display: inline-flex; flex: 0 0 auto; margin-left: auto; }
+    .view-switch button { padding: .3rem .75rem; font-size: .85rem; }
+    .view-switch button:first-child { border-radius: var(--radius) 0 0 var(--radius); }
+    .view-switch button:last-child { border-radius: 0 var(--radius) var(--radius) 0; border-left: 0; }
+    .view-switch button[aria-pressed="true"] { background: var(--primary); color: var(--color-white, #fff); border-color: var(--primary); }
 
     main {
       flex: 1;
-      padding: 1rem;
-      max-width: 800px;
+      padding: 0.75rem 1rem 1rem;
+      max-width: 960px;
       width: 100%;
       margin: 0 auto;
     }
 
-    ul.file-list { list-style: none; padding: 0; margin: 0; }
-    ul.file-list li {
+    /* where you are: Files › Manuals › Army */
+    .where { display: flex; align-items: center; gap: .5rem; margin: 0 0 .75rem; }
+    .crumbs { display: flex; flex-wrap: wrap; align-items: center; gap: .15rem .3rem; font-size: .92rem; color: var(--muted); min-height: 1.6rem; min-width: 0; }
+    .crumbs button { border: 0; background: none; color: var(--primary); font: inherit; padding: .15rem .25rem; cursor: pointer; border-radius: 4px; }
+    .crumbs button:hover { background: var(--primary-alpha-10, rgba(0,0,0,.06)); }
+    .crumbs b { color: var(--text); padding: .15rem .25rem; word-break: break-word; }
+    .crumbs .sep { opacity: .6; }
+
+    .file-list { list-style: none; padding: 0; margin: 0; }
+    .file-list li.msg { color: var(--muted); padding: 1.5rem .5rem; text-align: center; list-style: none; }
+    .fopen { all: unset; box-sizing: border-box; cursor: pointer; display: flex; min-width: 0; color: var(--text); }
+    .fopen:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; border-radius: var(--radius); }
+    .fname { font-weight: 600; word-break: break-word; }
+    .fsub { font-size: .8rem; color: var(--muted); word-break: break-word; }
+    .fr.hit, .ft.hit { box-shadow: 0 0 0 2px var(--primary); }
+
+    /* master.css draws every .file-list li as a padded card: the rows and tiles here draw their own */
+    body .file-list[class] li { padding: 0; margin: 0; background: none; box-shadow: none; display: block; }
+
+    /* list view */
+    body .file-list.list .fr {
       background: var(--card-bg);
       border-radius: var(--radius);
       box-shadow: var(--shadow);
-      padding: 0.75rem 1rem;
-      margin-bottom: 0.75rem;
+      margin-bottom: .6rem;
       display: flex;
-      justify-content: space-between;
       align-items: center;
-      gap: 1rem;
-      word-break: break-word;
-      opacity: 0;
-      transform: translateY(10px);
-      animation: fadeInUp 0.3s forwards;
+      gap: .5rem;
+      padding-right: .5rem;
     }
-    @keyframes fadeInUp { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
-    ul.file-list li a {
-      color: var(--primary);
-      text-decoration: none;
-      font-weight: 500;
-      white-space: nowrap;
-      overflow: hidden;
-      text-overflow: ellipsis;
-      max-width: 60%;
-      display: inline-block;
+    .file-list.list .fopen { flex: 1; align-items: center; gap: .75rem; padding: .65rem .75rem; }
+    .file-list.list .fmain { display: flex; flex-direction: column; gap: .15rem; min-width: 0; }
+    .file-list.list .ficon { flex: 0 0 auto; width: 40px; height: 40px; border-radius: 8px; display: flex; flex-direction: column; align-items: center; justify-content: center; background: var(--primary-alpha-10, rgba(0,0,0,.06)); color: var(--primary); }
+    .file-list.list .ficon svg { width: 22px; height: 22px; }
+    .file-list.list .ficon .ext { display: none; }
+    .fdl { flex: 0 0 auto; color: var(--primary); font-weight: 600; font-size: .85rem; text-decoration: none; padding: .4rem .5rem; border-radius: var(--radius); }
+    .fdl:hover { background: var(--primary-alpha-10, rgba(0,0,0,.06)); }
+
+    /* grid view */
+    .file-list.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: .9rem; }
+    @media (max-width: 600px) { .file-list.grid { grid-template-columns: repeat(3, 1fr); gap: .6rem; } }
+    .file-list.grid li.msg { grid-column: 1 / -1; }
+    .file-list.grid .ft { min-width: 0; }
+    .file-list.grid .fopen { flex-direction: column; gap: .3rem; width: 100%; }
+    .file-list.grid .fmain { display: flex; flex-direction: column; gap: .1rem; padding: 0 .15rem; text-align: center; min-width: 0; }
+    .file-list.grid .fname { font-size: .82rem; line-height: 1.25; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+    .file-list.grid .fsub { font-size: .72rem; }
+    .file-list.grid .ficon {
+      position: relative; width: 100%; aspect-ratio: 1 / 1; border-radius: var(--radius); overflow: hidden;
+      box-shadow: var(--shadow); background: var(--card-bg); color: var(--primary);
+      display: flex; flex-direction: column; gap: .35rem; align-items: center; justify-content: center;
     }
-    .file-info {
-      font-size: 0.85rem;
-      color: var(--muted);
-      white-space: nowrap;
-      flex-shrink: 0;
-      min-width: 110px;
-      text-align: right;
+    .file-list.grid .ficon svg { width: 38%; height: auto; opacity: .75; }
+    .file-list.grid .ficon .ext {
+      font-size: .66rem; font-weight: 800; letter-spacing: .06em; padding: .14rem .45rem; border-radius: 999px;
+      background: var(--primary); color: var(--color-white, #fff); max-width: 90%; overflow: hidden; text-overflow: ellipsis;
     }
+    .file-list.grid .ficon.folder { background: var(--primary-alpha-10, rgba(0,0,0,.06)); box-shadow: none; }
+    .ficon img.pv { position: absolute; top:0;right:0;bottom:0;left:0;inset:0; width: 100%; height: 100%; object-fit: cover; opacity: 0; transition: opacity .3s ease; }
+    .ficon img.pv.on { opacity: 1; }
+
+    .more { display: block; margin: .5rem auto 1rem; padding: .5rem 1rem; border: 1px solid var(--line); background: var(--card); color: var(--text); border-radius: var(--radius); cursor: pointer; }
+
+    /* the viewer: pictures, video and sound in the page, and a details sheet for the rest */
+    .fv { position: fixed; top:0;right:0;bottom:0;left:0;inset:0; z-index: 200; display: flex; flex-direction: column; background: rgba(0,0,0,.92); color: #fff; }
+    .fv[hidden] { display: none; }
+    .fv-bar { display: flex; align-items: center; gap: .5rem; padding: .5rem .6rem; padding-top: max(.5rem, env(safe-area-inset-top)); background: rgba(0,0,0,.55); }
+    .fv-bar .fv-title { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+    .fv-bar .fv-title b { font-size: .95rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .fv-bar .fv-title small { font-size: .75rem; color: rgba(255,255,255,.65); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .fv-bar button, .fv-bar a { flex: 0 0 auto; border: 1px solid rgba(255,255,255,.3); background: rgba(255,255,255,.08); color: #fff; border-radius: var(--radius); padding: .4rem .75rem; font-size: .88rem; cursor: pointer; text-decoration: none; }
+    .fv-body { flex: 1; min-height: 0; position: relative; display: flex; align-items: center; justify-content: center; padding: .5rem; }
+    .fv-body img, .fv-body video { max-width: 100%; max-height: 100%; object-fit: contain; display: block; }
+    .fv-body video { width: 100%; background: #000; }
+    .fv-wait { position: absolute; top:0;right:0;bottom:0;left:0;inset:0; display: flex; align-items: center; justify-content: center; color: rgba(255,255,255,.7); font-size: .9rem; pointer-events: none; }
+    .fv-nav { position: absolute; top: 50%; transform: translateY(-50%); z-index: 2; width: 44px; height: 64px; border: 0; border-radius: 10px; background: rgba(0,0,0,.45); color: #fff; font-size: 1.6rem; cursor: pointer; }
+    .fv-nav.prev { left: 8px; } .fv-nav.next { right: 8px; }
+    .fv-count { position: absolute; bottom: 10px; left: 50%; transform: translateX(-50%); font-size: .78rem; background: rgba(0,0,0,.5); padding: .15rem .55rem; border-radius: 999px; }
+    /* audio and the details sheet sit on a themed card in the middle */
+    .fv-card { background: var(--card-bg); color: var(--text); border-radius: var(--radius); box-shadow: var(--shadow); padding: 1.25rem; width: min(420px, 100%); display: flex; flex-direction: column; align-items: center; gap: .8rem; text-align: center; }
+    .fv-card .ficon { width: 96px; height: 96px; border-radius: 16px; display: flex; flex-direction: column; gap: .3rem; align-items: center; justify-content: center; background: var(--primary-alpha-10, rgba(0,0,0,.06)); color: var(--primary); }
+    .fv-card .ficon svg { width: 44px; height: 44px; }
+    .fv-card .ficon .ext { font-size: .7rem; font-weight: 800; letter-spacing: .06em; padding: .12rem .45rem; border-radius: 999px; background: var(--primary); color: var(--color-white, #fff); }
+    .fv-card b { word-break: break-word; }
+    .fv-card small { color: var(--muted); word-break: break-word; }
+    .fv-card audio { width: 100%; }
+    .fv-card .fv-dl { display: inline-block; padding: .55rem 1.1rem; border-radius: var(--radius); background: var(--primary); color: var(--color-white, #fff); text-decoration: none; font-weight: 600; }
 
     @media (max-width: 600px) {
       body { padding: 0 0.25rem; }
       header { padding-left: calc(1rem + 0.25rem); padding-right: calc(1rem + 0.25rem); margin-left: -0.25rem; margin-right: -0.25rem; }
-      .toolbar { flex-direction: column; align-items: stretch; justify-content: center; padding-left: calc(1rem + 0.25rem); padding-right: calc(1rem + 0.25rem); margin-left: -0.25rem; margin-right: -0.25rem; }
-      .toolbar input[type="search"], .toolbar select { flex: none; width: 100%; min-width: auto; }
-      main { padding: 0.75rem 0.5rem; width: 100%; }
-      ul.file-list li { flex-direction: column; align-items: flex-start; gap: 0.5rem; padding: 0.5rem 0.75rem; }
-      ul.file-list li a { max-width: 100%; white-space: normal; word-break: break-word; }
-      .file-info { white-space: normal; width: 100%; text-align: left; min-width: auto; }
+      .toolbar { padding-left: calc(.75rem + 0.25rem); padding-right: calc(.75rem + 0.25rem); margin-left: -0.25rem; margin-right: -0.25rem; }
+      .toolbar input[type="search"] { flex-basis: 100%; }
+      .toolbar select { max-width: none; }
+      main { padding: 0.75rem 0.5rem; }
     }
     body.dark .back-btn { background: rgba(255,255,255,0.12); color: var(--header-text); }
   </style>
@@ -146,25 +193,11 @@
   </header>
 
   <div class="toolbar">
-    <input id="searchInput" type="search" placeholder="Search files…" aria-label="Search files" />
+    <input id="searchInput" type="search" placeholder="Search all files" aria-label="Search files" />
+    <!-- filled from what is on the card -->
     <select id="typeFilter" aria-label="Filter by type">
-      <option value="all">All</option>
-      <option value="pdf">PDF</option>
-      <option value="txt">TXT</option>
-      <option value="zip">ZIP</option>
-      <option value="mp3">MP3</option>
-      <option value="mp4">MP4</option>
-      <option value="html">HTML</option>
-      <option value="stl">STL</option>
-      <option value="png">PNG</option>
-      <option value="jpg">JPG</option>
-      <option value="exe">EXE</option>
-      <option value="docx">DOCX</option>
-      <option value="xlsx">XLSX</option>
-      <option value="pptx">PPTX</option>
+      <option value="all">All types</option>
     </select>
-    <button id="uploadBtn" class="btn" style="display:none">Upload</button>
-    <input id="uploadInput" type="file" multiple style="display:none">
     <select id="sortSelect" aria-label="Sort files">
       <option value="nameAsc">Name A→Z</option>
       <option value="nameDesc">Name Z→A</option>
@@ -173,35 +206,99 @@
       <option value="typeAsc">Type ↑</option>
       <option value="typeDesc">Type ↓</option>
     </select>
+    <button id="uploadBtn" class="btn" style="display:none">Upload</button>
+    <input id="uploadInput" type="file" multiple style="display:none">
   </div>
 
   <main>
-    <ul id="fileList" class="file-list"></ul>
+    <div class="where">
+      <nav id="crumbs" class="crumbs" aria-label="Folder"></nav>
+      <div class="view-switch" role="group" aria-label="View">
+        <button type="button" data-view="list" aria-pressed="true">List</button>
+        <button type="button" data-view="grid" aria-pressed="false">Grid</button>
+      </div>
+    </div>
+    <ul id="fileList" class="file-list list"></ul>
   </main>
+
+  <div id="viewer" class="fv" hidden role="dialog" aria-modal="true" aria-labelledby="fvName">
+    <div class="fv-bar">
+      <button type="button" id="fvClose" aria-label="Close">✕</button>
+      <div class="fv-title"><b id="fvName"></b><small id="fvWhere"></small></div>
+      <a id="fvDl" href="#" download>Download</a>
+    </div>
+    <div class="fv-body" id="fvBody"></div>
+  </div>
 
 <script>
     /* Config */
     const ROOT_PATH = '/Files';
-    const INDEX_ENDPOINT = '/api/index';
-    // /media is the firmware's byte-range file endpoint; the old /download
-    // route never existed on this firmware, every link fell to the portal
+    // /media is the firmware's byte-range file endpoint (there is no /download route)
     const DOWNLOAD_ENDPOINT = '/media';
+    const VIEW_KEY = 'nomad:files:view:v1';
+    const PAGE_SIZE = 300;   // rows drawn at once, a flat search of a big card can be thousands
 
     function fileUrl(path) {
       return `${DOWNLOAD_ENDPOINT}?file=${encodeURIComponent(path)}`;
     }
+    const dlUrl = (path) => fileUrl(path) + '&download=1';
+    // documents, slides and sheets open in the reader (docview.html) instead of downloading
+    const READABLE = /^(docx|docm|dotx|odt|ott|pptx|pptm|ppsx|potx|odp|otp|xlsx|xlsm|xltx|ods|ots|csv|tsv|md|markdown|txt|log|rtf|gdoc|gsheet|gslides|doc|xls|ppt|pps)$/;
+    const IMAGE   = /^(jpe?g|png|gif|webp|avif|bmp|svg)$/;
+    const VIDEO   = /^(mp4|m4v|webm|mov|ogv)$/;
+    const AUDIO   = /^(mp3|m4a|m4b|aac|ogg|oga|opus|wav|flac)$/;
+    const ARCHIVE = /^(zip|7z|rar|tar|gz|tgz|bz2|xz)$/;
+    function kindOf(ext) {
+      if (IMAGE.test(ext)) return 'image';
+      if (VIDEO.test(ext)) return 'video';
+      if (AUDIO.test(ext)) return 'audio';
+      if (ext === 'pdf') return 'pdf';
+      if (ext === 'epub') return 'epub';
+      if (/^(cbz|cbr|cb7)$/.test(ext)) return 'comic';
+      if (READABLE.test(ext)) return 'doc';
+      if (ARCHIVE.test(ext)) return 'archive';
+      return 'file';
+    }
+    // kinds that have a reader page of their own
+    const PAGE_FOR = {
+      pdf:   (p) => `/pdf.html?path=${encodeURIComponent(p)}`,
+      epub:  (p) => `/epub.html?path=${encodeURIComponent(p)}`,
+      comic: (p) => `/comics.html?path=${encodeURIComponent(p)}`,
+      doc:   (p) => `/docview.html?file=${encodeURIComponent(p)}`
+    };
+
+    /* icons: inline SVG on currentColor so they follow the theme */
+    const svg = (body) => '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' + body + '</svg>';
+    const PAGE_PATH = '<path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/>';
+    const ICONS = {
+      folder:  svg('<path d="M3 7a2 2 0 0 1 2-2h4l2 2.5h8a2 2 0 0 1 2 2V18a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>'),
+      image:   svg('<rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="9" cy="10" r="2"/><path d="M21 17l-5-5-9 8"/>'),
+      video:   svg('<rect x="3" y="5" width="14" height="14" rx="2"/><path d="M17 10l4-2.5v9L17 14"/>'),
+      audio:   svg('<path d="M9 18V5l11-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="17" cy="16" r="3"/>'),
+      pdf:     svg(PAGE_PATH + '<path d="M9 13h6M9 17h4"/>'),
+      epub:    svg('<path d="M4 5a2 2 0 0 1 2-2h13v16H6a2 2 0 0 0-2 2z"/><path d="M4 21a2 2 0 0 1 2-2h13v2"/>'),
+      comic:   svg('<rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 12h18M12 3v9"/>'),
+      doc:     svg(PAGE_PATH + '<path d="M9 12h6M9 15h6M9 18h4"/>'),
+      archive: svg('<rect x="3" y="4" width="18" height="5" rx="1"/><path d="M5 9v10a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V9"/><path d="M10 13h4"/>'),
+      file:    svg(PAGE_PATH)
+    };
+
     /* State */
-    const files = [];
-    let filtered = [];
+    const files = [];      // { name, path, dir, type, kind, size }
+    let folders = new Map();   // folder path -> { name, path, parent, count }
+    let shown = [];        // what the list holds right now, folders first
+    let limit = PAGE_SIZE;
+    let cwd = ROOT_PATH;
+    let filesDownloadable = true;   // set from the admin's download switches once they load
+    let view = NomadPrefs.get(VIEW_KEY, 'list') === 'grid' ? 'grid' : 'list';
 
     function formatBytes(bytes) {
-      if (bytes === 0) return '0 Bytes';
+      if (!bytes) return '0 Bytes';
       const k = 1024;
       const sizes = ['Bytes', 'KB', 'MB', 'GB'];
-      const i = Math.floor(Math.log(bytes) / Math.log(k));
+      const i = Math.min(sizes.length - 1, Math.floor(Math.log(bytes) / Math.log(k)));
       return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
     }
-
 
     function escapeHtml(str) {
       if (!str) return '';
@@ -212,142 +309,581 @@
       const i = (name || '').lastIndexOf('.');
       return i > 0 ? name.slice(i + 1).toLowerCase() : '';
     }
+    const parentOf = (p) => p.slice(0, p.lastIndexOf('/')) || '/';
+    // "Manuals/Army" for /Files/Manuals/Army, "" for /Files itself
+    const relDir = (p) => p === ROOT_PATH ? '' : p.slice(ROOT_PATH.length + 1);
+    const whereText = (dir) => relDir(dir) ? 'in ' + relDir(dir) : 'in Files';
 
-    async function fetchIndex(path) {
-      const INDEX_ENDPOINT = '/api/index';
-      const url = `${INDEX_ENDPOINT}?path=${encodeURIComponent(normalizePath(path))}&_=${Date.now()}`;
-      // a busy card answers 503 for a moment right after boot; retry like the
-      // other library pages instead of showing an error
-      let res = await fetch(url, { cache: 'no-store' });
-      for (let i = 0; i < 3 && res.status === 503; i++) {
-        await new Promise(r => setTimeout(r, 700 * (i + 1)));
-        res = await fetch(url, { cache: 'no-store' });
-      }
-
-      if (res.status === 202) {
-        throw new Error('INDEX_BUILDING');
-      }
-
-      if (!res.ok) throw new Error('index fetch failed ' + res.status);
-      const text = await res.text();
-      const lines = text.split('\n').filter(Boolean);
-      const header = lines.length ? JSON.parse(lines[0]) : null;
-      const entries = [];
-      for (let i = 1; i < lines.length; i++) {
-        try { entries.push(JSON.parse(lines[i])); } catch (e) { }
-      }
-      return { header, entries };
-    }
+    // sticky offset from the header's real height: it wraps to two lines on a phone
+    (function fitToolbar() {
+      const h = document.querySelector('header'), tb = document.querySelector('.toolbar');
+      const apply = () => { if (h && tb) tb.style.top = h.offsetHeight + 'px'; };
+      apply();
+      window.addEventListener('resize', apply);
+      if (window.ResizeObserver && h) new ResizeObserver(apply).observe(h);
+    })();
 
     async function init() {
+      const fileListEl = document.getElementById('fileList');
       try {
-        const fileListEl = document.getElementById('fileList');
-        fileListEl.innerHTML = '<li>Loading files...</li>';
-
-        const resp = await fetchIndex('/Files');
-        if (resp.entries && resp.entries.length > 0) {
-          files.length = 0;
-          files.push(...resp.entries
-            .filter(Boolean)
-            .filter(obj => obj.t === 'f')
-            .map(obj => {
-              const path = obj.n && obj.n.startsWith('/Files/') ? obj.n : `/Files/${(obj.n || '').replace(/^\/+/, '')}`;
-              const ext = extFromName(obj.n || '');
-              return {
-                name: obj.n || path.split('/').pop(),
-                path: path,
-                type: ext,
-                size: obj.sz || 0
-              };
-            })
-          );
-        } else {
-          // media.json is only a bucket-count summary on this firmware, so
-          // there is no fallback list to read - an empty index is the answer
-          fileListEl.innerHTML = '<li>No files found. The index may be building.</li>';
-          return;
+        if (!files.length) fileListEl.innerHTML = '<li class="msg">Loading files...</li>';
+        // the /Files index is recursive: every subfolder and file, each with its full path
+        const resp = await NomadIndex.fetch(ROOT_PATH);
+        files.length = 0;
+        folders = new Map();
+        const addFolder = (p) => {
+          while (p.startsWith(ROOT_PATH + '/') && !folders.has(p)) {
+            folders.set(p, { name: p.slice(p.lastIndexOf('/') + 1), path: p, parent: parentOf(p), count: 0 });
+            p = parentOf(p);
+          }
+        };
+        for (const e of resp.entries) {
+          if (!e || !e.n) continue;
+          // the full path is "p". "n" is the bare name, don't build a path from it or every
+          // file in a subfolder ends up at /Files/<name>
+          const path = normalizePath(e.p || (ROOT_PATH + '/' + e.n));
+          if (!path.startsWith(ROOT_PATH + '/')) continue;
+          if (e.t === 'd') { addFolder(path); continue; }
+          if (e.t !== 'f') continue;
+          const type = extFromName(e.n);
+          files.push({ name: e.n, path, dir: parentOf(path), type, kind: kindOf(type), size: +e.sz || 0 });
+          addFolder(parentOf(path));
         }
+        for (const f of files) { const d = folders.get(f.dir); if (d) d.count++; }
+        for (const d of folders.values()) { const up = folders.get(d.parent); if (up) up.count++; }
 
+        buildTypeFilter();
+        if (!folders.has(cwd)) cwd = ROOT_PATH;
         applyFilters();
+        openFromHash();
       } catch (e) {
-        if (e.message === 'INDEX_BUILDING') {
-          document.getElementById('fileList').innerHTML = '<li>Index is building, please wait...</li>';
+        if (NomadIndex.isBuilding(e)) {
+          fileListEl.innerHTML = '<li class="msg">Index is building…</li>';
           setTimeout(init, 5000);
         } else {
           console.error('Error loading files:', e);
-          document.getElementById('fileList').innerHTML = '<li>Error loading files.</li>';
+          fileListEl.innerHTML = '<li class="msg">Couldn\'t load files. Reload to try again.</li>';
         }
       }
     }
 
+    // the types on this card, A to Z
+    function buildTypeFilter() {
+      const sel = document.getElementById('typeFilter');
+      const keep = sel.value;
+      const counts = new Map();
+      for (const f of files) if (f.type) counts.set(f.type, (counts.get(f.type) || 0) + 1);
+      const types = [...counts.keys()].sort();
+      sel.innerHTML = '<option value="all">All types</option>' +
+        types.map(t => `<option value="${escapeHtml(t)}">${escapeHtml(t.toUpperCase())} (${counts.get(t)})</option>`).join('');
+      sel.value = types.includes(keep) ? keep : 'all';
+    }
+
+    const searching = () => !!(document.getElementById('searchInput').value.trim() || document.getElementById('typeFilter').value !== 'all');
+
     function applyFilters() {
-      const search = document.getElementById('searchInput').value.toLowerCase();
+      const search = document.getElementById('searchInput').value.trim().toLowerCase();
       const typeFilter = document.getElementById('typeFilter').value;
       const sortBy = document.getElementById('sortSelect').value;
 
-      filtered = files.filter(file => {
-        const matchesSearch = file.name.toLowerCase().includes(search);
-        const matchesType = typeFilter === 'all' || file.type === typeFilter;
-        return matchesSearch && matchesType;
-      });
+      let dirs, list;
+      if (searching()) {
+        // a search or a type looks through every folder
+        list = files.filter(f => (!search || f.name.toLowerCase().includes(search)) && (typeFilter === 'all' || f.type === typeFilter));
+        dirs = typeFilter === 'all' ? [...folders.values()].filter(d => d.name.toLowerCase().includes(search)) : [];
+      } else {
+        list = files.filter(f => f.dir === cwd);
+        dirs = [...folders.values()].filter(d => d.parent === cwd);
+      }
 
-      filtered.sort((a, b) => {
+      list.sort((a, b) => {
         switch (sortBy) {
-          case 'nameAsc': return a.name.localeCompare(b.name);
           case 'nameDesc': return b.name.localeCompare(a.name);
-          case 'sizeAsc': return a.size - b.size;
-          case 'sizeDesc': return b.size - a.size;
-          case 'typeAsc': return a.type.localeCompare(b.type);
-          case 'typeDesc': return b.type.localeCompare(a.type);
-          default: return 0;
+          case 'sizeAsc': return a.size - b.size || a.name.localeCompare(b.name);
+          case 'sizeDesc': return b.size - a.size || a.name.localeCompare(b.name);
+          case 'typeAsc': return a.type.localeCompare(b.type) || a.name.localeCompare(b.name);
+          case 'typeDesc': return b.type.localeCompare(a.type) || a.name.localeCompare(b.name);
+          default: return a.name.localeCompare(b.name);
         }
       });
+      dirs.sort((a, b) => sortBy === 'nameDesc' ? b.name.localeCompare(a.name) : a.name.localeCompare(b.name));
 
+      shown = [...dirs.map(d => Object.assign({ isDir: true }, d)), ...list];
+      limit = PAGE_SIZE;
+      renderCrumbs();
       renderFiles();
+    }
+
+    function renderCrumbs() {
+      const el = document.getElementById('crumbs');
+      if (searching()) {
+        el.innerHTML = `<span>${shown.length} found in all folders</span>`;
+        return;
+      }
+      const parts = relDir(cwd) ? relDir(cwd).split('/') : [];
+      let html = parts.length ? `<button type="button" data-go="${escapeHtml(ROOT_PATH)}">Files</button>` : '<b>Files</b>';
+      let p = ROOT_PATH;
+      parts.forEach((name, i) => {
+        p += '/' + name;
+        html += '<span class="sep">›</span>' + (i === parts.length - 1
+          ? `<b>${escapeHtml(name)}</b>`
+          : `<button type="button" data-go="${escapeHtml(p)}">${escapeHtml(name)}</button>`);
+      });
+      el.innerHTML = html;
+    }
+
+    function tileHTML(item) {
+      const kind = item.isDir ? 'folder' : item.kind;
+      const ext = item.isDir ? '' : (item.type || 'file');
+      return `<span class="ficon${item.isDir ? ' folder' : ''}">${ICONS[kind] || ICONS.file}` +
+        (ext ? `<span class="ext">${escapeHtml(ext.toUpperCase())}</span>` : '') + '</span>';
+    }
+
+    function itemHTML(item, i) {
+      const cls = view === 'grid' ? 'ft' : 'fr';
+      if (item.isDir) {
+        const sub = item.count === 1 ? '1 item' : item.count + ' items';
+        return `<li class="${cls}"><button type="button" class="fopen" data-i="${i}">${tileHTML(item)}` +
+          `<span class="fmain"><span class="fname">${escapeHtml(item.name)}</span>` +
+          `<span class="fsub">${searching() ? escapeHtml(whereText(item.parent)) : sub}</span></span></button></li>`;
+      }
+      // a search lists files from every folder, so each says where it is
+      const bits = [formatBytes(item.size)];
+      if (view === 'list') bits.push(item.type.toUpperCase() || 'FILE');
+      if (searching()) bits.push(whereText(item.dir));
+      const page = PAGE_FOR[item.kind];
+      const open = page
+        ? `<a class="fopen" data-i="${i}" href="${page(item.path)}">`
+        : `<button type="button" class="fopen" data-i="${i}">`;
+      const dl = view === 'list' && filesDownloadable
+        ? `<a class="fdl" href="${dlUrl(item.path)}" download="${escapeHtml(item.name)}" aria-label="Download ${escapeHtml(item.name)}">Download</a>` : '';
+      return `<li class="${cls}" data-path="${escapeHtml(item.path)}">${open}${tileHTML(item)}` +
+        `<span class="fmain"><span class="fname">${escapeHtml(item.name)}</span><span class="fsub">${escapeHtml(bits.join(' • '))}</span></span>` +
+        `${page ? '</a>' : '</button>'}${dl}</li>`;
     }
 
     function renderFiles() {
       const fileListEl = document.getElementById('fileList');
-      if (filtered.length === 0) {
-        fileListEl.innerHTML = '<li>No files match your criteria.</li>';
+      fileListEl.className = 'file-list ' + view;
+      Thumbs.reset();
+      if (shown.length === 0) {
+        fileListEl.innerHTML = `<li class="msg">${searching() ? 'No matches' : (files.length || folders.size ? 'This folder is empty' : 'No files yet')}</li>`;
         return;
       }
+      const part = shown.slice(0, limit);
+      fileListEl.innerHTML = part.map(itemHTML).join('') +
+        (shown.length > limit ? `<li class="msg" style="grid-column:1/-1;padding:.5rem"><button type="button" class="more" id="moreBtn">Show more (${shown.length - limit} left)</button></li>` : '');
+      // grid: a small preview of each picture, only for the ones on screen
+      if (view === 'grid') {
+        fileListEl.querySelectorAll('[data-i]').forEach(el => {
+          const item = shown[+el.dataset.i];
+          if (item && !item.isDir && item.kind === 'image') Thumbs.watch(el.querySelector('.ficon'), item);
+        });
+      }
+    }
 
-      fileListEl.innerHTML = filtered.map(file => `
-        <li>
-          <a href="${fileUrl(file.path)}" download="${escapeHtml(file.name)}">${escapeHtml(file.name)}</a>
-          <div class="file-info">${formatBytes(file.size)} • ${escapeHtml(file.type.toUpperCase())}</div>
-        </li>
-      `).join('');
+    function setView(v) {
+      view = v === 'grid' ? 'grid' : 'list';
+      NomadPrefs.set(VIEW_KEY, view);
+      document.querySelectorAll('.view-switch button').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.view === view)));
+      renderFiles();
+    }
+
+    /* Every folder you go into is a history step, so Back goes up a folder before it leaves
+       the page. dirStack mirrors those steps. */
+    const dirStack = [];
+    function chainTo(path) {
+      const out = [];
+      for (let p = path; p.startsWith(ROOT_PATH + '/'); p = parentOf(p)) out.unshift(p);
+      return out;
+    }
+    // done() goes back through history, which lands later: wait for it before adding steps
+    function popTo(name) {
+      return new Promise(res => {
+        const t = setTimeout(res, 700);
+        window.addEventListener('popstate', () => { clearTimeout(t); setTimeout(res, 0); }, { once: true });
+        NomadBack.done(name);
+      });
+    }
+    async function goTo(path) {
+      path = normalizePath(path);
+      if (path !== ROOT_PATH && !folders.has(path)) path = ROOT_PATH;
+      const want = chainTo(path);
+      let k = 0;
+      while (k < dirStack.length && k < want.length && dirStack[k] === want[k]) k++;
+      if (k < dirStack.length) { const name = 'dir:' + dirStack[k]; dirStack.length = k; await popTo(name); }
+      for (let i = k; i < want.length; i++) {
+        const p = want[i];
+        dirStack.push(p);
+        NomadBack.open('dir:' + p, () => upFrom(p));
+      }
+      cwd = path;
+      document.getElementById('searchInput').value = '';
+      document.getElementById('typeFilter').value = 'all';
+      applyFilters();
+      window.scrollTo({ top: 0 });
+    }
+    function upFrom(p) {   // Back took the step into p off
+      const i = dirStack.lastIndexOf(p);
+      if (i >= 0) dirStack.length = i;
+      cwd = dirStack.length ? dirStack[dirStack.length - 1] : ROOT_PATH;
+      applyFilters();
+    }
+
+    /* Grid previews are made here, the device has no thumbnailing. Only tiles on screen, two
+       at a time. A JPEG's first 68 KB read usually holds the camera's own preview; a picture
+       without one is read whole only up to WHOLE_MAX. Previews are kept on the phone. */
+    const Thumbs = {
+      PX: 320, HEAD: 69632, WHOLE_MAX: 3 * 1024 * 1024, WORKERS: 2, MARGIN: 120,
+      q: [], busy: 0, io: null, gen: 0, urls: [],
+      paused: false,   // while the viewer is open, its one read has Nomad to itself
+
+      reset() {
+        this.gen++;
+        this.q.length = 0;
+        if (this.io) this.io.disconnect();
+        this.urls.forEach(u => URL.revokeObjectURL(u));
+        this.urls = [];
+      },
+      watch(tile, file) {
+        if (!tile) return;
+        tile._file = file;
+        if (!window.IntersectionObserver) return;   // no way to tell what is on screen: keep the type tile
+        if (!this.io) this.io = new IntersectionObserver(es => {
+          for (const e of es) if (e.isIntersecting) { this.io.unobserve(e.target); this.q.push({ tile: e.target, gen: this.gen }); this.pump(); }
+        }, { rootMargin: this.MARGIN + 'px 0px' });
+        this.io.observe(tile);
+      },
+      near(el) {
+        const r = el.getBoundingClientRect();
+        return r.bottom > -this.MARGIN && r.top < innerHeight + this.MARGIN && r.width > 0;
+      },
+      async pump() {
+        while (!this.paused && this.busy < this.WORKERS && this.q.length) {
+          const job = this.q.shift();
+          if (job.gen !== this.gen || !job.tile.isConnected) continue;
+          // scrolled past before its turn: look again when it comes back
+          if (!this.near(job.tile)) { this.io && this.io.observe(job.tile); continue; }
+          this.busy++;
+          this.make(job.tile._file).then(blob => {
+            if (!blob || job.gen !== this.gen || !job.tile.isConnected) return;
+            const url = URL.createObjectURL(blob);
+            this.urls.push(url);
+            const img = new Image();
+            img.className = 'pv';
+            img.alt = '';
+            img.onload = () => img.classList.add('on');
+            img.src = url;
+            job.tile.appendChild(img);
+          }).catch(() => {}).finally(() => { this.busy--; this.pump(); });
+        }
+      },
+      async make(f) {
+        const key = f.path + '|' + f.size;
+        const kept = await thumbStore.get(key);
+        if (kept) return kept;
+        let blob = null;
+        if (/^jpe?g$/.test(f.type) && f.size > this.HEAD) {
+          const r = await fetchRetry(fileUrl(f.path), { headers: { Range: 'bytes=0-' + (this.HEAD - 1) } });
+          if (!r.ok) return null;
+          const buf = await r.arrayBuffer();
+          const ex = exifThumb(buf);
+          if (ex) blob = await shrink(new Blob([new Uint8Array(buf, ex.start, ex.len)], { type: 'image/jpeg' }), ex.orientation);
+        }
+        if (!blob) {
+          if (f.size > this.WHOLE_MAX) return null;
+          const r = await fetchRetry(fileUrl(f.path));
+          if (!r.ok) return null;
+          blob = await shrink(await r.blob(), 1);
+        }
+        if (blob) thumbStore.put(key, blob);
+        return blob;
+      }
+    };
+
+    // Nomad turns a read away (503) for a moment when it is busy: wait as asked and try again
+    async function fetchRetry(url, opts) {
+      for (let i = 0; ; i++) {
+        const r = await fetch(url, opts);
+        if (r.status !== 503 || i >= 3) return r;
+        await new Promise(x => setTimeout(x, Math.min(4, +r.headers.get('Retry-After') || 1) * 1000));
+      }
+    }
+    // the preview a camera writes into a JPEG's EXIF block (IFD1), and the photo's orientation
+    function exifThumb(buf) {
+      try {
+        const d = new DataView(buf);
+        if (d.getUint16(0) !== 0xFFD8) return null;
+        for (let p = 2; p + 4 <= d.byteLength; ) {
+          const m = d.getUint16(p), len = d.getUint16(p + 2);
+          if ((m & 0xFF00) !== 0xFF00 || m === 0xFFDA) return null;
+          if (m === 0xFFE1 && d.getUint32(p + 4) === 0x45786966) {
+            const t = p + 10, le = d.getUint16(t) === 0x4949;
+            const u16 = (o) => d.getUint16(t + o, le), u32 = (o) => d.getUint32(t + o, le);
+            const ifd0 = u32(4), n0 = u16(ifd0);
+            let orientation = 1, off = 0, size = 0;
+            for (let i = 0; i < n0; i++) if (u16(ifd0 + 2 + i * 12) === 0x0112) orientation = u16(ifd0 + 2 + i * 12 + 8);
+            const ifd1 = u32(ifd0 + 2 + n0 * 12);
+            if (!ifd1) return null;
+            for (let i = 0, n1 = u16(ifd1); i < n1; i++) {
+              const e = ifd1 + 2 + i * 12, tag = u16(e);
+              if (tag === 0x0201) off = u32(e + 8); else if (tag === 0x0202) size = u32(e + 8);
+            }
+            if (!off || !size || t + off + size > d.byteLength || d.getUint16(t + off) !== 0xFFD8) return null;
+            return { start: t + off, len: size, orientation };
+          }
+          p += 2 + len;
+        }
+      } catch (e) {}
+      return null;
+    }
+    // draw a picture no bigger than Thumbs.PX, turned by EXIF orientation o
+    function shrink(blob, o) {
+      return new Promise(resolve => {
+        const img = new Image(), url = URL.createObjectURL(blob);
+        img.onerror = () => { URL.revokeObjectURL(url); resolve(null); };
+        img.onload = () => {
+          URL.revokeObjectURL(url);
+          const w0 = img.naturalWidth || 300, h0 = img.naturalHeight || 300;
+          const k = Math.min(1, Thumbs.PX / Math.max(w0, h0));
+          const w = Math.max(1, Math.round(w0 * k)), h = Math.max(1, Math.round(h0 * k));
+          const swap = o >= 5 && o <= 8;
+          const c = document.createElement('canvas');
+          c.width = swap ? h : w; c.height = swap ? w : h;
+          const ctx = c.getContext('2d');
+          const T = { 2: [-1, 0, 0, 1, w, 0], 3: [-1, 0, 0, -1, w, h], 4: [1, 0, 0, -1, 0, h], 5: [0, 1, 1, 0, 0, 0],
+                      6: [0, 1, -1, 0, h, 0], 7: [0, -1, -1, 0, h, w], 8: [0, -1, 1, 0, 0, w] }[o];
+          if (T) ctx.setTransform(...T);
+          ctx.drawImage(img, 0, 0, w, h);
+          // webp keeps a PNG's transparency. a browser without it hands back PNG
+          c.toBlob(resolve, 'image/webp', 0.8);
+        };
+        img.src = url;
+      });
+    }
+    // made previews, per phone. IndexedDB because the Cache API only exists on https pages
+    const thumbStore = {
+      _db: null,
+      open() {
+        return this._db || (this._db = new Promise(res => {
+          try {
+            const r = indexedDB.open('nomad-files-thumbs', 1);
+            r.onupgradeneeded = () => r.result.createObjectStore('t');
+            r.onsuccess = () => res(r.result);
+            r.onerror = () => res(null);
+          } catch (e) { res(null); }
+        }));
+      },
+      async get(key) {
+        const db = await this.open();
+        if (!db) return null;
+        return new Promise(res => {
+          try { const g = db.transaction('t').objectStore('t').get(key); g.onsuccess = () => res(g.result || null); g.onerror = () => res(null); }
+          catch (e) { res(null); }
+        });
+      },
+      async put(key, blob) {
+        const db = await this.open();
+        try { if (db) db.transaction('t', 'readwrite').objectStore('t').put(blob, key); } catch (e) {}
+      }
+    };
+
+    /* PDFs, EPUBs, comics and documents are links to their reader pages. Pictures, video and
+       sound open in the viewer here, anything else gets a details sheet. Back closes the viewer. */
+    const viewer = document.getElementById('viewer');
+    const fvBody = document.getElementById('fvBody');
+    let vItems = [], vIndex = 0;
+
+    function openFile(file) {
+      if (PAGE_FOR[file.kind]) { location.href = PAGE_FOR[file.kind](file.path); return; }
+      // pictures step through the others in the same list
+      vItems = file.kind === 'image' ? shown.filter(f => !f.isDir && f.kind === 'image') : [file];
+      vIndex = Math.max(0, vItems.indexOf(file));
+      if (viewer.hidden) {
+        Thumbs.paused = true;
+        viewer.hidden = false;
+        document.body.classList.add('fv-open');
+        NomadBack.open('viewer', closeViewer);
+      }
+      showViewerItem();
+      document.getElementById('fvClose').focus();
+    }
+
+    function freeViewer() {
+      fvBody.querySelectorAll('video, audio').forEach(m => { try { m.onerror = null; m.pause(); m.removeAttribute('src'); m.load(); } catch (e) {} });
+      fvBody.innerHTML = '';
+    }
+
+    /* Nomad turns a read away (503) for a moment when it is busy, and a picture or a
+       player only sees that as an error. Try again after 1, 2 and 4 s before saying so. The
+       retry gets its own query parameter because some browsers won't re-request a src. */
+    function loadWithRetry(el, url, onFail) {
+      let tries = 0;
+      el.onerror = () => {
+        if (!el.isConnected) return;
+        if (tries >= 3) { onFail(); return; }
+        setTimeout(() => { if (el.isConnected) el.src = url + '&r=' + (++tries); }, 1000 << tries);
+      };
+      el.src = url;
+    }
+
+    function showViewerItem() {
+      const f = vItems[vIndex];
+      if (!f) return;
+      freeViewer();
+      document.getElementById('fvName').textContent = f.name;
+      document.getElementById('fvWhere').textContent = formatBytes(f.size) + ' • ' + whereText(f.dir);
+      const dl = document.getElementById('fvDl');
+      dl.style.display = filesDownloadable ? '' : 'none';
+      dl.href = dlUrl(f.path);
+      dl.setAttribute('download', f.name);
+
+      if (f.kind === 'image') {
+        fvBody.innerHTML = '<div class="fv-wait">Loading...</div>';
+        const img = new Image();
+        img.alt = f.name;
+        img.onload = () => { const w = fvBody.querySelector('.fv-wait'); if (w) w.remove(); };
+        fvBody.appendChild(img);
+        loadWithRetry(img, fileUrl(f.path), () => {
+          img.remove();
+          const w = fvBody.querySelector('.fv-wait');
+          if (w) w.textContent = 'This picture could not be shown.';
+        });
+        if (vItems.length > 1) {
+          fvBody.insertAdjacentHTML('beforeend',
+            `<button type="button" class="fv-nav prev" aria-label="Previous picture">‹</button>` +
+            `<button type="button" class="fv-nav next" aria-label="Next picture">›</button>` +
+            `<span class="fv-count">${vIndex + 1} / ${vItems.length}</span>`);
+          fvBody.querySelector('.prev').onclick = () => stepViewer(-1);
+          fvBody.querySelector('.next').onclick = () => stepViewer(1);
+        }
+      } else if (f.kind === 'video') {
+        const v = document.createElement('video');
+        v.controls = true; v.playsInline = true; v.autoplay = true; v.preload = 'metadata';
+        if (!filesDownloadable) v.setAttribute('controlsList', 'nodownload');
+        fvBody.appendChild(v);
+        loadWithRetry(v, fileUrl(f.path), () => {
+          fvBody.innerHTML = '<div class="fv-card"><b>This video doesn\'t play in this browser</b></div>';
+        });
+      } else {
+        // sound plays on a card, everything else is a details sheet
+        const audio = f.kind === 'audio';
+        fvBody.innerHTML = `<div class="fv-card">${tileHTML(f)}<b>${escapeHtml(f.name)}</b>` +
+          `<small>${escapeHtml(formatBytes(f.size) + ' • ' + whereText(f.dir))}</small>` +
+          (audio ? `<audio controls autoplay preload="metadata"${filesDownloadable ? '' : ' controlsList="nodownload"'}></audio>` : '') +
+          (!audio ? (filesDownloadable
+            ? `<a class="fv-dl" href="${dlUrl(f.path)}" download="${escapeHtml(f.name)}">Download</a>`
+            : '<small>Nomad can\'t open this file, and downloads are turned off.</small>') : '') +
+          '</div>';
+        if (audio) {
+          const a = fvBody.querySelector('audio');
+          loadWithRetry(a, fileUrl(f.path), () => { a.replaceWith(Object.assign(document.createElement('small'), { textContent: 'This sound does not play in this browser.' })); });
+        }
+      }
+    }
+
+    function stepViewer(d) {
+      if (vItems.length < 2) return;
+      vIndex = (vIndex + d + vItems.length) % vItems.length;
+      showViewerItem();
+    }
+
+    function closeViewer() {
+      if (viewer.hidden) return;
+      freeViewer();
+      viewer.hidden = true;
+      document.body.classList.remove('fv-open');
+      Thumbs.paused = false;
+      Thumbs.pump();
+      NomadBack.done('viewer');
+    }
+
+    document.getElementById('fvClose').addEventListener('click', closeViewer);
+    document.addEventListener('keydown', (e) => {
+      if (viewer.hidden) return;
+      if (e.key === 'Escape') closeViewer();
+      else if (e.key === 'ArrowLeft') stepViewer(-1);
+      else if (e.key === 'ArrowRight') stepViewer(1);
+    });
+    // swipe between pictures
+    let swipeX = null;
+    fvBody.addEventListener('touchstart', (e) => { swipeX = e.touches.length === 1 ? e.touches[0].clientX : null; }, { passive: true });
+    fvBody.addEventListener('touchend', (e) => {
+      if (swipeX === null || vItems.length < 2 || vItems[vIndex].kind !== 'image') return;
+      const dx = e.changedTouches[0].clientX - swipeX;
+      swipeX = null;
+      if (Math.abs(dx) > 50) stepViewer(dx < 0 ? 1 : -1);
+    });
+
+    /* /files#open=<path>, from the menu's search: into the file's folder, then open it
+       in its viewer, or point it out when there is nothing to open it in */
+    async function openFromHash() {
+      const m = location.hash.match(/^#open=(.+)$/);
+      if (!m) return;
+      let want;
+      try { want = normalizePath(decodeURIComponent(m[1])); } catch (e) { return; }
+      history.replaceState(history.state, '', location.pathname + location.search);
+      if (folders.has(want)) { await goTo(want); return; }
+      const f = files.find(x => x.path === want);
+      if (!f) return;
+      await goTo(f.dir);
+      const row = [...document.querySelectorAll('#fileList li[data-path]')].find(li => li.dataset.path === f.path);
+      if (!row && shown.indexOf(f) >= limit) { limit = shown.indexOf(f) + 1; renderFiles(); }
+      const li = [...document.querySelectorAll('#fileList li[data-path]')].find(x => x.dataset.path === f.path);
+      if (li) { li.classList.add('hit'); li.scrollIntoView({ block: 'center' }); }
+      if (f.kind === 'image' || f.kind === 'video' || f.kind === 'audio') openFile(f);
+      else if (PAGE_FOR[f.kind]) openFile(f);
     }
 
     document.addEventListener('DOMContentLoaded', () => {
-
-      document.getElementById('searchInput').addEventListener('input', applyFilters);
+      let t = null;
+      document.getElementById('searchInput').addEventListener('input', () => { clearTimeout(t); t = setTimeout(applyFilters, 120); });
       document.getElementById('typeFilter').addEventListener('change', applyFilters);
       document.getElementById('sortSelect').addEventListener('change', applyFilters);
+      document.querySelectorAll('.view-switch button').forEach(b => b.addEventListener('click', () => setView(b.dataset.view)));
+      document.querySelectorAll('.view-switch button').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.view === view)));
+
+      document.getElementById('crumbs').addEventListener('click', (e) => {
+        const b = e.target.closest('[data-go]');
+        if (b) goTo(b.dataset.go);
+      });
+      document.getElementById('fileList').addEventListener('click', (e) => {
+        if (e.target.id === 'moreBtn') { limit += PAGE_SIZE; renderFiles(); return; }
+        if (e.target.closest('.fdl')) return;   // the Download link does its own thing
+        const el = e.target.closest('[data-i]');
+        if (!el) return;
+        const item = shown[+el.dataset.i];
+        if (!item) return;
+        if (item.isDir) { e.preventDefault(); goTo(item.path); return; }
+        if (PAGE_FOR[item.kind]) return;        // a link to its reader
+        e.preventDefault();
+        openFile(item);
+      });
 
       init();
     });
 
-/* ---------- upload (shared NomadUpload modal; sends dir=/Files) ---------- */
+/* upload: the shared NomadUpload modal, into the folder on screen */
 const uploadBtn = document.getElementById('uploadBtn');
 const uploadInput = document.getElementById('uploadInput');
 uploadBtn.addEventListener('click', () => uploadInput.click());
 uploadInput.addEventListener('change', (e) => {
-  const files = Array.from(e.target.files || []);
+  const picked = Array.from(e.target.files || []);
   uploadInput.value = '';
-  if(!files.length) return;
+  if(!picked.length) return;
   (async () => {
     uploadBtn.disabled = true;
-    const ok = await NomadUpload.run(files, '/Files');
+    const ok = await NomadUpload.run(picked, cwd);
     uploadBtn.disabled = false;
     if(ok) await init();
   })();
 });
 /* admin toggle: the button only appears when uploads are allowed */
-NomadUI.config().then(c => { if(!c.uploadsDisabled) uploadBtn.style.display = ''; });
+NomadUI.config().then(c => {
+  if(NomadUI.canUpload(c, 'files')) uploadBtn.style.display = '';
+  // downloads off for Files: no Download links (Nomad refuses them anyway)
+  if(!NomadUI.canDownload(c, 'files')){ filesDownloadable = false; if(shown.length) renderFiles(); }
+});
 </script>
 </body>
 </html>
-

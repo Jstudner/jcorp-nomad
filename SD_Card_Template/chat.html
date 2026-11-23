@@ -3,13 +3,14 @@
 <html lang="en">
 <head>
 <meta charset="utf-8"/>
+<script>/* nomad-load-guard: reload, twice at most, when one of Nomad's own scripts or stylesheets fails to load */(function(){var k='nomadLoadGuard:'+location.pathname;window.addEventListener('error',function(e){var t=e.target;if(!t||!t.tagName)return;var s=t.tagName==='SCRIPT',c=t.tagName==='LINK'&&/stylesheet/i.test(t.rel||'');if(!s&&!c)return;var u=t.src||t.href||'';if(u.indexOf(location.origin+'/')!==0)return;var n=0;try{n=+sessionStorage.getItem(k)||0;}catch(x){return;}if(n>=2)return;try{sessionStorage.setItem(k,String(n+1));}catch(x){return;}setTimeout(function(){location.reload();},1500*(n+1));},true);window.addEventListener('load',function(){setTimeout(function(){try{sessionStorage.removeItem(k);}catch(x){}},15000);});})();</script>
 <meta name="viewport" content="width=device-width,initial-scale=1"/>
 <meta name="description" content="Jcorp Nomad Media Server - Chat">
 <title>Nomad • Chat</title>
 <link rel="icon" href="favicon.ico" type="image/x-icon">
 <link rel="stylesheet" href="/master.css">
-<script src="/theme-boot.js"></script>
-<script src="/theme-manager.js"></script>
+<script src="/theme-boot.js?v=5"></script>
+<script src="/theme-manager.js?v=5"></script>
 <style>
   html, body { height: 100dvh; }
   body { display: flex; flex-direction: column; overflow: hidden; }
@@ -41,6 +42,17 @@
     border: 1px solid var(--line); border-radius: 999px; padding: 10px 14px; font-size: .95rem; }
   .chat-input-row button { background: var(--primary); color: var(--color-white, #fff);
     border: none; border-radius: 999px; padding: 10px 18px; cursor: pointer; font-size: .95rem; }
+  .chat-msg.pending .chat-text { opacity: .6; }
+  .chat-msg.waiting .chat-text { opacity: .6; border-style: dashed; }
+  .chat-note { font-size: .7rem; color: var(--muted); margin-top: 2px; }
+  /* sits just above the input row, over the bottom of the list */
+  .chat-pill-wrap { position: relative; height: 0; }
+  .chat-pill { position: absolute; bottom: 10px; left: 50%; transform: translateX(-50%);
+    background: var(--primary); color: var(--color-white, #fff); border: none; border-radius: 999px;
+    padding: 7px 16px; font-size: .85rem; cursor: pointer; white-space: nowrap;
+    box-shadow: 0 2px 10px rgba(0,0,0,.25); }
+  .chat-status { font-size: .8rem; color: var(--muted); text-align: center; padding: 6px 14px;
+    border-top: 1px solid var(--line); background: var(--bg); }
   .name-btn { background: transparent; border: 1px solid rgba(255,255,255,.5);
     color: var(--header-text, #fff); border-radius: 8px; padding: 6px 12px;
     cursor: pointer; font-size: .8rem; margin-right: 8px; }
@@ -61,28 +73,274 @@
       <button onclick="Chat.setName()">Set</button>
     </div>
     <div class="chat-msgs" id="chatMsgs"></div>
+    <div class="chat-pill-wrap"><button class="chat-pill" id="chatPill" hidden onclick="Chat.toBottom()"></button></div>
+    <div class="chat-status" id="chatStatus" hidden></div>
     <div class="chat-input-row">
-      <input id="chatInput" maxlength="500" placeholder="Message everyone on this Nomad" autocomplete="off">
+      <input id="chatInput" maxlength="500" placeholder="Message everyone on Nomad" autocomplete="off">
       <button onclick="Chat.send()">Send</button>
     </div>
   </main>
 
 <script>
-/* Chat synced through the SD card like the live whiteboard: each tab writes its own
-   file under /.chat (a shared file would lose messages to write races), clients poll
-   /listfiles and render the merged history by timestamp. */
+// storage that never throws: where site data is blocked a bare call stops the whole page
+var chatStore = {
+  get: function(k){ try { return localStorage.getItem(k); } catch(e){ return null; } },
+  set: function(k, v){ try { localStorage.setItem(k, v); } catch(e){} },
+  remove: function(k){ try { localStorage.removeItem(k); } catch(e){} }
+};
+// Nomad has no clock: once a visit, after the page settles, send the phone's time for
+// message times (NomadClock.h decides whether to take it)
+(function () {
+  try { if (sessionStorage.getItem('nomadClockSent')) return; sessionStorage.setItem('nomadClockSent', '1'); } catch (e) {}
+  setTimeout(function () {
+    try { fetch('/api/clock?t=' + Date.now(), { method: 'POST', keepalive: true }).catch(function () {}); } catch (e) {}
+  }, 1500);
+})();
+</script>
+<script>
+/* Chat kept by Nomad (NomadChat.h). Nomad numbers each message as it arrives, so order
+   doesn't depend on anyone's clock, and a phone asks only for what came after its last
+   number. A message waits in this phone's outbox (kept across reloads) and is resent until
+   Nomad has it. Nomad spots a resend by its id. Without /api/chat, ChatFiles below is used. */
 'use strict';
 
+const esc = (s) => String(s).replace(/[&<>"']/g, c =>
+  ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]));
+const hue = (s) => { let h = 0; for(const c of String(s)) h = (h*31 + c.charCodeAt(0)) % 360; return h; };
+const newId = () => Math.random().toString(36).slice(2, 10) + Date.now().toString(36).slice(-4);
+
 const Chat = {
+  POLL_MS: 2500,
+  KEEP: 500,             // messages held here
+  SHOW_LAST: 200,        // messages rendered
+  name: chatStore.get('nomad_chat_name') || '',
+  // one id per phone (per browser), not per tab: your messages stay yours when you come back
+  cid: (() => {
+    let id = chatStore.get('nomad_chat_cid');
+    if(!id){ id = newId(); chatStore.set('nomad_chat_cid', id); }
+    return id;
+  })(),
+  msgs: new Map(),       // seq -> {s, t, n, x, c, m}
+  epoch: 0, after: 0,
+  outbox: (() => { try { return JSON.parse(chatStore.get('nomad_chat_outbox')) || []; } catch(e){ return []; } })(),
+  legacy: false,
+  _timer: null, _sending: false, _fails: 0,
+  _from: 0,              // seq of the first message shown, moved on in steps so the list mostly grows
+  _chunks: null,         // what is on screen, one entry per message, so new ones can be added on the end
+  _below: 0,             // others' messages that arrived while scrolled up
+  _unread: 0,            // others' messages that arrived while the page was hidden
+  _loaded: false,
+
+  boot(){
+    if(!this.name){ document.getElementById('chatNameRow').hidden = false; document.getElementById('chatNameInput').focus(); }
+    else document.getElementById('chatInput').focus();
+    this.render();
+    this.poll();
+    document.addEventListener('visibilitychange', () => {
+      if(document.hidden) return;
+      this._unread = 0; document.title = TITLE;
+      this.poll();
+    });
+    window.addEventListener('online', () => { this.poll(); this.flush(); });
+    const box = document.getElementById('chatMsgs');
+    box.addEventListener('scroll', () => { if(this._below && this._atBottom(box)) this._pill(0); }, { passive: true });
+  },
+
+  _atBottom(box){ return box.scrollHeight - box.scrollTop - box.clientHeight < 60; },
+  _pill(n){
+    this._below = n;
+    const el = document.getElementById('chatPill');
+    el.hidden = !n;
+    el.textContent = `\u2193 ${n} new message${n === 1 ? '' : 's'}`;
+  },
+  toBottom(){
+    const box = document.getElementById('chatMsgs');
+    box.scrollTop = box.scrollHeight;
+    this._pill(0);
+  },
+
+  setName(){
+    if(this.legacy) return ChatFiles.setName();
+    const v = document.getElementById('chatNameInput').value.trim().slice(0, 24);
+    if(!v) return;
+    this.name = v;
+    chatStore.set('nomad_chat_name', v);
+    document.getElementById('chatNameRow').hidden = true;
+    document.getElementById('chatInput').focus();
+  },
+  editName(){
+    document.getElementById('chatNameInput').value = this.name;
+    document.getElementById('chatNameRow').hidden = false;
+    document.getElementById('chatNameInput').focus();
+  },
+
+  _keepOutbox(){ try { chatStore.set('nomad_chat_outbox', JSON.stringify(this.outbox)); } catch(e){} },
+
+  send(){
+    if(this.legacy) return ChatFiles.send();
+    const inp = document.getElementById('chatInput');
+    const text = inp.value.trim().slice(0, 500);
+    if(!text) return;
+    if(!this.name){ document.getElementById('chatNameRow').hidden = false; return; }
+    inp.value = '';
+    inp.focus();   // tapping Send takes focus, and on a phone the keyboard drops with it
+    this.outbox.push({ m: newId(), t: Date.now(), n: this.name, x: text, since: Date.now() });
+    this._keepOutbox();
+    this.render(true);
+    this.flush();
+  },
+
+  // the outbox to Nomad, oldest first, one at a time so they arrive in order
+  async flush(){
+    if(this._sending || this.legacy) return;
+    this._sending = true;
+    try {
+      while(this.outbox.length){
+        const o = this.outbox[0];
+        let res;
+        try {
+          res = await fetch('/api/chat', { method: 'POST', cache: 'no-store',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+            body: new URLSearchParams({ n: o.n, x: o.x, c: this.cid, m: o.m, t: String(o.t) }) });
+        } catch(e){ res = null; }
+        if(res && res.ok){
+          const j = await res.json().catch(() => ({}));
+          if(j.s) this.msgs.set(j.s, { s: j.s, t: o.t, n: o.n, x: o.x, c: this.cid, m: o.m });
+          this.outbox.shift();
+          this._keepOutbox();
+          this._fails = 0;
+          this.render();
+          continue;
+        }
+        if(res && res.status === 400){ this.outbox.shift(); this._keepOutbox(); continue; }   // nothing Nomad will take
+        // no answer, the card busy, or sending too fast: try again shortly (the poll also does)
+        this._fails++;
+        this.render();
+        break;
+      }
+    } finally {
+      this._sending = false;
+    }
+  },
+
+  async poll(){
+    clearTimeout(this._timer);
+    if(this.legacy) return;
+    let ok = false;
+    try {
+      for(let page = 0; page < 10; page++){
+        const res = await fetch(`/api/chat?after=${this.after}&epoch=${this.epoch}&_=${Date.now()}`, { cache: 'no-store' });
+        if(res.status === 404){ this._goLegacy(); return; }
+        if(!res.ok) break;
+        const j = await res.json();
+        let count = this._loaded;                    // the history on arrival is not news
+        if(j.epoch !== this.epoch){                  // cleared, or Nomad restarted: start over
+          this.msgs.clear(); this.after = 0; this.epoch = j.epoch; this._from = 0; count = false;
+        }
+        let fresh = 0;
+        for(const m of j.msgs || []){
+          if(count && m.c !== this.cid && !this.msgs.has(m.s)) fresh++;
+          this.msgs.set(m.s, m);
+          if(m.s > this.after) this.after = m.s;
+          // ours, arrived by another way (the answer to a send was lost): out of the outbox
+          if(m.c === this.cid){ const i = this.outbox.findIndex(o => o.m === m.m); if(i >= 0){ this.outbox.splice(i, 1); this._keepOutbox(); } }
+        }
+        if(this.msgs.size > this.KEEP){
+          for(const k of [...this.msgs.keys()].sort((a, b) => a - b).slice(0, this.msgs.size - this.KEEP)) this.msgs.delete(k);
+        }
+        ok = true;
+        if(fresh && document.hidden){ this._unread += fresh; document.title = `(${this._unread}) ${TITLE}`; }
+        if((j.msgs || []).length) this.render(false, fresh);
+        if((j.msgs || []).length < 100) break;      // a full page: there's more
+      }
+    } catch(e){}
+    if(ok) this._loaded = true;
+    this._fails = ok ? (this.outbox.length ? this._fails : 0) : this._fails + 1;
+    this._status(ok);
+    if(ok && this.outbox.length) this.flush();
+    // a hidden tab checks rarely, and a Nomad that isn't answering is asked less and less often
+    const wait = document.hidden ? 15000 : ok ? this.POLL_MS : Math.min(30000, this.POLL_MS * 2 ** Math.min(this._fails, 4));
+    this._timer = setTimeout(() => this.poll(), wait);
+  },
+
+  _status(reachable){
+    const el = document.getElementById('chatStatus');
+    const waiting = this.outbox.length;
+    let msg = '';
+    if(!reachable) msg = waiting ? `Can't reach Nomad. ${waiting} message${waiting === 1 ? '' : 's'} will send when it's back.`
+                                 : "Can't reach Nomad. Trying again.";
+    else if(waiting && this._fails) msg = 'Sending\u2026';
+    el.textContent = msg;
+    el.hidden = !msg;
+  },
+
+  _goLegacy(){
+    this.legacy = true;
+    // anything typed here before the switch goes the old way
+    for(const o of this.outbox){ ChatFiles.own.push([o.t, o.x]); }
+    this.outbox = []; this._keepOutbox();
+    ChatFiles.boot();
+  },
+
+  _dayLabel(ts){ return ChatFiles._dayLabel(ts); },
+
+  render(jump, fresh){
+    if(this.legacy) return ChatFiles.render(jump);
+    const box = document.getElementById('chatMsgs');
+    let shown = [...this.msgs.values()].filter(m => m.s >= this._from).sort((a, b) => a.s - b.s);
+    if(shown.length > this.SHOW_LAST + 50){ shown = shown.slice(-this.SHOW_LAST); this._from = shown[0].s; }
+    const all = shown.map(m => ({ t: m.t, n: m.n, text: m.x, mine: m.c === this.cid, state: '' }));
+    const slow = Date.now() - 8000;
+    for(const o of this.outbox) all.push({ t: o.t, n: o.n, text: o.x, mine: true, state: o.since < slow ? 'waiting' : 'pending' });
+    const atBottom = this._atBottom(box);
+    const chunks = [];
+    let lastDay = '';
+    for(const m of all){
+      let html = '', nodes = 1;
+      // a phone with its clock unset sends 1970: show no time rather than a wrong one
+      const sane = m.t > 1.5e12;
+      const dayLbl = sane ? this._dayLabel(m.t) : '';
+      if(dayLbl && dayLbl !== lastDay){ html += `<div class="chat-day">${dayLbl}</div>`; lastDay = dayLbl; nodes++; }
+      const time = sane ? new Date(m.t).toLocaleTimeString([], { hour:'2-digit', minute:'2-digit' }) : '';
+      html += `<div class="chat-msg${m.mine ? ' mine' : ''}${m.state ? ' ' + m.state : ''}">
+        <span class="chat-who" style="color:hsl(${hue(m.n)},55%,45%)">${esc(m.n)}</span>
+        <span class="chat-time">${time}</span>
+        <div class="chat-text">${esc(m.text)}</div>
+        ${m.state === 'waiting' ? '<div class="chat-note">Not sent yet</div>' : ''}
+      </div>`;
+      chunks.push({ html, nodes });
+    }
+    // only what changed is redrawn (usually new messages on the end), so a poll doesn't
+    // wipe out text someone is selecting further up
+    const old = this._chunks;
+    if(!chunks.length) box.innerHTML = '<div class="chat-empty">No messages yet</div>';
+    else if(!old || !old.length) box.innerHTML = chunks.map(c => c.html).join('');
+    else {
+      let i = 0;
+      while(i < old.length && i < chunks.length && old[i].html === chunks[i].html) i++;
+      for(let drop = old.slice(i).reduce((a, c) => a + c.nodes, 0); drop > 0 && box.lastElementChild; drop--) box.lastElementChild.remove();
+      if(i < chunks.length) box.insertAdjacentHTML('beforeend', chunks.slice(i).map(c => c.html).join(''));
+    }
+    this._chunks = chunks;
+    if(jump || atBottom || all.length <= 1){ box.scrollTop = box.scrollHeight; this._pill(0); }
+    else if(fresh) this._pill(this._below + fresh);
+  }
+};
+const TITLE = document.title;
+
+/* For firmware without /api/chat: each tab writes its own file under /.chat and every
+   phone polls /listfiles. */
+const ChatFiles = {
   DIR: '/.chat',
   MAX_OWN: 120,          // own messages kept in the layer file
   SHOW_LAST: 200,        // merged messages rendered
   POLL_MS: 2500,
 
-  name: localStorage.getItem('nomad_chat_name') || '',
+  name: chatStore.get('nomad_chat_name') || '',
   id: (() => {
-    let id = sessionStorage.getItem('nomad_chat_id');   // per-tab, like the whiteboard
-    if(!id){ id = Math.random().toString(36).slice(2, 8); sessionStorage.setItem('nomad_chat_id', id); }
+    let id = null;
+    try { id = sessionStorage.getItem('nomad_chat_id'); } catch(e){}   // per-tab, like the whiteboard
+    if(!id){ id = Math.random().toString(36).slice(2, 8); try { sessionStorage.setItem('nomad_chat_id', id); } catch(e){} }
     return id;
   })(),
   own: [],               // [[ts, text], ...]
@@ -102,7 +360,7 @@ const Chat = {
     const v = document.getElementById('chatNameInput').value.trim().slice(0, 24);
     if(!v) return;
     this.name = v;
-    localStorage.setItem('nomad_chat_name', v);
+    chatStore.set('nomad_chat_name', v);
     document.getElementById('chatNameRow').hidden = true;
     if(this.own.length) this.save();   // re-publish history under the new name
     this.render();
@@ -120,6 +378,7 @@ const Chat = {
     if(!text) return;
     if(!this.name){ document.getElementById('chatNameRow').hidden = false; return; }
     inp.value = '';
+    inp.focus();
     this.own.push([Date.now(), text]);
     if(this.own.length > this.MAX_OWN) this.own = this.own.slice(-this.MAX_OWN);
     this.render(true);
@@ -147,8 +406,7 @@ const Chat = {
 
   async poll(){
     clearTimeout(this._timer);
-    // A hidden tab still pulls a directory listing off the card every 2.5s,
-    // plus a fetch per changed peer, and nobody is reading it.
+    // skip while hidden: each poll lists the directory and fetches every changed peer
     if(document.hidden){
       this._timer = setTimeout(() => this.poll(), this.POLL_MS);
       return;
@@ -194,8 +452,7 @@ const Chat = {
         if(changed) this.render();
       }
     } catch(e){ failed = true; }
-    // back off while the device is struggling instead of asking again at full
-    // rate from every phone
+    // back off while Nomad is struggling rather than every phone asking at full rate
     if(failed){
       this._backoff = Math.min((this._backoff || this.POLL_MS) * 2, 30000);
     } else {
@@ -238,13 +495,16 @@ const Chat = {
         <div class="chat-text">${esc(m.text)}</div>
       </div>`;
     }
-    box.innerHTML = html || '<div class="chat-empty">No messages yet. Say hello.</div>';
+    box.innerHTML = html || '<div class="chat-empty">No messages yet</div>';
     if(jump || atBottom || last.length <= 1) box.scrollTop = box.scrollHeight;
   }
 };
 
-document.getElementById('chatInput').addEventListener('keydown', (e) => { if(e.key === 'Enter') Chat.send(); });
-document.getElementById('chatNameInput').addEventListener('keydown', (e) => { if(e.key === 'Enter') Chat.setName(); });
+// Enter while an input method is still composing picks the word, it doesn't send
+const enterKey = (e) => e.key === 'Enter' && !e.isComposing && e.keyCode !== 229;
+document.getElementById('chatInput').addEventListener('keydown', (e) => { if(enterKey(e)) Chat.send(); });
+setInterval(() => { if(Chat.outbox.length) Chat.render(); }, 4000);   // "not sent yet" appears on its own
+document.getElementById('chatNameInput').addEventListener('keydown', (e) => { if(enterKey(e)) Chat.setName(); });
 Chat.boot();
 </script>
 </body>

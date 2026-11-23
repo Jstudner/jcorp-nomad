@@ -9,9 +9,13 @@ static bool s_started = false;
 static bool s_catchAll = false;
 static IPAddress s_self;
 
+// See nomadDnsStats() in the header for why these exist.
+static volatile uint32_t s_queries = 0, s_answered = 0, s_nx = 0;
+static char s_lastName[80] = {0};
+
 // Hostnames every major OS/browser/console uses to decide "am I online / is
 // this a portal". Matched as whole names or any subdomain of an entry, so
-// www./ipv6./etc variants are covered. Deliberately broad: hijacking one of
+// www./ipv6./etc variants are covered. Kept broad: hijacking one of
 // these on an offline hotspot costs nothing, missing one means that device
 // never shows the sign-in popup.
 static const char *CAPTIVE_DOMAINS[] = {
@@ -97,11 +101,15 @@ static void onDnsPacket(AsyncUDPPacket pkt) {
   uint16_t qclass = (d[i + 2] << 8) | d[i + 3];
   size_t qend = i + 4;
 
+  s_queries++;
+  strncpy(s_lastName, name.c_str(), sizeof(s_lastName) - 1);
+  s_lastName[sizeof(s_lastName) - 1] = 0;
+
   bool known = s_catchAll || nameMatches(name);
   bool classOk = (qclass == 1 || qclass == 255);  // IN / ANY
   // A record only for known names. Known name + other qtype (AAAA, HTTPS/65...)
   // gets NOERROR with no answers so the client falls back to A. Unknown names
-  // get NXDOMAIN - the fast "this network has no internet" signal.
+  // get NXDOMAIN, the fast "this network has no internet" signal.
   bool answer = known && classOk && qtype == 1;
 
   uint8_t resp[576 + 16];
@@ -114,6 +122,13 @@ static void onDnsPacket(AsyncUDPPacket pkt) {
   resp[6] = 0; resp[7] = answer ? 1 : 0;      // ANCOUNT
   resp[8] = 0; resp[9] = 0;                   // NSCOUNT
   resp[10] = 0; resp[11] = 0;                 // ARCOUNT (EDNS OPT dropped)
+  if (answer) s_answered++; else if (!known) s_nx++;
+  // log the first few, to see whether anything is asking us at all
+  if (s_queries <= 12) {
+    Serial.printf("[DNS] q#%u %s type=%u -> %s\n", (unsigned)s_queries, name.c_str(),
+                  (unsigned)qtype, answer ? "A 192.168.4.1" : (known ? "NOERROR/0" : "NXDOMAIN"));
+  }
+
   size_t n = qsec;
   if (answer) {
     const uint8_t a[] = { 0xC0, 0x0C,          // name: pointer to question
@@ -149,4 +164,11 @@ void nomadDnsStop() {
 
 void nomadDnsSetCatchAll(bool on) {
   s_catchAll = on;
+}
+
+void nomadDnsStats(uint32_t &queries, uint32_t &answered, uint32_t &nxdomain, String &lastName) {
+  queries = s_queries;
+  answered = s_answered;
+  nxdomain = s_nx;
+  lastName = s_lastName;
 }

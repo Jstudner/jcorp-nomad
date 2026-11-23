@@ -1,50 +1,11 @@
 <!DOCTYPE html>
-<!-- Version 4 -->
+<!-- Version 6 -->
 <html lang="en">
 <head>
     <link rel="stylesheet" href="/master.css">
-    <script>
-(function() {
-  try {
-    const isDark = localStorage.getItem('nomad_dark_mode') === 'true';
-    if (isDark) {
-      document.documentElement.classList.add('dark');
-      // body.dark is what master.css keys on; tag body the moment it exists
-      new MutationObserver((m, o) => {
-        if (document.body) { document.body.classList.add('dark'); o.disconnect(); }
-      }).observe(document.documentElement, { childList: true });
-    }
-
-    const saved = localStorage.getItem('nomad_custom_theme');
-    if (saved) {
-      const colors = JSON.parse(saved);
-      const style = document.createElement('style');
-      style.id = 'custom-theme-style';
-      style.textContent = `
-        :root {
-          --primary: ${colors.primary} !important;
-          --primary-dark: ${colors.primaryDark} !important;
-          --bg: ${colors.bgLight} !important;
-          --card: ${colors.cardLight} !important;
-          --card-bg: ${colors.cardLight} !important;
-          --text: ${colors.textLight} !important;
-          --muted: ${colors.mutedLight} !important;
-        }
-        body.dark {
-          --bg: ${colors.bgDark} !important;
-          --card: ${colors.cardDark} !important;
-          --card-bg: ${colors.cardDark} !important;
-          --text: ${colors.textDark} !important;
-          --muted: ${colors.mutedDark} !important;
-          --primary: ${colors.primaryDarkTheme} !important;
-        }
-      `;
-      document.head.appendChild(style);
-    }
-  } catch(e) {}
-})();
-</script>
+    <script src="/theme-boot.js?v=5"></script>
     <meta charset="utf-8" />
+<script>/* nomad-load-guard: reload, twice at most, when one of Nomad's own scripts or stylesheets fails to load */(function(){var k='nomadLoadGuard:'+location.pathname;window.addEventListener('error',function(e){var t=e.target;if(!t||!t.tagName)return;var s=t.tagName==='SCRIPT',c=t.tagName==='LINK'&&/stylesheet/i.test(t.rel||'');if(!s&&!c)return;var u=t.src||t.href||'';if(u.indexOf(location.origin+'/')!==0)return;var n=0;try{n=+sessionStorage.getItem(k)||0;}catch(x){return;}if(n>=2)return;try{sessionStorage.setItem(k,String(n+1));}catch(x){return;}setTimeout(function(){location.reload();},1500*(n+1));},true);window.addEventListener('load',function(){setTimeout(function(){try{sessionStorage.removeItem(k);}catch(x){}},15000);});})();</script>
     <meta name="viewport" content="width=device-width,initial-scale=1" />
     <title>Nomad • PDF Reader</title>
     <script src="/assets/pdf.min.js"></script>
@@ -68,66 +29,67 @@
             overflow: hidden;
         }
 
-        body.dark .reader-navigation {
-            background: var(--card);
-            border-top-color: var(--line);
-        }
-
+        /* fits the visible screen: 100vh on a phone includes the strip behind the address
+           bar and pushes the page buttons off the bottom */
         .reader-container {
             display: flex;
             flex-direction: column;
             height: 100vh;
+            height: 100dvh;
             width: 100%;
         }
 
         .reader-header {
             background: var(--primary);
             color: var(--header-text);
-            padding: 12px 16px;
+            padding: 6px 8px;
+            padding-top: max(6px, env(safe-area-inset-top));
             display: flex;
-            gap: 10px;
+            gap: 6px;
             align-items: center;
-            flex-wrap: wrap;
             box-shadow: var(--shadow);
             z-index: 100;
+            min-height: 48px;
         }
 
         .reader-title {
-            font-size: 1rem;
+            flex: 1;
+            min-width: 0;
+            font-size: 0.98rem;
             font-weight: 700;
-            margin-right: auto;
             white-space: nowrap;
             overflow: hidden;
             text-overflow: ellipsis;
+            padding: 0 4px;
         }
 
         .reader-controls {
             display: flex;
-            gap: 6px;
+            gap: 4px;
             align-items: center;
-            flex-wrap: wrap;
+            flex: 0 0 auto;
         }
 
         .reader-btn {
-            background: rgba(255,255,255,0.2);
+            background: rgba(255,255,255,0.18);
             border: none;
             color: var(--header-text);
-            padding: 8px 12px;
-            border-radius: 5px;
+            min-width: 38px;
+            height: 36px;
+            padding: 0 10px;
+            border-radius: var(--radius-medium);
             cursor: pointer;
             font-size: 0.9rem;
-            transition: background 0.2s ease;
+            font-weight: 600;
             white-space: nowrap;
+            text-decoration: none;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
         }
 
-        .reader-btn:hover {
-            background: rgba(255,255,255,0.3);
-        }
-
-        .reader-btn:disabled {
-            opacity: 0.5;
-            cursor: not-allowed;
-        }
+        .reader-btn:hover { background: rgba(255,255,255,0.3); }
+        .reader-btn:disabled { opacity: 0.5; cursor: not-allowed; }
 
         .reader-main {
             flex: 1;
@@ -143,35 +105,31 @@
             flex-direction: column;
             align-items: center;
             overflow-y: auto;
-            background: #f5f5f5;
-            padding: 20px 0;
+            background: var(--bg);
+            padding: 12px 0;
             gap: 10px;
         }
 
-        body.dark #pdf-container {
-            background: #1a1a1a;
-        }
-
-        .pdf-page {
-            display: block;
+        .page-slot {
+            flex: 0 0 auto;
+            background: #fff;
             box-shadow: 0 2px 8px rgba(0,0,0,0.15);
             margin: 0 auto;
+            max-width: none;
         }
+        .page-slot canvas { display: block; width: 100%; height: 100%; }
 
         .loading-overlay {
             position: absolute;
-            inset: 0;
+            top:0;right:0;bottom:0;left:0;inset:0;
             display: flex;
             flex-direction: column;
             justify-content: center;
             align-items: center;
             gap: 16px;
-            background: rgba(250, 250, 250, 0.95);
+            background: var(--bg);
             z-index: 50;
-        }
-
-        body.dark .loading-overlay {
-            background: rgba(11, 18, 32, 0.95);
+            padding: 20px;
         }
 
         .loading-overlay.hidden {
@@ -192,6 +150,9 @@
             font-size: 0.95rem;
             font-weight: 600;
             font-variant-numeric: tabular-nums;
+            max-width: min(90vw, 460px);
+            text-align: center;
+            line-height: 1.45;
         }
 
         .loading-bar {
@@ -214,61 +175,63 @@
             to { transform: rotate(360deg); }
         }
 
+        /* one row: back, where you are (tap to type a page), forward, clear of a phone's
+           home bar */
         .reader-navigation {
-            background: #f5f5f5;
-            padding: 12px;
+            background: var(--card);
+            border-top: 1px solid var(--card-border);
+            padding: 8px 12px;
+            padding-bottom: max(8px, env(safe-area-inset-bottom));
             display: flex;
-            gap: 10px;
+            gap: 12px;
             justify-content: center;
             align-items: center;
-            border-top: 1px solid #ddd;
-            flex-wrap: wrap;
+            flex: 0 0 auto;
         }
 
         .nav-btn {
             background: var(--primary);
-            color: #fff;
+            color: var(--header-text);
             border: none;
-            padding: 8px 14px;
-            border-radius: 5px;
+            width: 56px;
+            height: 44px;
+            border-radius: var(--radius-medium);
             cursor: pointer;
-            font-size: 0.95em;
-            transition: background 0.2s ease;
+            font-size: 1.5rem;
+            line-height: 1;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
         }
 
-        .nav-btn:hover {
-            background: var(--primary-dark);
-        }
-
-        .nav-btn:disabled {
-            background: #ccc;
-            cursor: not-allowed;
-        }
+        .nav-btn:hover { background: var(--primary-dark); }
+        .nav-btn:disabled { opacity: 0.35; cursor: default; }
 
         .page-info {
-            color: #333;
-            font-weight: 600;
-            min-width: 100px;
-            text-align: center;
-        }
-
-        body.dark .page-info {
-            color: #e6eef8;
-        }
-
-        .page-jump {
             display: flex;
-            gap: 5px;
             align-items: center;
+            gap: 6px;
+            color: var(--text);
+            font-weight: 600;
+            font-variant-numeric: tabular-nums;
         }
 
-        .page-jump input {
-            width: 60px;
-            padding: 6px 8px;
-            border: 1px solid #ccc;
-            border-radius: 4px;
+        .page-info input {
+            width: 4.2em;
+            height: 38px;
+            padding: 0 6px;
+            border: 1px solid var(--card-border);
+            border-radius: var(--radius-medium);
+            background: var(--bg);
+            color: var(--text);
             text-align: center;
+            font-size: 1rem;
+            font-weight: 600;
+            -moz-appearance: textfield;
         }
+        .page-info input::-webkit-outer-spin-button,
+        .page-info input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+        .page-info .of { color: var(--muted); }
 
         .error-message {
             padding: 20px;
@@ -277,39 +240,26 @@
             font-size: 1rem;
         }
 
-        @media (max-width: 768px) {
-            .reader-header {
-                padding: 10px 12px;
-            }
-
-            .reader-title {
-                flex: 1 1 100%;
-                margin-bottom: 4px;
-            }
-
-            .reader-controls {
-                width: 100%;
-                justify-content: flex-start;
-            }
-
-            .reader-btn {
-                font-size: 0.85rem;
-                padding: 6px 10px;
-            }
-        }
     </style>
-    <script src="theme-manager.js"></script>
-    <script src="/nomad-utils.js"></script>
+    <script src="theme-manager.js?v=5"></script>
+    <script src="/nomad-icons.js?v=1"></script>
+    <script src="/nomad-utils.js?v=52"></script>
+    <script src="/assets/nomad-marks.js?v=1"></script>
+    <style>
+        .reader-btn { position: relative; }
+        .reader-btn.has-marks::after { content: ''; position: absolute; top: 5px; right: 5px; width: 7px; height: 7px; border-radius: 50%; background: #ffd400; }
+    </style>
 </head>
 <body>
     <div class="reader-container">
         <div class="reader-header">
-            <div class="reader-title" id="readerTitle">Loading...</div>
+            <a class="reader-btn" href="/books" title="Back to Books" aria-label="Back to Books">&#8249; Books</a>
+            <div class="reader-title" id="readerTitle">Loading…</div>
             <div class="reader-controls">
-                <a class="reader-btn" href="/books" title="Back to Books">← Back</a>
-                <button class="reader-btn" id="zoomOut" title="Zoom Out">-</button>
-                <button class="reader-btn" id="zoomReset" title="Reset Zoom">100%</button>
-                <button class="reader-btn" id="zoomIn" title="Zoom In">+</button>
+                <button class="reader-btn" id="marksBtn" title="Bookmarks" aria-label="Bookmarks"><span data-icon="pin"></span></button>
+                <button class="reader-btn" id="zoomOut" title="Zoom out" aria-label="Zoom out">&#8722;</button>
+                <button class="reader-btn" id="zoomReset" title="Reset zoom">100%</button>
+                <button class="reader-btn" id="zoomIn" title="Zoom in" aria-label="Zoom in">+</button>
             </div>
         </div>
         <div class="reader-main">
@@ -322,13 +272,9 @@
             </div>
         </div>
         <div class="reader-navigation">
-            <button class="nav-btn" id="prevBtn">← Previous</button>
-            <span class="page-info" id="pageInfo">Page 0 / 0</span>
-            <button class="nav-btn" id="nextBtn">Next →</button>
-            <div class="page-jump">
-                <input type="number" id="pageInput" min="1" placeholder="Go to...">
-                <button class="nav-btn" id="jumpBtn">Go</button>
-            </div>
+            <button class="nav-btn" id="prevBtn" aria-label="Previous page" title="Previous page">&#8249;</button>
+            <label class="page-info">Page <input type="number" id="pageInput" min="1" inputmode="numeric" enterkeyhint="go" aria-label="Page number"> <span class="of" id="pageTotal">of 0</span></label>
+            <button class="nav-btn" id="nextBtn" aria-label="Next page" title="Next page">&#8250;</button>
         </div>
     </div>
 
@@ -343,8 +289,8 @@
         const pdfPath = urlParams.get('path');
         
         if (!pdfPath) {
-            document.getElementById('pdf-container').innerHTML = '<p class="error-message">No PDF path provided. Please go back and select a PDF.</p>';
-            document.getElementById('loadingOverlay').classList.add('hidden');
+            // replaces the loading overlay too: it lives inside the container
+            document.getElementById('pdf-container').innerHTML = '<p class="error-message">No PDF chosen. Go back and pick one.</p>';
         }
 
         const readerTitle = document.getElementById('readerTitle');
@@ -354,307 +300,294 @@
         const loadingBarFill = document.getElementById('loadingBarFill');
         const prevBtn = document.getElementById('prevBtn');
         const nextBtn = document.getElementById('nextBtn');
-        const pageInfo = document.getElementById('pageInfo');
         const pageInput = document.getElementById('pageInput');
-        const jumpBtn = document.getElementById('jumpBtn');
+        const pageTotal = document.getElementById('pageTotal');
         const zoomInBtn = document.getElementById('zoomIn');
         const zoomOutBtn = document.getElementById('zoomOut');
         const zoomResetBtn = document.getElementById('zoomReset');
 
+        /* Every page gets a slot of its real size up front, so pages drawn or dropped above
+           never move the one being read. Pages are drawn one at a time, nearest first.
+           The file is read in ranges as PDF.js asks: Nomad's whole-file reply carries a
+           duplicate "accept-ranges: none" that makes PDF.js download the whole book first. */
         let pdfDoc = null;
         let currentPage = 1;
+        // bookmarks and notes by page, kept on this phone
+        NomadMarks.attach(document.getElementById('marksBtn'), {
+            key: () => pdfPath,
+            title: () => document.getElementById('readerTitle').textContent,
+            here: () => (currentPage ? { at: currentPage, order: currentPage, label: 'Page ' + currentPage } : null),
+            go: (n) => goToPage(+n),
+        });
         let totalPages = 0;
-        let scale = 1.5;
-        let renderQueue = new Set();
-        let renderedPages = new Set();
-        let observer = null;
-        const UNLOAD_MARGIN = 12; // pages this far from the current one get their canvas freed
+        let zoom = 1;                       // 1 = the page fills the reading width
+        let scale = 1;                      // unused
+        const UNLOAD_MARGIN = 6;            // canvases this far from the current page are freed
+        const slots = [];                   // slots[n - 1] = the page's box
+        let pageW = 612, pageH = 792;       // page 1 at scale 1, the shape slots start with
 
+        // the page to come back to, plus the page count so progress works without opening the PDF
         const RESUME_KEY = 'nomad_pdf_progress';
-        
-        function getResumeKey(path) {
-            return `${RESUME_KEY}_${encodeURIComponent(normalizePath(path))}`;
-        }
-
+        function getResumeKey(path) { return `${RESUME_KEY}_${encodeURIComponent(normalizePath(path))}`; }
         function saveProgress(path, page) {
-            try {
-                const key = getResumeKey(path);
-                localStorage.setItem(key, JSON.stringify({ page, time: Date.now() }));
-            } catch (e) {
-                console.warn('Failed to save progress', e);
-            }
+            try { localStorage.setItem(getResumeKey(path), JSON.stringify({ page, pages: totalPages, time: Date.now() })); } catch (e) {}
+            noteProgress(path, page);
         }
-
+        // how far along, for the Books shelf and the menu's Continue (NomadProgress, nomad-utils.js).
+        // A finished PDF opened again on its first page stays finished until you turn a page.
+        function noteProgress(path, page) {
+            if (!totalPages) return;
+            const was = NomadProgress.get(path);
+            if (page === 1 && was && was.done) return;
+            const info = { k: 'pdf', t: readerTitle.textContent };
+            if (page >= totalPages) NomadProgress.finish(path, info);
+            else NomadProgress.note(path, Object.assign(info, { p: page / totalPages, l: `Page ${page} of ${totalPages}` }));
+        }
         function loadProgress(path) {
-            try {
-                const key = getResumeKey(path);
-                const data = localStorage.getItem(key);
-                return data ? JSON.parse(data) : null;
-            } catch (e) {
-                return null;
-            }
+            try { const d = localStorage.getItem(getResumeKey(path)); return d ? JSON.parse(d) : null; } catch (e) { return null; }
         }
-
         function updatePageInfo() {
-            pageInfo.textContent = `Page ${currentPage} / ${totalPages}`;
+            if (document.activeElement !== pageInput) pageInput.value = currentPage;
+            pageTotal.textContent = `of ${totalPages}`;
             pageInput.max = totalPages;
             prevBtn.disabled = currentPage <= 1;
             nextBtn.disabled = currentPage >= totalPages;
-            unloadFarPages(currentPage);
         }
-
-        function updateZoomInfo() {
-            const percent = Math.round(scale * 100);
-            zoomResetBtn.textContent = `${percent}%`;
-        }
-
-        async function renderPage(pageNum) {
-            if (renderedPages.has(pageNum) || renderQueue.has(pageNum)) return;
-            renderQueue.add(pageNum);
-
-            try {
-                const page = await pdfDoc.getPage(pageNum);
-                const viewport = page.getViewport({ scale });
-                
-                const canvas = document.createElement('canvas');
-                canvas.className = 'pdf-page';
-                canvas.id = `page-${pageNum}`;
-                const context = canvas.getContext('2d');
-                canvas.height = viewport.height;
-                canvas.width = viewport.width;
-                
-                await page.render({
-                    canvasContext: context,
-                    viewport: viewport
-                }).promise;
-                
-                const existingCanvas = pdfContainer.querySelector(`#page-${pageNum}`);
-                if (existingCanvas) {
-                    existingCanvas.replaceWith(canvas);
-                } else {
-                    const canvases = Array.from(pdfContainer.querySelectorAll('.pdf-page'));
-                    const insertIndex = canvases.findIndex(c => {
-                        const id = parseInt(c.id.replace('page-', ''));
-                        return id > pageNum;
-                    });
-                    
-                    if (insertIndex >= 0) {
-                        canvases[insertIndex].before(canvas);
-                    } else {
-                        pdfContainer.appendChild(canvas);
-                    }
-                }
-
-                if (observer) observer.observe(canvas);
-                renderedPages.add(pageNum);
-            } catch (err) {
-                console.error(`Failed to render page ${pageNum}:`, err);
-            } finally {
-                renderQueue.delete(pageNum);
-            }
-        }
-
-        function scrollToPage(pageNum) {
-            const canvas = pdfContainer.querySelector(`#page-${pageNum}`);
-            if (canvas) {
-                canvas.scrollIntoView({ behavior: 'smooth', block: 'start' });
-            }
-        }
-
-        // each page is a full-res canvas, keeping them all in the DOM eventually runs
-        // out of memory. drop any page more than UNLOAD_MARGIN away, cheap to re-render
-        function unloadFarPages(centerPage) {
-            for (const pageNum of Array.from(renderedPages)) {
-                if (Math.abs(pageNum - centerPage) <= UNLOAD_MARGIN) continue;
-                const canvas = pdfContainer.querySelector(`#page-${pageNum}`);
-                if (canvas) {
-                    if (observer) observer.unobserve(canvas);
-                    canvas.width = 0;
-                    canvas.height = 0;
-                    canvas.remove();
-                }
-                renderedPages.delete(pageNum);
-            }
-        }
-
-        function preloadPages(centerPage) {
-            const pagesToLoad = [
-                centerPage,
-                centerPage - 1,
-                centerPage + 1,
-                centerPage + 2,
-                centerPage - 2,
-                centerPage + 3,
-                centerPage + 4,
-                centerPage + 5,
-                centerPage - 3,
-                centerPage - 4
-            ].filter(p => p >= 1 && p <= totalPages);
-
-            pagesToLoad.forEach(p => renderPage(p));
-        }
-
-        function goToPage(pageNum) {
-            if (pageNum < 1 || pageNum > totalPages) return;
-            currentPage = pageNum;
-            updatePageInfo();
-            saveProgress(pdfPath, currentPage);
-
-            if (!renderedPages.has(currentPage)) {
-                renderPage(currentPage).then(() => scrollToPage(currentPage));
-            } else {
-                scrollToPage(currentPage);
-            }
-
-            preloadPages(currentPage);
-        }
-
-        function changeZoom(newScale) {
-            scale = Math.max(0.5, Math.min(3.0, newScale));
-            updateZoomInfo();
-
-            renderedPages.clear();
-            renderQueue.clear();
-            pdfContainer.querySelectorAll('.pdf-page').forEach(c => {
-                if (observer) observer.unobserve(c);
-                c.width = 0;
-                c.height = 0;
-                c.remove();
-            });
-
-            goToPage(currentPage);
-        }
-
+        function updateZoomInfo() { zoomResetBtn.textContent = `${Math.round(zoom * 100)}%`; }
         function setLoadingProgress(pct, label) {
             if (loadingText) loadingText.textContent = label;
             if (loadingBarFill) loadingBarFill.style.width = (pct == null ? 0 : Math.max(0, Math.min(100, pct))) + '%';
         }
-        function fmtMB(bytes) { return (bytes / 1048576).toFixed(1) + ' MB'; }
+
+        const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+        async function rangeRead(url, spec) {
+            for (let i = 0, wait = 400; ; i++) {
+                const r = await fetch(url, { headers: { Range: spec } });
+                if (r.status === 206) return { buf: await r.arrayBuffer(), range: r.headers.get('Content-Range') || '' };
+                if (r.status === 200) {
+                    const all = await r.arrayBuffer(), m = /bytes=(\d*)-(\d*)/.exec(spec);
+                    const a = +m[1] || 0, b = m[2] === '' ? all.byteLength - 1 : +m[2];
+                    return { buf: all.slice(a, b + 1), range: `bytes ${a}-${b}/${all.byteLength}` };
+                }
+                if (r.status !== 503 || i >= 6) throw new Error(r.status === 404 ? 'missing' : 'HTTP ' + r.status);
+                const ra = parseFloat(r.headers.get('Retry-After'));
+                await sleep(ra > 0 ? ra * 1000 : wait); wait = Math.min(wait * 1.8, 4000);
+            }
+        }
+        // three reads at a time: past ~4 Nomad answers 503
+        let reading = 0; const readQueue = [];
+        function queuedRead(url, spec) {
+            return new Promise((resolve, reject) => { readQueue.push({ url, spec, resolve, reject }); pumpReads(); });
+        }
+        function pumpReads() {
+            while (reading < 3 && readQueue.length) {
+                const job = readQueue.shift(); reading++;
+                rangeRead(job.url, job.spec).then(job.resolve, job.reject).finally(() => { reading--; pumpReads(); });
+            }
+        }
+
+        function slotWidth() {
+            const avail = pdfContainer.clientWidth - 16;
+            return Math.max(120, Math.round(Math.min(avail, 1100) * zoom));
+        }
+        function buildSlots() {
+            pdfContainer.querySelectorAll('.page-slot').forEach((el) => el.remove());
+            slots.length = 0;
+            const w = slotWidth(), frag = document.createDocumentFragment();
+            for (let n = 1; n <= totalPages; n++) {
+                const el = document.createElement('div');
+                el.className = 'page-slot';
+                el.dataset.page = n;
+                el.style.width = w + 'px';
+                el.style.aspectRatio = `${pageW} / ${pageH}`;
+                frag.appendChild(el); slots.push(el);
+            }
+            pdfContainer.appendChild(frag);
+        }
+        function resizeSlots() {
+            const w = slotWidth() + 'px';
+            for (const el of slots) el.style.width = w;
+        }
+        const drawn = new Map();            // page -> slot width it was drawn at
+        let drawing = null;                 // { page, task }
+        function wanted() {
+            const out = [];
+            for (let d = 0; d <= 3; d++) for (const n of d ? [currentPage + d, currentPage - d] : [currentPage]) {
+                if (n >= 1 && n <= totalPages && drawn.get(n) !== slotWidth()) out.push(n);
+            }
+            return out;
+        }
+        async function drawNext() {
+            if (drawing) {
+                // already drawing something you've moved well away from: stop it
+                if (Math.abs(drawing.page - currentPage) > 3 && drawing.task) drawing.task.cancel();
+                return;
+            }
+            const n = wanted()[0];
+            if (!n) return;
+            const width = slotWidth();
+            drawing = { page: n, task: null };
+            try {
+                const page = await pdfDoc.getPage(n);
+                const v1 = page.getViewport({ scale: 1 });
+                const slot = slots[n - 1];
+                // a page of another shape: fix its slot, keeping your place if it is above you
+                if (Math.abs(v1.width / v1.height - pageW / pageH) > 0.01 && slot.dataset.shaped !== '1') {
+                    const before = slot.offsetHeight;
+                    slot.style.aspectRatio = `${v1.width} / ${v1.height}`; slot.dataset.shaped = '1';
+                    if (n < currentPage) pdfContainer.scrollTop += slot.offsetHeight - before;
+                }
+                const dpr = Math.min(window.devicePixelRatio || 1, 2);
+                const viewport = page.getViewport({ scale: (width * dpr) / v1.width });
+                const canvas = document.createElement('canvas');
+                canvas.width = Math.floor(viewport.width); canvas.height = Math.floor(viewport.height);
+                drawing.task = page.render({ canvasContext: canvas.getContext('2d'), viewport });
+                await drawing.task.promise;
+                const old = slot.querySelector('canvas');
+                if (old) { old.width = 0; old.height = 0; old.remove(); }
+                slot.appendChild(canvas);
+                drawn.set(n, width);
+                if (n === currentPage) loadingOverlay.classList.add('hidden');
+            } catch (err) {
+                if (!err || err.name !== 'RenderingCancelledException') console.error(`Page ${n}:`, err);
+            } finally {
+                drawing = null;
+                unloadFarPages();
+                drawNext();
+            }
+        }
+        // each page is a full-size canvas: free the ones far away (their slot keeps its size)
+        function unloadFarPages() {
+            for (const n of Array.from(drawn.keys())) {
+                if (Math.abs(n - currentPage) <= UNLOAD_MARGIN) continue;
+                const c = slots[n - 1] && slots[n - 1].querySelector('canvas');
+                if (c) { c.width = 0; c.height = 0; c.remove(); }
+                drawn.delete(n);
+            }
+        }
+
+        function pageAtMiddle() {
+            const box = pdfContainer.getBoundingClientRect();
+            const el = document.elementFromPoint(box.left + box.width / 2, box.top + Math.min(box.height / 3, 200));
+            const slot = el && el.closest && el.closest('.page-slot');
+            return slot ? +slot.dataset.page : currentPage;
+        }
+        let scrollPending = false;
+        pdfContainer.addEventListener('scroll', () => {
+            if (scrollPending) return;
+            scrollPending = true;
+            requestAnimationFrame(() => {
+                scrollPending = false;
+                // at the very bottom you're on the last page, even when it is too short to reach the middle
+                const atEnd = pdfContainer.scrollTop + pdfContainer.clientHeight >= pdfContainer.scrollHeight - 4;
+                const n = atEnd && totalPages ? totalPages : pageAtMiddle();
+                if (n !== currentPage) { currentPage = n; updatePageInfo(); saveProgress(pdfPath, currentPage); }
+                drawNext();
+            });
+        }, { passive: true });
+        // straight to the page: its slot is already where it will stay
+        function goToPage(pageNum) {
+            if (!pdfDoc || pageNum < 1 || pageNum > totalPages) return;
+            currentPage = pageNum;
+            updatePageInfo();
+            saveProgress(pdfPath, currentPage);
+            const slot = slots[pageNum - 1];
+            pdfContainer.scrollTop += slot.getBoundingClientRect().top - pdfContainer.getBoundingClientRect().top - 10;
+            drawNext();
+        }
+        function changeZoom(newZoom) {
+            zoom = Math.max(0.5, Math.min(3, Math.round(newZoom * 100) / 100));
+            updateZoomInfo();
+            const keep = currentPage;
+            resizeSlots();
+            goToPage(keep);
+        }
+        let resizeT = null;
+        window.addEventListener('resize', () => { clearTimeout(resizeT); resizeT = setTimeout(() => changeZoom(zoom), 200); });
+
+        function failMessage(err) {
+            const m = String((err && (err.message || err.name)) || err);
+            if (err && err.name === 'PasswordException') return 'This PDF is password protected and can\'t be opened here.';
+            if (err && (err.name === 'InvalidPDFException' || /Invalid PDF/i.test(m))) return 'This file isn\'t a readable PDF. It may be damaged: try copying it to the card again.';
+            if (m === 'missing') return 'The file is missing from the card.';
+            if (err instanceof TypeError || /fetch|network/i.test(m)) return 'Lost touch with Nomad. Check you\'re still on its WiFi, then reload.';
+            return 'Couldn\'t open this PDF (' + m + ').';
+        }
 
         async function loadPDF(path) {
             try {
                 loadingOverlay.classList.remove('hidden');
-                setLoadingProgress(0, 'Loading…');
-
+                setLoadingProgress(5, 'Opening…');
                 const fileName = path.split('/').pop();
                 readerTitle.textContent = fileName.replace(/\.[^/.]+$/, '').replace(/[_\.]+/g, ' ').trim();
-
-                const url = fileUrlDirect(path);
-                console.log('PDF: Loading from', url);
-
-                if (typeof pdfjsLib === 'undefined') {
-                    throw new Error('PDF.js library not loaded');
-                }
-
+                if (typeof pdfjsLib === 'undefined') throw new Error('PDF.js library not loaded');
                 pdfjsLib.GlobalWorkerOptions.workerSrc = '/assets/pdf.worker.min.js';
 
-                const loadingTask = pdfjsLib.getDocument(url);
-
-                loadingTask.onProgress = (progress) => {
-                    // no Content-Length? show bytes downloaded instead of a %
-                    if (progress.total > 0) {
-                        const percent = Math.round((progress.loaded / progress.total) * 100);
-                        setLoadingProgress(percent, `Loading ${percent}%`);
-                    } else if (progress.loaded > 0) {
-                        setLoadingProgress(null, `Loading ${fmtMB(progress.loaded)}…`);
-                    }
+                const url = fileUrlDirect(path);
+                // the first piece also gives the size, PDF.js asks for the rest as needed.
+                // Small pieces: Nomad reads are slow per KB, and most of what PDF.js asks for
+                // while finding pages is a few hundred bytes. A page's image still comes in one
+                // request, since PDF.js groups contiguous pieces.
+                const CHUNK = 32768;
+                const first = await rangeRead(url, 'bytes=0-131071');
+                const total = parseInt((/\/(\d+)\s*$/.exec(first.range) || [])[1], 10) || first.buf.byteLength;
+                const transport = new pdfjsLib.PDFDataRangeTransport(total, new Uint8Array(first.buf));
+                let got = first.buf.byteLength, lastEnd = first.buf.byteLength, streak = 0;
+                const t0 = Date.now(), mb = (n) => (n / 1048576).toFixed(n < 10485760 ? 1 : 0);
+                transport.requestDataRange = (begin, end) => {
+                    // reading straight through (PDF.js rescans a PDF whose index doesn't match
+                    // its contents): take 256 KB at a time, far fewer requests
+                    streak = begin === lastEnd ? streak + 1 : 0;
+                    if (streak >= 3) end = Math.min(total, begin + CHUNK * 8);
+                    lastEnd = end;
+                    queuedRead(url, `bytes=${begin}-${end - 1}`).then((r) => {
+                        got += r.buf.byteLength;
+                        transport.onDataRange(begin, new Uint8Array(r.buf));
+                        if (pdfDoc) return;
+                        const pct = Math.min(90, 5 + (got / total) * 85), secs = (Date.now() - t0) / 1000;
+                        if (secs > 20) setLoadingProgress(pct, `Still finding the pages… ${mb(got)} of ${mb(total)} MB read. ` +
+                            'Re-save it on a computer (Save As or Print to PDF) to open faster.');
+                        else if (secs > 8) setLoadingProgress(pct, `Finding the pages… ${mb(got)} MB read`);
+                        else setLoadingProgress(pct, `Opening… ${mb(got)} MB read`);
+                    }).catch((e) => console.error('PDF read', begin, e));
                 };
-
-                pdfDoc = await loadingTask.promise;
+                pdfDoc = await pdfjsLib.getDocument({ range: transport, length: total, rangeChunkSize: CHUNK,
+                    disableAutoFetch: true, disableStream: true }).promise;
                 totalPages = pdfDoc.numPages;
-                setLoadingProgress(100, 'Rendering…');
-
-                console.log(`PDF: Loaded ${totalPages} pages`);
-
                 const progress = loadProgress(path);
-                const startPage = (progress && progress.page > 0 && progress.page <= totalPages) ? progress.page : 1;
-                currentPage = startPage;
-
-                observer = new IntersectionObserver((entries) => {
-                    entries.forEach(entry => {
-                        if (entry.isIntersecting) {
-                            const pageNum = parseInt(entry.target.id.replace('page-', ''));
-                            if (pageNum !== currentPage) {
-                                currentPage = pageNum;
-                                updatePageInfo();
-                                saveProgress(path, currentPage);
-                                preloadPages(currentPage);
-                            }
-                        }
-                    });
-                }, { threshold: 0.5 });
-
-                updatePageInfo();
+                // a PDF you finished starts again from the top
+                const done = (NomadProgress.get(path) || {}).done;
+                const startPage = (!done && progress && progress.page > 0 && progress.page <= totalPages) ? progress.page : 1;
+                setLoadingProgress(95, 'Drawing the page…');
+                const p1 = (await pdfDoc.getPage(startPage)).getViewport({ scale: 1 });
+                pageW = p1.width; pageH = p1.height;
+                buildSlots();
                 updateZoomInfo();
-
-                await renderPage(startPage);
-                loadingOverlay.classList.add('hidden');
-
-                scrollToPage(startPage);
-                preloadPages(startPage);
-
-                let lastScrollCheck = 0;
-                pdfContainer.addEventListener('scroll', () => {
-                    const now = Date.now();
-                    if (now - lastScrollCheck < 200) return;
-                    lastScrollCheck = now;
-
-                    const scrollTop = pdfContainer.scrollTop;
-                    const scrollHeight = pdfContainer.scrollHeight;
-                    const clientHeight = pdfContainer.clientHeight;
-                    const scrollPercent = (scrollTop + clientHeight) / scrollHeight;
-
-                    if (scrollPercent > 0.8) {
-                        const maxRendered = Math.max(...Array.from(renderedPages));
-                        if (maxRendered < totalPages) {
-                            const pagesToRender = Math.min(5, totalPages - maxRendered);
-                            for (let i = 1; i <= pagesToRender; i++) {
-                                renderPage(maxRendered + i);
-                            }
-                        }
-                    }
-                });
-                
+                goToPage(startPage);
             } catch (err) {
                 console.error('PDF load error', err);
                 loadingOverlay.classList.add('hidden');
-                pdfContainer.innerHTML = '<p class="error-message">Failed to load PDF. The file may be corrupted or PDF.js is not properly configured.</p>';
+                pdfContainer.innerHTML = '<p class="error-message">' + failMessage(err) + '</p>';
             }
         }
 
         prevBtn.addEventListener('click', () => goToPage(currentPage - 1));
         nextBtn.addEventListener('click', () => goToPage(currentPage + 1));
-        
-        jumpBtn.addEventListener('click', () => {
-            const pageNum = parseInt(pageInput.value);
-            if (pageNum) goToPage(pageNum);
-        });
-        
-        pageInput.addEventListener('keypress', (e) => {
-            if (e.key === 'Enter') {
-                const pageNum = parseInt(pageInput.value);
-                if (pageNum) goToPage(pageNum);
-            }
-        });
-
-        zoomInBtn.addEventListener('click', () => changeZoom(scale + 0.25));
-        zoomOutBtn.addEventListener('click', () => changeZoom(scale - 0.25));
-        zoomResetBtn.addEventListener('click', () => changeZoom(1.5));
-
+        // the page number is the jump box: tap it, type, Enter (or tap away)
+        const jumpTo = () => { const n = parseInt(pageInput.value); if (n) goToPage(Math.max(1, Math.min(totalPages, n))); else updatePageInfo(); };
+        pageInput.addEventListener('focus', () => pageInput.select());
+        pageInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); pageInput.blur(); } });
+        pageInput.addEventListener('change', jumpTo);
+        pageInput.addEventListener('blur', () => setTimeout(updatePageInfo, 0));
+        zoomInBtn.addEventListener('click', () => changeZoom(zoom + 0.25));
+        zoomOutBtn.addEventListener('click', () => changeZoom(zoom - 0.25));
+        zoomResetBtn.addEventListener('click', () => changeZoom(1));
         document.addEventListener('keydown', (e) => {
-            if (e.key === 'ArrowRight' || e.key === ' ') {
-                e.preventDefault();
-                goToPage(currentPage + 1);
-            } else if (e.key === 'ArrowLeft') {
-                e.preventDefault();
-                goToPage(currentPage - 1);
-            } else if (e.key === '+' || e.key === '=') {
-                e.preventDefault();
-                changeZoom(scale + 0.25);
-            } else if (e.key === '-' || e.key === '_') {
-                e.preventDefault();
-                changeZoom(scale - 0.25);
-            }
+            if (e.target === pageInput) return;
+            if (e.key === 'ArrowRight' || e.key === 'PageDown') { e.preventDefault(); goToPage(currentPage + 1); }
+            else if (e.key === 'ArrowLeft' || e.key === 'PageUp') { e.preventDefault(); goToPage(currentPage - 1); }
+            else if (e.key === '+' || e.key === '=') { e.preventDefault(); changeZoom(zoom + 0.25); }
+            else if (e.key === '-' || e.key === '_') { e.preventDefault(); changeZoom(zoom - 0.25); }
         });
 
         if (pdfPath) {

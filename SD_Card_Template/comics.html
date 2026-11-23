@@ -1,27 +1,19 @@
 <!DOCTYPE html>
-<!-- Version 4 -->
+<!-- Version 5 -->
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<script>/* nomad-load-guard: reload, twice at most, when one of Nomad's own scripts or stylesheets fails to load */(function(){var k='nomadLoadGuard:'+location.pathname;window.addEventListener('error',function(e){var t=e.target;if(!t||!t.tagName)return;var s=t.tagName==='SCRIPT',c=t.tagName==='LINK'&&/stylesheet/i.test(t.rel||'');if(!s&&!c)return;var u=t.src||t.href||'';if(u.indexOf(location.origin+'/')!==0)return;var n=0;try{n=+sessionStorage.getItem(k)||0;}catch(x){return;}if(n>=2)return;try{sessionStorage.setItem(k,String(n+1));}catch(x){return;}setTimeout(function(){location.reload();},1500*(n+1));},true);window.addEventListener('load',function(){setTimeout(function(){try{sessionStorage.removeItem(k);}catch(x){}},15000);});})();</script>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Comic Reader - Nomad</title>
     <link rel="stylesheet" href="/master.css">
-    <script src="/theme-boot.js"></script>
+    <script src="/theme-boot.js?v=5"></script>
+<script src="/theme-manager.js?v=5"></script>
+    <script src="/nomad-utils.js?v=52"></script>
+    <script src="/nomad-icons.js?v=1"></script>
+    <script src="/assets/nomad-marks.js?v=1"></script>
     <script src="/assets/pako.min.js"></script>
     <script src="/assets/uncompress.js"></script>
-    <script src="/assets/libunrar.js"></script>
-    <script>
-    (function() {
-        try {
-            const isDark = localStorage.getItem('nomad_dark_mode') === 'true';
-            if (isDark) {
-                document.addEventListener('DOMContentLoaded', () => {
-                    document.body.classList.add('dark');
-                });
-            }
-        } catch(e) {}
-    })();
-    </script>
     <style>
         *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
@@ -50,6 +42,9 @@
 
         #topbar.hidden { transform: translateY(-100%); }
 
+        .marks-btn { position: relative; cursor: pointer; height: 26px; min-width: 30px; display: inline-grid; place-items: center; }
+        .marks-btn svg { width: 14px; height: 14px; }
+        .marks-btn.has-marks::after { content: ''; position: absolute; top: 2px; right: 2px; width: 6px; height: 6px; border-radius: 50%; background: #ffd400; }
         #back-btn {
             background: var(--card);
             color: var(--text);
@@ -63,6 +58,24 @@
             transition: background 0.2s, color 0.2s;
         }
         #back-btn:hover { background: var(--primary) !important; color: white !important; }
+        /* the next comic in the same folder (chapters, a series), like Shows' next episode */
+        #next-comic {
+            background: var(--primary); color: var(--color-white, #fff); text-decoration: none;
+            padding: 6px 10px; border-radius: var(--radius, 6px); font-size: 12px; font-weight: 600;
+            white-space: nowrap; flex-shrink: 0; border: 1px solid var(--primary);
+        }
+        #next-comic[hidden], #end-card[hidden] { display: none; }
+        #end-card {
+            max-width: 560px; margin: 24px auto 90px; padding: 18px 16px; text-align: center;
+            background: var(--card); color: var(--text); border: 1px solid var(--line); border-radius: var(--radius-large, 12px);
+        }
+        #end-card .muted { color: var(--muted); font-size: 13px; margin-bottom: 10px; }
+        #end-card a {
+            display: inline-block; background: var(--primary); color: var(--color-white, #fff); text-decoration: none;
+            padding: 10px 18px; border-radius: var(--radius, 6px); font-weight: 600; max-width: 100%;
+            overflow: hidden; text-overflow: ellipsis; white-space: nowrap; box-sizing: border-box;
+        }
+        body.paged-mode #end-card { display: none; }
 
         #comic-title {
             flex: 1;
@@ -224,10 +237,8 @@
             display: block;
         }
 
-        body.rtl #reader.paged .page-wrapper.active,
-        body.rtl #reader.two-page .page-wrapper.active {
-            flex-direction: row-reverse;
-        }
+        /* right to left: the first page of a pair on the right */
+        body.rtl #reader.two-page { flex-direction: row-reverse; }
 
         #page-controls {
             position: fixed;
@@ -243,7 +254,8 @@
             z-index: 200;
         }
 
-        #page-controls.visible { display: flex; }
+        /* master.css has .visible { display: block !important }, which piles the buttons up on the left */
+        #page-controls.visible { display: flex !important; }
 
         #page-controls button {
             background: var(--card);
@@ -261,9 +273,12 @@
         }
         #page-controls button:disabled { opacity: 0.35; cursor: not-allowed; }
 
+        /* the shape of a real page (set from the first one that loads), so pages loading
+           above you don't push the one you're reading down the screen */
         .page-placeholder {
             width: 100%;
             min-height: 400px;
+            aspect-ratio: var(--page-aspect, 2 / 3);
             background: var(--bg);
             display: flex;
             align-items: center;
@@ -272,6 +287,7 @@
             font-size: 13px;
         }
         .page-placeholder.loading::after { content: 'Loading...'; }
+        html.page-aspect-known .page-placeholder { min-height: 0; }
 
         .topbar-controls {
             display: flex;
@@ -295,7 +311,7 @@
 
         #overlay {
             position: fixed;
-            inset: 0;
+            top:0;right:0;bottom:0;left:0;inset:0;
             z-index: 500;
             background: rgba(0,0,0,0.85);
             display: flex;
@@ -360,32 +376,35 @@
         <a id="back-btn" href="/books">&#8592; Back</a>
         <div id="comic-title">Loading…</div>
         <div id="page-indicator"></div>
+        <a id="next-comic" href="#" hidden onclick="openNextComic(); return false;">Next &#8250;</a>
         <div class="topbar-controls">
+            <button id="marks-btn" class="mode-select marks-btn" title="Bookmarks" aria-label="Bookmarks" data-icon="pin"></button>
             <select id="mode-select" class="mode-select" onchange="changeMode()">
                 <option value="webtoon">Webtoon</option>
-                <option value="paged">Single Page</option>
-                <option value="two-page">Two Page</option>
+                <option value="paged">Single page</option>
+                <option value="two-page">Two page</option>
             </select>
             <select id="direction-select" class="mode-select" onchange="changeDirection()">
-                <option value="ltr">Left to Right</option>
-                <option value="rtl">Right to Left</option>
+                <option value="ltr">Left to right</option>
+                <option value="rtl">Right to left</option>
             </select>
         </div>
     </div>
 
-    <div id="tap-left" onclick="prevPage()"></div>
-    <div id="tap-right" onclick="nextPage()"></div>
+    <div id="tap-left" onclick="tapSide('left')"></div>
+    <div id="tap-right" onclick="tapSide('right')"></div>
     <div id="reader" class="webtoon"></div>
+    <div id="end-card" hidden><div class="muted">The end</div><a href="#" id="end-next" onclick="openNextComic(); return false;"></a></div>
 
     <div id="page-controls">
-        <button id="btn-prev" onclick="prevPage()">← Prev</button>
+        <button id="btn-left" onclick="tapSide('left')">← Prev</button>
         <span id="paged-indicator" style="font-size:14px;opacity:0.8"></span>
-        <button id="btn-next" onclick="nextPage()">Next →</button>
+        <button id="btn-right" onclick="tapSide('right')">Next →</button>
     </div>
 
     <div id="overlay">
         <div class="spinner"></div>
-        <div id="overlay-status">Opening comic…</div>
+        <div id="overlay-status">Opening…</div>
     </div>
 
     <div id="error-banner"></div>
@@ -394,41 +413,58 @@
     const params      = new URLSearchParams(window.location.search);
     const comicPath   = params.get('path') || '';
     let   entries     = [];
-    let   mode        = localStorage.getItem('nomad_comic_mode') || 'webtoon';
-    let   direction   = localStorage.getItem('nomad_comic_direction') || 'ltr';
+    let   mode        = NomadPrefs.raw('nomad_comic_mode') || 'webtoon';
+    let   direction   = NomadPrefs.raw('nomad_comic_direction') || 'ltr';
     let   currentPage = 0;
     const blobURLs    = {};
     const PRELOAD     = 4;
     const UNLOAD_MARGIN = 25; // pages this far from the current one get their decoded image freed
 
-    let cbzFetchQueue = Promise.resolve();
-    let requestCounter = 0;
-
-    // firmware keeps one shared file handle per path, so two range requests for the
-    // same archive seek out from under each other. queue them one-at-a-time to avoid it
-    function serializeCBZFetch(url, options) {
-        const myRequestId = ++requestCounter;
-
-        const executeRequest = async () => {
-            const response = await fetch(url, options);
-            if (!response.ok) return response;
-
-            const buffer = await response.arrayBuffer();
-            return new Response(buffer, {
-                status: response.status,
-                statusText: response.statusText,
-                headers: response.headers
-            });
-        };
-
-        const myTask = cbzFetchQueue.then(executeRequest, executeRequest);
-        cbzFetchQueue = myTask;
-        return myTask;
+    /* Card reads: a few at a time, nearest the current page first. The firmware gives
+       overlapping reads of one file their own handles, so CBZ pages needn't queue single
+       file. Three at once leaves room for the rest of the page: past ~4 Nomad answers 503. */
+    const MAX_READS = 3;
+    let reading = 0;
+    const waiting = [], inFlight = new Set();
+    function cardRead(idx, run) {
+        return new Promise((resolve, reject) => { waiting.push({ idx, run, resolve, reject }); pump(); });
+    }
+    function pump() {
+        // ahead of the current page before behind it
+        const score = (w) => w.idx >= currentPage ? w.idx - currentPage : (currentPage - w.idx) * 2;
+        // Nomad's ~0.6 MB/s is shared by every read in flight: while the current page
+        // loads, only one other read runs beside it, so it arrives first
+        const limit = () => inFlight.has(currentPage) ? 2 : MAX_READS;
+        while (reading < limit() && waiting.length) {
+            let best = 0;
+            for (let i = 1; i < waiting.length; i++) if (score(waiting[i]) < score(waiting[best])) best = i;
+            const job = waiting.splice(best, 1)[0];
+            // scrolled far away since it was asked for: not worth a read now
+            if (Math.abs(job.idx - currentPage) > UNLOAD_MARGIN) { job.reject(new Error('stale')); continue; }
+            reading++; inFlight.add(job.idx);
+            job.run().then(job.resolve, job.reject).finally(() => { reading--; inFlight.delete(job.idx); pump(); });
+        }
+    }
+    const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+    // a ranged read (spec: "bytes=a-b" or "bytes=-n"), retried while the card is busy
+    async function rangeRead(url, spec) {
+        for (let i = 0, wait = 400; ; i++) {
+            const r = await fetch(url, { headers: { Range: spec } });
+            if (r.status === 206) return { buf: await r.arrayBuffer(), range: r.headers.get('Content-Range') || '' };
+            if (r.status === 200) {
+                // a server that ignored the range: take the part that was asked for
+                const all = await r.arrayBuffer(), m = /bytes=(\d*)-(\d*)/.exec(spec);
+                const a = m[1] === '' ? Math.max(0, all.byteLength - +m[2]) : +m[1], b = m[1] === '' || m[2] === '' ? all.byteLength - 1 : +m[2];
+                return { buf: all.slice(a, b + 1), range: `bytes ${a}-${b}/${all.byteLength}` };
+            }
+            if (r.status !== 503 || i >= 6) throw new Error(r.status === 404 ? 'The file is missing from the card' : 'HTTP ' + r.status);
+            const ra = parseFloat(r.headers.get('Retry-After'));
+            await sleep(ra > 0 ? ra * 1000 : wait); wait = Math.min(wait * 1.8, 4000);
+        }
     }
 
     function setStatus(msg) {
         document.getElementById('overlay-status').textContent = msg;
-        console.log('[ComicReader]', msg);
     }
     function hideOverlay() {
         document.getElementById('overlay').classList.add('hidden');
@@ -441,20 +477,20 @@
         console.error('[ComicReader]', msg);
     }
     function showFatalError(msg) {
-        setStatus('❌ ' + msg);
+        setStatus(msg);
         document.querySelector('#overlay .spinner').style.display = 'none';
     }
 
     async function init() {
-        if (!comicPath) { showFatalError('No comic path specified.'); return; }
+        if (!comicPath) { showFatalError('No comic chosen. Go back and pick one.'); return; }
 
-        const name = comicPath.split('/').pop();
+        const name = comicName(comicPath.split('/').pop());
         document.title = name + ' – Comic Reader';
         document.getElementById('comic-title').textContent = name;
         document.getElementById('back-btn').href = '/books';
 
-        const savedMode = localStorage.getItem('nomad_comic_mode') || 'webtoon';
-        const savedDirection = localStorage.getItem('nomad_comic_direction') || 'ltr';
+        const savedMode = NomadPrefs.raw('nomad_comic_mode') || 'webtoon';
+        const savedDirection = NomadPrefs.raw('nomad_comic_direction') || 'ltr';
 
         mode = savedMode;
         direction = savedDirection;
@@ -470,7 +506,7 @@
             document.getElementById('reader').className = 'webtoon';
         }
 
-        setStatus('Checking file type…');
+        setStatus('Opening…');
 
         try {
             const isCBZ = comicPath.toLowerCase().endsWith('.cbz');
@@ -487,323 +523,133 @@
                 await loadComicDirectory();
             }
 
-            const savedPage = parseInt(localStorage.getItem('comic_page_' + comicPath) || '0');
-            if (savedPage > 0 && savedPage < entries.length) {
-                if (mode === 'paged' || mode === 'two-page') {
-                    goToPage(savedPage);
-                } else {
-                    setTimeout(() => scrollToPage(savedPage), 300);
-                }
-            } else if (mode === 'paged' || mode === 'two-page') {
-                goToPage(0);
-            }
+            // buildReader has gone to where you left off
 
         } catch (err) {
             console.error('[ComicReader] Fatal:', err);
             if (err.message && err.message.includes('503')) {
-                showFatalError('Indexing in progress. Please wait and try again.');
+                showFatalError('Nomad is still indexing. Try again in a moment.');
             } else {
-                showFatalError('Failed to open comic: ' + (err.message || err));
+                showFatalError("Couldn't open this comic: " + (err.message || err));
             }
         }
     }
 
-    // the central-dir local-header offset is exact per spec, so read a small chunk right
-    // there, check the signature/name, and use the local header's lengths. only fall
-    // back to a wide window scan (256KB+/file) if that direct read fails
-    async function locateEntryFast(fileUrl, fileSize, entry) {
-        const headerSize = Math.min(fileSize - entry.hintOffset, 30 + entry.fileNameLength + 256);
-        const resp = await serializeCBZFetch(fileUrl, {
-            headers: { 'Range': `bytes=${entry.hintOffset}-${entry.hintOffset + headerSize - 1}` }
-        });
-        if (!resp.ok) return null;
-
-        const data = await resp.arrayBuffer();
-        if (data.byteLength < 30 + entry.fileNameLength) return null;
-        const view = new DataView(data);
-
-        if (view.getUint32(0, true) !== 0x04034b50) return null;
-
-        const fnLen = view.getUint16(26, true);
-        const extraLen = view.getUint16(28, true);
-        if (fnLen !== entry.fileNameLength || data.byteLength < 30 + fnLen + extraLen) return null;
-
-        const nameBytes = new Uint8Array(data, 30, fnLen);
-        if (new TextDecoder().decode(nameBytes) !== entry.filename) return null;
-
-        return {
-            localHeaderOffset: entry.hintOffset,
-            dataOffset: entry.hintOffset + 30 + fnLen + extraLen,
-            compressionMethod: entry.compressionMethod,
-            compressedSize: entry.compressedSize,
-            uncompressedSize: entry.uncompressedSize
-        };
-    }
-
-    async function locateEntryBySearch(fileUrl, fileSize, entry) {
-        const searchRange = 128 * 1024;
-        const searchStart = Math.max(0, entry.hintOffset - searchRange);
-        const searchEnd = Math.min(fileSize, entry.hintOffset + searchRange);
-
-        const searchResponse = await serializeCBZFetch(fileUrl, {
-            headers: { 'Range': `bytes=${searchStart}-${searchEnd - 1}` }
-        });
-        if (!searchResponse.ok) return null;
-
-        const searchData = await searchResponse.arrayBuffer();
-        const searchView = new DataView(searchData);
-
-        for (let j = 0; j < searchData.byteLength - 30; j++) {
-            if (searchView.getUint32(j, true) !== 0x04034b50) continue;
-
-            const fnLen = searchView.getUint16(j + 26, true);
-            if (j + 30 + fnLen > searchData.byteLength) continue;
-
-            const nameBytes = new Uint8Array(searchData, j + 30, fnLen);
-            if (new TextDecoder().decode(nameBytes) !== entry.filename) continue;
-
-            const actualOffset = searchStart + j;
-            const extraLen = searchView.getUint16(j + 28, true);
-            return {
-                localHeaderOffset: actualOffset,
-                dataOffset: actualOffset + 30 + fnLen + extraLen,
-                compressionMethod: searchView.getUint16(j + 8, true),
-                compressedSize: searchView.getUint32(j + 18, true),
-                uncompressedSize: searchView.getUint32(j + 22, true)
-            };
-        }
-        return null;
-    }
-
-    async function locateEntry(fileUrl, fileSize, entry) {
-        return (await locateEntryFast(fileUrl, fileSize, entry)) ||
-               (await locateEntryBySearch(fileUrl, fileSize, entry));
-    }
-
+    /* CBZ: a ZIP read in place on the card. Opening reads the last 64 KB, which holds the
+       end-of-directory record and on most comics the whole directory (~80 bytes a page).
+       Each page is then one read of its local header and data. ZIP64 is supported. */
+    let zipTotal = 0;
+    const u64 = (v, o) => v.getUint32(o, true) + v.getUint32(o + 4, true) * 4294967296;
     async function loadCBZFile() {
-        setStatus('Connecting to CBZ file…');
-        console.log('[ComicReader] Opening CBZ with on-demand loading:', comicPath);
-
-        const fileUrl = '/media?file=' + encodeURIComponent(comicPath);
-
-        const headResponse = await serializeCBZFetch(fileUrl, { method: 'HEAD' });
-        if (!headResponse.ok) {
-            throw new Error('Failed to connect to CBZ file');
-        }
-
-        const fileSize = parseInt(headResponse.headers.get('content-length') || '0');
-        console.log('[ComicReader] File size:', fileSize, 'bytes');
-
-        if (fileSize === 0) {
-            throw new Error('Invalid file size');
-        }
-
-        setStatus('Reading ZIP directory…');
-
-        const eocdrSize = Math.min(fileSize, 65536);
-        const eocdrStart = fileSize - eocdrSize;
-
-        const eocdrResponse = await serializeCBZFetch(fileUrl, {
-            headers: { 'Range': `bytes=${eocdrStart}-${fileSize - 1}` }
-        });
-
-        if (!eocdrResponse.ok) {
-            throw new Error('Failed to read ZIP directory');
-        }
-
-        const eocdrData = await eocdrResponse.arrayBuffer();
-        const eocdrView = new DataView(eocdrData);
-
-        let centralDirOffset = -1;
-        let centralDirSize = 0;
-
-        for (let i = eocdrData.byteLength - 22; i >= 0; i--) {
-            if (eocdrView.getUint32(i, true) === 0x06054b50) {
-                centralDirSize = eocdrView.getUint32(i + 12, true);
-                centralDirOffset = eocdrView.getUint32(i + 16, true);
-                break;
+        setStatus('Opening…');
+        const url = '/media?file=' + encodeURIComponent(comicPath);
+        const tail = await rangeRead(url, 'bytes=-65536');
+        zipTotal = parseInt((/\/(\d+)\s*$/.exec(tail.range) || [])[1], 10) || tail.buf.byteLength;
+        const tailStart = zipTotal - tail.buf.byteLength;
+        const tv = new DataView(tail.buf);
+        let e = -1;
+        for (let i = tail.buf.byteLength - 22; i >= 0; i--) if (tv.getUint32(i, true) === 0x06054b50) { e = i; break; }
+        if (e < 0) throw new Error("this isn't a readable CBZ. It may be damaged or a renamed CBR");
+        let cdSize = tv.getUint32(e + 12, true), cdOff = tv.getUint32(e + 16, true);
+        if (cdOff === 0xFFFFFFFF || cdSize === 0xFFFFFFFF || tv.getUint16(e + 10, true) === 0xFFFF) {
+            const loc = e - 20;
+            if (loc >= 0 && tv.getUint32(loc, true) === 0x07064b50) {
+                const z = u64(tv, loc + 8);
+                const rec = z >= tailStart ? new DataView(tail.buf, z - tailStart) : new DataView((await rangeRead(url, `bytes=${z}-${z + 55}`)).buf);
+                cdSize = u64(rec, 40); cdOff = u64(rec, 48);
             }
         }
+        // a file with something stuck on the front: the directory sits later than it says
+        const shift = Math.max(0, (tailStart + e) - (cdOff + cdSize));
+        cdOff += shift;
+        let cd;
+        if (cdOff >= tailStart) cd = tail.buf.slice(cdOff - tailStart, cdOff - tailStart + cdSize);
+        else { setStatus('Opening…'); cd = (await rangeRead(url, `bytes=${cdOff}-${cdOff + cdSize - 1}`)).buf; }
 
-        if (centralDirOffset === -1) {
-            throw new Error('Invalid ZIP file - EOCD not found');
-        }
-
-        setStatus('Loading file index…');
-
-        const cdResponse = await serializeCBZFetch(fileUrl, {
-            headers: { 'Range': `bytes=${centralDirOffset}-${centralDirOffset + centralDirSize - 1}` }
-        });
-
-        if (!cdResponse.ok) {
-            throw new Error('Failed to read central directory');
-        }
-
-        const cdData = await cdResponse.arrayBuffer();
-        const cdView = new DataView(cdData);
-
+        const v = new DataView(cd), dec = new TextDecoder();
         const imageExts = /\.(jpe?g|png|gif|webp|bmp|avif)$/i;
-        const tempEntries = [];
-
-        let offset = 0;
-        while (offset < cdData.byteLength) {
-            if (cdView.getUint32(offset, true) !== 0x02014b50) break;
-
-            const compressedSize = cdView.getUint32(offset + 20, true);
-            const uncompressedSize = cdView.getUint32(offset + 24, true);
-            const fileNameLength = cdView.getUint16(offset + 28, true);
-            const extraFieldLength = cdView.getUint16(offset + 30, true);
-            const fileCommentLength = cdView.getUint16(offset + 32, true);
-            const localHeaderOffset = cdView.getUint32(offset + 42, true);
-            const compressionMethod = cdView.getUint16(offset + 10, true);
-
-            const nameBytes = new Uint8Array(cdData, offset + 46, fileNameLength);
-            const fileName = new TextDecoder().decode(nameBytes);
-
-            if (imageExts.test(fileName)) {
-                tempEntries.push({
-                    filename: fileName,
-                    fileNameLength: fileNameLength,
-                    hintOffset: localHeaderOffset,
-                    compressedSize: compressedSize,
-                    uncompressedSize: uncompressedSize,
-                    compressionMethod: compressionMethod
-                });
+        const list = [];
+        for (let o = 0; o + 46 <= cd.byteLength && v.getUint32(o, true) === 0x02014b50;) {
+            const nameLen = v.getUint16(o + 28, true), extraLen = v.getUint16(o + 30, true), comLen = v.getUint16(o + 32, true);
+            let compressedSize = v.getUint32(o + 20, true), size = v.getUint32(o + 24, true), offset = v.getUint32(o + 42, true);
+            // ZIP64 sizes and offset live in extra field 0x0001, in this order, only where 0xFFFFFFFF
+            for (let x = o + 46 + nameLen, end = x + extraLen; x + 4 <= end;) {
+                const id = v.getUint16(x, true), len = v.getUint16(x + 2, true);
+                if (id === 1) {
+                    let f = x + 4;
+                    if (size === 0xFFFFFFFF) { size = u64(v, f); f += 8; }
+                    if (compressedSize === 0xFFFFFFFF) { compressedSize = u64(v, f); f += 8; }
+                    if (offset === 0xFFFFFFFF) { offset = u64(v, f); }
+                }
+                x += 4 + len;
             }
-
-            offset += 46 + fileNameLength + extraFieldLength + fileCommentLength;
+            const filename = dec.decode(new Uint8Array(cd, o + 46, nameLen));
+            // macOS zips carry __MACOSX/._page.jpg copies that are not images
+            if (imageExts.test(filename) && !/(^|\/)(__MACOSX\/|\._)/.test(filename)) {
+                list.push({ type: 'cbz', fileUrl: url, filename, offset: offset + shift, nameLen, extraLen,
+                    compressedSize, size, method: v.getUint16(o + 10, true) });
+            }
+            o += 46 + nameLen + extraLen + comLen;
         }
-
-        setStatus('Verifying file locations…');
-        entries = [];
-
-        const PRIORITY_COUNT = 20;
-        const itemsToVerify = Math.min(PRIORITY_COUNT, tempEntries.length);
-
-        for (let i = 0; i < itemsToVerify; i++) {
-            const entry = tempEntries[i];
-            const loc = await locateEntry(fileUrl, fileSize, entry);
-
-            if (loc) {
-                entries.push({
-                    type: 'cbz',
-                    filename: entry.filename,
-                    fileUrl: fileUrl,
-                    ...loc
-                });
-            } else {
-                console.warn('[ComicReader] Could not locate:', entry.filename);
-            }
-
-            if (i % 5 === 0) {
-                setStatus(`Verifying priority files… ${Math.round((i / itemsToVerify) * 100)}%`);
-            }
-        }
-
-        entries.sort((a, b) =>
-            a.filename.localeCompare(b.filename, undefined, { numeric: true, sensitivity: 'base' })
-        );
-
-        console.log('[ComicReader] Priority verified', entries.length, 'files, building reader...');
-        console.log('[ComicReader] First 5 filenames:', entries.slice(0, 5).map(e => e.filename));
-        console.log('[ComicReader] tempEntries.length:', tempEntries.length, 'PRIORITY_COUNT:', PRIORITY_COUNT);
-
-        setStatus('Building reader…');
+        entries = list.sort((a, b) => a.filename.localeCompare(b.filename, undefined, { numeric: true, sensitivity: 'base' }));
+        if (!entries.length) { showFatalError('No JPG, PNG, WEBP, GIF or AVIF pages in this CBZ.'); return; }
         buildReader();
         updateIndicator();
         hideOverlay();
+    }
 
-        if (tempEntries.length > PRIORITY_COUNT) {
-            console.log('[ComicReader] ===== STARTING BACKGROUND VERIFICATION =====');
-            console.log('[ComicReader] Background verifying remaining', tempEntries.length - PRIORITY_COUNT, 'files...');
-
-            (async () => {
-                for (let i = PRIORITY_COUNT; i < tempEntries.length; i++) {
-                    const entry = tempEntries[i];
-                    const loc = await locateEntry(fileUrl, fileSize, entry);
-
-                    if (loc) {
-                        entries.push({
-                            type: 'cbz',
-                            filename: entry.filename,
-                            fileUrl: fileUrl,
-                            ...loc
-                        });
-
-                        entries.sort((a, b) =>
-                            a.filename.localeCompare(b.filename, undefined, { numeric: true, sensitivity: 'base' })
-                        );
-
-                        const newIndex = entries.findIndex(e => e.filename === entry.filename);
-
-                        const reader = document.getElementById('reader');
-                        const wrapper = document.createElement('div');
-                        wrapper.className = 'page-wrapper';
-                        wrapper.id = `page-wrapper-${newIndex}`;
-                        wrapper.dataset.index = newIndex;
-
-                        const placeholder = document.createElement('div');
-                        placeholder.className = 'page-placeholder';
-                        placeholder.id = `placeholder-${newIndex}`;
-                        wrapper.appendChild(placeholder);
-
-                        const img = document.createElement('img');
-                        img.id = `img-${newIndex}`;
-                        img.className = 'comic-page';
-                        img.alt = `Page ${newIndex + 1}`;
-                        img.dataset.loaded = 'false';
-                        img.dataset.retryCount = '0';
-                        img.style.display = 'none';
-                        wrapper.appendChild(img);
-
-                        if (newIndex >= reader.children.length) {
-                            reader.appendChild(wrapper);
-                        } else {
-                            reader.insertBefore(wrapper, reader.children[newIndex]);
-                        }
-
-                        for (let k = newIndex + 1; k < reader.children.length; k++) {
-                            const child = reader.children[k];
-                            child.id = `page-wrapper-${k}`;
-                            child.dataset.index = k;
-                            const childPlaceholder = child.querySelector('.page-placeholder');
-                            if (childPlaceholder) childPlaceholder.id = `placeholder-${k}`;
-                            const childImg = child.querySelector('.comic-page');
-                            if (childImg) {
-                                childImg.id = `img-${k}`;
-                                childImg.alt = `Page ${k + 1}`;
-                            }
-                        }
-
-                        if (mode === 'webtoon' && observer) {
-                            observer.observe(wrapper);
-                        }
-
-                        updateIndicator();
-                    } else {
-                        console.warn('[ComicReader] Could not locate:', entry.filename);
-                    }
-
-                    if (i % 20 === 0) {
-                        console.log(`[ComicReader] Background verification progress: ${i}/${tempEntries.length} (${entries.length} total)`);
-                    }
-                }
-
-                console.log('[ComicReader] Background verification complete. Total files:', entries.length);
-            })();
+    // where a page really starts, when its directory offset is off (a damaged or odd zip)
+    async function findLocalHeader(entry) {
+        const from = Math.max(0, entry.offset - 131072), to = Math.min(zipTotal, entry.offset + 131072);
+        const { buf } = await rangeRead(entry.fileUrl, `bytes=${from}-${to - 1}`);
+        const v = new DataView(buf), want = new TextEncoder().encode(entry.filename);
+        for (let j = 0; j + 30 + want.length <= buf.byteLength; j++) {
+            if (v.getUint32(j, true) !== 0x04034b50 || v.getUint16(j + 26, true) !== want.length) continue;
+            const nm = new Uint8Array(buf, j + 30, want.length);
+            if (nm.every((c, k) => c === want[k])) return from + j;
         }
-
-        console.log('[ComicReader] Found', entries.length, 'image files in CBZ');
-
-        if (entries.length === 0) {
-            showFatalError('No images found in this CBZ file.');
-            return;
+        return -1;
+    }
+    async function inflateRaw(u8) {
+        if (window.DecompressionStream) {
+            try {
+                const s = new Blob([u8]).stream().pipeThrough(new DecompressionStream('deflate-raw'));
+                return new Uint8Array(await new Response(s).arrayBuffer());
+            } catch (e) { /* an engine without deflate-raw: pako below */ }
         }
+        return pako.inflateRaw(u8);
+    }
+    const MIME = { jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png', gif: 'image/gif', webp: 'image/webp', bmp: 'image/bmp', avif: 'image/avif' };
+    // one page: its local header and data in one read (the header's extra field is usually
+    // the directory's size, a little slack covers the rest, and a short read fetches the remainder)
+    async function cbzPage(entry) {
+        let start = entry.offset;
+        const want = 30 + entry.nameLen + entry.extraLen + 128 + entry.compressedSize;
+        let buf = (await rangeRead(entry.fileUrl, `bytes=${start}-${Math.min(zipTotal, start + want) - 1}`)).buf;
+        let v = new DataView(buf);
+        if (buf.byteLength < 30 || v.getUint32(0, true) !== 0x04034b50) {
+            start = await findLocalHeader(entry);
+            if (start < 0) throw new Error('page not found in the archive');
+            entry.offset = start;
+            buf = (await rangeRead(entry.fileUrl, `bytes=${start}-${Math.min(zipTotal, start + want) - 1}`)).buf;
+            v = new DataView(buf);
+        }
+        const dataStart = 30 + v.getUint16(26, true) + v.getUint16(28, true);
+        let data;
+        if (dataStart + entry.compressedSize <= buf.byteLength) data = new Uint8Array(buf, dataStart, entry.compressedSize);
+        else {
+            const rest = (await rangeRead(entry.fileUrl, `bytes=${start + buf.byteLength}-${start + dataStart + entry.compressedSize - 1}`)).buf;
+            data = new Uint8Array(dataStart + entry.compressedSize);
+            data.set(new Uint8Array(buf)); data.set(new Uint8Array(rest), buf.byteLength);
+            data = data.subarray(dataStart);
+        }
+        if (entry.method === 8) data = await inflateRaw(data);
+        else if (entry.method !== 0) throw new Error(`compression method ${entry.method} is not supported`);
+        return new Blob([data], { type: MIME[(entry.filename.split('.').pop() || '').toLowerCase()] || '' });
     }
 
     async function loadCBRFile() {
-        setStatus('Downloading CBR file…');
-        console.log('[ComicReader] Opening CBR file (full download required):', comicPath);
+        setStatus('Downloading…');
 
         const fileUrl = '/media?file=' + encodeURIComponent(comicPath);
 
@@ -826,7 +672,7 @@
 
             if (contentLength > 0) {
                 const percent = Math.floor((receivedLength / contentLength) * 100);
-                setStatus(`Downloading CBR file… ${percent}%`);
+                setStatus(`Downloading… ${percent}%`);
             }
         }
 
@@ -837,8 +683,13 @@
             position += chunk.length;
         }
 
-        setStatus('Extracting RAR archive…');
-        console.log('[ComicReader] Uncompressing RAR with uncompress.js');
+        setStatus('Unpacking…');
+        // libunrar.js fetches libunrar.js.mem after it loads. calling it before that lands
+        // aborts with abort(0)
+        for (let waited = 0; !(window.Module && window.Module.calledRun); waited += 100) {
+            if (waited > 15000) throw new Error('The RAR reader did not finish loading.');
+            await new Promise(r => setTimeout(r, 100));
+        }
 
         const archive = await new Promise((resolve, reject) => {
             archiveOpenArrayBuffer(comicPath.split('/').pop(), arrayBuffer.buffer, (archive, error) => {
@@ -850,14 +701,12 @@
             });
         });
 
-        console.log('[ComicReader] Archive opened, type:', archive.archive_type, 'entries:', archive.entries.length);
 
         const imageExts = /\.(jpe?g|png|gif|webp|bmp|avif)$/i;
         const imageEntries = archive.entries.filter(entry => entry.is_file && imageExts.test(entry.name));
 
-        console.log('[ComicReader] Found', imageEntries.length, 'image files');
 
-        setStatus('Loading image data…');
+        setStatus('Unpacking…');
 
         const loadedEntries = await Promise.all(
             imageEntries.map((entry, idx) => {
@@ -886,21 +735,21 @@
         archiveClose(archive);
 
         if (entries.length === 0) {
-            showFatalError('No images found in this CBR file.');
+            showFatalError('No pages found in this CBR.');
             return;
         }
 
-        setStatus('Building reader…');
+        setStatus('Opening…');
         buildReader();
         updateIndicator();
         hideOverlay();
     }
 
     async function loadComicDirectory() {
-        setStatus('Loading comic directory…');
+        setStatus('Opening…');
 
-        // the firmware's NDJSON index first, then a live /listfiles scan. the old /list
-        // endpoint was Voyager-only, on the Nomad it fell through to the captive portal
+        // the firmware's NDJSON index first, then a live /listfiles scan. don't use /list,
+        // on Nomad it falls through to the captive portal
         let names = [];
         const fetch503 = async (url) => {
             let r = await fetch(url, { cache: 'no-store' });
@@ -947,11 +796,11 @@
             );
 
         if (entries.length === 0) {
-            showFatalError('No images found in this directory.');
+            showFatalError('No images in this folder.');
             return;
         }
 
-        setStatus('Building reader…');
+        setStatus('Opening…');
         buildReader();
         updateIndicator();
         hideOverlay();
@@ -978,19 +827,23 @@
             img.alt = `Page ${idx + 1}`;
             img.dataset.loaded = 'false';
             img.dataset.retryCount = '0';
+            img.decoding = 'async';
             img.style.display = 'none';
             wrapper.appendChild(img);
 
             reader.appendChild(wrapper);
         });
 
+        // read the saved place before applyMode, which saves currentPage in the page modes
+        // and would overwrite it with page 1. A finished comic starts again from the top.
+        const done = (NomadProgress.get(comicPath) || {}).done;
+        const savedPage = done ? 0 : parseInt(NomadPrefs.raw('comic_page_' + comicPath) || '0');
+        currentPage = Math.max(0, Math.min(savedPage, entries.length - 1));
+
         document.getElementById('mode-select').value = mode;
         document.getElementById('direction-select').value = direction;
         applyDirection();
         applyMode();
-
-        const savedPage = parseInt(localStorage.getItem('comic_page_' + comicPath) || '0');
-        currentPage = Math.min(savedPage, entries.length - 1);
 
         if (mode === 'webtoon') {
             setupWebtoonObserver();
@@ -1000,10 +853,11 @@
     }
 
     let observer = null;
+    let pageAspectSet = false;
 
-    // long comics crash low-memory devices if every decoded page stays resident. CBZ and
-    // folder pages re-fetch cheaply, so drop any page past UNLOAD_MARGIN and let it
-    // re-decode. RAR is excluded, the whole archive is already in memory anyway
+    // long comics crash low-memory phones if every decoded page stays resident. CBZ and
+    // folder pages re-fetch cheaply, so drop pages past UNLOAD_MARGIN. RAR is excluded:
+    // the whole archive is already in memory.
     function unloadPage(idx) {
         const entry = entries[idx];
         const url = blobURLs[idx];
@@ -1040,21 +894,12 @@
         if (observer) observer.disconnect();
 
         observer = new IntersectionObserver((changes) => {
-            let topVisible = Infinity;
-            changes.forEach(change => {
-                if (change.isIntersecting) {
-                    const idx = parseInt(change.target.dataset.index);
-                    if (idx < topVisible) topVisible = idx;
-                    for (let i = idx; i < Math.min(entries.length, idx + PRELOAD); i++) {
-                        decodeImage(i);
-                    }
-                }
-            });
-            if (topVisible !== Infinity) {
-                currentPage = topVisible;
-                updateIndicator();
-                localStorage.setItem('comic_page_' + comicPath, topVisible);
-                unloadFarPages(topVisible);
+            // where you are first: the reads below are ordered (and old ones dropped) by it
+            const shown = changes.filter(c => c.isIntersecting).map(c => parseInt(c.target.dataset.index));
+            if (!shown.length) return;
+            trackWebtoon();
+            for (const idx of shown) {
+                for (let i = idx; i < Math.min(entries.length, idx + PRELOAD); i++) decodeImage(i);
             }
         }, {
             root: null,
@@ -1069,9 +914,48 @@
         }
     }
 
+    /* The current page in Webtoon: the one across the upper part of the screen, or the last
+       at the bottom. Not taken from the observer, it also reports pages 600 px below and
+       would save a page or more ahead. Waits until the saved place has been scrolled to. */
+    let webtoonReady = false, trackQueued = false;
+    function trackWebtoon() {
+        if (mode !== 'webtoon' || !webtoonReady || !entries.length) return;
+        const el = document.elementFromPoint(window.innerWidth / 2, 52 + (window.innerHeight - 52) * 0.3);
+        const w = el && el.closest && el.closest('.page-wrapper');
+        const atBottom = window.innerHeight + window.scrollY >= document.documentElement.scrollHeight - 4;
+        const idx = atBottom ? entries.length - 1 : w ? parseInt(w.dataset.index) : currentPage;
+        if (idx === currentPage && !atBottom) return;
+        currentPage = idx;
+        updateIndicator();
+        savePlace(idx);
+        unloadFarPages(idx);
+    }
+    window.addEventListener('scroll', () => {
+        if (trackQueued) return;
+        trackQueued = true;
+        requestAnimationFrame(() => { trackQueued = false; trackWebtoon(); });
+    }, { passive: true });
+
+    // the exact page for coming back to it, and how far along for the Books shelf and the
+    // menu's Continue (NomadProgress, nomad-utils.js). A finished comic opened again on its
+    // first page stays finished until you turn one.
+    function savePlace(idx) {
+        NomadPrefs.setRaw('comic_page_' + comicPath, idx);
+        const n = entries.length;
+        if (!n) return;
+        const was = NomadProgress.get(comicPath);
+        if (idx === 0 && was && was.done) return;
+        const info = { k: 'comic', t: comicName(comicPath.split('/').pop()) };
+        const last = mode === 'two-page' ? spreadStart(idx) + 2 >= n : idx >= n - 1;
+        if (last) NomadProgress.finish(comicPath, info);
+        else NomadProgress.note(comicPath, Object.assign(info, { p: (idx + 1) / n, l: `Page ${idx + 1} of ${n}` }));
+    }
+
+    // straight there: a smooth scroll down a long comic passes every page on the way and
+    // asks the card for each of them
     function scrollToPage(idx) {
         const el = document.getElementById(`page-wrapper-${idx}`);
-        if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        if (el) el.scrollIntoView({ behavior: 'auto', block: 'start' });
     }
 
     async function decodeImage(idx) {
@@ -1091,7 +975,7 @@
             console.error(`[ComicReader] Page ${idx} failed after ${MAX_RETRIES} retries, giving up`);
             if (placeholder) {
                 placeholder.classList.remove('loading');
-                placeholder.textContent = '⚠ Failed to load';
+                placeholder.textContent = 'Failed to load';
             }
             return;
         }
@@ -1101,38 +985,23 @@
             let blob;
 
             if (entry.type === 'cbz') {
-                const dataEnd = entry.dataOffset + entry.compressedSize - 1;
-
-                const imageDataResponse = await serializeCBZFetch(entry.fileUrl, {
-                    headers: { 'Range': `bytes=${entry.dataOffset}-${dataEnd}` }
-                });
-
-                if (!imageDataResponse.ok) {
-                    throw new Error('Failed to fetch image data: ' + imageDataResponse.statusText);
-                }
-
-                let imageData = await imageDataResponse.arrayBuffer();
-
-                if (entry.compressionMethod === 8) {
-                    const compressed = new Uint8Array(imageData);
-                    imageData = pako.inflateRaw(compressed).buffer;
-                } else if (entry.compressionMethod !== 0) {
-                    throw new Error('Unsupported compression method: ' + entry.compressionMethod);
-                }
-
-                blob = new Blob([imageData]);
+                blob = await cardRead(idx, () => cbzPage(entry));
             } else if (entry.type === 'rar') {
                 blob = new Blob([entry.data]);
             } else {
-                const response = await fetch('/media?file=' + encodeURIComponent(entry.path));
-                if (!response.ok) throw new Error('Failed to load image');
-                blob = await response.blob();
+                // a page of a folder comic: the whole image file, through the same few-at-a-time reads
+                blob = await cardRead(idx, async () => new Blob([(await rangeRead('/media?file=' + encodeURIComponent(entry.path), 'bytes=0-')).buf]));
             }
 
             const url = URL.createObjectURL(blob);
             blobURLs[idx] = url;
 
             img.onload = () => {
+                if (!pageAspectSet && img.naturalWidth && img.naturalHeight) {
+                    pageAspectSet = true;
+                    document.documentElement.style.setProperty('--page-aspect', `${img.naturalWidth} / ${img.naturalHeight}`);
+                    document.documentElement.classList.add('page-aspect-known');
+                }
                 if (placeholder) placeholder.remove();
                 img.style.display = 'block';
                 img.dataset.loaded = 'true';
@@ -1147,7 +1016,7 @@
                 img.dataset.loaded = 'false';
                 if (placeholder) {
                     placeholder.classList.remove('loading');
-                    placeholder.textContent = '⚠ Failed';
+                    placeholder.textContent = 'Failed';
                 }
                 URL.revokeObjectURL(url);
                 delete blobURLs[idx];
@@ -1156,18 +1025,19 @@
             img.src = url;
 
         } catch (err) {
-            console.error(`[ComicReader] Page ${idx} decode error:`, err.message || err);
             img.dataset.loaded = 'false';
+            // scrolled away before its turn: it loads again when it comes back into view
+            if (err && err.message === 'stale') { if (placeholder) placeholder.classList.remove('loading'); return; }
+            console.error(`[ComicReader] Page ${idx} decode error:`, err.message || err);
             if (placeholder) {
                 placeholder.classList.remove('loading');
-                placeholder.textContent = '⚠ Failed';
+                placeholder.textContent = 'Failed';
             }
 
             const newRetryCount = retryCount + 1;
             if (newRetryCount < MAX_RETRIES) {
                 const retryDelay = Math.min(1000 * Math.pow(2, retryCount), 30000);
                 img.dataset.retryCount = newRetryCount.toString();
-                console.log(`[ComicReader] Retry ${newRetryCount}/${MAX_RETRIES} for page ${idx} in ${retryDelay}ms`);
                 setTimeout(() => decodeImage(idx), retryDelay);
             } else {
                 console.error(`[ComicReader] Page ${idx} failed permanently after ${MAX_RETRIES} retries`);
@@ -1178,14 +1048,14 @@
     function changeMode() {
         const modeSelect = document.getElementById('mode-select');
         mode = modeSelect.value;
-        localStorage.setItem('nomad_comic_mode', mode);
+        NomadPrefs.setRaw('nomad_comic_mode', mode);
         applyMode();
     }
 
     function changeDirection() {
         const directionSelect = document.getElementById('direction-select');
         direction = directionSelect.value;
-        localStorage.setItem('nomad_comic_direction', direction);
+        NomadPrefs.setRaw('nomad_comic_direction', direction);
         applyDirection();
     }
 
@@ -1195,6 +1065,7 @@
         } else {
             document.body.classList.remove('rtl');
         }
+        updateIndicator();
     }
 
     function applyMode() {
@@ -1215,11 +1086,22 @@
                 w.classList.remove('active');
                 w.style.display = '';
             });
+            webtoonReady = false;
             setupWebtoonObserver();
-            setTimeout(() => scrollToPage(currentPage), 100);
+            setTimeout(() => { scrollToPage(currentPage); webtoonReady = true; }, 100);
         }
         updateIndicator();
     }
+
+    // bookmarks and notes by page, kept on this phone
+    document.addEventListener('DOMContentLoaded', () => {
+        NomadMarks.attach(document.getElementById('marks-btn'), {
+            key: () => comicPath,
+            title: () => document.getElementById('comic-title').textContent,
+            here: () => (typeof entries !== 'undefined' && entries.length ? { at: currentPage, order: currentPage, label: 'Page ' + (currentPage + 1) } : null),
+            go: (i) => { i = +i; if (mode === 'webtoon') { currentPage = i; scrollToPage(i); updateIndicator(); savePlace(i); } else goToPage(i); },
+        });
+    });
 
     function goToPage(idx) {
         if (idx < 0) idx = 0;
@@ -1250,40 +1132,79 @@
         }
 
         updateIndicator();
-        localStorage.setItem('comic_page_' + comicPath, idx);
+        savePlace(idx);
         unloadFarPages(idx);
     }
 
-    function prevPage() {
-        if (mode === 'two-page') {
-            const step = direction === 'rtl' ? 2 : -2;
-            const newPage = currentPage + step;
-            if (newPage >= 0 && newPage < entries.length) {
-                goToPage(newPage);
-            }
-        } else {
-            if (direction === 'rtl') {
-                if (currentPage < entries.length - 1) goToPage(currentPage + 1);
-            } else {
-                if (currentPage > 0) goToPage(currentPage - 1);
-            }
-        }
+    /* Turning pages. forward() and back() go in reading order. Which side of the screen
+       does which depends on the direction. Right to left (manga) goes forward with the left
+       button, a tap on the left, the left arrow and a swipe to the right. Past the last
+       page, forward opens the next comic in the folder, in either direction. */
+    const spreadStart = (i) => mode === 'two-page' ? i - (i % 2) : i;
+    const pageStep = () => mode === 'two-page' ? 2 : 1;
+    const atLastPage = () => spreadStart(currentPage) + pageStep() >= entries.length;
+    function forward() {
+        if (atLastPage()) { if (nextComic) openNextComic(); return; }
+        goToPage(spreadStart(currentPage) + pageStep());
+    }
+    function back() {
+        const start = spreadStart(currentPage);
+        if (start > 0) goToPage(Math.max(0, start - pageStep()));
+    }
+    function sideAction(side) { return (side === 'left') === (direction === 'rtl') ? forward : back; }
+    let swipedAt = 0;
+    function tapSide(side) {
+        if (Date.now() - swipedAt < 400) return;   // the tap a swipe ends with
+        sideAction(side)();
     }
 
-    function nextPage() {
-        if (mode === 'two-page') {
-            const step = direction === 'rtl' ? -2 : 2;
-            const newPage = currentPage + step;
-            if (newPage >= 0 && newPage < entries.length) {
-                goToPage(newPage);
+    // a swipe across the page in the page modes: one finger, mostly sideways, and not while
+    // zoomed in (then a finger moves around the page)
+    let swipe = null;
+    document.addEventListener('touchstart', (e) => {
+        const zoomed = window.visualViewport && window.visualViewport.scale > 1.01;
+        const onBar = e.target && e.target.closest && e.target.closest('#topbar, #page-controls');
+        swipe = mode !== 'webtoon' && e.touches.length === 1 && !zoomed && !onBar
+            ? { x: e.touches[0].clientX, y: e.touches[0].clientY } : null;
+    }, { passive: true });
+    document.addEventListener('touchmove', (e) => { if (e.touches.length > 1) swipe = null; }, { passive: true });
+    document.addEventListener('touchend', (e) => {
+        if (!swipe) return;
+        const t = e.changedTouches[0], dx = t.clientX - swipe.x, dy = t.clientY - swipe.y;
+        swipe = null;
+        if (Math.abs(dx) < 50 || Math.abs(dx) < Math.abs(dy) * 1.5) return;
+        swipedAt = Date.now();
+        sideAction(dx < 0 ? 'right' : 'left')();
+    }, { passive: true });
+
+    /* The next comic in the same folder: chapters of a webtoon, issues of a series. Only in
+       a subfolder. On the Books shelf itself the neighbours are unrelated books. */
+    let nextComic = null;
+    const comicName = (n) => n.replace(/\.(cbz|cbr)$/i, '').replace(/[_]+/g, ' ');
+    async function findNextComic() {
+        const parent = comicPath.slice(0, comicPath.lastIndexOf('/'));
+        if (!parent || /^\/books$/i.test(parent)) return;
+        try {
+            let r = await fetch('/api/index?path=' + encodeURIComponent(parent), { cache: 'no-store' });
+            if (r.status === 503) { await sleep(1500); r = await fetch('/api/index?path=' + encodeURIComponent(parent), { cache: 'no-store' }); }
+            if (!r.ok) return;
+            const items = [];
+            for (const line of (await r.text()).split('\n').slice(1)) {
+                try { const e = JSON.parse(line); if ((e.t === 'f' && /\.(cbz|cbr)$/i.test(e.n)) || (e.t === 'd' && e.comic)) items.push(e.n); } catch (x) {}
             }
-        } else {
-            if (direction === 'rtl') {
-                if (currentPage > 0) goToPage(currentPage - 1);
-            } else {
-                if (currentPage < entries.length - 1) goToPage(currentPage + 1);
-            }
-        }
+            items.sort((a, b) => a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' }));
+            const i = items.indexOf(comicPath.split('/').pop());
+            if (i < 0 || i + 1 >= items.length) return;
+            nextComic = { name: comicName(items[i + 1]), path: parent + '/' + items[i + 1] };
+            const top = document.getElementById('next-comic');
+            top.hidden = false; top.title = 'Next: ' + nextComic.name;
+            document.getElementById('end-next').textContent = 'Next: ' + nextComic.name + ' \u203a';
+            document.getElementById('end-card').hidden = false;
+            updateIndicator();
+        } catch (e) { /* no next button, nothing else changes */ }
+    }
+    function openNextComic() {
+        if (nextComic) window.location.href = '/comics?path=' + encodeURIComponent(nextComic.path);
     }
 
     function updateIndicator() {
@@ -1292,19 +1213,26 @@
         document.getElementById('page-indicator').textContent = cur + ' / ' + total;
         const paged = document.getElementById('paged-indicator');
         if (paged) paged.textContent = cur + ' / ' + total;
-        const prev = document.getElementById('btn-prev');
-        const next = document.getElementById('btn-next');
-        if (prev) prev.disabled = currentPage === 0;
-        if (next) next.disabled = currentPage === total - 1;
+        // the buttons sit left and right, which one goes forward follows the direction
+        const left = document.getElementById('btn-left'), right = document.getElementById('btn-right');
+        if (left && right && total) {
+            const end = atLastPage(), fwd = end && nextComic ? 'Next comic' : 'Next';
+            const [fwdBtn, backBtn] = direction === 'rtl' ? [left, right] : [right, left];
+            fwdBtn.disabled = end && !nextComic;
+            backBtn.disabled = spreadStart(currentPage) === 0;
+            left.textContent = '\u2190 ' + (direction === 'rtl' ? fwd : 'Prev');
+            right.textContent = (direction === 'rtl' ? 'Prev' : fwd) + ' \u2192';
+        }
     }
 
     document.addEventListener('keydown', e => {
-        if (mode === 'paged' || mode === 'two-page') {
-            if (e.key === 'ArrowRight' || e.key === 'ArrowDown') { e.preventDefault(); nextPage(); }
-            if (e.key === 'ArrowLeft'  || e.key === 'ArrowUp')   { e.preventDefault(); prevPage(); }
+        if ((mode === 'paged' || mode === 'two-page') && !/^(SELECT|INPUT|TEXTAREA)$/.test((e.target && e.target.tagName) || '')) {
+            // left and right arrows are sides of the screen, like the taps. down and up are reading order
+            if (e.key === 'ArrowRight' || e.key === 'ArrowLeft') { e.preventDefault(); sideAction(e.key === 'ArrowLeft' ? 'left' : 'right')(); }
+            else if (e.key === 'ArrowDown' || e.key === 'PageDown') { e.preventDefault(); forward(); }
+            else if (e.key === 'ArrowUp' || e.key === 'PageUp') { e.preventDefault(); back(); }
         }
-        // no toggleMode in this build. calling it threw a ReferenceError on
-        // every "f" keypress, including while typing on the page.
+        // no "f" shortcut: toggleMode doesn't exist in this build
     });
 
     let lastScrollY = 0;
@@ -1321,13 +1249,13 @@
     }, { passive: true });
 
     if (typeof pako === 'undefined') {
-        showFatalError('pako library not loaded. Please check /assets/pako.min.js (needed for CBZ).');
+        showFatalError('The comic reader is missing a file. Copy the card files onto it again.');
     } else if (typeof archiveOpenArrayBuffer === 'undefined') {
-        showFatalError('uncompress.js library not loaded. Please check /assets/uncompress.js (needed for CBR).');
+        showFatalError('The comic reader is missing a file. Copy the card files onto it again.');
     } else {
-        console.log('[ComicReader] Libraries loaded, initializing...');
         loadArchiveFormats(['rar']);
         init();
+        findNextComic();
     }
     </script>
 </body>

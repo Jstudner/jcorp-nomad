@@ -37,7 +37,7 @@ static inline void clear_boot_mode() {
 
 // set on USB exit if the host wrote data, so the next boot knows the card changed
 // outside our own upload/rename/delete and forces a rescan. kept in NVS not on the
-// card - the FAT view is stale right after USB and writing then can corrupt the fs
+// card, the FAT view is stale right after USB and writing then can corrupt the fs
 static constexpr const char* REINDEX_KEY = "needs_reindex";
 
 static inline void set_needs_reindex_flag() {
@@ -68,7 +68,7 @@ static inline void clear_needs_reindex_flag() {
 
 // one-shot "join home wifi on next boot" flag from the admin WiFi Mode popup.
 // NVS so it survives soft restarts and crashes, but boot clears it on a
-// power-on reset - unplug/replug is always the way back to hotspot mode.
+// power-on reset, so unplug/replug is always the way back to hotspot mode.
 static constexpr const char* STA_ONCE_KEY = "sta_once";
 
 static inline void set_sta_once_flag() {

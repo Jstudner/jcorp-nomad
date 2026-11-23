@@ -7,8 +7,9 @@
 <title>Nomad • Snake</title>
 <link rel="icon" href="/favicon.ico" type="image/x-icon">
 <link rel="stylesheet" href="/master.css">
-<script src="/theme-boot.js"></script>
-<script src="/theme-manager.js"></script>
+<script src="/theme-boot.js?v=5"></script>
+<script src="/nomad-icons.js?v=1"></script>
+<script src="/theme-manager.js?v=5"></script>
 <style>
   *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
   /* the whole game is one fixed screen: nothing scrolls, nothing bounces */
@@ -72,8 +73,7 @@
     border:1px solid var(--primary,#4f46e5);border-radius:999px;cursor:pointer;user-select:none;
   }
   body.dark .overlay{background:rgba(0,0,0,.62)}
-  /* two-row d-pad: up above, left/down/right below - half the height of the
-     old 3x3 cross, so it always fits under the board on a phone */
+  /* two-row d-pad, half the height of a 3x3 cross, so it fits under the board on a phone */
   .controls{flex:0 0 auto;display:flex;justify-content:center}
   .dpad{display:grid;grid-template-columns:repeat(3,minmax(64px,88px));grid-auto-rows:52px;gap:6px;width:100%;max-width:320px}
   .dpad button{
@@ -100,7 +100,7 @@
 
   <main>
     <div class="hud">
-      <button class="btn" id="newGame" title="Restart">↻ New</button>
+      <button class="btn" id="newGame" title="Restart" data-icon="refresh"> New</button>
       <div class="score-card"><span class="label">Score</span><span class="val" id="score">0</span></div>
       <div class="score-card"><span class="label">Best</span><span class="val" id="best">0</span></div>
       <button class="btn ghost" id="pauseBtn">Pause</button>
@@ -119,10 +119,10 @@
 
     <div class="controls">
       <div class="dpad">
-        <button class="up" data-dir="up" aria-label="Up">▲</button>
-        <button class="left" data-dir="left" aria-label="Left">◀</button>
-        <button class="down" data-dir="down" aria-label="Down">▼</button>
-        <button class="right" data-dir="right" aria-label="Right">▶</button>
+        <button class="up" data-dir="up" aria-label="Up" data-icon="chevron-up"></button>
+        <button class="left" data-dir="left" aria-label="Left" data-icon="chevron-left"></button>
+        <button class="down" data-dir="down" aria-label="Down" data-icon="chevron-down"></button>
+        <button class="right" data-dir="right" aria-label="Right" data-icon="chevron-right"></button>
       </div>
     </div>
   </main>
@@ -131,14 +131,12 @@
 (function(){
   "use strict";
 
-  // ---- Config ----
   var GRID = 17;                 // cells per side
   var START_INTERVAL = 130;      // ms per step at start
   var MIN_INTERVAL = 70;         // fastest step
   var SPEEDUP_PER_FOOD = 3;      // ms shaved off per food eaten
   var BEST_KEY = 'nomadgame_snake_best';
 
-  // ---- DOM ----
   var canvas   = document.getElementById('board');
   var ctx      = canvas.getContext('2d');
   var stage    = document.getElementById('stage');
@@ -149,12 +147,12 @@
   var overSub  = document.getElementById('overlaySub');
   var overBtn  = document.getElementById('overlayBtn');
 
-  // ---- Theme colors (read live from resolved CSS so canvas matches theme) ----
+  // canvas colors come from the resolved theme CSS
   var COL = {};
   function refreshColors(){
     var cs = getComputedStyle(document.body);
     function pick(name, fb){ var v = cs.getPropertyValue(name).trim(); return v || fb; }
-    COL.bg     = pick('--card', '#fff');    // board background
+    COL.bg     = pick('--card', '#fff');
     COL.text   = pick('--text', '#333');
     COL.accent = pick('--primary', '#4f46e5');
     COL.accentD= pick('--primary-dark', '#3f37c9');
@@ -162,8 +160,7 @@
     COL.food   = pick('--danger', '#d94b4b');
   }
 
-  // ---- Board sizing: the square fits whatever space the stage has left,
-  // so the d-pad always stays on screen and the page never scrolls ----
+  // the board fits the space the stage has left, so the d-pad stays on screen
   var cell = 0; // pixel size of one grid cell in CSS px
   function sizeCanvas(){
     var r = stage.getBoundingClientRect();
@@ -179,7 +176,6 @@
     draw();
   }
 
-  // ---- Game state ----
   var snake, dir, nextDir, food, score, best, interval, timer, running, over, paused, waiting;
 
   best = parseInt(localStorage.getItem(BEST_KEY) || '0', 10) || 0;
@@ -187,14 +183,13 @@
 
   function reset(){
     refreshColors();
-    // Snake length 3 in the middle, moving right.
     var mid = Math.floor(GRID / 2);
     snake = [
       {x: mid,     y: mid},
       {x: mid - 1, y: mid},
       {x: mid - 2, y: mid}
     ];
-    dir = {x: 1, y: 0};      // moving right
+    dir = {x: 1, y: 0};
     nextDir = {x: 1, y: 0};
     score = 0;
     interval = START_INTERVAL;
@@ -215,7 +210,6 @@
     startLoop();
   }
 
-  // Food spawns on a random cell that is NOT occupied by the snake.
   function spawnFood(){
     var free = [];
     for(var y=0; y<GRID; y++){
@@ -223,7 +217,7 @@
         if(!cellOnSnake(x, y)) free.push({x:x, y:y});
       }
     }
-    if(free.length === 0){ food = null; return; } // board full = win-ish, no crash
+    if(free.length === 0){ food = null; return; } // board full
     food = free[(Math.random() * free.length) | 0];
   }
 
@@ -234,7 +228,6 @@
     return false;
   }
 
-  // ---- Fixed-timestep loop ----
   function startLoop(){
     stopLoop();
     running = true;
@@ -244,7 +237,7 @@
     running = false;
     if(timer){ clearInterval(timer); timer = null; }
   }
-  function restartTimerSpeed(){ // re-arm interval after speed change
+  function restartTimerSpeed(){
     if(running && !paused && !over){
       clearInterval(timer);
       timer = setInterval(tick, interval);
@@ -257,36 +250,32 @@
     draw();
   }
 
-  // ---- One game step: movement + collision + eating ----
   function step(){
-    dir = nextDir; // commit the queued direction for this step
+    dir = nextDir;
 
     var head = snake[0];
     var nx = head.x + dir.x;
     var ny = head.y + dir.y;
 
-    // Wrap OFF: hitting a wall = game over.
+    // no wrapping: a wall ends the game
     if(nx < 0 || ny < 0 || nx >= GRID || ny >= GRID){ gameOver(); return; }
 
-    // Self collision = game over. (Tail cell is freed unless we grow this step.)
     var willEat = food && nx === food.x && ny === food.y;
     var checkLen = willEat ? snake.length : snake.length - 1; // ignore tail if it moves
     for(var i=0; i<checkLen; i++){
       if(snake[i].x === nx && snake[i].y === ny){ gameOver(); return; }
     }
 
-    // Advance: add new head.
     snake.unshift({x:nx, y:ny});
 
     if(willEat){
-      // Grow (+1) by keeping the tail, +1 score, respawn food, gentle speed-up.
       score++;
       scoreEl.textContent = score;
       spawnFood();
       var newInterval = Math.max(MIN_INTERVAL, START_INTERVAL - score * SPEEDUP_PER_FOOD);
       if(newInterval !== interval){ interval = newInterval; restartTimerSpeed(); }
     } else {
-      snake.pop(); // no food: drop the tail so length stays the same
+      snake.pop();
     }
   }
 
@@ -301,13 +290,12 @@
     showOverlay('Game over', 'Score ' + score, 'Play again');
   }
 
-  // ---- Direction input (ignore a 180° reversal into itself) ----
   function setDir(x, y){
     if(over) return;
     if(waiting){ nextDir = {x:x, y:y}; if(x !== -dir.x || y !== -dir.y) dir = nextDir; beginRun(); return; }
-    // Can't reverse directly onto the current heading.
+    // no 180° turn onto itself
     if(x === -dir.x && y === -dir.y) return;
-    // Guard against double input within one step reversing via nextDir.
+    // nor via two quick inputs within one step
     if(x === -nextDir.x && y === -nextDir.y && snake.length > 1) return;
     nextDir = {x:x, y:y};
   }
@@ -317,15 +305,12 @@
   };
   function move(name){ var d = DIRS[name]; if(d) setDir(d[0], d[1]); }
 
-  // ---- Drawing ----
   function draw(){
     if(!snake) return;            // sizeCanvas() can fire at boot before reset() seeds state
     var w = GRID * cell;
-    // background
     ctx.fillStyle = COL.bg;
     ctx.fillRect(0, 0, w, w);
 
-    // subtle grid lines
     ctx.strokeStyle = COL.line;
     ctx.globalAlpha = 0.35;
     ctx.lineWidth = 1;
@@ -338,20 +323,17 @@
     ctx.stroke();
     ctx.globalAlpha = 1;
 
-    // food
     if(food){
       ctx.fillStyle = COL.food;
       roundCell(food.x, food.y, 0.30);
     }
 
-    // snake (head brighter than body)
     for(var i=snake.length-1; i>=0; i--){
       ctx.fillStyle = (i === 0) ? COL.accentD : COL.accent;
       roundCell(snake[i].x, snake[i].y, 0.22);
     }
   }
 
-  // Rounded square filling a grid cell with a small inset.
   function roundCell(cx, cy, radiusFrac){
     var inset = cell * 0.10;
     var x = cx * cell + inset;
@@ -368,7 +350,6 @@
     ctx.fill();
   }
 
-  // ---- Overlay helpers ----
   function showOverlay(msg, sub, btnText){
     overMsg.textContent = msg;
     overSub.textContent = sub || '';
@@ -377,7 +358,6 @@
   }
   function hideOverlay(){ overlay.classList.remove('show'); }
 
-  // ---- Pause / resume ----
   function setPaused(p){
     if(over || waiting) return;
     paused = p;
@@ -387,14 +367,13 @@
   }
   function togglePause(){ setPaused(!paused); }
 
-  // The overlay button is the restart when the game is over, resume when paused.
+  // the overlay button restarts after game over and resumes when paused
   overBtn.addEventListener('click', function(){
     if(over){ reset(); }
     else if(waiting){ beginRun(); }
     else if(paused){ setPaused(false); }
   });
 
-  // ---- Keyboard ----
   window.addEventListener('keydown', function(e){
     var k = e.key;
     if(k === 'ArrowUp'   || k === 'w' || k === 'W'){ move('up');    e.preventDefault(); }
@@ -410,7 +389,6 @@
     }
   });
 
-  // ---- On-screen D-pad ----
   var dpadButtons = document.querySelectorAll('.dpad button');
   for(var b=0; b<dpadButtons.length; b++){
     (function(btn){
@@ -421,14 +399,12 @@
     })(dpadButtons[b]);
   }
 
-  // ---- Swipe on the canvas ----
   var touchStart = null;
   canvas.addEventListener('touchstart', function(e){
     var t = e.changedTouches[0];
     touchStart = {x:t.clientX, y:t.clientY};
   }, {passive:true});
   canvas.addEventListener('touchmove', function(e){
-    // Stop the page from scrolling while swiping the board.
     e.preventDefault();
   }, {passive:false});
   canvas.addEventListener('touchend', function(e){
@@ -443,20 +419,18 @@
     touchStart = null;
   }, {passive:true});
 
-  // ---- Buttons ----
   document.getElementById('newGame').addEventListener('click', reset);
   document.getElementById('pauseBtn').addEventListener('click', togglePause);
 
-  // ---- Auto-pause when tab loses focus ----
+  // pause when the tab is hidden
   document.addEventListener('visibilitychange', function(){
     if(document.hidden && !over && !paused){ setPaused(true); }
   });
 
-  // ---- Resize handling (rotation, browser chrome show/hide) ----
+  // rotation and browser bars showing or hiding resize the stage
   window.addEventListener('resize', sizeCanvas);
   if(window.visualViewport) window.visualViewport.addEventListener('resize', sizeCanvas);
 
-  // ---- Boot ----
   sizeCanvas();
   reset();
   // fonts/theme settle a beat after load; re-measure once
