@@ -8,7 +8,6 @@
 Stream movies, music, books, and shows anywhere - no internet required.</p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/branch-experimental-orange.svg" alt="Branch: Experimental" />
   <img src="https://img.shields.io/badge/license-GPL--3.0-blue.svg" alt="License: GPL-3.0" />
   <img src="https://img.shields.io/badge/platform-ESP32--S3-orange" alt="Platform: ESP32-S3" />
   <img src="https://img.shields.io/badge/status-stable-brightgreen" alt="Status: Stable" />
@@ -18,19 +17,6 @@ Stream movies, music, books, and shows anywhere - no internet required.</p>
   <a href="https://nomad.jcorptech.net"><b>Buy a Prebuilt Nomad</b></a> &nbsp;|&nbsp;
   <a href="https://ko-fi.com/jcorptech"><b>Support on Ko-fi</b></a>
 </p>
-
----
-
-> **Experimental Branch** - This is where new stuff lands before it goes to main. Everything on main is here too, this just adds on top of it.
->
-> Mk5 (firmware 5.0) is the newest update here. It's coming so soon after 4.8 as I wasnt sure when to fully publish these changes. This is the "toybox" update of sorts, mainly adding a bunch of old code and ideas that didnt make sense to implement until now. In addition it also includes many enhancements and optimizations to the existing performance. 
->
->
-> Fair warning, this branch gets less testing than main. If something breaks, tell me, that is what this branch is for.
->
-> Firmware and the SD card template both change here, so you'll need to reflash and refresh your card files.
-
----
 
 ## What is Nomad
 
