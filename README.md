@@ -11,7 +11,7 @@ Stream movies, music, books, and shows anywhere - no internet required.</p>
   <img src="https://img.shields.io/badge/branch-experimental-orange.svg" alt="Branch: Experimental" />
   <img src="https://img.shields.io/badge/license-GPL--3.0-blue.svg" alt="License: GPL-3.0" />
   <img src="https://img.shields.io/badge/platform-ESP32--S3-orange" alt="Platform: ESP32-S3" />
-  <img src="https://img.shields.io/badge/status-rough-red" alt="Status: Rough" />
+  <img src="https://img.shields.io/badge/status-stable-brightgreen" alt="Status: Stable" />
 </p>
 
 <p align="center">
@@ -37,6 +37,10 @@ Stream movies, music, books, and shows anywhere - no internet required.</p>
 Jcorp Nomad is an open-source offline media server designed for travel, remote work, classrooms, camping, and more. It's the size of a USB drive and plugs straight into a USB port for power. It runs entirely on an ESP32-S3, creates a local Wi-Fi hotspot, and serves media through a browser interface. Multiple users can access separate media streams simultaneously, all without internet access.
 
 This project is compact, easy to modify, and includes optional 3D-printable hardware. Both firmware and web interface are fully open-source.
+
+<p align="center">
+  <img src="NomadMk5Spin.gif" alt="Nomad spinning, showing its screens" width="720">
+</p>
 
 ---
 
@@ -152,6 +156,10 @@ There's also an [ESP32-P4 branch](https://github.com/Jstudner/jcorp-nomad/tree/e
 </p>
 
 The case slides together **front-to-back**, so there's no direct pressure on the screen, which was a common cause of cracked screens on the old top-to-bottom case. The buttons stay exposed on the outside, so you can still flash firmware or hit the boot button without taking it apart.
+
+<p align="center">
+  <img src="NomadMk5Printed.jpg" alt="Nomad in its 3D-printed case" width="600">
+</p>
 
 ---
 
