@@ -1,6 +1,8 @@
-# Nomad — UI Redesign Specification
+# {{APP_NAME}} — UI Redesign Specification
 
-> **Read [README.md](README.md) first.** Its global power rules apply here too. The section "R: how the UI redesign fits the pack" covers ordering, how this spec meets the security workstreams, and the questions the owner has been asked. Added 2026-11-26 at the owner's request. The text below is the owner's spec as supplied; only markdown formatting was added. The visual reference ("the supplied modern UI mockup") is [assets/nomad-ui-mockup.png](assets/nomad-ui-mockup.png).
+> **Read [README.md](README.md) first.** Its global power rules apply here too. The section "R: how the UI redesign fits the pack" covers ordering, how this spec meets the security workstreams, and the questions the owner has been asked. Added 2026-11-26 at the owner's request, as the owner supplied it. Amended the same day with the owner's answers to R-Q1 (branding), R-Q2 (theme scope) and R-Q3 (home cards); the amended passages are marked *(amended)*. Otherwise only markdown formatting was added. The visual reference ("the supplied modern UI mockup") is [assets/nomad-ui-mockup.png](assets/nomad-ui-mockup.png). The name and tree logo shown in the mockup are placeholders for layout only.
+>
+> **`{{APP_NAME}}` is a placeholder** for the fork's own product name, which the owner will supply. Until then, build with the name held in one place (see *Branding scope*) so that filling it in is a one-line change.
 
 ## 1. Project overview
 
@@ -12,14 +14,29 @@ The redesign must preserve the existing functionality and navigation while makin
 
 ### Product identity
 
-- Application name: Nomad
+- Application name: {{APP_NAME}} *(amended: the fork's own name, supplied by the owner)*
 - Tagline: Your personal media library
-- Brand mark: Existing tree logo, refined if necessary.
+- Brand mark: A new logo supplied by the owner, replacing the Jcorp Nomad tree logo. *(amended)*
 - Default theme: Modern blue.
 - Design direction: Minimal, clean, soft, and contemporary.
 - Primary objective: A beautiful interface that remains fast and practical on an ESP32.
 
-Do not introduce a new product name throughout the application. Replace all visible instances of “Jcorp Nomad” with “Nomad”.
+Use {{APP_NAME}} consistently and introduce no other product name. Replace all visible instances of “Jcorp Nomad”, and of “Nomad” used as the product name, with “{{APP_NAME}}”. *(amended)*
+
+### Branding scope *(amended)*
+
+The original project's `LICENSING.md` says the “Jcorp” and “Nomad” names and the Jcorp and Nomad logos are Jcorp Tech's trademarks. A shared, changed version must use its own name and replace the logo files. So “visible” means everywhere a person sees the product's name or logo:
+
+- Every page's header, `<title>`, and visible text.
+- The logo and icon files: `SD_Card_Template/Logo.png`, `favicon.ico`, and any touch or app icons.
+- The device's own screen: the boot image `firmware/JcorpNomadProject/ui_img_1859342711.c`, and the main and status screens' text and logo.
+- The default hotspot name (`Jcorp_Nomad`; see 6.1 for the per-board suffix).
+- The DLNA/UPnP friendly name, manufacturer and SSDP server string (`NomadDLNA.cpp`).
+- The OPDS feed title, server-built pages (`NomadPageBody.h`), firmware messages shown in the admin panel, and the README.
+
+Hold the name in one place for the web interface (one constant read by every page) and one place for the firmware (one macro), and keep the logo as one set of files. Then renaming is a one-line change plus new image files.
+
+Internal identifiers stay as they are: file names, `Nomad*` sources, `NOMAD_*` macros and `nomad_*` storage keys. People don't see them, and renaming them would break upgrades and upstream merges.
 
 ## 2. Design direction
 
@@ -49,8 +66,8 @@ Create a consistent header component used throughout the application.
 
 The header should contain:
 
-- Nomad tree logo.
-- Application name, “Nomad”.
+- {{APP_NAME}} logo. *(amended)*
+- Application name, “{{APP_NAME}}”. *(amended)*
 - Back-to-menu or navigation control when inside a section.
 - Page title where appropriate.
 - Theme toggle.
@@ -67,7 +84,7 @@ The home screen should closely follow the supplied mockup.
 
 Layout:
 
-1. Branded header containing the tree logo, Nomad, theme toggle, and settings.
+1. Branded header containing the logo, {{APP_NAME}}, theme toggle, and settings. *(amended)*
 2. Welcome heading and tagline.
 3. Prominent search field.
 4. Main navigation cards.
@@ -85,6 +102,8 @@ The navigation cards should provide access to:
 - Maps
 - Workshop
 
+*(amended)* A card is shown only if the admin has that section switched on (the per-page switches in `/.system-ui.json`). The other sections (Archive, Translate, Cookbook and Chat) get no card of their own. When at least one of them is switched on, a final **More** card leads to them.
+
 The cards should use simple icons, readable labels, and consistent spacing.
 
 On desktop, use a grid layout where appropriate. On mobile, use a single-column layout.
@@ -99,7 +118,7 @@ Users must be able to change the application’s colour palette without reloadin
 
 ### Theme settings
 
-Add a dedicated Theme section inside Settings.
+Add a dedicated Theme section inside Settings. *(amended)* This Settings panel is open to every visitor, with no sign-in. The admin-only actions below appear only to a signed-in admin.
 
 Provide three appearance modes:
 
@@ -113,7 +132,7 @@ Include the following initial palettes:
 
 | Palette | Primary | Background | Character |
 |---|---|---|---|
-| Nomad Blue | #0878F9 | #F4F5FA | Clean, modern blue |
+| {{APP_NAME}} Blue | #0878F9 | #F4F5FA | Clean, modern blue |
 | Forest | #16865B | #F2F7F4 | Natural green |
 | Lavender | #7557D9 | #F6F3FC | Soft purple |
 | Sunset | #E65A68 | #FFF5F3 | Warm coral |
@@ -123,6 +142,16 @@ Include the following initial palettes:
 Each palette should have a small preview showing its main colours.
 
 Selecting a palette must update the entire application immediately.
+
+*(amended)* These six are the main list. The existing 28 built-in themes (`default-themes.json`) stay available under **More palettes**, loaded only when that list is opened.
+
+### Card default and personal choice *(amended)*
+
+Nomad already has one theme for every device: the admin sets it, and it's stored on the card in `/.system-theme.json` (`theme-manager.js`). Keep that as **everyone's starting point**:
+
+- A visitor with no choice of their own sees the card's theme and mode.
+- A visitor's own choice of mode, palette and custom colours overrides the card's theme in their browser only. A **Use the default** button drops the visitor's choice and returns to the card's theme.
+- A signed-in admin also sees **Save as everyone's default**, which writes the current palette and mode to the card through the existing mechanism. This covers what the old Theme Customizer page (`theme-customization-ui.html`) does. Keep that page until the new editor fully replaces it, then retire it.
 
 ### Custom palette editor
 
@@ -144,7 +173,7 @@ The application must remain readable when custom colours are selected. Automatic
 
 ### Theme persistence
 
-The selected appearance mode, palette, and custom colours should persist between page navigation and application restarts.
+The selected appearance mode, palette, and custom colours should persist between page navigation and application restarts. *(amended)* A visitor's own choice persists in their browser; the card-wide default persists on the card, as it does today.
 
 Use the simplest persistence mechanism supported by the existing application.
 
@@ -366,7 +395,7 @@ Before making changes:
 
 Then implement the redesign in stages:
 
-1. Establish the Nomad design system and CSS variables.
+1. Establish the {{APP_NAME}} design system and CSS variables. *(amended)*
 2. Redesign the global header and navigation.
 3. Redesign the home screen.
 4. Implement palette selection and custom colour settings.
@@ -380,12 +409,13 @@ Do not rewrite the entire application unless the existing architecture makes tha
 
 The implementation is complete when:
 
-- The application is branded as Nomad throughout.
+- The application is branded as {{APP_NAME}} throughout, including the device screen, hotspot name and TV (DLNA) name, with the owner's logo replacing the Jcorp/Nomad logo files. *(amended)*
 - The home screen matches the supplied modern design direction.
 - All existing sections and functionality remain accessible.
 - Users can switch between light and dark appearance modes.
 - Users can select predefined colour palettes.
 - Users can create and save custom palettes.
+- Each visitor's choice overrides the admin's card-wide default, which remains every new visitor's starting point. *(amended)*
 - Theme changes apply consistently across all sections.
 - Theme settings persist between sessions.
 - The interface works on mobile, tablet, and desktop.
@@ -395,8 +425,8 @@ The implementation is complete when:
 
 ## Final design principle
 
-Make Nomad feel like a modern, premium personal media library through simplicity and consistency.
+Make {{APP_NAME}} feel like a modern, premium personal media library through simplicity and consistency.
 
 The application should look beautiful because the design is well considered, not because the device is working harder to render it.
 
-Preserve the existing functionality, keep the implementation lightweight, and make the colour system flexible enough that the user can give Nomad their own identity.
+Preserve the existing functionality, keep the implementation lightweight, and make the colour system flexible enough that the user can give {{APP_NAME}} their own identity.
