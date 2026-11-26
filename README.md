@@ -192,7 +192,7 @@ If you would rather not deal with the library alignment and scary software, use 
 2. Copy `/SD_Card_Template/` files onto the card. Any exFAT or FAT32 card works as-is, you only need to format if the card is brand new or broken.
 3. Place media in `/Movies`, `/Shows`, `/Books`, `/Music`, `/Gallery`, `/Files`, `/Games`, `/Cookbook`, `/Workshop`. (ZIMs, Maps and Translate packs get prepped with Nomad Tools, see below.)
 4. Insert the SD card and plug Nomad into a USB port.
-5. Connect to Wi-Fi `Jcorp_Nomad` with password: `password`.
+5. Connect to Wi-Fi `Jcorp_Nomad` with the hotspot password you set before compiling. In this fork the source ships with the placeholder `CHANGEBEFORECOMPILE`. Set your own in `firmware/JcorpNomadProject/NomadLocal.h` (git ignores it) as `#define NOMAD_DEFAULT_AP_PASSWORD "your-password"`, 8 to 63 characters. Builds from the original project's browser flasher still use `password`.
 6. Open the browser interface.
 7. Open the admin panel (gear icon) → **Library index** → **Start scan**.
 8. The first scan may take a few minutes on a big card.

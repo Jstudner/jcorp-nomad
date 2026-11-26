@@ -1,2 +1,4 @@
 # the bench key (NOMAD_FW_DEVKEY=1 builds): a throwaway, never committed
 NomadFirmwareKeyDev.h
+# your own build settings (the real hotspot password and similar): never committed
+NomadLocal.h

@@ -876,12 +876,30 @@ static bool shouldSkipIndexingPath(const String &path) {
 #define MAX_CLIENTS 8
 String encodeIndexName(const String &path);
 
+// The hotspot password a new card starts with, and the one the fallback hotspot uses.
+// CHANGEBEFORECOMPILE is a placeholder: set your own (8 to 63 characters) before you build.
+// Keep the real one out of git, since this repo is public. Either put
+//   #define NOMAD_DEFAULT_AP_PASSWORD "your-password"
+// in NomadLocal.h next to this sketch (git ignores that file), or build with
+// -DNOMAD_DEFAULT_AP_PASSWORD='"your-password"'. A card that already holds its own hotspot
+// password keeps it: this is only the starting value. It is compiled into the firmware as
+// plain text, so anyone holding a copy of the .bin or .nomadfw can read it.
+#if __has_include("NomadLocal.h")
+#include "NomadLocal.h"
+#endif
+#ifndef NOMAD_DEFAULT_AP_PASSWORD
+#define NOMAD_DEFAULT_AP_PASSWORD "CHANGEBEFORECOMPILE"
+#warning "Hotspot password is still the CHANGEBEFORECOMPILE placeholder: set NOMAD_DEFAULT_AP_PASSWORD (see JcorpNomadProject.ino)"
+#endif
+static_assert(sizeof(NOMAD_DEFAULT_AP_PASSWORD) - 1 >= 8 && sizeof(NOMAD_DEFAULT_AP_PASSWORD) - 1 <= 63,
+              "NOMAD_DEFAULT_AP_PASSWORD must be 8 to 63 characters (the radio refuses anything else)");
+
 struct AdminSettings {
   String rgbMode = "off";
   String rgbColor = "#ff0000";
   String adminPassword = "";
   String wifiSSID = "Jcorp_Nomad";
-  String wifiPassword = "password";
+  String wifiPassword = NOMAD_DEFAULT_AP_PASSWORD;
   int brightness = 100;            // percent 0-100 (screenBacklight range)
   bool autoGenerateMedia = true;   // check for new files on boot (default on)
   bool flipScreen = false;         // rotate LCD 180 deg (USB port upside down, e.g. car mounts)
@@ -2081,7 +2099,7 @@ bool loadSettings() {
   settings.rgbColor = doc["rgbColor"] | "#ff0000";
   settings.adminPassword = doc["adminPassword"] | "";
   settings.wifiSSID = doc["wifiSSID"] | "Jcorp_Nomad";
-  settings.wifiPassword = doc["wifiPassword"] | "password";
+  settings.wifiPassword = doc["wifiPassword"] | NOMAD_DEFAULT_AP_PASSWORD;
   // The page refuses these, a hand-edited or older file can still hold them, and the radio
   // will not start a hotspot with either: a name of 1-32 bytes, a password of 8-63 (or
   // none, for an open hotspot). Back to the default rather than no hotspot at all.
@@ -2090,8 +2108,15 @@ bool loadSettings() {
     g_settingsBootNote = "The hotspot name in the settings file was not usable. The default name is in use.";
   }
   if (settings.wifiPassword.length() && (settings.wifiPassword.length() < 8 || settings.wifiPassword.length() > 63)) {
-    settings.wifiPassword = "password";
+    settings.wifiPassword = NOMAD_DEFAULT_AP_PASSWORD;
     g_settingsBootNote = "The hotspot password in the settings file was not 8 to 63 characters. The default password is in use.";
+  }
+  // "password" was the published default of older builds (it is in the original README), so a
+  // card still holding it gets this build's default instead. Only in memory: the card keeps
+  // its file until the next settings save, which writes the new value.
+  if (settings.wifiPassword == "password") {
+    settings.wifiPassword = NOMAD_DEFAULT_AP_PASSWORD;
+    g_settingsBootNote = "The hotspot password was the old published default. This build's default password is in use.";
   }
   settings.brightness = doc["brightness"] | 100;
   // brightness is 0-100 (screenBacklight ignores >100). old builds defaulted to 230, clamp it
@@ -2705,7 +2730,7 @@ static void mainApplyQr() {
   } else {
     const String ssid = WiFi.softAPSSID();
     const bool saved = ssid == settings.wifiSSID;
-    if (!mainWifiQr(qr, sizeof(qr), ssid.c_str(), saved ? settings.wifiPassword.c_str() : "password")) { mainSetQr(nullptr); return; }
+    if (!mainWifiQr(qr, sizeof(qr), ssid.c_str(), saved ? settings.wifiPassword.c_str() : NOMAD_DEFAULT_AP_PASSWORD)) { mainSetQr(nullptr); return; }
   }
   mainSetQr(qr);
 }
@@ -5472,7 +5497,7 @@ void startNetwork() {
       // refused: a hotspot under the default name beats none
       Serial.println("[AP] softAP refused the saved name or password, starting with the defaults");
       g_settingsBootNote = "The hotspot would not start with the saved name and password. The defaults are in use.";
-      WiFi.softAP("Jcorp_Nomad", "password", 1, 0, MAX_CLIENTS);
+      WiFi.softAP("Jcorp_Nomad", NOMAD_DEFAULT_AP_PASSWORD, 1, 0, MAX_CLIENTS);
     }
     {
       // Read back what the driver actually accepted rather than trusting the request.
