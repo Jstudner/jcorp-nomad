@@ -1,6 +1,6 @@
 # Nomad security fix plan
 
-This pack turns the security and reliability review of Jcorp Nomad (this fork, `tunlezah/nomad`, reviewed 2026-11-25) into work a coding agent can implement. It covers the seven "Before you use it" steps from section 6 of that review, plus moving all updates to this repo. Each step becomes a code fix, so the device is safe without the owner having to remember the advice. Everything else the review found is listed under [Future fixes](#future-fixes).
+This pack turns the security and reliability review of Jcorp Nomad (this fork, `tunlezah/nomad`, reviewed 2026-11-25) into work a coding agent can implement. It covers the seven "Before you use it" steps from section 6 of that review, plus moving all updates to this repo and the owner's UI redesign spec (R). Each step becomes a code fix, so the device is safe without the owner having to remember the advice. Everything else the review found is listed under [Future fixes](#future-fixes).
 
 **Status: design only.** Nothing here has been implemented. No firmware was compiled or run on a device while writing it: there was no ESP32 toolchain. Pure logic was prototyped and host-tested where the docs say so. Every workstream ends with an on-device test script, and those tests are the real acceptance gate.
 
@@ -16,6 +16,7 @@ This pack turns the security and reliability review of Jcorp Nomad (this fork, `
 | 6.6 | Signed interface updates | "Update the web interface by re-copying the SD template, not through the in-app updater." | [6.6-signed-interface-updates.md](6.6-signed-interface-updates.md) |
 | 6.7 | Reproducible builds and signing tools | "Build the firmware yourself if you want to be sure the binary matches this source." | [6.7-reproducible-builds-and-signing-tools.md](6.7-reproducible-builds-and-signing-tools.md) |
 | U | Update hosting on this repo | The owner's request: updates come from `tunlezah/nomad`, not `nomadflash.jcorptech.net`. | [U-update-hosting-on-your-repo.md](U-update-hosting-on-your-repo.md) |
+| R | UI redesign | The owner's request: a modern, themeable interface branded Nomad (owner's spec, kept as supplied). | [R-ui-redesign-spec.md](R-ui-redesign-spec.md), mockup [assets/nomad-ui-mockup.png](assets/nomad-ui-mockup.png) |
 
 Every doc has the same eleven sections:
 - scope, current behaviour and the threat
@@ -169,7 +170,8 @@ graph TD
   P2["Phase 2: who is admin, who may write<br/>6.1 secure first run<br/>6.2 steps 2-6: visitor allowlist, bounds, default off + migration<br/>6.3 cookie sessions, lifetimes, re-check"]
   P3["Phase 3: the network and isolation<br/>6.5 Host allowlist, CORS removal, NVS secrets (+D6), WiFi Mode gate, SSDP<br/>6.4 steps 6-18: ZIM page isolation (D11), card tools<br/>6.3 sandbox user HTML/SVG, reader-page CSPs"]
   P4["Phase 4: updates from this repo<br/>owner generates keys (6.7 tool) → NomadReleaseKeys.h<br/>6.6 signed interface updates (with D1–D3)<br/>U Pages site, publish.sh, flash page<br/>first release + one USB reflash per device"]
-  P0 --> P1 --> P2 --> P3 --> P4
+  P5["Phase 5: UI redesign (R)<br/>design system + CSS variables, header, home screen,<br/>palettes and custom colours, then each section<br/>ships to devices as a signed interface release (6.6)"]
+  P0 --> P1 --> P2 --> P3 --> P4 --> P5
 ```
 
 Notes on ordering:
@@ -178,6 +180,7 @@ Notes on ordering:
 - **Within each doc, follow its own §6 step order.** The phase boxes name step ranges; the dependencies are in each doc's §9.
 - **Phase 2's order matters:** 6.1 must land before 6.3's session work, and before 6.5's WiFi Mode gate, which needs `nomadAdminPasswordSet()`.
 - **6.5 before 6.4's isolation work**, so ZIM isolation is designed against a server that no longer sends CORS `*`. See 6.4's own notes on any `/zimview`-scoped headers.
+- **Phase 5 last:** the redesign touches nearly every page that phases 1–4 also edit: `admin.*`, `archive.html`, `pdf.html`, `epub.html` and the setup and WiFi Mode screens. Landing it last avoids redoing those security changes in new markup. Its first stage (design tokens in `master.css`) only adds CSS variables, so it can start earlier if the owner wants. Once 6.6 is in, the redesign reaches devices as a signed interface update, with no card re-copy needed.
 - **Phase 4:** U steps 1–6 (config, key list, channel, UI strings) can land early with OTA safely refused (key count 0). The first release waits for the owner's keys. Devices on upstream firmware need one USB reflash to trust the owner's key (U §4.8); OTA cannot make that move.
 
 ## Decisions the owner should make before work starts
@@ -186,12 +189,12 @@ Recommended defaults are in **bold**. These block design choices; every other §
 
 | # | Decision | Recommended | Doc |
 |---|---|---|---|
-| 1 | Signing-key custody | **Offline, owner signs locally**, with an encrypted primary and an offline backup | U O1 |
-| 2 | One key set or separate firmware and interface keys | **One set** (D1) | U O7 / 6.6 §11.1 |
+| 1 | Signing-key custody | ✅ **Decided:** owner builds and signs locally (see the decision log) | U O1 |
+| 2 | One key set or separate firmware and interface keys | ✅ **Decided:** one set (D1) | U O7 / 6.6 §11.1 |
 | 3 | Channel model | **Runtime setting, stable by default** (D2) | U O2 |
 | 4 | Also trust the upstream author's key | **No** | U O6 |
 | 5 | Admin password minimum length | **10 characters** | 6.1 §11.1 |
-| 6 | Hotspot name and password for new or default cards | **`Jcorp_Nomad-XXXX`, per-board `xxxx-xxxx-xxxx`** | 6.1 §11.2–3 |
+| 6 | Hotspot name and password for new or default cards | ✅ **Decided (password):** compile-time `NOMAD_DEFAULT_AP_PASSWORD`, see the decision log. SSID rename waits on R-Q1 | 6.1 §11.2–3 |
 | 7 | Existing cards' visitor-upload setting | **Read as off once, with an admin notice** | 6.2 §11.1 |
 | 8 | Kept sign-in lifetime | **30 days absolute, 14 days unused**; end existing kept sign-ins at upgrade | 6.3 §11.1–2 |
 | 9 | pdf.js | **Stay on 3.11.174, hardened** (keeps iOS 15); upgrade later | 6.3 §11.3 |
@@ -205,7 +208,43 @@ Record owner overrides here: date, decision number, choice and reason.
 
 | Date | # | Choice | Reason |
 |---|---|---|---|
-| | | | |
+| 2026-11-26 | 1 | **Owner builds and signs on their own machine** at compile time, then publishes (U custody A). CI builds remain a reproducibility check and hold no key. | Owner decision. |
+| 2026-11-26 | 2 | **One key set for both kinds of update** (D1 confirmed). | Owner decision. |
+| 2026-11-26 | 6 | **The default hotspot password is a compile-time value**, `NOMAD_DEFAULT_AP_PASSWORD`, shipped as the placeholder `CHANGEBEFORECOMPILE`. The owner sets the real one in the git-ignored `firmware/JcorpNomadProject/NomadLocal.h` (or with `-D`). **Already implemented** (commit "Hotspot password: compile-time default"); see the notes below. | Owner decision. The owner changes it at compile time anyway. |
+
+Notes on decision 6, for whoever implements 6.1:
+- **What's already in the firmware:**
+  - `JcorpNomadProject.ino` defines `NOMAD_DEFAULT_AP_PASSWORD` once, used by every former `"password"` site: the settings default, the load-time fallback, the fallback hotspot and the screen QR.
+  - The build warns while the value is still the placeholder, and fails if it isn't 8–63 characters.
+  - A card still holding the old published default `"password"` uses the compile-time value instead. That change is in memory only; the next settings save writes it.
+- **Unchanged parts of 6.1:** no "everyone is admin", the screen setup code, BOOT recovery, refusing published passwords and the admin password minimum. Implement 6.1 §4.1's per-board generated password **only as the fallback when `NOMAD_DEFAULT_AP_PASSWORD` is still the placeholder** (the open question R-Q4 below), and keep the owner's compile-time value winning over it.
+- **Caveat:** a compiled-in password is plain text in the `.bin`/`.nomadfw`. Anyone who downloads a build that contains it can read it. A personal build carrying the owner's real password must not be the one published on the U Pages site; and a published build that differs from the public source fails 6.7's "rebuild the tag and compare" check.
+
+## R: how the UI redesign fits the pack
+
+The owner's spec is in [R-ui-redesign-spec.md](R-ui-redesign-spec.md), unchanged. This section doesn't change it. It records the constraints the security workstreams put on its implementation, and the questions the owner has been asked. Where a question is still open, the implementer waits for the answer or uses the stated interim default, and records the answer in the decision log.
+
+**Constraints from the other workstreams (they don't change the spec's intent):**
+- **6.3 CSP.** Pages must not add inline `<script>` blocks or `on…=` handlers. Theme code stays in external files, as `theme-boot.js` is today. CSSOM calls such as `style.setProperty('--color-primary', …)` are fine under CSP. Don't use `eval`-style code.
+- **6.1 / 6.3 auth.** "Settings" in the spec's header must not mean the admin panel for theme choices. Choosing a personal palette or mode needs no sign-in, so the Theme section works for every visitor. Admin-only settings stay behind sign-in. (How the card-wide theme fits in is question R-Q2.)
+- **6.2.** Respect the admin's per-page switches in `/.system-ui.json` (`hiddenPages`) when drawing the home cards (see R-Q3). Visitor writes stay governed by 6.2. Theme persistence is browser-side and writes nothing to the card for visitors.
+- **6.4.** `archive.html` keeps the sandboxed reader frame and its `postMessage` bridge. Restyle around it and don't add `allow-same-origin` back.
+- **6.6.** The redesign ships as a signed interface release, and it will change the file list, so regenerate the manifest. Keep `admin.js`'s update card wired to the signed flow.
+- **Power rules.** The spec's §7 already matches the [global rules](#global-rules-the-esp32-power-budget). Two notes:
+  - Older iPhones support CSS custom properties, but **not** `color-mix()`. Derive shades and contrast in JS once, at theme change, and set them as variables.
+  - Persist with `localStorage`, wrapped in try/catch, since captive-portal sheets may not keep it. Storage is per hostname, so a theme picked at `nomad.local` doesn't follow you to `192.168.4.1`.
+- **Mockup vs spec text.** The mockup shows "Jcorp Nomad", "Media Library", a wave header and tree illustrations. Where they differ, **the spec's text wins**: "Nomad" and "Your personal media library", with no large decorative illustrations. The mockup is the layout and style reference.
+
+**Questions put to the owner (2026-11-26):**
+- **R-Q1 Name and logo.** `LICENSING.md` says the "Jcorp"/"Nomad" names and the logos are Jcorp Tech's trademarks. A *shared, changed* version must use its own name and swap the logo files (`SD_Card_Template/Logo.png`, `favicon.ico`, `firmware/JcorpNomadProject/ui_img_1859342711.c`). Renaming to "Nomad" while keeping the tree logo fits personal use. Publishing it from this public repo and Pages site may need the original author's OK, or a distinct name and logo. Also, does "visible" include the device's screen, the default SSID (`Jcorp_Nomad`) and the DLNA name (`NomadDLNA.cpp:31, 186`)?
+- **R-Q2 Theme scope and the existing themes.** Today the admin sets one theme for every device (`/.system-theme.json`, via `theme-manager.js`), each browser picks only dark or light, and there are 28 built-in themes plus a Theme Customizer page. The spec describes per-visitor palettes in local storage. *Interim default:* the card theme stays as everyone's starting point, and each visitor can override palette and mode in their own browser. The spec's six palettes become the main list, and the 28 existing themes stay under "More palettes" (loaded only when opened).
+- **R-Q3 Home cards.** The spec lists nine sections. Nomad also has Archive (offline encyclopedia), Translate, Cookbook and Chat, and the admin's switches hide Games, Maps, Archive, Translate, Cookbook, Workshop and Chat by default. *Interim default:* show every section the admin has switched on, the spec's nine first, then Archive, Translate, Cookbook and Chat.
+- **R-Q4 Published builds and the compiled-in password** (see the decision 6 notes). *Interim default:* builds published on Pages keep the placeholder, and a unit running the placeholder generates its own per-board password at first boot (6.1 §4.1). The owner's personal builds set `NomadLocal.h`.
+- **R-Q5 Palettes in dark mode.** The spec gives each palette a primary and a background, and Midnight's background is dark. The existing theme data has a light and a dark set per theme. *Interim default:*
+  - every palette has a light and a dark variant
+  - the five light palettes get a derived dark variant (same primary, neutral dark background and surface)
+  - Midnight is the dark variant of an indigo palette, and its light variant uses `#6366F1` on a light background
+  - "Light / Dark / Match device" then picks the variant
 
 ## Future fixes
 
